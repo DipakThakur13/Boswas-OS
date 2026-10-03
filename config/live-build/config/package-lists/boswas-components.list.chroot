@@ -1,0 +1,9 @@
+# Boswas OS v1 - Boswas-specific packages
+#
+# Built from packages/ by build/scripts/build-packages.sh and injected into the
+# build through config/packages.chroot/. boswas-os depends on the others.
+
+boswas-os
+boswas-cli
+boswas-branding
+boswas-security

@@ -1,0 +1,56 @@
+#!/bin/sh
+# Boswas OS live-build configuration.
+#
+# Every `lb config` decision for the Boswas OS image lives here, under version
+# control. build.sh exports the BOSWAS_* variables from config/boswas/release.conf;
+# the defaults below only exist so `lb config` can be run by hand for debugging.
+# Rationale for each choice: docs/architecture/decisions.md (ADR-0003).
+set -e
+
+: "${BOSWAS_BASE_CODENAME:=trixie}"
+: "${BOSWAS_ARCH:=amd64}"
+: "${BOSWAS_IMAGE_TAG:=v1-alpha}"
+: "${BOSWAS_ISO_VOLUME:=BOSWAS_OS_V1_ALPHA}"
+: "${BOSWAS_MIRROR:=http://deb.debian.org/debian/}"
+: "${BOSWAS_MIRROR_SECURITY:=http://deb.debian.org/debian-security/}"
+
+lb config noauto \
+	--mode debian \
+	--system live \
+	--distribution "${BOSWAS_BASE_CODENAME}" \
+	--debian-installer-distribution "${BOSWAS_BASE_CODENAME}" \
+	--architecture "${BOSWAS_ARCH}" \
+	--linux-flavours "${BOSWAS_ARCH}" \
+	--archive-areas "main non-free-firmware" \
+	--security true \
+	--updates true \
+	--backports false \
+	--mirror-bootstrap "${BOSWAS_MIRROR}" \
+	--mirror-chroot "${BOSWAS_MIRROR}" \
+	--mirror-chroot-security "${BOSWAS_MIRROR_SECURITY}" \
+	--mirror-binary "http://deb.debian.org/debian/" \
+	--mirror-binary-security "http://deb.debian.org/debian-security/" \
+	--apt-recommends true \
+	--apt-source-archives false \
+	--firmware-chroot false \
+	--firmware-binary false \
+	--cache true \
+	--cache-packages true \
+	--cache-stages bootstrap \
+	--debian-installer live \
+	--debian-installer-gui true \
+	--bootloaders "grub-pc grub-efi" \
+	--uefi-secure-boot auto \
+	--binary-images iso-hybrid \
+	--image-name "Boswas-OS-${BOSWAS_IMAGE_TAG}" \
+	--iso-application "Boswas OS" \
+	--iso-publisher "Boswas Group" \
+	--iso-preparer "Boswas OS build system; live-build @LB_VERSION@" \
+	--iso-volume "${BOSWAS_ISO_VOLUME}" \
+	--bootappend-live "boot=live components quiet hostname=boswas-device username=boswas" \
+	--memtest none \
+	--win32-loader false \
+	--checksums sha256 \
+	--zsync false \
+	--source false \
+	"${@}"

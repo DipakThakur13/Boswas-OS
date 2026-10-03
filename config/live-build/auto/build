@@ -1,0 +1,5 @@
+#!/bin/sh
+# Invoked by `lb build`. Logging is handled by build.sh (build/logs/).
+set -e
+
+lb build noauto "${@}"

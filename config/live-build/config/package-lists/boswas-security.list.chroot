@@ -1,0 +1,10 @@
+# Boswas OS v1 - security baseline (configured by the boswas-security package)
+
+apparmor
+apparmor-utils
+auditd
+nftables
+polkitd
+pkexec
+libpam-pwquality
+unattended-upgrades

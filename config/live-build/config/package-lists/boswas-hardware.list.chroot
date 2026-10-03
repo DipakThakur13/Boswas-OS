@@ -1,0 +1,31 @@
+# Boswas OS v1 - hardware enablement
+#
+# Redistributable firmware from Debian's non-free-firmware area (the same
+# firmware Debian ships on its official media since Debian 12). Selected for
+# common business laptops/desktops; live-build's "all firmware" mode is
+# disabled to keep the image small. See docs/deployment/hardware-compatibility.md.
+
+firmware-linux-free
+intel-microcode
+amd64-microcode
+
+# Graphics
+firmware-intel-graphics
+firmware-amd-graphics
+
+# Wi-Fi / Bluetooth
+firmware-iwlwifi
+firmware-realtek
+firmware-atheros
+firmware-mediatek
+firmware-brcm80211
+bluez
+bluez-firmware
+
+# Audio (Intel SOF DSP firmware is required by most current laptops)
+firmware-sof-signed
+firmware-intel-sound
+
+# Remaining small firmware blobs (Intel misc, USB NICs, etc.)
+firmware-intel-misc
+firmware-misc-nonfree

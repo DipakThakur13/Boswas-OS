@@ -1,0 +1,41 @@
+# Boswas OS v1 - desktop (KDE Plasma 6.3 as shipped by Debian 13)
+#
+# kde-plasma-desktop is Debian's minimal Plasma metapackage. Boswas deliberately
+# does not use task-kde-desktop / kde-standard (PIM suite, games, etc.).
+# Packages kept out on purpose are pinned in config/archives/boswas-exclude.pref.chroot.
+
+kde-plasma-desktop
+kwin-wayland
+sddm
+sddm-theme-breeze
+kde-config-sddm
+plasma-nm
+plasma-pa
+powerdevil
+bluedevil
+kscreen
+systemsettings
+kinfocenter
+xdg-desktop-portal-kde
+xdg-user-dirs
+
+# Audio
+pipewire-audio
+
+# Core applications
+konsole
+dolphin
+kwrite
+ark
+okular
+gwenview
+kde-spectacle
+kcalc
+plasma-systemmonitor
+firefox-esr
+
+# Fonts (Lato is the Boswas brand typeface; Liberation is metric-compatible
+# with common Windows fonts for documents and Wine applications)
+fonts-lato
+fonts-liberation2
+fonts-noto-core

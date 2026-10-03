@@ -1,0 +1,43 @@
+# Packages Boswas OS v1 deliberately keeps out of the image.
+#
+# live-build applies *.pref.chroot files while building the chroot and removes
+# them afterwards, so these pins are a build-time manifest decision and are NOT
+# left on installed devices. Pin-Priority -1 means APT never installs the
+# package: if a required dependency ever needs one of them, the build fails
+# loudly instead of silently pulling it in.
+
+# KDE Connect opens LAN ports 1714-1764 and pairs personal phones with the
+# workstation (file/clipboard transfer). Not appropriate as a default on a
+# managed device; may return later as a policy-controlled option.
+Explanation: Boswas: network-exposed phone pairing service
+Package: kdeconnect
+Pin: release *
+Pin-Priority: -1
+
+# Plasma Discover + PackageKit provide an unmanaged software-install path.
+# Software is delivered through Boswas repositories and, later, Boswas Store.
+Explanation: Boswas: unmanaged software installation front-ends
+Package: plasma-discover plasma-discover-common plasma-discover-backend-fwupd plasma-discover-backend-flatpak packagekit packagekit-tools
+Pin: release *
+Pin-Priority: -1
+
+# Fingerprint PAM changes the authentication surface (login, sudo). Biometric
+# login is a Boswas ID / policy decision, not an image default.
+Explanation: Boswas: biometric PAM is a policy decision
+Package: libpam-fprintd fprintd
+Pin: release *
+Pin-Priority: -1
+
+# Inbound remote access is never installed by default. SSH server must be
+# explicitly provisioned (docs/security/baseline.md).
+Explanation: Boswas: no inbound remote access by default
+Package: openssh-server
+Pin: release *
+Pin-Priority: -1
+
+# cups-browsed listens on the network (UDP 631). Printing is out of scope for
+# v1 alpha and will be delivered through a profile.
+Explanation: Boswas: network-listening print discovery
+Package: cups-browsed
+Pin: release *
+Pin-Priority: -1

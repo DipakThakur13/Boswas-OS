@@ -1,0 +1,9 @@
+#!/bin/sh
+# Invoked by `lb clean`. Removes generated live-build state but keeps the
+# package cache unless `lb clean --cache` / `--purge` is requested.
+set -e
+
+lb clean noauto "${@}"
+
+rm -f config/binary config/bootstrap config/chroot config/common config/source
+rm -f build.log

@@ -1,0 +1,48 @@
+# Boswas OS v1 - base system
+#
+# Explicit top-level packages only. Dependencies and Debian "Recommends" are
+# resolved by APT and recorded per build in the generated package manifest
+# (build/output/*.manifest.txt). Every package Boswas adds is documented in
+# docs/architecture/package-manifest.md.
+
+# Core system / service management (systemd-sysv is added by live-build)
+systemd-timesyncd
+dbus-user-session
+locales
+console-setup
+keyboard-configuration
+tzdata
+bash-completion
+less
+man-db
+
+# Networking
+network-manager
+ca-certificates
+curl
+wget
+openssh-client
+
+# Administration and diagnostics
+sudo
+git
+vim
+nano
+rsync
+unzip
+htop
+pciutils
+usbutils
+dmidecode
+lshw
+gnupg
+python3
+
+# Storage, encryption, boot (LUKS2 + LVM are created by the installer)
+cryptsetup
+cryptsetup-initramfs
+lvm2
+efibootmgr
+mokutil
+tpm2-tools
+fwupd
