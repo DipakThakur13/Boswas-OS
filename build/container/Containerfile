@@ -1,0 +1,36 @@
+# Boswas OS builder image.
+#
+# A Debian 13 "trixie" environment containing exactly the tooling needed to
+# build Boswas packages and the live ISO. Used by `./build.sh --container`
+# on hosts that are not Debian 13 (Windows/WSL, macOS, other distributions).
+#
+# The base tag is overridable so a release build can pin an image digest:
+#   docker build --build-arg BASE_IMAGE=debian@sha256:<digest> ...
+ARG BASE_IMAGE=debian:trixie
+FROM ${BASE_IMAGE}
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8
+
+# live-build + its runtime helpers, Debian packaging toolchain, asset
+# rendering (librsvg + the Lato typeface used by Boswas branding), and the
+# tooling used by test.sh (ISO inspection, QEMU boot test).
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        live-build debootstrap \
+        xorriso squashfs-tools mtools dosfstools cpio xz-utils zstd \
+        grub-common grub-efi-amd64-bin grub-pc-bin \
+        wget curl ca-certificates gnupg rsync file git \
+        dpkg-dev debhelper fakeroot lintian \
+        librsvg2-bin fonts-lato \
+        python3 \
+        qemu-system-x86 qemu-utils ovmf \
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/*
+
+LABEL org.opencontainers.image.title="boswas-os-builder" \
+      org.opencontainers.image.description="Debian 13 trixie build environment for Boswas OS" \
+      org.opencontainers.image.vendor="Boswas Group"
+
+WORKDIR /src

@@ -1,0 +1,22 @@
+# Boswas OS is built on Linux. Everything that ends up inside the image or is
+# executed by the build must use LF line endings, even when the repository is
+# checked out on Windows.
+* text=auto eol=lf
+
+*.sh        text eol=lf
+*.hook.*    text eol=lf
+*.cfg       text eol=lf
+*.conf      text eol=lf
+*.list.*    text eol=lf
+*.py        text eol=lf
+*.svg       text eol=lf
+*.json      text eol=lf
+debian/**   text eol=lf
+
+# Binary assets (rendered at build time; normally not committed)
+*.png       binary
+*.jpg       binary
+*.iso       binary
+*.deb       binary
+*.ttf       binary
+*.otf       binary
