@@ -399,8 +399,10 @@ def scenario_serial(iso: Path, workdir: Path, outdir: Path, timeout: float) -> N
         rc, out = sh.run("wine --version 2>/dev/null")
         version = next((line for line in out.splitlines() if line.startswith("wine-")), "")
         check(version.startswith("wine-10."), f"Wine runs ({version or 'no version output'})")
-        rc, out = sh.run("QT_QPA_PLATFORM=offscreen plasmashell --version 2>/dev/null")
-        check(out.strip().startswith("plasmashell 6."), f"KDE Plasma present ({out.strip()})")
+        # plasmashell cannot run outside a graphical session (even --version), so
+        # check the installed version; the running session is verified below.
+        rc, out = sh.run("dpkg-query -W -f='${Version}\\n' plasma-workspace")
+        check(out.strip().split(":")[-1].startswith("6."), f"KDE Plasma 6 installed (plasma-workspace {out.strip()})")
 
         rc, out = sh.run("ip -4 -o addr show scope global")
         check("10.0.2.15" in out, "network: DHCP address obtained (NetworkManager)")
