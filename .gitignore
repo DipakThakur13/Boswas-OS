@@ -15,6 +15,11 @@
 /packages/*.deb
 /packages/*.buildinfo
 /packages/*.changes
+/control-plane/debian/.debhelper/
+/control-plane/debian/debhelper-build-stamp
+/control-plane/debian/files
+/control-plane/debian/*.substvars
+/control-plane/debian/boswas-*/
 
 # Python
 __pycache__/

@@ -1,0 +1,178 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.boswas.invalid/device/status-report-v1.schema.json",
+  "title": "Device status report (API v1)",
+  "description": "POST /api/v1/devices/{id}/status, only with TELEMETRY_POLICY=security. Posture check results by ID, OS versions and uptime. Closed field list (privacy review required to extend).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "device_id",
+    "agent_version",
+    "os",
+    "uptime_seconds",
+    "compliance",
+    "policy_version",
+    "update",
+    "security",
+    "sent_at"
+  ],
+  "properties": {
+    "schema": {
+      "const": "boswas-status-report/1"
+    },
+    "device_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "agent_version": {
+      "type": "string"
+    },
+    "os": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version",
+        "version_id",
+        "build_id",
+        "debian_version",
+        "kernel"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "version_id": {
+          "type": "string"
+        },
+        "build_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "debian_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kernel": {
+          "type": "string"
+        }
+      }
+    },
+    "uptime_seconds": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "compliance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "pass",
+        "warn",
+        "fail",
+        "unknown"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "COMPLIANT",
+            "NON_COMPLIANT",
+            "PENDING",
+            "UNKNOWN"
+          ]
+        },
+        "pass": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "warn": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "fail": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unknown": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "policy_version": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "update": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "channel",
+        "state",
+        "available_version"
+      ],
+      "properties": {
+        "channel": {
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "up-to-date",
+            "available",
+            "staged",
+            "applying",
+            "failed",
+            "unknown"
+          ]
+        },
+        "available_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "security": {
+      "type": "object",
+      "propertyNames": {
+        "enum": [
+          "secure-boot",
+          "tpm",
+          "disk-encryption",
+          "firewall",
+          "apparmor",
+          "audit",
+          "ssh-server",
+          "root-account",
+          "apt-trust",
+          "screen-lock",
+          "usb-policy",
+          "winapp-confinement"
+        ]
+      },
+      "additionalProperties": {
+        "enum": [
+          "PASS",
+          "WARN",
+          "FAIL",
+          "INFO",
+          "UNKNOWN"
+        ]
+      }
+    },
+    "sent_at": {
+      "type": "string"
+    }
+  }
+}

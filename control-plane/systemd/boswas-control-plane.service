@@ -1,0 +1,44 @@
+[Unit]
+Description=Boswas Control Plane
+Documentation=man:boswas-cp(1)
+After=network-online.target
+Wants=network-online.target
+# Nothing to serve until `boswas-cp init` has created the data directory.
+ConditionPathExists=/var/lib/boswas-control-plane/control-plane.db
+
+[Service]
+Type=simple
+User=boswas-cp
+Group=boswas-cp
+ExecStart=/usr/bin/boswas-cp serve
+Restart=on-failure
+RestartSec=5s
+StateDirectory=boswas-control-plane
+StateDirectoryMode=0700
+UMask=0077
+
+CapabilityBoundingSet=
+AmbientCapabilities=
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

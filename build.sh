@@ -18,6 +18,7 @@
 #
 # Output (build/output/):
 #   Boswas-OS-v1-alpha-amd64.iso, .sha256, .manifest.txt
+#   boswas-control-plane_<version>_all.deb (server package, not in the ISO)
 # Build records: build/manifest/   Logs: build/logs/
 set -Eeuo pipefail
 # shellcheck source=build/scripts/lib.sh
@@ -31,7 +32,7 @@ for arg in "$@"; do
 		--native) mode="native" ;;
 		--keep-work) keep_work=true ;;
 		--clean-cache) clean_cache=true ;;
-		-h|--help) sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+		-h|--help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
 		*) die "unknown option: $arg (see ./build.sh --help)" ;;
 	esac
 done
@@ -168,9 +169,11 @@ iso_src="$lbdir/Boswas-OS-${BOSWAS_IMAGE_TAG}-${BOSWAS_ARCH}.hybrid.iso"
 # 5. Artifacts ------------------------------------------------------------------------------
 iso="$OUT/${BOSWAS_IMAGE_BASENAME}.iso"
 log "collecting artifacts into build/output/"
-rm -f "$OUT/${BOSWAS_IMAGE_BASENAME}".*
+rm -f "$OUT/${BOSWAS_IMAGE_BASENAME}".* "$OUT"/boswas-control-plane_*.deb
 cp "$iso_src" "$iso"
 (cd "$OUT" && sha256sum "$(basename "$iso")" > "${BOSWAS_IMAGE_BASENAME}.sha256")
+# The Control Plane is a server package: delivered next to the ISO, never in it.
+cp "$WORK"/debs/server/boswas-control-plane_*.deb "$OUT/"
 
 kernel="$(basename "$(ls "$lbdir"/chroot/boot/vmlinuz-* | sort -V | tail -1)" | sed 's/^vmlinuz-//')"
 python3 "$BOSWAS_REPO_ROOT/build/scripts/generate-manifest.py" \
@@ -201,4 +204,5 @@ fi
 ok "ISO:       build/output/$(basename "$iso") ($(du -h "$iso" | cut -f1))"
 ok "SHA-256:   build/output/${BOSWAS_IMAGE_BASENAME}.sha256"
 ok "Manifest:  build/output/${BOSWAS_IMAGE_BASENAME}.manifest.txt, build/manifest/${BUILD_ID}.json"
+ok "Server:    build/output/$(basename "$(ls "$OUT"/boswas-control-plane_*.deb)") (Control Plane, not in the image)"
 ok "Next:      ./test.sh"

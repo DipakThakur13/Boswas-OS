@@ -1,0 +1,35 @@
+Source: boswas-compat-manager
+Section: utils
+Priority: optional
+Maintainer: Boswas OS Platform Team <os-platform@boswas.invalid>
+Build-Depends: debhelper-compat (= 13), python3:any
+Standards-Version: 4.7.2
+Rules-Requires-Root: no
+
+Package: boswas-compat-manager
+Architecture: all
+Depends: python3 (>= 3.11),
+         python3-pyside6.qtcore,
+         python3-pyside6.qtgui,
+         python3-pyside6.qtwidgets,
+         boswas-device-agent (>= 1.0~alpha3),
+         ${misc:Depends}
+Description: Boswas OS Compatibility Manager for Windows applications
+ The desktop application for Windows applications on Boswas OS (KDE
+ Plasma):
+ .
+  * install Windows programs (.exe) and Windows Installer packages (.msi)
+    after checking them against the compatibility catalog and the device
+    policy, with live progress
+  * launch, stop, repair, update and remove applications, and read their
+    logs
+  * read-only view of each application's permissions (files, network,
+    display, audio, GPU, AppArmor confinement)
+  * health of Wine, AppArmor and bubblewrap, of the device agent and of the
+    Control Plane connection
+  * "Install with Boswas Compatibility Manager" in the Dolphin context menu
+ .
+ The Compatibility Manager runs as the user and never runs programs itself:
+ every operation goes through the user's Boswas session service, so the
+ sandbox, AppArmor confinement and policy always apply. Only 64-bit (x86_64)
+ Windows applications are supported.

@@ -1,0 +1,15 @@
+#!/usr/bin/python3 -IB
+"""Boswas device agent service (systemd unit boswas-device-agent.service). See boswas-device(1)."""
+
+import os
+import sys
+
+# Unit-test hooks are never honoured by installed programs.
+for _hook in ("BOSWAS_SYSROOT", "BOSWAS_WINAPP_HOME"):
+    os.environ.pop(_hook, None)
+
+sys.path.insert(0, "/usr/lib/boswas/python")
+
+from boswas_agent.daemon import main  # noqa: E402
+
+sys.exit(main())

@@ -1,4 +1,4 @@
-"""Messages exchanged between the device agent and the Control Plane (API v1).
+"""Messages and states shared by the device agent and the Control Plane (API v1).
 
 Every message has a JSON schema in packages/boswas-device-agent/schemas/;
 tests keep both in sync. Field lists are deliberately closed: adding data to
@@ -11,16 +11,47 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 
-from .errors import UnsupportedCommand
-
 
 class EnrollmentState(str, Enum):
-    """ENROLLMENT_STATE in /etc/boswas/device.conf."""
+    """Enrollment of this device with a Control Plane."""
 
     UNENROLLED = "unenrolled"
     PENDING = "pending"
     ENROLLED = "enrolled"
     RETIRED = "retired"
+
+
+class DeviceState(str, Enum):
+    """Normalised device state (state.py holds the transitions)."""
+
+    INITIALIZING = "INITIALIZING"
+    READY = "READY"
+    DEGRADED = "DEGRADED"          # works locally, but a component needs attention
+    OFFLINE = "OFFLINE"            # enrolled, Control Plane unreachable; local work continues
+    UPDATING = "UPDATING"
+    ERROR = "ERROR"                # identity or configuration unusable
+    MAINTENANCE = "MAINTENANCE"    # remote commands paused by a local administrator
+
+
+class AppState(str, Enum):
+    """Normalised Windows application state (boswas_compat.ops.APP_STATES)."""
+
+    INSTALLING = "INSTALLING"
+    INSTALLED = "INSTALLED"
+    RUNNING = "RUNNING"
+    STOPPED = "STOPPED"
+    ERROR = "ERROR"
+    REPAIR_REQUIRED = "REPAIR_REQUIRED"
+    BLOCKED = "BLOCKED"
+    UNSUPPORTED = "UNSUPPORTED"
+
+
+class ConnectionState(str, Enum):
+    STANDALONE = "STANDALONE"      # no Control Plane configured: a fully local device
+    UNENROLLED = "UNENROLLED"      # configured, not enrolled
+    CONNECTED = "CONNECTED"
+    OFFLINE = "OFFLINE"            # enrolled, last contact failed
+    REVOKED = "REVOKED"            # the Control Plane no longer accepts this device
 
 
 class ComplianceState(str, Enum):
@@ -43,24 +74,39 @@ class ComplianceState(str, Enum):
         }.get(state or "", cls.UNKNOWN)
 
 
-class CommandType(str, Enum):
-    """Controlled operations the Control Plane may request.
+class EventType(str, Enum):
+    """Structured events (device-reported and Control Plane audit)."""
 
-    Destructive operations (remote wipe, retire) are intentionally absent.
-    They will need their own command types, explicit authorization recorded
-    in the audit trail, and a separate review before they are added.
-    """
+    DEVICE_REGISTERED = "DEVICE_REGISTERED"
+    DEVICE_ONLINE = "DEVICE_ONLINE"
+    DEVICE_OFFLINE = "DEVICE_OFFLINE"
+    APPLICATION_INSTALLED = "APPLICATION_INSTALLED"
+    APPLICATION_REMOVED = "APPLICATION_REMOVED"
+    APPLICATION_LAUNCHED = "APPLICATION_LAUNCHED"
+    APPLICATION_BLOCKED = "APPLICATION_BLOCKED"
+    APPLICATION_REPAIRED = "APPLICATION_REPAIRED"
+    POLICY_UPDATED = "POLICY_UPDATED"
+    COMMAND_CREATED = "COMMAND_CREATED"
+    COMMAND_COMPLETED = "COMMAND_COMPLETED"
+    COMMAND_FAILED = "COMMAND_FAILED"
+    SECURITY_EVENT = "SECURITY_EVENT"
+    # Control Plane administration (audit trail only).
+    CATALOG_UPDATED = "CATALOG_UPDATED"
+    ARTIFACT_UPLOADED = "ARTIFACT_UPLOADED"
+    ENROLLMENT_TOKEN_CREATED = "ENROLLMENT_TOKEN_CREATED"
+    OPERATOR_CHANGED = "OPERATOR_CHANGED"
+    DEVICE_UPDATED = "DEVICE_UPDATED"
+    DEVICE_RETIRED = "DEVICE_RETIRED"
+    COMMAND_CANCELLED = "COMMAND_CANCELLED"
 
-    SYNC_POLICY = "SYNC_POLICY"
-    CHECK_UPDATE = "CHECK_UPDATE"
-    INSTALL_UPDATE = "INSTALL_UPDATE"
-    RESTART = "RESTART"
-    LOCK_DEVICE = "LOCK_DEVICE"
-    REFRESH_CONFIGURATION = "REFRESH_CONFIGURATION"
 
+# Events a device may report; the others are recorded by the Control Plane itself.
+DEVICE_EVENT_TYPES = (EventType.APPLICATION_INSTALLED, EventType.APPLICATION_REMOVED,
+                      EventType.APPLICATION_LAUNCHED, EventType.APPLICATION_BLOCKED,
+                      EventType.APPLICATION_REPAIRED, EventType.POLICY_UPDATED, EventType.SECURITY_EVENT)
 
 CHECK_STATUSES = ("PASS", "WARN", "FAIL", "INFO", "UNKNOWN")
-# Posture checks a heartbeat may summarise (IDs from `boswas status`).
+# Posture checks a status report may summarise (IDs from `boswas status`).
 SECURITY_CHECK_IDS = ("secure-boot", "tpm", "disk-encryption", "firewall", "apparmor", "audit",
                       "ssh-server", "root-account", "apt-trust", "screen-lock", "usb-policy",
                       "winapp-confinement")
@@ -82,7 +128,7 @@ class OsInfo:
 
 @dataclass(frozen=True)
 class HardwareFacts:
-    """Inventory attributes. Never used to authenticate a device."""
+    """Inventory attributes. Never used to authenticate a device; no serial numbers."""
 
     vendor: str | None
     model: str | None
@@ -125,7 +171,40 @@ class UpdateStatus:
 
 @dataclass(frozen=True)
 class Heartbeat:
-    """POST /api/v1/devices/{id}/heartbeat. Status only; never content."""
+    """POST /api/v1/devices/{id}/heartbeat: liveness only, never content.
+
+    Exactly what the Control Plane needs to know the device is alive and
+    whether it should fetch something: no OS, hardware or user data.
+    """
+
+    device_id: str
+    agent_version: str
+    state: str                       # DeviceState value
+    policy_version: str | None
+    inventory_revision: int | None
+    pending_results: int = 0
+    sent_at: str = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "schema": "boswas-heartbeat/2",
+            "device_id": self.device_id,
+            "agent_version": self.agent_version,
+            "state": self.state,
+            "policy_version": self.policy_version,
+            "inventory_revision": self.inventory_revision,
+            "pending_results": self.pending_results,
+            "sent_at": self.sent_at,
+        }
+
+
+@dataclass(frozen=True)
+class StatusReport:
+    """POST /api/v1/devices/{id}/status: posture summary (TELEMETRY_POLICY=security).
+
+    Status only; never content. Posture checks are reduced to check ID and
+    result.
+    """
 
     device_id: str
     agent_version: str
@@ -139,7 +218,7 @@ class Heartbeat:
 
     def to_dict(self) -> dict:
         return {
-            "schema": "boswas-heartbeat/1",
+            "schema": "boswas-status-report/1",
             "device_id": self.device_id,
             "agent_version": self.agent_version,
             "os": self.os.to_dict(),
@@ -154,11 +233,11 @@ class Heartbeat:
 
 @dataclass(frozen=True)
 class EnrollmentRequest:
-    """POST /api/v1/devices/enroll.
+    """POST /api/v1/enroll.
 
     The enrollment token is a one-time secret issued by an administrator. It
-    is sent once, never stored in /etc/boswas/device.conf, never logged and
-    never part of repr().
+    is sent once, never stored on the device, never logged and never part of
+    repr().
     """
 
     device_id: str
@@ -167,6 +246,9 @@ class EnrollmentRequest:
     hardware: HardwareFacts
     profile: str | None = None
     enrollment_token: str = field(default="", repr=False)
+    agent_version: str = ""
+    ephemeral: bool = False          # live session: identity disappears at shutdown
+    device_name: str | None = None   # optional label set by the local administrator
 
     def to_dict(self) -> dict:
         return {
@@ -177,6 +259,9 @@ class EnrollmentRequest:
             "hardware": self.hardware.to_dict(),
             "profile": self.profile,
             "enrollment_token": self.enrollment_token,
+            "agent_version": self.agent_version,
+            "ephemeral": self.ephemeral,
+            "device_name": self.device_name,
         }
 
 
@@ -211,47 +296,6 @@ class ComplianceReport:
             "assessed_at": self.assessed_at,
             "basis": self.basis,
         }
-
-
-@dataclass(frozen=True)
-class DeviceCommand:
-    """A command received from the Control Plane (GET .../commands).
-
-    ``issued_by`` is an opaque Control Plane actor reference for the audit
-    trail, not a user identity (Boswas ID is not integrated).
-    """
-
-    id: str
-    type: CommandType
-    issued_at: str
-    expires_at: str
-    issued_by: str
-    parameters: dict[str, str] = field(default_factory=dict)
-
-    @classmethod
-    def from_dict(cls, doc: dict) -> "DeviceCommand":
-        try:
-            ctype = CommandType(doc.get("type"))
-        except ValueError:
-            raise UnsupportedCommand(f"unsupported command type {doc.get('type')!r}") from None
-        params = doc.get("parameters") or {}
-        if not isinstance(params, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in params.items()):
-            raise UnsupportedCommand("command parameters must be a string map")
-        for key in ("id", "issued_at", "expires_at", "issued_by"):
-            if not isinstance(doc.get(key), str) or not doc[key]:
-                raise UnsupportedCommand(f"command field {key!r} missing")
-        return cls(id=doc["id"], type=ctype, issued_at=doc["issued_at"], expires_at=doc["expires_at"],
-                   issued_by=doc["issued_by"], parameters=dict(params))
-
-
-@dataclass(frozen=True)
-class CommandResult:
-    command_id: str
-    state: str          # succeeded | failed | rejected | expired
-    detail: str = ""
-
-    def to_dict(self) -> dict:
-        return {"command_id": self.command_id, "state": self.state, "detail": self.detail}
 
 
 @dataclass(frozen=True)

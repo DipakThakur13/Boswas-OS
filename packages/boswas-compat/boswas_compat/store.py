@@ -2,6 +2,7 @@
 
   <id>/                0700  owned by the user
     app.json           installation record (not visible to the application)
+    run.json           the running launch (process ID), while it runs
     logs/              install, launch and repair logs (not visible)
     .lock              held while an operation or the application runs
     sandbox/           everything the application can see and change; bound
@@ -35,8 +36,9 @@ from .manifest import valid_id
 
 MAX_RECORD_BYTES = 1024 * 1024
 KEEP_LOGS = 10
+RUN_SCHEMA = "boswas-winapp-run/1"
 # Fields of a record that the all-users inventory may report.
-INVENTORY_FIELDS = ("id", "name", "version", "publisher", "status", "state", "installed_at")
+INVENTORY_FIELDS = ("id", "name", "version", "publisher", "status", "state", "installed_at", "architecture")
 
 
 def utc_now() -> str:
@@ -143,15 +145,41 @@ class AppStore:
         return read_json_safely(appdir / "app.json", owner=os.getuid())
 
     def write_record(self, app_id: str, record: dict) -> None:
-        appdir = self.app_dir(app_id)
         record = {"schema": RECORD_SCHEMA, **{k: v for k, v in record.items() if k != "schema"}}
         record["updated_at"] = utc_now()
-        tmp = appdir / f".app.json.{secrets.token_hex(4)}"
+        self._write_json(app_id, "app.json", record)
+
+    def _write_json(self, app_id: str, name: str, doc: dict) -> None:
+        appdir = self.app_dir(app_id)
+        tmp = appdir / f".{name}.{secrets.token_hex(4)}"
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump(record, fh, indent=2, sort_keys=True)
+            json.dump(doc, fh, indent=2, sort_keys=True)
             fh.write("\n")
-        os.replace(tmp, appdir / "app.json")
+        os.replace(tmp, appdir / name)
+
+    # --- the running launch ---------------------------------------------------
+    def write_run(self, app_id: str, run: dict) -> None:
+        self._write_json(app_id, "run.json", {"schema": RUN_SCHEMA, **run})
+
+    def read_run(self, app_id: str) -> dict | None:
+        return read_json_safely(self.app_dir(app_id) / "run.json", owner=os.getuid())
+
+    def clear_run(self, app_id: str) -> None:
+        try:
+            (self.app_dir(app_id) / "run.json").unlink()
+        except FileNotFoundError:
+            pass
+
+    def lock_holder(self, app_id: str) -> int | None:
+        """Process ID holding the application's lock (from /proc/locks), or None."""
+        try:
+            st = os.lstat(self.app_dir(app_id) / ".lock")
+        except OSError:
+            return None
+        if not stat.S_ISREG(st.st_mode):
+            return None
+        return flock_holder(st.st_ino)
 
     def list_ids(self) -> list[str]:
         try:
@@ -207,6 +235,21 @@ class AppStore:
         return sorted((p for p in logs.glob(pattern) if p.is_file() and not p.is_symlink()),
                       key=lambda p: p.stat().st_mtime)
 
+    def clear_logs(self, app_id: str) -> int:
+        """Delete the application's log files (regular files only; never follows links)."""
+        logs = self.app_dir(app_id) / "logs"
+        _check_dir(logs)
+        removed = 0
+        for name in os.listdir(logs):
+            path = logs / name
+            try:
+                if name.endswith(".log") and stat.S_ISREG(path.lstat().st_mode):
+                    path.unlink()
+                    removed += 1
+            except FileNotFoundError:
+                continue
+        return removed
+
     # --- removal --------------------------------------------------------------------
     def remove(self, app_id: str) -> None:
         appdir = self.app_dir(app_id)
@@ -223,6 +266,51 @@ class AppStore:
             shutil.rmtree(path, ignore_errors=True)
 
 
+def flock_holder(inode: int) -> int | None:
+    """PID of the process holding a flock() on the file with this inode.
+
+    /proc/locks lines: "1: FLOCK  ADVISORY  WRITE 1234 08:01:5678 0 EOF".
+    Waiting lockers ("1: -> FLOCK ...") are skipped.
+    """
+    try:
+        text = Path("/proc/locks").read_text(encoding="ascii", errors="replace")
+    except OSError:
+        return None
+    for line in text.splitlines():
+        fields = line.split()
+        if len(fields) < 6 or fields[1] != "FLOCK":
+            continue
+        dev_inode = fields[5].rsplit(":", 1)
+        if len(dev_inode) == 2 and dev_inode[1] == str(inode) and fields[4].isdigit():
+            return int(fields[4])
+    return None
+
+
+def probe_running(appdir: Path, uid: int) -> bool:
+    """Whether an application of another user is running (root inventory).
+
+    Opens the lock file read-only without following links or creating it and
+    only if it is the user's regular file; a FIFO or symlink planted there
+    cannot block or redirect the probe.
+    """
+    try:
+        fd = os.open(appdir / ".lock", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    except OSError:
+        return False
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_uid != uid:
+            return False
+        try:
+            fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except OSError as exc:
+            return exc.errno in (errno.EWOULDBLOCK, errno.EAGAIN)
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        return False
+    finally:
+        os.close(fd)
+
+
 def _inventory_value(value) -> str | None:
     if not isinstance(value, str):
         return None
@@ -233,7 +321,7 @@ def list_all_users(min_uid: int = 1000) -> list[dict]:
     """Inventory of every user's Windows applications (root only).
 
     Reads only records owned by their user, never following symbolic links,
-    and reports only INVENTORY_FIELDS.
+    and reports only INVENTORY_FIELDS, plus the IDs of running applications.
     """
     if os.geteuid() != 0:
         raise Refused("--all-users needs root (it reads every user's installation records)",
@@ -249,13 +337,15 @@ def list_all_users(min_uid: int = 1000) -> list[dict]:
             names = sorted(os.listdir(root))
         except OSError:
             continue
-        apps = []
+        apps, running = [], []
         for name in names:
             if not valid_id(name):
                 continue
             record = read_json_safely(root / name / "app.json", owner=entry.pw_uid)
             if not record or record.get("id") != name:
                 continue
+            if probe_running(root / name, entry.pw_uid):
+                running.append(name)
             # Records are user-writable: report short, plain strings only.
             item = {k: _inventory_value(record.get(k)) for k in INVENTORY_FIELDS}
             item["manifest_source"] = _inventory_value((record.get("manifest") or {}).get("source")
@@ -264,6 +354,6 @@ def list_all_users(min_uid: int = 1000) -> list[dict]:
                                                         if isinstance(record.get("installer"), dict) else None)
             apps.append(item)
         if apps:
-            result.append({"user": entry.pw_name, "uid": entry.pw_uid, "applications": apps})
+            result.append({"user": entry.pw_name, "uid": entry.pw_uid, "applications": apps, "running": running})
     return result
 

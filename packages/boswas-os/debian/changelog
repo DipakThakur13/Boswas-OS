@@ -1,3 +1,13 @@
+boswas-os (1.0~alpha3) trixie; urgency=medium
+
+  * Release 1.0~alpha3 (Milestone 2: device management).
+  * Depend on boswas-device-agent and boswas-compat-manager.
+  * device.conf: configuration for the device agent (Control Plane, inventory,
+    telemetry, update and logging policies); identity and enrollment state
+    now live in /var/lib/boswas/agent.
+
+ -- Boswas OS Platform Team <os-platform@boswas.invalid>  Sun, 04 Oct 2026 18:00:00 +0000
+
 boswas-os (1.0~alpha2) trixie; urgency=medium
 
   * Boswas OS 1.0~alpha2 (Milestone 1: Windows compatibility platform).

@@ -62,7 +62,7 @@ This page must be updated whenever a list changes.
 
 | Package | Why |
 |---------|-----|
-| wine, wine64 | Windows application compatibility (64-bit, Wine 10), run only through `boswas-winapp` sandboxes |
+| wine, wine64 | Windows application compatibility (x86_64 / 64-bit only, Wine 10), run only through `boswas-winapp` sandboxes |
 | flatpak, bubblewrap | Application sandboxing. bubblewrap isolates every Windows application (boswas-compat); Flatpak has no remote configured until policy allows |
 
 ## Hardware (`boswas-hardware.list.chroot`)
@@ -79,6 +79,12 @@ The selected redistributable firmware is listed in
 | boswas-branding | Visual identity and KDE defaults |
 | boswas-security | Security baseline configuration |
 | boswas-compat | WinCompat: `boswas-winapp`, Wine AppArmor profile, compatibility catalog and policy. Depends on `wine`, `wine64`, `bubblewrap`, `apparmor` (all already in the manifest) |
+| boswas-device-agent | Device agent service, per-user session agent, `boswas-device`. Depends on `boswas-compat`, `openssl` (device key, policy signatures) and `systemd` |
+| boswas-compat-manager | Compatibility Manager GUI. Depends on PySide6 (`python3-pyside6.qtcore`, `qtgui`, `qtwidgets`, Debian's LGPL Qt bindings, about 30 MB with their Qt libraries) and `boswas-device-agent` |
+
+`wine32`, i386 multiarch and the Control Plane (`boswas-control-plane`, a
+server package) are deliberately not part of the image; the verify hook fails
+the build if they appear (64-bit only, ADR-0014).
 
 ## Deliberately excluded
 

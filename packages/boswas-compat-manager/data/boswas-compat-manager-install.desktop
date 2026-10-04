@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Service
+Name=Install with Boswas Compatibility Manager
+X-KDE-ServiceTypes=KonqPopupMenu/Plugin
+MimeType=application/x-msdownload;application/x-ms-dos-executable;application/vnd.microsoft.portable-executable;application/x-msi;
+Actions=install;
+X-KDE-Priority=TopLevel
+
+[Desktop Action install]
+Name=Install with Boswas Compatibility Manager
+Icon=boswas-compat-manager
+Exec=boswas-compat-manager --install %f

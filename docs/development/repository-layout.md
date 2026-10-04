@@ -1,9 +1,9 @@
 # Repository layout
 
 Only directories that have content exist. Directories from the long-term plan
-(`control-plane/`, `services/`, `hardware/`, `release/`, `profiles/`,
-`debian/patches/`, and the packages `boswas-store`, `boswas-updater`,
-`boswas-hardware`) are created by the milestone that implements them.
+(`services/`, `hardware/`, `release/`, `profiles/`, `debian/patches/`, and
+the packages `boswas-store`, `boswas-updater`, `boswas-hardware`) are
+created by the milestone that implements them.
 
 ```
 .
@@ -39,10 +39,15 @@ Only directories that have content exist. Directories from the long-term plan
 ├── packages/                               Debian packages (debian/ + code)
 │   ├── boswas-os/  boswas-cli/  boswas-branding/  boswas-security/
 │   ├── boswas-compat/                      boswas-winapp (Python, stdlib), unit tests
-│   └── boswas-device-agent/                agent interfaces, models, schemas, unit tests
-│                                           (no debian/ until Milestone 2: not in the image)
+│   ├── boswas-device-agent/                device agent, session agent, boswas-device,
+│   │                                       message schemas, systemd units, unit tests
+│   └── boswas-compat-manager/              Compatibility Manager (PySide6), unit + Qt tests
+├── control-plane/                          Control Plane server (boswas-cp; Python stdlib,
+│                                           SQLite), dashboard, systemd unit, tests;
+│                                           Debian package built into server/, not the image
 ├── tests/                                  static, unit, packages, build, security,
-│                                           compatibility (incl. fixtures/), boot (QEMU)
+│                                           compatibility (incl. fixtures/), device
+│                                           (image + runtime), boot (QEMU)
 ├── docs/                                   architecture, development, security, deployment,
 │                                           administration, compatibility, device-management
 └── LICENSES/                               licensing and attribution model
@@ -54,6 +59,8 @@ Only directories that have content exist. Directories from the long-term plan
 security/firewall/nftables.conf ──(packages/boswas-security/debian/rules)──▶ boswas-security.deb
 desktop/…  ─────────────────────(packages/boswas-branding/debian/rules)──▶ boswas-branding.deb
 compatibility/… + packages/boswas-compat ──(packages/boswas-compat/debian/rules)──▶ boswas-compat.deb
+packages/boswas-device-agent, packages/boswas-compat-manager ──(debian/rules)──▶ their .debs
+control-plane/ (+ shared agent/compat modules) ──(control-plane/debian/rules)──▶ server/boswas-control-plane.deb
                                                                                │
 config/live-build/ + .debs + rendered branding ──(build/scripts/prepare-live-config.sh)──▶ work/lb
                                                                                │

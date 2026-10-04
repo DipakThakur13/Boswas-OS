@@ -16,11 +16,12 @@ review and an integration test all exist.
 
 | Milestone | Scope | Status |
 |-----------|-------|--------|
-| **M1 Windows/Wine platform** | `boswas-compat`: `boswas-winapp` (install, remove, list, launch, status, repair, logs), per-application prefixes, bubblewrap sandbox, `boswas-winapp` AppArmor profile, manifest format v1, layered catalog, WinCompat policy, "Run with Boswas" handler; device agent **interfaces** (models, schemas, identity, privacy guard, Windows inventory collector) | **Implemented in 1.0~alpha2**. Open items below |
-| M2 Device agent | `boswas-device-agent` package and `boswas-device-agent.service`: device ID at first boot, local inventory/compliance, mutual-TLS client, heartbeat, credential store | Planned. Interfaces from M1 |
-| M3 Control Plane foundation | `control-plane/` modular monolith (TypeScript, NestJS, PostgreSQL), device API, enrollment, audit events, Docker Compose dev deployment | Planned |
-| M4 Policy engine | Signed, versioned policies (global → group → profile → audited override), device-side verification, `boswas policy status` states, manages `/etc/boswas/compat/policy.conf` | Planned |
-| M5 Fleet management | Organisation/department/group/profile model, admin dashboard | Planned |
+| **M1 Windows/Wine platform** | `boswas-compat`: `boswas-winapp` (install, remove, list, launch, status, repair, logs), per-application prefixes, bubblewrap sandbox, `boswas-winapp` AppArmor profile, manifest format v1, layered catalog, WinCompat policy, "Run with Boswas" handler; device agent **interfaces** (models, schemas, identity, privacy guard, Windows inventory collector) | **Implemented in 1.0~alpha2** |
+| **M2 Device agent** | `boswas-device-agent`: persistent device identity, `device.conf` configuration and validation, allowlisted inventory, device and application states, `boswas-device-agent.service` (sandboxed), local management API, per-user session agent, mutual-TLS client, enrollment, heartbeat, offline outbox, typed commands, `boswas-device` | **Implemented in 1.0~alpha3** |
+| **M3 Control Plane foundation** | `control-plane/` modular monolith (**Python stdlib + SQLite**, ADR-0017): device registry, enrollment with one-time tokens and a device CA, heartbeat, inventory, typed command system with lifecycle, application catalog and installer artifacts, hash-chained audit trail | **Implemented in 1.0~alpha3** (no Docker Compose: a Debian package and `boswas-cp`) |
+| **M4 Policy engine** | Signed, versioned policies (Ed25519), device-side verification and anti-rollback, managed WinCompat policy layer, policy-limited commands | **Core implemented in 1.0~alpha3**. One policy per device; the global → group → profile → override hierarchy is open |
+| **M5 Fleet management** | Admin dashboard, remote application management | **Dashboard implemented in 1.0~alpha3**. Organisation/department/group model open |
+| **Compatibility Manager** | `boswas-compat-manager` (PySide6): dashboard, library, install with 32-bit refusal, details, permissions (display-only), logs, repair, update, remove, system status | **Implemented in 1.0~alpha3** |
 | M6 Boswas Store | `boswas-store` client and catalog API; Windows apps through WinCompat manifests | Planned |
 | M7 Update infrastructure | Debian snapshot pinning, dev → qa → stable promotion, staged updates, rollback | Planned |
 | M8 Hardware certification | `boswas hardware test`, `boswas-hardware-profile`, certification levels | Planned |
@@ -28,22 +29,33 @@ review and an integration test all exist.
 
 Boswas ID is intentionally deferred (ADR-0015); only interfaces exist.
 
-## Open items carried from Milestone 1
+## Decided
 
-- **32-bit Windows applications (decision needed, ADR-0014).** Enable i386
-  multiarch with `wine32`, or package a WoW64 Wine. Most installers are
-  32-bit, so this limits which applications can be installed today.
+- **64-bit Windows applications only (ADR-0014, final for v1).** There is no
+  `wine32`, i386 multiarch or WoW64, and 32-bit software is refused everywhere
+  with one message. This is a product limitation, not an open item.
+- **Boswas ID stays deferred (ADR-0015).** Only interfaces exist.
+
+## Open items
+
 - **First validated applications.** The system catalog is empty until the
   first 10–20 business applications are validated and their manifests pinned.
-- **Production WinCompat policy.** `UNLISTED_APPS=deny` and
-  `ALLOWED_STATUSES="approved tested"` for employee devices, delivered by the
-  policy engine (M4).
-- **Direct `/usr/bin/wine` use.** Not mediated today; restricting it is an
-  M4 policy decision.
-- **Boswas Compatibility Manager GUI.** A KDE front end over
-  `boswas-winapp --json`.
+- **Production WinCompat policy.** The Control Plane's `default` policy
+  already uses `UNLISTED_APPS=deny` and `approved tested`. The shipped local
+  policy stays permissive for unmanaged alpha devices.
+- **Direct `/usr/bin/wine` use.** Not mediated.
 - **Runtime components.** Boswas-packaged dependencies (VC++ runtimes and
   similar) need licensing review before manifests may request them.
+- **Control Plane:**
+  - policy hierarchy (group, profile, override) and an organisation model;
+  - high availability, and PostgreSQL behind `store.Store`;
+  - certificate renewal before the 365-day device certificates expire (today:
+    re-enrollment);
+  - an external anchor for the audit hash chain.
+- **Device agent:**
+  - TPM-backed credential store;
+  - `UPDATE_AGENT` needs a Boswas APT repository (M7) to be useful;
+  - application commands go to the active user only (no per-user targeting).
 
 ## Open items carried from Phases 2–3
 
@@ -61,13 +73,14 @@ Boswas ID is intentionally deferred (ADR-0015); only interfaces exist.
   (convenient for diagnostics, but too permissive for a production image).
 - Original Boswas Group font file, for UI-wide typography.
 
-## Decisions to freeze before Milestone 2
+## Decisions still to freeze
 
 - **Supported hardware:** the first Hardware Compatibility List; whether BYOD
   is prohibited.
-- **Control plane:** hosting, database, HA, secrets management and
-  signing-key custody.
-- **Windows runtime:** 32-bit support (ADR-0014) and the first Windows apps.
+- **Control Plane operations:** hosting, HA, backups of
+  `/var/lib/boswas-control-plane`, and custody of the device CA and policy
+  signing keys. They are files on the server in 1.0~alpha3.
+- **Windows applications:** the first validated 64-bit applications.
 - **Data policy:** backup, retention, remote-wipe boundaries and employee
   privacy.
 - **Emergency recovery:** a procedure that does not weaken normal controls.

@@ -1,0 +1,36 @@
+#!/usr/bin/make -f
+# Boswas Control Plane. It shares the device agent's protocol modules
+# (commands, signed policies, privacy allowlists) and boswas-compat's
+# manifest validator; they are installed into the Control Plane's own module
+# directory so the server never needs the device packages. Every file is
+# installed with an explicit mode.
+
+REPO  := $(abspath $(CURDIR)/..)
+PKG   := debian/boswas-control-plane
+PYDIR := $(PKG)/usr/lib/boswas-control-plane/python
+SHARE := $(PKG)/usr/share/boswas-control-plane
+
+%:
+	dh $@
+
+override_dh_auto_test:
+ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+	python3 -B -m unittest discover -s tests -v
+endif
+
+override_dh_auto_install:
+	install -D -m 0755 bin/boswas-cp $(PKG)/usr/bin/boswas-cp
+	install -d -m 0755 $(PYDIR)/boswas_cp $(PYDIR)/boswas_agent $(PYDIR)/boswas_compat
+	install -m 0644 boswas_cp/*.py $(PYDIR)/boswas_cp/
+	install -m 0644 $(REPO)/packages/boswas-device-agent/boswas_agent/*.py $(PYDIR)/boswas_agent/
+	install -m 0644 $(REPO)/packages/boswas-compat/boswas_compat/*.py $(PYDIR)/boswas_compat/
+	install -d -m 0755 $(SHARE)/dashboard $(SHARE)/schemas
+	install -m 0644 dashboard/index.html dashboard/app.js dashboard/app.css dashboard/favicon.svg $(SHARE)/dashboard/
+	install -m 0644 $(REPO)/packages/boswas-device-agent/schemas/*.schema.json $(SHARE)/schemas/
+	install -D -m 0644 config/control-plane.conf $(PKG)/etc/boswas-control-plane/control-plane.conf
+	install -D -m 0644 systemd/boswas-control-plane.service $(PKG)/usr/lib/systemd/system/boswas-control-plane.service
+
+# Started by the administrator after `boswas-cp init` (the unit also has a
+# ConditionPathExists on the database).
+override_dh_installsystemd:
+	dh_installsystemd --no-enable --no-start

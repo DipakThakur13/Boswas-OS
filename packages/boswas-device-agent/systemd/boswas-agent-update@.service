@@ -1,0 +1,8 @@
+[Unit]
+Description=Boswas device agent update to version %I
+Documentation=man:boswas-device(1)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/boswas/agent/agent-update %I

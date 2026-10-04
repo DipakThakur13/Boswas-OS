@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.boswas.invalid/device/enrollment-request-v1.schema.json",
   "title": "Device enrollment request (API v1)",
-  "description": "POST /api/v1/devices/enroll. The enrollment token is single-use and never stored on the device. Hardware facts are inventory attributes, never authentication.",
+  "description": "POST /api/v1/enroll. The enrollment token is single-use and never stored on the device. Hardware facts are inventory attributes (no serial numbers), never authentication.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -12,7 +12,10 @@
     "os",
     "hardware",
     "profile",
-    "enrollment_token"
+    "enrollment_token",
+    "agent_version",
+    "ephemeral",
+    "device_name"
   ],
   "properties": {
     "schema": {
@@ -130,6 +133,21 @@
     "enrollment_token": {
       "type": "string",
       "minLength": 1
+    },
+    "agent_version": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "ephemeral": {
+      "type": "boolean",
+      "description": "Live session: the identity disappears at shutdown."
+    },
+    "device_name": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 64
     }
   }
 }

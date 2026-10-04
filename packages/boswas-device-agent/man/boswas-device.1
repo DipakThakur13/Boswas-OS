@@ -1,0 +1,94 @@
+.TH BOSWAS-DEVICE 1 "October 2026" "boswas-device-agent 1.0~alpha3" "Boswas OS"
+.SH NAME
+boswas-device \- Boswas device identity, agent status, configuration and enrollment
+.SH SYNOPSIS
+.B boswas-device
+.RB [ \-\-json ]
+.I command
+.RI [ options ]
+.SH DESCRIPTION
+.B boswas-device
+shows and controls the Boswas device agent
+.RB ( boswas-device-agent.service ).
+The agent keeps the device's persistent identity, its state and inventory,
+serves the local management API used by the Boswas Compatibility Manager, and,
+when a Boswas Control Plane is configured, talks to it over mutual TLS.
+A device without a Control Plane works fully standalone.
+.PP
+Read-only commands work without the service; they then show the agent's last
+published status and say so.
+.SH COMMANDS
+.TP
+.B status
+Device state (READY, DEGRADED, OFFLINE, UPDATING, ERROR, MAINTENANCE,
+INITIALIZING), agent version, Control Plane connection and last contact,
+applied policy, pending messages.
+.TP
+.B identity
+The device ID (a random UUID created at the agent's first start), when and how
+it was created, whether it is ephemeral (live session) and the certificate
+fingerprint after enrollment.
+.TP
+.B "identity reset \-\-yes"
+Create a new device identity (root; the device must be unenrolled).
+.TP
+.BR "config validate " [ \-\-file " \fIFILE\fR]"
+Check
+.I /etc/boswas/device.conf
+(or another file). Exits 1 if it has errors.
+.TP
+.B config show
+Effective settings.
+.TP
+.BR "inventory " [ \-\-refresh ]
+The device inventory, exactly as it would be reported: OS, Boswas packages,
+Windows applications (no user names) and, with INVENTORY_POLICY=standard,
+CPU, memory, model and disk size. Never serial numbers or MAC addresses.
+.TP
+.B policy
+The applied device policy and the effective WinCompat policy.
+.TP
+.BR "commands " [ \-\-limit " \fIN\fR]"
+Remote commands received from the Control Plane and their outcome.
+.TP
+.BR "events " [ \-\-limit " \fIN\fR]"
+The device event log.
+.TP
+.BR "enroll " [ \-\-token\-file " \fIFILE\fR]"
+Enroll with the Control Plane set in
+.I device.conf
+(root). The one-time enrollment token is read from
+.I FILE
+or from standard input; it is never accepted on the command line and never
+stored.
+.TP
+.B "unenroll \-\-yes"
+Leave the Control Plane (root). The device forgets its certificate, the
+managed policy and the managed catalog; the local WinCompat policy applies
+again.
+.TP
+.B sync
+Contact the Control Plane now (root).
+.TP
+.BR "maintenance on" | off
+Pause or resume remote commands (root).
+.SH EXIT STATUS
+0 success; 1 failed, or
+.B config validate
+found errors; 2 usage error; 4 refused (root required or not permitted);
+5 the device agent service is not running; 70 internal error.
+.SH FILES
+.TP
+.I /etc/boswas/device.conf
+Device configuration (administrator; never secrets).
+.TP
+.I /var/lib/boswas/agent/
+Agent state: identity.json, status.json, inventory.json (public); credentials,
+policy, outbox and the command ledger (root only).
+.TP
+.I /run/boswas-agent/agent.sock
+Local management API.
+.SH SEE ALSO
+.BR boswas (1),
+.BR boswas-winapp (1),
+.BR boswas-compat-manager (1)

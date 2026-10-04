@@ -18,7 +18,7 @@ Group responsible for maintaining thousands of packages.
 ## ADR-0002 Boswas customisation ships as Debian packages
 
 **Decision.** Everything Boswas adds to a device lives in native Debian
-packages built from `packages/` (five since 1.0~alpha2):
+packages built from `packages/` (seven since 1.0~alpha3):
 
 - `boswas-os`: release identity and `/etc/boswas`; depends on the others.
 - `boswas-cli`: `boswas`, `boswas-info`, `boswas-status`.
@@ -26,12 +26,15 @@ packages built from `packages/` (five since 1.0~alpha2):
 - `boswas-security`: the security baseline.
 - `boswas-compat`: WinCompat (`boswas-winapp`, the Wine AppArmor profile,
   the compatibility catalog and its policy); since 1.0~alpha2.
+- `boswas-device-agent`: the device agent, the session agent and
+  `boswas-device`; since 1.0~alpha3.
+- `boswas-compat-manager`: the Compatibility Manager GUI; since 1.0~alpha3.
 
 The packages reference shared sources in the monorepo (`security/`,
 `desktop/`, `compatibility/`, `config/boswas/`). `debian/rules` installs
-every file with an explicit mode. `packages/boswas-device-agent/` holds the
-agent's interfaces and has no `debian/` directory until Milestone 2, so it is
-not built into the image.
+every file with an explicit mode. The Control Plane server package
+(`control-plane/`, `boswas-control-plane`) is built alongside them but is
+never part of the device image.
 
 **Why.** Installed devices can then be updated through APT like the rest of
 the system, which a one-off image customisation cannot do. Explicit modes
@@ -247,7 +250,7 @@ display-sharing design.
 
 **Known limits.** X11 clients can observe each other (limited to Xwayland
 clients under Plasma Wayland). Direct `/usr/bin/wine` use is not mediated;
-that is left to the policy engine (Milestone 4).
+restricting it remains an open item (roadmap).
 
 ## ADR-0013 Compatibility manifest format v1 and a layered catalog
 
@@ -259,9 +262,10 @@ that is left to the policy engine (Milestone 4).
 - **Statuses:** `unknown`, `untested`, `experimental`, `tested`, `approved`,
   `blocked`.
 - **Pinning:** `tested` and `approved` must pin the installer SHA-256.
-- **Layers:** the catalog has three layers, `managed` (Control Plane,
-  reserved), `local` (administrator) and `system` (package). The highest
-  wins, except that `blocked` in any layer wins.
+- **Layers:** the catalog has three layers, `managed` (written by the
+  device agent from the Control Plane catalog, since 1.0~alpha3), `local`
+  (administrator) and `system` (package). The highest wins, except that
+  `blocked` in any layer wins.
 - **Recomputation:** sandbox grants are recomputed from the catalog and
   policy at every launch.
 - **Replaced format:** the earlier planned statuses (`gold`, `silver`, ...)
@@ -273,21 +277,35 @@ that is left to the policy engine (Milestone 4).
 - Blocks must not be undone by a lower-trust layer.
 - Nothing an application writes can widen its own sandbox.
 
-## ADR-0014 64-bit-only Windows runtime retained for Milestone 1
+## ADR-0014 Boswas OS v1 runs 64-bit Windows applications only (final)
 
-**Decision.**
+**Decision (final for v1, confirmed with 1.0~alpha3).**
 
-- **Runtime unchanged:** WinCompat ships with Debian's `wine64` only,
-  without `wine32` or i386 multiarch.
-- **Early refusal:** `boswas-winapp` reads the PE header and refuses 32-bit
-  programs (exit 4).
-- **Ready for later:** the runtime declares its architectures in
-  `runtime.conf`, so adding a 32-bit runtime later is a data change.
+- **Runtime:** WinCompat ships Debian's `wine64` only. There is no `wine32`,
+  no i386 multiarch, no WoW64 Wine and no 32-bit fallback of any kind.
+- **Refusal, everywhere, with one message:** 32-bit Windows software is
+  refused before anything is created or run, with *"This application
+  requires 32-bit Windows compatibility, which is not supported by Boswas
+  OS."*:
+  - `boswas-winapp install` and `inspect` read the PE header (and the
+    Template property of .msi packages);
+  - the Compatibility Manager shows the same sentence;
+  - the device agent refuses 32-bit catalog entries before downloading;
+  - the Control Plane marks them `UNSUPPORTED_ARCHITECTURE` and never turns
+    them into install commands.
+- **Not a TODO:** the documentation, the GUI and the CLI never suggest
+  installing `wine32` or enabling i386. Guard rails fail the build if
+  `wine32` or a foreign dpkg architecture ever appears in the image.
 
-**Why.** Enabling i386 multiarch adds roughly 300 MB and a second copy of the
-library attack surface. It is a product decision, not an implementation
-detail, and has been an open item since v1 alpha. Many installers are 32-bit,
-so this is the main compatibility limit to resolve next (roadmap).
+**Why.**
+
+- **Attack surface:** i386 multiarch adds roughly 300 MB and a second copy
+  of the library stack to maintain and patch.
+- **Product scope:** v1 targets the 64-bit business applications Boswas
+  validates. Many installers are 32-bit stubs, and the catalog accepts only
+  64-bit installers.
+
+**Revisit** only as a new product decision for a later major release.
 
 ## ADR-0015 Device identity is separate from user identity; Boswas ID deferred
 
@@ -326,9 +344,174 @@ before it counts as complete:
 8. Hardware certification
 9. Production signing and release
 
-The Control Plane is a modular monolith (TypeScript/NestJS, PostgreSQL, Redis
-only where useful), not microservices.
+The Control Plane is a modular monolith, not microservices. (The stack named
+here originally, TypeScript/NestJS with PostgreSQL, was replaced by ADR-0017.)
 
 **Why.** Each milestone depends on the contracts of the previous ones:
 WinCompat inventory feeds the agent, the agent feeds the Control Plane, and
 signed policy needs both.
+
+1.0~alpha3 delivers the device agent (M2), a Control Plane covering the
+foundation, signed policy and fleet scope of M3–M5 (single tenant, no
+organisation hierarchy), and the Compatibility Manager in one release.
+
+## ADR-0017 Control Plane in the Python standard library with SQLite
+
+**Decision.**
+
+- **Language and dependencies:** the Control Plane (`control-plane/`,
+  package `boswas-control-plane`) is written for Python 3 with the standard
+  library only, like every other Boswas component (ADR-0010).
+- **Storage:** SQLite with WAL, behind one repository class (`store.Store`),
+  so PostgreSQL can replace it without touching the domain code.
+- **Cryptography:** the `openssl` command, for the device CA, CSRs and
+  Ed25519 policy signatures. TLS uses Python's `ssl` module.
+- **Shared code:** the device agent's protocol modules (typed commands,
+  signed policies, privacy allowlists) and boswas-compat's manifest
+  validator. The Control Plane installs them in its own module directory.
+- **Packaging:** a server package, built by `build-packages.sh` into
+  `server/`, never part of the device image.
+- **Two listeners with disjoint APIs:** the device port (8443) asks for a
+  client certificate and serves enrollment and the device API; the operator
+  port (9443) never asks for one and serves the dashboard and the operator
+  API.
+
+**Why.**
+
+- **One language and audit model:** no third-party dependency tree.
+- **Two ports:** a TLS server that requests a client certificate makes
+  browsers show a certificate picker (Python's `ssl` cannot name the
+  acceptable CAs), so the dashboard needs a port without that request.
+  Separate ports also let the firewall keep the operator API on the
+  administration network while devices reach the device port.
+- **Debian support:** security fixes come from Debian's `python3` and
+  `openssl`.
+- **One codebase for one contract:** the device and the server check
+  commands and policies with the same code.
+- **Testable everywhere:** it runs inside `test.sh` and against the QEMU VM.
+
+**Trade-off.** Python's HTTP server is not a high-throughput web server. It
+is sized for a single company's fleet. A reverse proxy in front of it must
+pass client certificates through (TLS terminates in the Control Plane).
+
+**Revisit when** the fleet outgrows one SQLite file or one process. The
+repository interface is the seam for that change.
+
+## ADR-0018 Device agent: a root service and a per-user session agent
+
+**Decision.**
+
+- **`boswas-device-agent.service` (root, sandboxed):** the device's
+  identity, configuration, state, inventory, posture and Control Plane
+  conversation, and the local management API (`/run/boswas-agent/agent.sock`).
+- **`boswas-session-agent.service` (systemd user unit, one per logged-in
+  user):**
+  - the backend of the Compatibility Manager
+    (`$XDG_RUNTIME_DIR/boswas/session.sock`, owner only);
+  - the hand of the device agent for remote application commands.
+  - It runs `boswas-winapp` as that user.
+- **Ownership of state:**
+
+  | Owner | State |
+  |-------|-------|
+  | boswas-compat (`boswas-winapp`) | Application runtime state: records, prefixes, logs, locks |
+  | Device agent | Device state, identity and local inventory |
+  | Control Plane | Fleet state: registry, commands, policies, catalog, audit |
+  | GUI | Presentation state only |
+
+- **Agent state location:** the agent never writes `/etc/boswas/device.conf`
+  (an administrator's conffile). Its state lives in
+  `/var/lib/boswas/agent`; managed WinCompat data lives in
+  `/var/lib/boswas/compat`.
+
+**Why.**
+
+- **Never as root:** Windows applications belong to a user and never run as
+  root (ADR-0011), so the root agent cannot run them itself.
+- **One path for everything:** routing every operation through the same
+  `boswas-winapp` keeps policy, manifests, bubblewrap and AppArmor in one
+  place.
+- **Clean upgrades:** keeping agent state out of conffiles avoids dpkg
+  conffile prompts on upgrades.
+
+## ADR-0019 Typed management commands only; no remote shell
+
+**Decision.**
+
+- **A closed set of types:** remote management uses `INSTALL_APPLICATION`,
+  `UPDATE_APPLICATION`, `REMOVE_APPLICATION`, `LAUNCH_APPLICATION`,
+  `STOP_APPLICATION`, `REPAIR_APPLICATION`, `REFRESH_INVENTORY`,
+  `APPLY_POLICY` and `UPDATE_AGENT`.
+- **What every command carries:**
+  - a validated payload;
+  - a target device;
+  - an expiry of at most 7 days;
+  - an opaque actor reference;
+  - an audit trail.
+- **Payloads come from the catalog:** the Control Plane builds install
+  payloads itself; an operator names an application, never a manifest,
+  path or program.
+- **The device decides again:** it re-validates every command with the same
+  code, refuses unknown types and expired commands, records executed
+  command IDs (idempotency), and checks the applied policy's
+  `allowed_commands`.
+- **No escape hatches:** no type carries a shell command, script, program
+  path or code. Destructive device operations (wipe, factory reset) do not
+  exist. `UPDATE_AGENT` installs a named package version from the device's
+  signed APT sources, and only when the device and its policy both allow
+  agent updates.
+
+**Why.** The Control Plane manages an OS platform; it is not a remote shell.
+A compromised Control Plane can then do no more than these operations, and
+the device still enforces its own policy.
+
+## ADR-0020 Signed policies and managed layers
+
+**Decision.**
+
+- **Signed, versioned policies:** the Control Plane signs every version of a
+  device policy (`boswas-policy/1`) with an Ed25519 key. Devices pin the
+  public key at enrollment.
+- **What a device checks before applying:**
+  1. the signature;
+  2. a strict, closed document schema;
+  3. that the policy is not a rollback (sequence and issue time);
+  4. that the rendered WinCompat policy parses in boswas-compat without a
+     single problem.
+
+  Anything else is rejected and the current policy stays.
+- **Policies cannot weaken confinement:** `require_apparmor` must be true.
+- **Managed layers:**
+  - the agent writes the WinCompat policy as
+    `/var/lib/boswas/compat/policy.conf`, which boswas-compat then uses
+    instead of the local `/etc` file;
+  - catalog manifests from the Control Plane go to the existing managed
+    catalog layer;
+  - unenrolling removes both, so the local policy applies again.
+- **Policy keys:** `BLOCKED_APPLICATIONS` and `ALLOWED_APPLICATIONS` (by
+  application ID) join the WinCompat policy keys.
+
+**Why.** A valid local security policy must never be replaced by malformed
+or unverified remote data, and an untrusted network position must not be
+able to install a policy.
+
+## ADR-0021 The Compatibility Manager is a client of the local API
+
+**Decision.**
+
+- **Toolkit:** the Compatibility Manager (`boswas-compat-manager`) is a
+  PySide6 (Qt Widgets, LGPL) application.
+- **What it talks to:** the user's session agent for application operations,
+  and read-only device-agent operations for status.
+- **What it never does:** start processes, touch prefixes, manifests,
+  AppArmor or bubblewrap, or edit permissions.
+- **Default handler unchanged:** "Run with Boswas" stays the default handler
+  for Windows executables. The Manager adds a Dolphin service menu and its
+  own install flow.
+
+**Why.**
+
+- **No duplicated security logic:** none of it exists in the GUI.
+- **Least privilege:** the GUI runs as the user with no privileges at all.
+- **Testable without a desktop:** the UI is tested against a fake backend,
+  and the backend is tested without a GUI.

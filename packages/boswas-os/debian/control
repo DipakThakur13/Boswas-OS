@@ -9,16 +9,18 @@ Rules-Requires-Root: no
 Package: boswas-os
 Architecture: all
 Depends: boswas-branding (>= 1.0~alpha1),
-         boswas-cli (>= 1.0~alpha1),
-         boswas-compat (>= 1.0~alpha2),
+         boswas-cli (>= 1.0~alpha3),
+         boswas-compat (>= 1.0~alpha3),
+         boswas-compat-manager (>= 1.0~alpha3),
+         boswas-device-agent (>= 1.0~alpha3),
          boswas-security (>= 1.0~alpha1),
          ${misc:Depends}
 Description: Boswas OS release identity and core configuration
  Boswas OS is the Boswas Group company-managed desktop operating system,
  built on Debian 13 "trixie". This package carries the Boswas OS release
- identity (/usr/lib/boswas/release), the device configuration skeleton under
- /etc/boswas, the console login banner, and pulls in the other Boswas OS
- components.
+ identity (/usr/lib/boswas/release), the device configuration under
+ /etc/boswas (device.conf, read by the device agent), the console login
+ banner, and pulls in the other Boswas OS components.
  .
  Debian's own identity (/etc/os-release) is intentionally left unchanged so
  Debian tooling and third-party software keep recognising the system.

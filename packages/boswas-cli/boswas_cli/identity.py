@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import os
 import platform
+import re
 import socket
 
 from . import system
@@ -12,6 +14,11 @@ RELEASE_FILE = "/usr/lib/boswas/release"
 IMAGE_INFO_FILE = "/usr/lib/boswas/image-info"
 DEVICE_CONF = "/etc/boswas/device.conf"
 UPDATE_CONF = "/etc/boswas/update.conf"
+# Public files of the device agent (Milestone 2): it owns the device identity
+# and the enrollment state; device.conf holds configuration.
+AGENT_IDENTITY = "/var/lib/boswas/agent/identity.json"
+AGENT_STATUS = "/var/lib/boswas/agent/status.json"
+_UUID4_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 
 # Only these device.conf keys are ever displayed. Anything else (for example a
 # future credential reference) is ignored so it can never leak via the CLI.
@@ -58,9 +65,38 @@ def os_identity() -> dict:
     }
 
 
+def _agent_file(path: str) -> dict:
+    text = system.read_text(path)
+    try:
+        doc = json.loads(text) if text else {}
+    except ValueError:
+        return {}
+    return doc if isinstance(doc, dict) else {}
+
+
 def device_config() -> dict:
     conf = system.load_env(DEVICE_CONF)
-    return {key.lower(): (conf.get(key) or None) for key in DEVICE_KEYS}
+    device = {key.lower(): (conf.get(key) or None) for key in DEVICE_KEYS}
+    ident, status = _agent_file(AGENT_IDENTITY), _agent_file(AGENT_STATUS)
+    if isinstance(ident.get("device_id"), str) and _UUID4_RE.fullmatch(ident["device_id"]):
+        device["device_id"] = ident["device_id"]
+    if isinstance(status.get("enrollment"), str):
+        device["enrollment_state"] = status["enrollment"]
+    if isinstance(status.get("control_plane"), str):
+        device["control_plane_url"] = status["control_plane"]
+    policy = status.get("policy") if isinstance(status.get("policy"), dict) else {}
+    if isinstance(policy.get("version"), str):
+        device["policy_version"] = policy["version"]
+    return device
+
+
+def agent_status() -> dict | None:
+    """The device agent's last published state (None if it never ran)."""
+    status = _agent_file(AGENT_STATUS)
+    if not status:
+        return None
+    keys = ("state", "connection", "agent_version", "last_contact", "updated_at", "maintenance")
+    return {k: status.get(k) for k in keys}
 
 
 def _dmi(name: str) -> str | None:

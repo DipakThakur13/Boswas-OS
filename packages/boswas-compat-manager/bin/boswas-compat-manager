@@ -1,0 +1,10 @@
+#!/usr/bin/python3 -IB
+"""Boswas Compatibility Manager: manage Windows applications. See boswas-compat-manager(1)."""
+
+import sys
+
+sys.path.insert(0, "/usr/lib/boswas/python")
+
+from boswas_manager.app import main  # noqa: E402
+
+sys.exit(main())

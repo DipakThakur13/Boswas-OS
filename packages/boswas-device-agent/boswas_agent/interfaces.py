@@ -1,11 +1,12 @@
-"""Interfaces of the device agent. Implementations arrive with Milestone 2+.
+"""Interfaces of the device agent.
 
-  ControlPlaneClient   HTTPS + mutual TLS to the Control Plane (device API v1)
+  ControlPlaneClient   HTTPS + mutual TLS to the Control Plane (device API v1);
+                       client.HttpsControlPlaneClient implements it
   CredentialStore      device key pair and certificate; the private key never
-                       leaves the store (file with root-only access first,
-                       TPM-backed later)
+                       leaves the store (credentials.FileCredentialStore: a
+                       root-only directory; TPM-backed later)
   PolicyVerifier       verifies signed policy documents before anything is
-                       applied (Milestone 4)
+                       applied (policy_store.PolicyStore)
   InventoryCollector   one source of inventory facts
   CommandHandler       executes one CommandType
 
@@ -22,8 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .errors import NotEnrolled
-from .models import (CommandResult, CommandType, ComplianceReport, DeviceCommand, EnrollmentRequest,
-                     Heartbeat)
+from .models import EnrollmentRequest
 
 
 @dataclass(frozen=True)
@@ -33,6 +33,8 @@ class EnrollmentResult:
     control_plane_url: str
     policy_version: str | None
     profile: str | None
+    policy_public_key_pem: str = ""  # pinned to verify signed policies
+    heartbeat_seconds: int = 300
 
 
 @dataclass(frozen=True)
@@ -40,7 +42,8 @@ class HeartbeatResponse:
     accepted: bool
     policy_version_available: str | None = None
     commands_pending: int = 0
-    next_heartbeat_seconds: int = 900
+    next_heartbeat_seconds: int = 300
+    inventory_requested: bool = False
 
 
 @dataclass(frozen=True)
@@ -63,27 +66,31 @@ class ControlPlaneClient(ABC):
 
     @abstractmethod
     def enroll(self, request: EnrollmentRequest) -> EnrollmentResult:
-        """POST /api/v1/devices/enroll (enrollment token + CSR)."""
+        """POST /api/v1/enroll (one-time enrollment token + CSR)."""
 
     @abstractmethod
-    def heartbeat(self, heartbeat: Heartbeat) -> HeartbeatResponse:
+    def heartbeat(self, heartbeat: dict) -> HeartbeatResponse:
         """POST /api/v1/devices/{id}/heartbeat."""
 
     @abstractmethod
-    def report_compliance(self, report: ComplianceReport) -> None:
-        """POST /api/v1/devices/{id}/compliance."""
+    def send(self, kind: str, document: dict) -> None:
+        """Deliver an outbox document: status, compliance, inventory, event or command result."""
 
     @abstractmethod
-    def fetch_policy(self, current_version: str | None) -> SignedPolicy | None:
-        """The device's effective signed policy, or None if unchanged."""
+    def fetch_policy(self) -> dict | None:
+        """The device's current signed policy envelope, or None if it has none."""
 
     @abstractmethod
-    def fetch_commands(self) -> list[DeviceCommand]:
-        """Pending commands for this device."""
+    def fetch_commands(self) -> list[dict]:
+        """Pending commands for this device (marked SENT by the Control Plane)."""
 
     @abstractmethod
-    def acknowledge(self, result: CommandResult) -> None:
-        """Report the outcome of a command."""
+    def acknowledge(self, command_id: str, status: str) -> None:
+        """Report that a command was received (ACKNOWLEDGED) or started (RUNNING)."""
+
+    @abstractmethod
+    def download_artifact(self, sha256: str, destination: Path, max_bytes: int) -> None:
+        """Download an installer referenced by a command; the caller verifies it."""
 
 
 class OfflineControlPlaneClient(ControlPlaneClient):
@@ -96,7 +103,9 @@ class OfflineControlPlaneClient(ControlPlaneClient):
     def _offline(self, *_args, **_kwargs):
         raise NotEnrolled("this device is not enrolled; no Control Plane is configured")
 
-    enroll = heartbeat = report_compliance = fetch_policy = fetch_commands = acknowledge = _offline
+    enroll = heartbeat = send = fetch_policy = fetch_commands = acknowledge = download_artifact = _offline
+    # Milestone 1 name, kept for callers of the original interface.
+    report_compliance = _offline
 
 
 class CredentialStore(ABC):
@@ -106,7 +115,7 @@ class CredentialStore(ABC):
 
     @abstractmethod
     def certificate_path(self) -> Path | None:
-        """Public certificate (referenced as DEVICE_CERTIFICATE in device.conf)."""
+        """Public certificate."""
 
     @abstractmethod
     def create_csr(self, device_id: str) -> str:
@@ -136,8 +145,8 @@ class InventoryCollector(ABC):
 
 
 class CommandHandler(ABC):
-    command_type: CommandType
+    command_type: object
 
     @abstractmethod
-    def handle(self, command: DeviceCommand) -> CommandResult:
+    def handle(self, command) -> object:
         """Execute one command; never raise for an expected failure."""

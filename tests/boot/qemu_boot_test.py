@@ -25,6 +25,7 @@ $BOSWAS_TEST_REPORT. Exit status is non-zero if anything failed.
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import re
@@ -440,6 +441,165 @@ def winapp_gui_check(vm: "VM", sh: "Shell", outdir: Path, timeout: float) -> Non
     sh.run("boswas-winapp remove local.gui-test")
 
 
+MESSAGE_32 = "This application requires 32-bit Windows compatibility, which is not supported by Boswas OS."
+CP_PORT = 18443
+
+
+def _json(out: str) -> dict:
+    """The JSON document in a command's serial output (ignores echoed noise)."""
+    start, end = out.find("{"), out.rfind("}")
+    try:
+        return json.loads(out[start:end + 1]) if start >= 0 else {}
+    except ValueError:
+        return {}
+
+
+def agent_checks(sh: "Shell") -> None:
+    """The device agent on the live system (no Control Plane yet)."""
+    rc, out = sh.run("systemctl is-active boswas-device-agent.service")
+    check(out.strip() == "active", "boswas-device-agent.service is active (started at boot)")
+    status = {}
+    for _ in range(30):
+        status = _json(sh.run("boswas-device --json status")[1]).get("agent", {})
+        if status.get("state") in ("READY", "DEGRADED"):
+            break
+        time.sleep(5)
+    check(status.get("state") in ("READY", "DEGRADED") and status.get("connection") == "STANDALONE",
+          f"device agent: state {status.get('state')}, connection {status.get('connection')} (standalone device)")
+    ident = _json(sh.run("boswas-device --json identity")[1]).get("identity", {})
+    check(bool(ident.get("device_id")) and ident.get("ephemeral") is True,
+          "device identity created at first start, marked ephemeral in the live session")
+    rc, out = sh.run("boswas-device --json inventory")
+    inventory = _json(out).get("inventory", {})
+    check(inventory.get("compatibility", {}).get("architectures") == ["x86_64"] and "boswas" not in
+          json.dumps(inventory.get("windows_applications", [])),
+          "local inventory: x86_64-only Windows runtime, no user names")
+
+
+def device_management_checks(vm: "VM", sh: "Shell", outdir: Path, workdir: Path, fixtures: Path | None,
+                             timeout: float) -> None:
+    """Session agent, Compatibility Manager and the Control Plane with the real kernel's AppArmor."""
+    rc, out = sh.run("systemctl --user is-active boswas-session-agent.service")
+    check(out.strip() == "active", "the user's session agent runs in the Plasma session (systemd user unit)")
+    connected = False
+    for _ in range(12):
+        if _json(sh.run("boswas-device --json status")[1]).get("agent", {}).get("sessions", {}).get("connected"):
+            connected = True
+            break
+        time.sleep(5)
+    check(connected, "the session agent is registered with the device agent")
+
+    rc, env = sh.run("p=$(pgrep -u boswas -x plasmashell | head -1); [ -n \"$p\" ] && "
+                     "tr '\\0' '\\n' < /proc/$p/environ | grep -E '^(DISPLAY|XAUTHORITY|WAYLAND_DISPLAY|"
+                     "XDG_RUNTIME_DIR)=' | tr '\\n' ' '")
+    sh.run(f"( env {env.strip()} boswas-compat-manager >/tmp/compat-manager.log 2>&1 & )")
+    vm.pump(60)
+    to_png(vm.screendump("compat-manager"), outdir / "compat-manager.png")
+    rc, out = sh.run("pgrep -u boswas -f boswas-compat-manager >/dev/null && echo running; "
+                     "tail -5 /tmp/compat-manager.log")
+    check("running" in out, "the Compatibility Manager starts on the Plasma session (screenshot compat-manager.png)")
+    sh.run("pkill -u boswas -f boswas-compat-manager")
+
+    if fixtures is None:
+        record("SKIP", "Control Plane round trip in the VM (no --fixtures-iso)")
+        return
+    rc, out = sh.run("boswas-winapp install /mnt/boswas-testapp-x86.exe; echo rc=$?", timeout=600)
+    check("rc=4" in out and MESSAGE_32 in out, "a 32-bit Windows installer is refused with the product message")
+
+    # A Control Plane in the builder container, reachable from the VM at 10.0.2.2.
+    repo = Path(__file__).resolve().parents[2]
+    sys.path.insert(0, str(repo / "tests/device"))
+    from cp_harness import ControlPlane
+    cp = ControlPlane(python_path=[repo / "control-plane", repo / "packages/boswas-device-agent",
+                                   repo / "packages/boswas-compat"], data_dir=workdir / "cp", port=CP_PORT,
+                      listen="0.0.0.0", public_url=f"https://10.0.2.2:{CP_PORT}", log=outdir / "control-plane.log")
+    try:
+        cp.init(["10.0.2.2", "127.0.0.1"])
+        cp.start()
+    except RuntimeError as exc:
+        check(False, f"Control Plane starts for the VM ({exc})")
+        return
+    try:
+        fixture_dir = fixtures.parent / "fixtures"
+        status, art = cp.request("POST", "/api/v1/artifacts", raw=(fixture_dir / "boswas-testapp.exe").read_bytes(),
+                                 name="boswas-testapp.exe")
+        manifest = json.loads((fixture_dir / "manifests" / f"{WINAPP}.json").read_text())
+        status2, _ = cp.request("POST", "/api/v1/applications", {"manifest": manifest})
+        check(status == 201 and status2 == 201, "Control Plane catalog prepared (64-bit test application)")
+        token = cp.enrollment_token("--allow-ephemeral")
+        ca = base64.b64encode(cp.ca_pem.encode()).decode()
+        sh.run(f"echo {ca} | base64 -d | sudo -n tee /etc/boswas/control-plane-ca.pem >/dev/null")
+        sh.run(f"sudo -n sed -i 's|^CONTROL_PLANE_URL=\"\"|CONTROL_PLANE_URL=\"https://10.0.2.2:{CP_PORT}\"|; "
+               "s|^CONTROL_PLANE_CA=\"\"|CONTROL_PLANE_CA=\"/etc/boswas/control-plane-ca.pem\"|; "
+               "s|^HEARTBEAT_INTERVAL=\"300\"|HEARTBEAT_INTERVAL=\"30\"|' /etc/boswas/device.conf")
+        rc, out = sh.run(f"echo {token} | sudo -n boswas-device --json enroll", timeout=300)
+        enrolled = _json(out)
+        check(enrolled.get("enrolled") is True, "the VM enrolls with the Control Plane (token on stdin, mutual TLS)")
+        device_id = enrolled.get("device_id")
+
+        def agent() -> dict:
+            return _json(sh.run("boswas-device --json status")[1]).get("agent", {})
+
+        def wait_agent(predicate, seconds: float) -> dict:
+            deadline, current = time.time() + seconds, {}
+            while time.time() < deadline:
+                current = agent()
+                if predicate(current):
+                    break
+                sh.run("sudo -n boswas-device sync >/dev/null 2>&1")
+                time.sleep(10)
+            return current
+
+        st = wait_agent(lambda s: s.get("connection") == "CONNECTED" and (s.get("policy") or {}).get("version"), 600)
+        check(st.get("connection") == "CONNECTED", "heartbeats reach the Control Plane (connection CONNECTED)")
+        check((st.get("policy") or {}).get("version") == "default-1", "the signed default policy is verified and applied")
+        status, dev = cp.request("GET", f"/api/v1/devices/{device_id}")
+        check(status == 200 and dev.get("connection") == "online" and dev.get("ephemeral") is True,
+              "the Control Plane shows the VM online (ephemeral live device)")
+
+        def run_command(body: dict, seconds: float) -> dict:
+            status, cmd = cp.command(device_id, body)
+            if status not in (200, 201):
+                return {"status": f"HTTP {status}", "error": cmd.get("error")}
+            deadline, result = time.time() + seconds, {}
+            while time.time() < deadline:
+                result = cp.command_status(device_id, cmd["command_id"])
+                if result.get("status") in ("SUCCEEDED", "FAILED", "EXPIRED", "CANCELLED"):
+                    break
+                sh.run("sudo -n boswas-device sync >/dev/null 2>&1")
+                time.sleep(15)
+            return result
+
+        started = time.time()
+        result = run_command({"type": "INSTALL_APPLICATION", "application_id": WINAPP}, timeout)
+        check(result.get("status") == "SUCCEEDED",
+              f"remote INSTALL_APPLICATION under AppArmor: downloaded over mutual TLS, installed for the live user "
+              f"({int(time.time() - started)} s; {result.get('status')} {result.get('error')})")
+        result = run_command({"type": "LAUNCH_APPLICATION", "application_id": WINAPP}, 900)
+        check(result.get("status") == "SUCCEEDED", f"remote LAUNCH_APPLICATION ({result.get('status')})")
+        confinement = None
+        for _ in range(20):
+            confinement = (_json(sh.run(f"boswas-winapp --json status {WINAPP}")[1]).get("last_launch") or {}) \
+                .get("confinement")
+            if confinement:
+                break
+            time.sleep(10)
+        check(confinement == "boswas-winapp (enforce)",
+              f"the remotely launched application ran confined (boswas-winapp, enforce; got {confinement})")
+        status, body = cp.command(device_id, {"type": "EXECUTE_SHELL_COMMAND", "command": "id"})
+        check(status == 400, "the Control Plane refuses untyped (shell) commands")
+
+        cp.stop()
+        st = wait_agent(lambda s: s.get("connection") == "OFFLINE", 600)
+        check(st.get("connection") == "OFFLINE" and st.get("state") == "OFFLINE",
+              "with the Control Plane gone the agent is OFFLINE")
+        rc, out = sh.run(f"boswas-winapp launch {WINAPP} --quiet; echo rc=$?", timeout=900)
+        check("rc=0" in out, "Windows applications still launch, confined, while the Control Plane is unreachable")
+        sh.run(f"boswas-winapp remove {WINAPP} >/dev/null 2>&1")
+    finally:
+        cp.stop()
+
+
 def scenario_serial(iso: Path, workdir: Path, outdir: Path, timeout: float, fixtures: Path | None = None) -> None:
     kernel = iso_extract(iso, workdir, "vmlinuz*")
     initrd = iso_extract(iso, workdir, "initrd.img*")
@@ -529,6 +689,7 @@ def scenario_serial(iso: Path, workdir: Path, outdir: Path, timeout: float, fixt
                "network: DNS resolution works" if "resolved" in out else "network: DNS resolution (no upstream network)")
 
         winapp_checks(sh, outdir, fixtures is not None, timeout)
+        agent_checks(sh)
 
         # The graphical session (SDDM autologin -> Plasma) under emulation may
         # take a while; give it time, then capture the screen.
@@ -546,6 +707,9 @@ def scenario_serial(iso: Path, workdir: Path, outdir: Path, timeout: float, fixt
             to_png(vm.screendump("desktop"), outdir / "serial-desktop.png")
             if fixtures is not None:
                 winapp_gui_check(vm, sh, outdir, timeout)
+            device_management_checks(vm, sh, outdir, workdir, fixtures, timeout)
+        else:
+            record("SKIP", "session agent, Compatibility Manager and Control Plane checks (no Plasma session)")
         rc, out = sh.run("cat /proc/cmdline; uname -r")
         (outdir / "kernel.txt").write_text(out + "\n")
 

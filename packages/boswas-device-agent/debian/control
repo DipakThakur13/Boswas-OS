@@ -1,0 +1,31 @@
+Source: boswas-device-agent
+Section: admin
+Priority: optional
+Maintainer: Boswas OS Platform Team <os-platform@boswas.invalid>
+Build-Depends: debhelper-compat (= 13), openssl, python3:any
+Standards-Version: 4.7.2
+Rules-Requires-Root: no
+
+Package: boswas-device-agent
+Architecture: all
+Depends: boswas-compat (>= 1.0~alpha3),
+         openssl,
+         python3 (>= 3.11),
+         systemd,
+         ${misc:Depends}
+Recommends: boswas-cli
+Description: Boswas OS device agent
+ The local device agent of Boswas OS:
+ .
+  * a persistent, random device identity (never derived from hardware
+    serial numbers, MAC addresses or user names)
+  * device state, an allowlisted inventory and posture reporting
+  * a local management API (Unix socket) used by boswas-device and the
+    Boswas Compatibility Manager
+  * a per-user session agent that runs Windows applications through
+    boswas-winapp, so bubblewrap, AppArmor and policy always apply
+  * optional connection to a Boswas Control Plane over mutual TLS: enrollment
+    with a one-time token, heartbeats, signed policies and typed management
+    commands (no remote shell), with an outbox for offline periods
+ .
+ Without a Control Plane the device works fully standalone.

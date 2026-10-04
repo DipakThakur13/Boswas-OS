@@ -1,3 +1,15 @@
+boswas-compat (1.0~alpha3) trixie; urgency=medium
+
+  * Release 1.0~alpha3.
+  * boswas-winapp: new commands inspect (dry run), stop, upgrade, runtime
+    and logs --clear; normalised application states; MSI architecture
+    detection; the fixed 32-bit refusal message (64-bit only by design).
+  * Policy: BLOCKED_APPLICATIONS, ALLOWED_APPLICATIONS and the managed
+    policy layer written by the device agent.
+  * The installed command ignores the unit-test environment hooks.
+
+ -- Boswas OS Platform Team <os-platform@boswas.invalid>  Sun, 04 Oct 2026 18:00:00 +0000
+
 boswas-compat (1.0~alpha2) trixie; urgency=medium
 
   * Initial release: Boswas WinCompat (Milestone 1).

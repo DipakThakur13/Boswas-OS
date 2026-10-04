@@ -1,8 +1,8 @@
 """Installer inspection: file type, Windows architecture, installer framework.
 
-Detection uses file signatures, never the file name. Only headers and
-signature strings are read; installer content is never executed outside the
-sandbox.
+Detection uses file signatures, never the file name. Only headers, signature
+strings and (for Windows Installer packages) the summary information stream
+are read; installer content is never executed outside the sandbox.
 """
 
 from __future__ import annotations
@@ -94,6 +94,149 @@ def _framework(path: Path, frameworks) -> dict | None:
     return None
 
 
+# --- Windows Installer packages: platform from the summary information ---------------
+#
+# An .msi file is an OLE compound file. Its "\x05SummaryInformation" stream
+# holds the Template property (PID 7), "<platform>;<languages>", e.g.
+# "x64;1033" or "Intel;1033". Only that stream is read, with every offset,
+# chain and count bounded, so a malformed file yields "unknown", never a hang.
+
+ENDOFCHAIN, FREESECT = 0xFFFFFFFE, 0xFFFFFFFF
+MAX_CFB_ENTRIES = 100_000
+MAX_PROPERTY_STREAM = 1024 * 1024
+PID_TEMPLATE = 7
+VT_LPSTR = 0x1E
+MSI_PLATFORMS = {"x64": "x86_64", "amd64": "x86_64", "intel": "x86", "": "x86", "intel64": "ia64",
+                 "arm64": "arm64", "arm": "arm"}
+
+
+class _CfbError(Exception):
+    pass
+
+
+class _Cfb:
+    def __init__(self, fh, size: int):
+        self.fh, self.size = fh, size
+        header = self._read_at(0, 512)
+        if header[:8] != OLE_MAGIC:
+            raise _CfbError("not a compound file")
+        shift, mini_shift = struct.unpack_from("<HH", header, 0x1E)
+        if shift not in (9, 12) or mini_shift != 6:
+            raise _CfbError("unsupported sector size")
+        self.sector = 1 << shift
+        self.mini_sector = 1 << mini_shift
+        self.max_sectors = size // self.sector + 1
+        (n_fat, self.dir_start, _, self.mini_cutoff, mini_fat_start, n_mini_fat,
+         difat_start, n_difat) = struct.unpack_from("<IIIIIIII", header, 0x2C)
+        fat_sectors = [s for s in struct.unpack_from("<109I", header, 0x4C) if s < ENDOFCHAIN]
+        seen = 0
+        while difat_start < ENDOFCHAIN and seen < n_difat and seen < self.max_sectors:
+            block = self._sector(difat_start)
+            entries = struct.unpack_from(f"<{self.sector // 4}I", block)
+            fat_sectors += [s for s in entries[:-1] if s < ENDOFCHAIN]
+            difat_start, seen = entries[-1], seen + 1
+        fat_sectors = fat_sectors[:n_fat]
+        self.fat = b"".join(self._sector(s) for s in fat_sectors)
+        self.mini_fat = self._chain_bytes(mini_fat_start, self.fat) if n_mini_fat else b""
+
+    def _read_at(self, offset: int, length: int) -> bytes:
+        if offset < 0 or offset + length > self.size:
+            raise _CfbError("offset outside the file")
+        self.fh.seek(offset)
+        data = self.fh.read(length)
+        if len(data) != length:
+            raise _CfbError("short read")
+        return data
+
+    def _sector(self, n: int) -> bytes:
+        return self._read_at((n + 1) * self.sector, self.sector)
+
+    @staticmethod
+    def _next(table: bytes, n: int) -> int:
+        if (n + 1) * 4 > len(table):
+            raise _CfbError("chain leaves the allocation table")
+        return struct.unpack_from("<I", table, n * 4)[0]
+
+    def _chain(self, start: int, table: bytes) -> list[int]:
+        chain, n = [], start
+        while n < ENDOFCHAIN:
+            chain.append(n)
+            if len(chain) > self.max_sectors:
+                raise _CfbError("allocation chain loops")
+            n = self._next(table, n)
+        return chain
+
+    def _chain_bytes(self, start: int, table: bytes) -> bytes:
+        return b"".join(self._sector(n) for n in self._chain(start, table))
+
+    def read_stream(self, name: str, limit: int) -> bytes | None:
+        directory = self._chain_bytes(self.dir_start, self.fat)
+        entries = [directory[i:i + 128] for i in range(0, min(len(directory), MAX_CFB_ENTRIES * 128), 128)]
+        if not entries:
+            return None
+        root = entries[0]
+        for entry in entries:
+            name_len = struct.unpack_from("<H", entry, 0x40)[0]
+            if entry[0x42] != 2 or not 2 <= name_len <= 64:
+                continue
+            if entry[:name_len - 2].decode("utf-16-le", errors="replace") != name:
+                continue
+            start = struct.unpack_from("<I", entry, 0x74)[0]
+            size = struct.unpack_from("<I", entry, 0x78)[0]
+            if size > limit:
+                raise _CfbError("stream too large")
+            if size < self.mini_cutoff:
+                ministream = self._chain_bytes(struct.unpack_from("<I", root, 0x74)[0], self.fat)
+                data = b"".join(ministream[n * self.mini_sector:(n + 1) * self.mini_sector]
+                                for n in self._chain(start, self.mini_fat))
+            else:
+                data = self._chain_bytes(start, self.fat)
+            if len(data) < size:
+                raise _CfbError("stream shorter than its size")
+            return data[:size]
+        return None
+
+
+def _summary_template(stream: bytes) -> str | None:
+    """Template property (PID 7) of an OLE property set stream."""
+    if len(stream) < 48 or stream[:2] != b"\xfe\xff":
+        return None
+    (offset,) = struct.unpack_from("<I", stream, 44)
+    if offset + 8 > len(stream):
+        return None
+    _size, count = struct.unpack_from("<II", stream, offset)
+    for i in range(min(count, 1024)):
+        pos = offset + 8 + 8 * i
+        if pos + 8 > len(stream):
+            return None
+        pid, value_offset = struct.unpack_from("<II", stream, pos)
+        if pid != PID_TEMPLATE:
+            continue
+        value = offset + value_offset
+        if value + 8 > len(stream):
+            return None
+        vtype, length = struct.unpack_from("<HxxI", stream, value)
+        if vtype != VT_LPSTR or value + 8 + length > len(stream):
+            return None
+        return stream[value + 8:value + 8 + length].split(b"\0", 1)[0].decode("latin-1")
+    return None
+
+
+def msi_platform(path: Path) -> str | None:
+    """Windows architecture of an .msi package from its Template property, or None if unknown."""
+    try:
+        with path.open("rb") as fh:
+            size = os.fstat(fh.fileno()).st_size
+            stream = _Cfb(fh, size).read_stream("\x05SummaryInformation", MAX_PROPERTY_STREAM)
+    except (OSError, struct.error, _CfbError):
+        return None
+    template = _summary_template(stream) if stream else None
+    if template is None:
+        return None
+    platform = template.split(";", 1)[0].split(",", 1)[0].strip().lower()
+    return MSI_PLATFORMS.get(platform, f"unknown({platform[:16]})")
+
+
 def inspect(path: Path) -> InstallerInfo:
     try:
         with path.open("rb") as fh:
@@ -102,7 +245,7 @@ def inspect(path: Path) -> InstallerInfo:
         raise NotFound(f"cannot read installer {path}: {exc.strerror}") from exc
     frameworks, _ = load_installer_types()
     if head.startswith(OLE_MAGIC):
-        return InstallerInfo(kind="msi", machine=None, subsystem=None, framework="Windows Installer")
+        return InstallerInfo(kind="msi", machine=msi_platform(path), subsystem=None, framework="Windows Installer")
     if head.startswith(MZ):
         machine, subsystem = _pe_header(head)
         fw = _framework(path, frameworks)
@@ -144,6 +287,33 @@ def copy_and_hash(src: Path, dest: Path, max_bytes: int) -> tuple[str, int]:
             os.close(dest_fd)
     finally:
         os.close(src_fd)
+    if size == 0:
+        raise Refused(f"{src} is empty", reason="bad-installer")
+    return digest.hexdigest(), size
+
+
+def hash_file(src: Path, max_bytes: int) -> tuple[str, int]:
+    """SHA-256 and size of an installer without copying it (boswas-winapp inspect)."""
+    digest = hashlib.sha256()
+    size = 0
+    try:
+        fd = os.open(src, os.O_RDONLY | os.O_CLOEXEC | os.O_NONBLOCK)
+    except OSError as exc:
+        raise NotFound(f"cannot open installer {src}: {exc.strerror}") from exc
+    try:
+        if not _is_regular(fd):
+            raise Refused(f"{src} is not a regular file", reason="bad-installer")
+        while True:
+            chunk = os.read(fd, _CHUNK)
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > max_bytes:
+                raise Refused(f"installer is larger than the policy limit ({max_bytes // (1024 * 1024)} MiB)",
+                              reason="too-large")
+            digest.update(chunk)
+    finally:
+        os.close(fd)
     if size == 0:
         raise Refused(f"{src} is empty", reason="bad-installer")
     return digest.hexdigest(), size

@@ -14,27 +14,34 @@ else
 	finish
 fi
 
-for p in boswas-os boswas-cli boswas-branding boswas-security boswas-compat; do
+for p in boswas-os boswas-cli boswas-branding boswas-security boswas-compat boswas-device-agent boswas-compat-manager; do
 	check "${p}_${BOSWAS_VERSION_ID} .deb produced" test -s "$debs/${p}_${BOSWAS_VERSION_ID}_all.deb"
 done
+server_deb="$debs/server/boswas-control-plane_${BOSWAS_VERSION_ID}_all.deb"
+check "boswas-control-plane_${BOSWAS_VERSION_ID} .deb produced (server; not in the device package set)" \
+	bash -c "test -s '$server_deb' && ! ls '$debs'/boswas-control-plane_*.deb >/dev/null 2>&1"
 
 # Lintian: errors and warnings fail the suite.
-if lintian_out="$(lintian --fail-on error,warning "$debs"/*.deb 2>&1)"; then
+if lintian_out="$(lintian --fail-on error,warning "$debs"/*.deb "$server_deb" 2>&1)"; then
 	pass "lintian: no errors or warnings"
 else
 	fail "lintian: $(printf '%s' "$lintian_out" | grep -E '^[EW]:' | tr '\n' ';')"
 fi
 
 # Permissions that matter for security
-listing="$(for d in "$debs"/*.deb; do dpkg-deb -c "$d"; done)"
+listing="$(for d in "$debs"/*.deb "$server_deb"; do dpkg-deb -c "$d"; done)"
 check "sudoers drop-in is 0440 root:root" grep -qE '^-r--r----- root/root .* \./etc/sudoers\.d/boswas$' <<<"$listing"
 check "CLI entry points are executable" grep -qE '^-rwxr-xr-x root/root .* \./usr/bin/boswas$' <<<"$listing"
 check_not "no world-writable files" grep -qE '^-.......w' <<<"$listing"
 check_not "no setuid/setgid files" grep -qE '^-..[sS]|^-.....[sS]' <<<"$listing"
 
 # Dependencies wire the components together
-check "boswas-os depends on all Boswas components" \
-	bash -c "dpkg-deb -f '$debs/boswas-os_${BOSWAS_VERSION_ID}_all.deb' Depends | grep -q boswas-branding && dpkg-deb -f '$debs/boswas-os_${BOSWAS_VERSION_ID}_all.deb' Depends | grep -q boswas-security && dpkg-deb -f '$debs/boswas-os_${BOSWAS_VERSION_ID}_all.deb' Depends | grep -q boswas-cli && dpkg-deb -f '$debs/boswas-os_${BOSWAS_VERSION_ID}_all.deb' Depends | grep -q boswas-compat"
+os_depends="$(dpkg-deb -f "$debs/boswas-os_${BOSWAS_VERSION_ID}_all.deb" Depends 2>/dev/null)"
+check "boswas-os depends on all Boswas device components" bash -c '
+	for p in boswas-branding boswas-security boswas-cli "boswas-compat " boswas-device-agent boswas-compat-manager; do
+		grep -q -- "$p" <<<"$1" || exit 1
+	done' _ "$os_depends"
+check_not "boswas-os does not pull in the Control Plane" grep -q boswas-control-plane <<<"$os_depends"
 
 # WinCompat package
 compat_deb="$debs/boswas-compat_${BOSWAS_VERSION_ID}_all.deb"
@@ -64,17 +71,53 @@ else
 	skip "Wine AppArmor profile compile check (apparmor_parser not installed; rebuild the builder image)"
 fi
 
+# Device agent package
+agent_deb="$debs/boswas-device-agent_${BOSWAS_VERSION_ID}_all.deb"
+check "device agent: boswas-device, the agent, the session agent and the update helper are executable" \
+	bash -c "for f in usr/bin/boswas-device usr/lib/boswas/agent/boswas-device-agent usr/lib/boswas/agent/boswas-session-agent usr/lib/boswas/agent/agent-update; do grep -qE \"^-rwxr-xr-x root/root .* \\./\$f\$\" <<<\"\$1\" || exit 1; done" _ "$listing"
+check "device agent: system unit, update template and user unit shipped" \
+	bash -c "grep -q '\./usr/lib/systemd/system/boswas-device-agent.service$' <<<\"\$1\" && grep -q '\./usr/lib/systemd/system/boswas-agent-update@.service$' <<<\"\$1\" && grep -q '\./usr/lib/systemd/user/boswas-session-agent.service$' <<<\"\$1\"" _ "$listing"
+ctl="$(mktemp -d)"
+dpkg-deb -e "$agent_deb" "$ctl" 2>/dev/null
+check "device agent: postinst enables the agent and, for every user, the session agent" \
+	bash -c "grep -q \"deb-systemd-helper enable 'boswas-device-agent.service'\" '$ctl/postinst' && grep -q \"deb-systemd-helper --user enable 'boswas-session-agent.service'\" '$ctl/postinst'"
+check "device agent depends on boswas-compat and openssl" \
+	bash -c "dpkg-deb -f '$agent_deb' Depends | grep -q 'boswas-compat (>= ' && dpkg-deb -f '$agent_deb' Depends | grep -q openssl"
+rm -rf "$ctl"
+
+# Compatibility Manager package
+manager_deb="$debs/boswas-compat-manager_${BOSWAS_VERSION_ID}_all.deb"
+check "Compatibility Manager: command, desktop entry and service menu shipped" \
+	bash -c "grep -qE '^-rwxr-xr-x root/root .* \./usr/bin/boswas-compat-manager$' <<<\"\$1\" && grep -q '\./usr/share/applications/com.boswas.CompatibilityManager.desktop$' <<<\"\$1\" && grep -q '\./usr/share/kio/servicemenus/boswas-compat-manager-install.desktop$' <<<\"\$1\"" _ "$listing"
+check "Compatibility Manager depends on PySide6 and the device agent (its backend)" \
+	bash -c "dpkg-deb -f '$manager_deb' Depends | grep -q python3-pyside6.qtwidgets && dpkg-deb -f '$manager_deb' Depends | grep -q boswas-device-agent"
+
+# Control Plane package (server)
+ctl="$(mktemp -d)"
+dpkg-deb -e "$server_deb" "$ctl" 2>/dev/null
+check "Control Plane: configuration is a conffile" grep -qx /etc/boswas-control-plane/control-plane.conf "$ctl/conffiles"
+# --no-enable --no-start: a new installation neither enables nor starts it; the
+# re-enable runs only for an administrator who enabled it (debian-installed).
+check "Control Plane: the service is not enabled or started at installation (needs boswas-cp init first)" \
+	bash -c "grep -q \"debian-installed 'boswas-control-plane.service'\" '$ctl/postinst' &&
+		! grep -q 'was-enabled defaults to true' '$ctl/postinst' &&
+		! grep -qE \"deb-systemd-invoke (start|restart) 'boswas-control-plane\" '$ctl/postinst'"
+check "Control Plane: creates its unprivileged service user (sysusers)" grep -q systemd-sysusers "$ctl/postinst"
+check "Control Plane: dashboard and protocol modules shipped in its own module directory" \
+	bash -c "grep -q '\./usr/share/boswas-control-plane/dashboard/app.js$' <<<\"\$1\" && grep -q '\./usr/lib/boswas-control-plane/python/boswas_agent/commands.py$' <<<\"\$1\" && ! grep -q '\./usr/lib/boswas/python/' <<<\"\$(dpkg-deb -c '$server_deb')\"" _ "$listing"
+rm -rf "$ctl"
+
 # Package contents never carry key material
 extract="$(mktemp -d)"
-for d in "$debs"/*.deb; do dpkg-deb -x "$d" "$extract"; done
+for d in "$debs"/*.deb "$server_deb"; do dpkg-deb -x "$d" "$extract"; done
 check_not "no private keys in packages" grep -rqE -- '-----BEGIN ([A-Z]+ )?PRIVATE KEY-----' "$extract"
 check "KDE icon is self-contained (no external <image> references)" \
 	bash -c "! grep -q '<image' '$extract/usr/share/icons/hicolor/scalable/apps/boswas-logo.svg'"
 rm -rf "$extract"
 
 # CLI unit tests (also run during the package build; repeated for a direct report)
-if (cd "$BOSWAS_REPO_ROOT/packages/boswas-cli" && python3 -B -m unittest discover -s tests >/dev/null 2>&1); then
-	pass "boswas CLI unit tests"
+if out="$(cd "$BOSWAS_REPO_ROOT/packages/boswas-cli" && python3 -B -m unittest discover -s tests 2>&1)"; then
+	pass "boswas CLI unit tests ($(grep -oE '^Ran [0-9]+' <<<"$out" | grep -oE '[0-9]+') tests)"
 else
 	fail "boswas CLI unit tests"
 fi

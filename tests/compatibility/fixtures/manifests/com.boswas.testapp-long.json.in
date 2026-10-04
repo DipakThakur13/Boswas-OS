@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "com.boswas.testapp-long",
+  "name": "Boswas Test App (long-running)",
+  "version": "1.0",
+  "publisher": "Boswas OS Platform Team",
+  "description": "Test fixture that keeps running (stop, policy and offline tests).",
+  "runtime": {"type": "wine", "wineVersion": "10"},
+  "architecture": "x86_64",
+  "launch": "C:\\Program Files\\Boswas Test App\\boswas-testapp.exe",
+  "arguments": ["sleep", "180000"],
+  "status": "tested",
+  "installer": {"type": "exe", "sha256": "@SHA256_MAIN@", "silentArgs": ["/S"]},
+  "sandbox": {"network": false, "display": false, "audio": false, "gpu": false, "folders": []}
+}

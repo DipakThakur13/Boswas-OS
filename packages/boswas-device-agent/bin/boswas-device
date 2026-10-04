@@ -1,0 +1,14 @@
+#!/usr/bin/python3 -IB
+"""Boswas device identity, agent status, configuration and enrollment. See `boswas-device --help`."""
+
+import os
+import sys
+
+for _hook in ("BOSWAS_SYSROOT", "BOSWAS_WINAPP_HOME"):
+    os.environ.pop(_hook, None)
+
+sys.path.insert(0, "/usr/lib/boswas/python")
+
+from boswas_agent.cli import main  # noqa: E402
+
+sys.exit(main())

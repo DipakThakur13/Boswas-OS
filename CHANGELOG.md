@@ -2,6 +2,120 @@
 
 All notable changes to Boswas OS. Versions follow `config/boswas/release.conf`.
 
+## [1.0~alpha3] - 2026-10-04 (Device Agent, Compatibility Manager, Control Plane)
+
+### Added
+- **`boswas-device-agent` package**
+  ([docs/device-management/README.md](docs/device-management/README.md)):
+  - **Identity:** a persistent, random device identity
+    (`/var/lib/boswas/agent/identity.json`). It is never derived from
+    hardware identifiers and never silently regenerated; it can be
+    pre-provisioned to survive reinstallation.
+  - **Configuration:** `device.conf` gains agent settings (Control Plane URL
+    and pinned CA, remote commands, heartbeat and inventory intervals,
+    inventory, telemetry, update and logging policies). Validation refuses
+    secrets and insecure files (`boswas-device config validate`).
+  - **Inventory:** allowlisted: OS, Boswas packages, Windows applications
+    aggregated over users, Windows runtime health; with `standard` also CPU,
+    memory, model and disk. Never serial numbers, MAC addresses or user names.
+  - **States:** normalised device states (INITIALIZING, READY, DEGRADED,
+    OFFLINE, UPDATING, ERROR, MAINTENANCE) with validated transitions, and
+    application states.
+  - **`boswas-device-agent.service`** (root, sandboxed):
+    - local management API with kernel-credential authorisation;
+    - Control Plane client over mutual TLS: enrollment with a one-time token
+      and a device-generated EC key, heartbeats, inventory, posture, events;
+    - a bounded offline outbox with capped exponential back-off;
+    - signed policies;
+    - typed command execution, idempotent and expiring;
+    - agent updates through `boswas-agent-update@.service`.
+  - **`boswas-session-agent.service`** (systemd user unit): the backend of
+    the Compatibility Manager, and the executor of remote application
+    commands as the logged-in user, through `boswas-winapp`.
+  - **`boswas-device`:** status, identity, configuration, inventory, policy,
+    commands, events, enrollment, maintenance.
+- **`boswas-compat-manager` package (Compatibility Manager, PySide6):**
+  - **Pages:** dashboard; application library with filters (All, Installed,
+    Running, Updates, Blocked, Repair Required, Unsupported); system status.
+  - **Install:** checks the installer first and refuses 32-bit installers
+    with the product message.
+  - **Application details:** read-only permissions; logs with copy, save and
+    clear.
+  - **Actions:** launch, stop, repair, update and remove (with an explicit
+    removal plan).
+  - **Boundaries:** it never runs Windows code or touches prefixes itself.
+  - **Dolphin action:** "Install with Boswas Compatibility Manager".
+- **Boswas Control Plane** (`control-plane/`, server package
+  `boswas-control-plane`, Python stdlib + SQLite, ADR-0017;
+  [docs/device-management/control-plane.md](docs/device-management/control-plane.md)):
+  - device registry, enrollment with a device CA;
+  - one-time enrollment tokens; an enrolled device re-enrolls only with a
+    token issued for its ID (`token create --device`);
+  - heartbeat, offline detection, inventory and posture;
+  - typed command system (lifecycle QUEUED → SENT → ACKNOWLEDGED → RUNNING →
+    SUCCEEDED/FAILED, EXPIRED, CANCELLED; idempotency keys; expiry);
+  - Ed25519-signed, versioned policies;
+  - catalog of 64-bit applications with stored installers (32-bit entries
+    are UNSUPPORTED_ARCHITECTURE and never installable);
+  - hash-chained audit trail;
+  - operator API tokens with roles;
+  - HTTPS API `/api/v1` on two ports: the device port (mutual TLS) and the
+    operator port (dashboard and operator API; no client-certificate
+    request, so browsers show no certificate prompt);
+  - web dashboard;
+  - `boswas-cp` administration.
+- **`boswas-winapp`:**
+  - new commands `inspect` (dry run), `stop`, `upgrade`, `runtime`, and
+    `logs --launch` and `--clear`;
+  - normalised application states;
+  - MSI architecture detection;
+  - policy keys `BLOCKED_APPLICATIONS`, `ALLOWED_APPLICATIONS`;
+  - the managed policy layer (`/var/lib/boswas/compat/policy.conf`).
+- **Tests:**
+  - unit tests for every component (WinCompat 91, device agent 96,
+    Compatibility Manager 105, Control Plane 31 including the end-to-end
+    agent ↔ Control Plane tests over mutual TLS, CLI 25);
+  - a device management image check;
+  - a device management runtime stage in the image (real Wine, session
+    agent, Compatibility Manager window, Control Plane);
+  - device management checks in the QEMU boot test under AppArmor;
+  - new static checks (64-bit only, no shell execution, no Boswas ID,
+    service hardening).
+- **Documentation:**
+  - device management and Control Plane guides;
+  - ADR-0017 to ADR-0021;
+  - updated compatibility, privacy, security, CLI and build documentation.
+
+### Changed
+- **64-bit only is final (ADR-0014):** Boswas OS v1 runs x86_64 Windows
+  applications only. Every 32-bit refusal says "This application requires
+  32-bit Windows compatibility, which is not supported by Boswas OS." The
+  build fails if `wine32` or i386 multiarch appear.
+- **Agent messages (never deployed in M1):**
+  - the heartbeat is now liveness only (`heartbeat-v2`);
+  - its former content is the status report (`status-report-v1`);
+  - typed commands (`device-command-v2`) replace the draft command set.
+- **`/etc/boswas/device.conf`:** now configuration only; the agent keeps its
+  state in `/var/lib/boswas/agent`. `boswas device status`, `boswas info`
+  and the management checks read the agent's identity and status.
+- **`boswas-winapp` and the agent binaries** ignore the unit-test
+  environment hooks (`BOSWAS_SYSROOT`), so a user cannot point them at a
+  policy of their own.
+- **Image:** `boswas-os` depends on `boswas-device-agent` and
+  `boswas-compat-manager`. The builder image gains PySide6, Qt's offscreen
+  platform and openssl.
+
+### Known limitations
+- **No Boswas ID:** operators use local API tokens; devices use
+  certificates.
+- **Control Plane scope:** single tenant, one policy per device (no group
+  hierarchy), SQLite, no HA.
+- **Device certificates** last 365 days; renewal means re-enrollment.
+  The device key is not TPM-backed yet.
+- **`UPDATE_AGENT`** needs a Boswas APT repository (M7) to deliver new
+  versions.
+- **Remote application commands** go to the active user's session only.
+
 ## [1.0~alpha2] - 2026-10-04 (Milestone 1: Windows compatibility platform)
 
 ### Added

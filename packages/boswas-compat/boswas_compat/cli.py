@@ -10,7 +10,10 @@ Exit codes (stable, docs/administration/cli.md):
   6   busy (the application is running or locked)
   70  internal error
 For `launch`, once the program has started, the exit code is the Windows
-program's own (values above 255 are reported as 1).
+program's own (values above 255 are reported as 1); a launch ended by
+`boswas-winapp stop` exits 0 and reports "stopped": true.
+For `inspect`, 0 means the installer would be accepted and 4 that it would
+be refused; both print the full decision.
 """
 
 from __future__ import annotations
@@ -22,7 +25,7 @@ from datetime import datetime, timezone
 
 from . import JSON_SCHEMA, __version__, ops
 from . import manifest as mf
-from .errors import (EXIT_FAILED, EXIT_OK, EXIT_SOFTWARE, EXIT_USAGE, ManifestError, WinAppError)
+from .errors import (EXIT_FAILED, EXIT_OK, EXIT_REFUSED, EXIT_SOFTWARE, EXIT_USAGE, ManifestError, WinAppError)
 from .executor import sanitize
 
 
@@ -82,6 +85,59 @@ def cmd_install(args, ctx) -> int:
     return EXIT_OK
 
 
+def cmd_inspect(args, ctx) -> int:
+    result = ops.inspect_installer(ctx, args.installer, app_id=args.id, name=args.name, portable=args.portable)
+    inst, arch, decision, app = result["installer"], result["architecture"], result["decision"], result["application"]
+    rows = [
+        ("Installer", inst["file"]),
+        ("Type", inst["kind"] + (f" ({inst['framework']})" if inst.get("framework") else "")),
+        ("Architecture", (arch["detected"] or "not determined") +
+         ("" if arch["supported"] is None else (" (supported)" if arch["supported"] else " (NOT supported)"))),
+        ("SHA-256", inst["sha256"]),
+    ]
+    if app:
+        rows += [("Application", f"{app['name']} ({app['id']})"),
+                 ("Status", f"{app['status']} ({app['manifest_source']})"),
+                 ("Sandbox", _sandbox_text(result["sandbox"]))]
+    rows.append(("Decision", "would be installed" if decision["allowed"] else f"refused: {decision['message']}"))
+    _emit(args, "inspect", result, _rows(rows))
+    return EXIT_OK if decision["allowed"] else EXIT_REFUSED
+
+
+def cmd_upgrade(args, ctx) -> int:
+    result = ops.upgrade(ctx, args.application, args.installer, interactive=args.interactive,
+                         installer_args=args.args or None, timeout=args.timeout, verbose=args.verbose)
+    app = result["application"]
+    _emit(args, "upgrade", result, _rows([
+        ("Application", f"{app['name']} ({app['id']})"),
+        ("Version", f"{result['previous']['version']} -> {app['version']}"),
+        ("Status", f"{app['status']} ({app['manifest_source']})"),
+        ("Log", result["log"]),
+    ]))
+    return EXIT_OK
+
+
+def cmd_stop(args, ctx) -> int:
+    result = ops.stop(ctx, args.application)
+    text = f"stopped {args.application}" if result["stopped"] else f"{args.application} is not running"
+    _emit(args, "stop", result, text)
+    return EXIT_OK
+
+
+def cmd_runtime(args, ctx) -> int:
+    r = ops.runtime_info(ctx)
+    aa = r["apparmor"]
+    _emit(args, "runtime", r, _rows([
+        ("Wine", (r["wine"]["version"] or "unknown version") if r["wine"]["available"] else "MISSING"),
+        ("Architectures", ", ".join(r["architectures"]) + " (64-bit Windows applications only)"),
+        ("Bubblewrap", (r["bubblewrap"]["version"] or "available") if r["bubblewrap"]["available"] else "MISSING"),
+        ("AppArmor", f"{aa['profile']}: {aa['mode']}" + ("" if aa["required"] else " (not required by policy)")),
+        ("Policy", f"{r['policy']['source']}" + (" (managed)" if r["policy"]["managed"] else "")),
+        ("Healthy", "yes" if r["healthy"] else "no"),
+    ]))
+    return EXIT_OK if r["healthy"] else EXIT_FAILED
+
+
 def cmd_remove(args, ctx) -> int:
     _emit(args, "remove", ops.remove(ctx, args.application), None)
     return EXIT_OK
@@ -112,6 +168,10 @@ def cmd_launch(args, ctx) -> int:
     if result["timed_out"]:
         sys.stderr.write(f"boswas-winapp: {args.application} stopped after the {args.timeout:.0f} s timeout\n")
         return EXIT_FAILED
+    if result.get("stopped"):
+        if not args.json:
+            sys.stderr.write(f"boswas-winapp: {args.application} was stopped on request\n")
+        return EXIT_OK
     return code if isinstance(code, int) and 0 <= code <= 255 else EXIT_FAILED
 
 
@@ -144,7 +204,11 @@ def cmd_repair(args, ctx) -> int:
 
 
 def cmd_logs(args, ctx) -> int:
-    kind = "install" if args.install else ("repair" if args.repair else None)
+    if args.clear:
+        result = ops.clear_logs(ctx, args.application)
+        _emit(args, "logs-clear", result, f"removed {result['removed']} log file(s)")
+        return EXIT_OK
+    kind = "install" if args.install else ("repair" if args.repair else ("launch" if args.launch else None))
     if kind is None:
         try:
             result = ops.logs(ctx, args.application, kind="launch", lines=args.lines)
@@ -214,8 +278,28 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--verbose", action="store_true", help="also print the installer's output")
     p.add_argument("--pause", action="store_true", help="wait for Enter before exiting (desktop launcher)")
 
+    p = add("inspect", cmd_inspect, "check an installer without installing it: type, architecture, "
+                                    "catalog match and policy decision (nothing is run)")
+    p.add_argument("installer", help="installer file")
+    p.add_argument("--id", help="application ID it would be installed as")
+    p.add_argument("--name", help="display name for an unlisted application")
+    p.add_argument("--portable", action="store_true", help="the file is the application itself")
+
+    p = add("upgrade", cmd_upgrade, "run a newer installer of an installed application in its prefix; "
+                                    "installer arguments follow --")
+    p.add_argument("application")
+    p.add_argument("installer", help="installer file of the newer version")
+    p.add_argument("--interactive", action="store_true", help="show the installer's own dialogs (no silent switches)")
+    p.add_argument("--timeout", type=float, help="stop the installer after this many seconds")
+    p.add_argument("--verbose", action="store_true", help="also print the installer's output")
+
     p = add("remove", cmd_remove, "remove an application and its prefix")
     p.add_argument("application")
+
+    p = add("stop", cmd_stop, "stop a running application (ends all of its Windows processes)")
+    p.add_argument("application")
+
+    add("runtime", cmd_runtime, "show the Windows compatibility runtime: Wine, bubblewrap, AppArmor, policy")
 
     p = add("list", cmd_list, "list installed Windows applications")
     p.add_argument("--all-users", action="store_true", help="every user's applications (root; inventory)")
@@ -238,6 +322,8 @@ def build_parser() -> argparse.ArgumentParser:
     group = p.add_mutually_exclusive_group()
     group.add_argument("--install", action="store_true", help="the latest installation log")
     group.add_argument("--repair", action="store_true", help="the latest repair log")
+    group.add_argument("--launch", action="store_true", help="the latest launch log only (default: launch, else any)")
+    group.add_argument("--clear", action="store_true", help="delete the application's logs")
     p.add_argument("--lines", type=int, default=200, help="number of lines (0: all; default 200)")
 
     add("catalog", cmd_catalog, "list the compatibility catalog and the effective policy")
@@ -251,7 +337,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-PASSTHROUGH = {"install", "launch"}
+PASSTHROUGH = {"install", "launch", "upgrade"}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -264,7 +350,7 @@ def main(argv: list[str] | None = None) -> int:
         argv, passthrough = argv[:cut], argv[cut + 1:]
     args = parser.parse_args(argv)
     if passthrough and getattr(args, "command", None) not in PASSTHROUGH:
-        parser.error("arguments after -- are only accepted by install and launch")
+        parser.error("arguments after -- are only accepted by install, upgrade and launch")
     args.args = passthrough
     if not hasattr(args, "json"):
         args.json = False

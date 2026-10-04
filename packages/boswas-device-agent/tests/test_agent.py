@@ -15,9 +15,11 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve()
 sys.path.insert(0, str(HERE.parents[1]))
+sys.path.insert(0, str(HERE.parents[2] / "boswas-compat"))     # shared manifest validator
 SCHEMAS = HERE.parents[1] / "schemas"
 
-from boswas_agent import device_identity, interfaces, inventory, models, privacy, user_identity  # noqa: E402
+from boswas_agent import (commands, device_identity, interfaces, inventory, models, privacy,  # noqa: E402
+                          user_identity)
 from boswas_agent.errors import (DeviceConfigError, NotEnrolled, PrivacyViolation,  # noqa: E402
                                  UnsupportedCommand)
 
@@ -69,13 +71,14 @@ HW = models.HardwareFacts(vendor="QEMU", model="Standard PC", firmware_version="
 
 
 def heartbeat(**overrides):
+    """The device status report (Milestone 1 called this message the heartbeat)."""
     values = dict(device_id=device_identity.generate_device_id(), agent_version="1.0~alpha2", os=OS,
                   uptime_seconds=120, compliance=models.ComplianceSummary(models.ComplianceState.COMPLIANT, 8, 2, 0, 0),
                   policy_version="2026.10.1", update=models.UpdateStatus(channel="stable", state="up-to-date"),
                   security={"firewall": "PASS", "apparmor": "PASS", "secure-boot": "WARN"},
                   sent_at="2026-10-04T12:00:00Z")
     values.update(overrides)
-    return models.Heartbeat(**values)
+    return models.StatusReport(**values)
 
 
 class DeviceIdentityTests(unittest.TestCase):
@@ -139,9 +142,18 @@ class DeviceIdentityTests(unittest.TestCase):
 
 class MessageTests(unittest.TestCase):
     def test_heartbeat_matches_schema_and_privacy_allowlist(self):
+        # Milestone 2: the status report carries what the M1 heartbeat did; the
+        # heartbeat itself is liveness only.
         doc = heartbeat().to_dict()
-        validate(doc, schema("heartbeat-v1"))
+        validate(doc, schema("status-report-v1"))
         privacy.check(doc)
+        live = models.Heartbeat(device_id=device_identity.generate_device_id(), agent_version="1.0~alpha3",
+                                state="READY", policy_version="default-1", inventory_revision=4,
+                                sent_at="2026-10-04T12:00:00Z").to_dict()
+        validate(live, schema("heartbeat-v2"))
+        privacy.check(live)
+        self.assertNotIn("os", live)
+        self.assertNotIn("security", live)
 
     def test_privacy_guard_rejects_content(self):
         for extra in ({"file_contents": "secret"}, {"keystrokes": "abc"}, {"screenshot": "..."},
@@ -183,24 +195,30 @@ class MessageTests(unittest.TestCase):
         self.assertEqual(m("COMPLIANT_WITH_WARNINGS"), models.ComplianceState.COMPLIANT)
         self.assertEqual(m("NON_COMPLIANT"), models.ComplianceState.NON_COMPLIANT)
         self.assertEqual(m(None), models.ComplianceState.UNKNOWN)
-        self.assertEqual(set(schema("heartbeat-v1")["properties"]["compliance"]["properties"]["state"]["enum"]),
+        self.assertEqual(set(schema("status-report-v1")["properties"]["compliance"]["properties"]["state"]["enum"]),
                          {s.value for s in models.ComplianceState})
 
     def test_commands(self):
-        cmd_schema = schema("device-command-v1")
-        self.assertEqual(cmd_schema["properties"]["type"]["enum"], [c.value for c in models.CommandType])
-        for forbidden in ("WIPE_DEVICE", "WIPE", "RETIRE_DEVICE", "FACTORY_RESET"):
-            self.assertNotIn(forbidden, [c.value for c in models.CommandType])
-        doc = {"id": "c1", "type": "SYNC_POLICY", "issued_at": "t", "expires_at": "t", "issued_by": "actor:42"}
+        # Milestone 2 typed commands (device-command-v2) replace the M1 draft.
+        cmd_schema = schema("device-command-v2")
+        self.assertEqual(cmd_schema["properties"]["type"]["enum"], [c.value for c in commands.CommandType])
+        for forbidden in ("WIPE_DEVICE", "WIPE", "RETIRE_DEVICE", "FACTORY_RESET", "EXECUTE_SHELL_COMMAND",
+                          "RUN_COMMAND", "SHELL", "EXEC", "RUN_SCRIPT"):
+            self.assertNotIn(forbidden, [c.value for c in commands.CommandType])
+        doc = {"schema": "boswas-device-command/2", "command_id": device_identity.generate_device_id(),
+               "device_id": device_identity.generate_device_id(), "type": "REFRESH_INVENTORY", "payload": {},
+               "created_at": "2026-10-04T12:00:00Z", "expires_at": "2099-10-05T12:00:00Z", "created_by": "operator:42"}
         validate(doc, cmd_schema)
-        self.assertEqual(models.DeviceCommand.from_dict(doc).type, models.CommandType.SYNC_POLICY)
+        doc["expires_at"] = "2026-10-05T12:00:00Z"
+        now = commands.parse_time("2026-10-04T13:00:00Z")
+        self.assertEqual(commands.parse_command(doc, now=now).type, commands.CommandType.REFRESH_INVENTORY)
         with self.assertRaises(UnsupportedCommand):
-            models.DeviceCommand.from_dict({**doc, "type": "WIPE_DEVICE"})
+            commands.parse_command({**doc, "type": "WIPE_DEVICE"}, now=now)
         with self.assertRaises(UnsupportedCommand):
-            models.DeviceCommand.from_dict({**doc, "parameters": {"x": 1}})
+            commands.parse_command({**doc, "payload": {"x": 1}}, now=now)
 
     def test_security_check_ids_match_schema(self):
-        self.assertEqual(schema("heartbeat-v1")["properties"]["security"]["propertyNames"]["enum"],
+        self.assertEqual(schema("status-report-v1")["properties"]["security"]["propertyNames"]["enum"],
                          list(models.SECURITY_CHECK_IDS))
 
 

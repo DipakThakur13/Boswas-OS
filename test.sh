@@ -11,9 +11,11 @@
 # Like build.sh, runs inside the boswas-os-builder container unless the host
 # is Debian 13 and the script runs as root.
 #
-# Stages: static, packages, unit tests, WinCompat fixtures, manifest (network),
-# artifacts, image extraction, ISO contents, image packages, security,
-# compatibility, WinCompat runtime, boot (QEMU, incl. WinCompat under AppArmor).
+# Stages: static, packages, unit tests (incl. agent <-> Control Plane over
+# mutual TLS), WinCompat fixtures, manifest (network), artifacts, image
+# extraction, ISO contents, image packages, security, compatibility, device
+# management (image), WinCompat runtime, device management runtime, boot
+# (QEMU, incl. WinCompat and device management under AppArmor).
 # Report: build/logs/test-report-<timestamp>.txt; screenshots and serial logs
 # of the boot test: build/logs/boot-test/.
 set -Eeuo pipefail
@@ -29,7 +31,7 @@ while [ $# -gt 0 ]; do
 		--boot-only) stages_mode="boot-only" ;;
 		--packages-only) stages_mode="packages-only" ;;
 		--iso) iso="${2:?--iso needs a path}"; shift ;;
-		-h|--help) sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+		-h|--help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
 		*) die "unknown option: $1" ;;
 	esac
 	shift
@@ -86,7 +88,7 @@ has_iso=false
 if [ "$stages_mode" != "boot-only" ]; then
 	run_stage "static checks" bash "$t/static/test_sources.sh"
 	run_stage "Boswas packages" bash "$t/packages/test_packages.sh"
-	run_stage "unit tests (WinCompat, device agent)" bash "$t/unit/test_units.sh"
+	run_stage "unit tests (WinCompat, device agent, Compatibility Manager, Control Plane)" bash "$t/unit/test_units.sh"
 fi
 if [ "$stages_mode" = "all" ] || [ "$stages_mode" = "no-boot" ] || [ "$stages_mode" = "boot-only" ]; then
 	$has_iso && run_stage "WinCompat test fixtures" bash "$t/compatibility/build_fixtures.sh"
@@ -100,7 +102,9 @@ if [ "$stages_mode" = "all" ] || [ "$stages_mode" = "no-boot" ]; then
 		run_stage "image packages" bash "$t/packages/test_image_packages.sh"
 		run_stage "security baseline" bash "$t/security/test_image_security.sh"
 		run_stage "compatibility" bash "$t/compatibility/test_wine.sh"
+		run_stage "device management (image)" bash "$t/device/test_device_image.sh"
 		run_stage "WinCompat runtime (install, isolate, launch)" bash "$t/compatibility/test_winapp_runtime.sh"
+		run_stage "device management runtime (agent, session agent, Control Plane)" bash "$t/device/test_device_runtime.sh"
 	else
 		printf 'SKIP\tbuild\timage tests (no ISO at %s; run ./build.sh)\n' "$ISO" >> "$BOSWAS_TEST_REPORT"
 		warn "no ISO at $ISO - image tests skipped (run ./build.sh first)"

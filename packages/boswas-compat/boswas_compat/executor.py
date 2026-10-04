@@ -42,17 +42,24 @@ class RunResult:
     timed_out: bool = False
     duration: float = 0.0
     log: str | None = None
+    stopped: bool = False
 
     def to_dict(self) -> dict:
         return {"exit_code": self.exit_code, "confinement": self.confinement, "refused": self.refused,
-                "timed_out": self.timed_out, "duration_seconds": round(self.duration, 1), "log": self.log}
+                "timed_out": self.timed_out, "stopped": self.stopped,
+                "duration_seconds": round(self.duration, 1), "log": self.log}
 
 
 class Executor:
     """Runs bwrap commands. Unit tests replace it with a fake."""
 
     def run(self, argv: list[str], log_path: Path, *, mirror: TextIO | None = None,
-            timeout: float | None = None, title: str = "") -> RunResult:
+            timeout: float | None = None, title: str = "", stoppable: bool = False) -> RunResult:
+        """Run argv, logging its output.
+
+        stoppable: SIGTERM to this process (boswas-winapp stop) ends the
+        sandbox like a timeout does, and the result reports stopped=True.
+        """
         start = time.monotonic()
         result = RunResult(exit_code=None, log=str(log_path))
         written = 0
@@ -62,20 +69,32 @@ class Executor:
             proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                     stderr=subprocess.STDOUT, close_fds=True)
             timers: list[threading.Timer] = []
+
+            def terminate():
+                proc.send_signal(signal.SIGTERM)
+                # bwrap (--die-with-parent) takes the sandbox down with it;
+                # escalate if it does not stop.
+                kill = threading.Timer(KILL_GRACE_SECONDS, lambda: proc.poll() is None and proc.kill())
+                kill.daemon = True
+                timers.append(kill)
+                kill.start()
+
             if timeout:
                 def expire():
                     result.timed_out = True
-                    proc.send_signal(signal.SIGTERM)
-                    # bwrap (--die-with-parent) takes the sandbox down with it;
-                    # escalate if it does not stop.
-                    kill = threading.Timer(KILL_GRACE_SECONDS, lambda: proc.poll() is None and proc.kill())
-                    kill.daemon = True
-                    timers.append(kill)
-                    kill.start()
+                    terminate()
                 timer = threading.Timer(timeout, expire)
                 timer.daemon = True
                 timers.append(timer)
                 timer.start()
+            previous_handler, handler_installed = None, False
+            if stoppable and threading.current_thread() is threading.main_thread():
+                def on_stop(_signum, _frame):
+                    if not result.stopped:
+                        result.stopped = True
+                        terminate()
+                previous_handler = signal.signal(signal.SIGTERM, on_stop)
+                handler_installed = True
             try:
                 assert proc.stdout is not None
                 for raw in proc.stdout:
@@ -98,6 +117,8 @@ class Executor:
                 proc.wait()
                 raise
             finally:
+                if handler_installed:
+                    signal.signal(signal.SIGTERM, previous_handler)
                 for t in timers:
                     t.cancel()
                 if proc.stdout is not None:
@@ -107,6 +128,6 @@ class Executor:
                 # a Windows program printing the marker text does not.
                 result.refused = None
             result.duration = time.monotonic() - start
-            log.write(f"=== exit {result.exit_code}{' (timed out)' if result.timed_out else ''} "
-                      f"after {result.duration:.1f} s\n")
+            how = " (timed out)" if result.timed_out else (" (stopped on request)" if result.stopped else "")
+            log.write(f"=== exit {result.exit_code}{how} after {result.duration:.1f} s\n")
         return result

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Compatibility Manager
+GenericName=Windows Application Manager
+Comment=Install, run and manage Windows applications in isolated Boswas sandboxes
+Exec=boswas-compat-manager
+Icon=boswas-compat-manager
+Terminal=false
+StartupNotify=true
+Categories=System;Settings;
+Keywords=Windows;exe;msi;compatibility;applications;install;

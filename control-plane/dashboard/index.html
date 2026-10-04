@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="light dark">
+<title>Boswas Control Plane</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="app.css">
+<script src="app.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main" id="skip-link">Skip to content</a>
+
+<header class="topbar">
+  <button type="button" class="nav-toggle" id="nav-toggle" aria-controls="sidebar" aria-expanded="false" hidden>
+    <span class="nav-toggle-bars" aria-hidden="true"></span>
+    <span class="visually-hidden">Menu</span>
+  </button>
+  <a class="brand" href="#/overview">
+    <img class="brand-mark" src="favicon.svg" alt="" width="28" height="28">
+    <span class="brand-name">Boswas</span>
+    <span class="brand-product">Control Plane</span>
+  </a>
+  <div class="session" id="session" hidden>
+    <span class="session-actor" id="session-actor"></span>
+    <span class="badge badge--neutral" id="session-role"></span>
+    <button type="button" class="button button--ghost-inverse" id="sign-out">Sign out</button>
+  </div>
+</header>
+
+<div class="layout" id="layout" hidden>
+  <nav class="sidebar" id="sidebar" aria-label="Sections">
+    <ul class="nav-list">
+      <li><a href="#/overview" data-nav="overview">Overview</a></li>
+      <li><a href="#/devices" data-nav="devices">Devices</a></li>
+      <li><a href="#/applications" data-nav="applications">Applications</a></li>
+      <li><a href="#/policies" data-nav="policies">Policies</a></li>
+      <li><a href="#/commands" data-nav="commands">Commands</a></li>
+      <li><a href="#/events" data-nav="events">Audit trail</a></li>
+      <li data-role="admin"><a href="#/enrollment" data-nav="enrollment">Enrollment</a></li>
+      <li data-role="admin"><a href="#/operators" data-nav="operators">Operators</a></li>
+    </ul>
+    <p class="sidebar-note">Typed device management only. Every change is recorded in the audit trail.</p>
+  </nav>
+  <main class="main" id="main" tabindex="-1">
+    <div class="refresh-status" id="refresh-status" aria-live="off"></div>
+    <div id="view" class="view" aria-busy="false"></div>
+  </main>
+</div>
+
+<section class="signin" id="signin" aria-labelledby="signin-title" hidden>
+  <div class="signin-card">
+    <img class="signin-mark" src="favicon.svg" alt="" width="48" height="48">
+    <h1 id="signin-title">Sign in to the Control Plane</h1>
+    <p class="muted">Paste your operator API token. It is kept only for this browser tab and is forgotten when you sign out or close the tab.</p>
+    <form id="signin-form" novalidate autocomplete="off">
+      <label for="signin-token">Operator API token</label>
+      <input id="signin-token" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="bcp_…" aria-describedby="signin-help signin-error" required>
+      <p class="hint" id="signin-help">Issued by an administrator with <code>boswas-cp operator add</code>.</p>
+      <p class="form-error" id="signin-error" role="alert" hidden></p>
+      <button type="submit" class="button button--primary" id="signin-submit">Sign in</button>
+    </form>
+  </div>
+</section>
+
+<div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+
+<noscript>
+  <p class="noscript">The Boswas Control Plane dashboard needs JavaScript. The HTTP API at /api/v1 can be used without it.</p>
+</noscript>
+</body>
+</html>

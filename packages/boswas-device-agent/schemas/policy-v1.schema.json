@@ -1,0 +1,191 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.boswas.invalid/device/policy-v1.schema.json",
+  "title": "Device policy",
+  "description": "Signed by the Control Plane policy key (signed-policy-v1). version is '<name>-<sequence>'. A policy can never disable AppArmor confinement.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "name",
+    "sequence",
+    "version",
+    "issued_at",
+    "description",
+    "compat",
+    "agent",
+    "updates"
+  ],
+  "properties": {
+    "schema": {
+      "const": "boswas-policy/1"
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,31}$"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "version": {
+      "type": "string"
+    },
+    "issued_at": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 500
+    },
+    "compat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "allowed_statuses",
+        "unlisted_apps",
+        "unlisted_network",
+        "unlisted_devices",
+        "unlisted_folders",
+        "require_apparmor",
+        "max_installer_mb",
+        "blocked_applications",
+        "allowed_applications"
+      ],
+      "properties": {
+        "allowed_statuses": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "unknown",
+              "untested",
+              "experimental",
+              "tested",
+              "approved"
+            ]
+          }
+        },
+        "unlisted_apps": {
+          "enum": [
+            "allow",
+            "deny"
+          ]
+        },
+        "unlisted_network": {
+          "type": "boolean"
+        },
+        "unlisted_devices": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "display",
+              "audio",
+              "gpu"
+            ]
+          }
+        },
+        "unlisted_folders": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "documents",
+              "downloads",
+              "desktop",
+              "pictures",
+              "music",
+              "videos"
+            ]
+          }
+        },
+        "require_apparmor": {
+          "const": true
+        },
+        "max_installer_mb": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65536
+        },
+        "blocked_applications": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$"
+          }
+        },
+        "allowed_applications": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "agent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "heartbeat_seconds",
+        "inventory_seconds",
+        "allowed_commands"
+      ],
+      "properties": {
+        "heartbeat_seconds": {
+          "type": "integer",
+          "minimum": 30,
+          "maximum": 86400
+        },
+        "inventory_seconds": {
+          "type": "integer",
+          "minimum": 300,
+          "maximum": 604800
+        },
+        "allowed_commands": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "INSTALL_APPLICATION",
+              "UPDATE_APPLICATION",
+              "REMOVE_APPLICATION",
+              "LAUNCH_APPLICATION",
+              "STOP_APPLICATION",
+              "REPAIR_APPLICATION",
+              "REFRESH_INVENTORY",
+              "APPLY_POLICY",
+              "UPDATE_AGENT"
+            ]
+          }
+        }
+      }
+    },
+    "updates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "agent_updates"
+      ],
+      "properties": {
+        "agent_updates": {
+          "enum": [
+            "manual",
+            "managed"
+          ]
+        }
+      }
+    }
+  }
+}
