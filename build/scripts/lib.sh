@@ -54,7 +54,7 @@ git_meta() {
 config_hash() {
 	(
 		cd "$BOSWAS_REPO_ROOT" &&
-		find build.sh build/scripts build/container config desktop installer packages security \
+		find build.sh build/scripts build/container compatibility config desktop installer packages security \
 			-type f ! -name '*.pyc' ! -path '*/__pycache__/*' -print0 2>/dev/null |
 		LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1
 	)

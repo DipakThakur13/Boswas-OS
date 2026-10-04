@@ -1,3 +1,12 @@
+boswas-cli (1.0~alpha2) trixie; urgency=medium
+
+  * boswas winapp: run boswas-winapp (boswas-compat) when installed.
+  * boswas device status: show DEVICE_PROFILE and DEVICE_CERTIFICATE.
+  * New posture check winapp-confinement (boswas-winapp AppArmor profile).
+  * Refer to the milestone roadmap in status notes.
+
+ -- Boswas OS Platform Team <os-platform@boswas.invalid>  Sun, 04 Oct 2026 12:00:00 +0000
+
 boswas-cli (1.0~alpha1) trixie; urgency=medium
 
   * Initial Boswas OS v1 alpha release.

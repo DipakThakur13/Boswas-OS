@@ -4,7 +4,7 @@
 # Usage: build-packages.sh OUTPUT_DIR
 #
 # Packages reference shared sources elsewhere in the monorepo (security/,
-# desktop/, config/boswas/, build/scripts/), so the relevant parts of the
+# desktop/, compatibility/, config/boswas/, build/scripts/), so the relevant parts of the
 # repository are staged into a scratch tree with the same layout and each
 # package is built there with dpkg-buildpackage. The checkout is never
 # modified, and the build does not depend on its absolute path.
@@ -22,7 +22,8 @@ trap 'rm -rf "$stage"' EXIT
 rsync -a --exclude '__pycache__' \
 	--include '/build/' --include '/build/scripts/***' --exclude '/build/*' \
 	--include '/config/' --include '/config/boswas/***' --exclude '/config/*' \
-	--include '/desktop/***' --include '/installer/***' --include '/packages/***' --include '/security/***' \
+	--include '/compatibility/***' --include '/desktop/***' --include '/installer/***' \
+	--include '/packages/***' --include '/security/***' \
 	--exclude '/*' \
 	"$BOSWAS_REPO_ROOT/" "$stage/"
 
@@ -31,7 +32,8 @@ rsync -a --exclude '__pycache__' \
 # packages themselves install every file with an explicit mode.
 find "$stage" -type d -exec chmod 0755 {} +
 find "$stage" -type f -exec chmod 0644 {} +
-chmod 0755 "$stage"/build/scripts/*.sh "$stage"/build/scripts/*.py "$stage"/packages/*/debian/rules
+chmod 0755 "$stage"/build/scripts/*.sh "$stage"/build/scripts/*.py "$stage"/packages/*/debian/rules \
+	"$stage"/compatibility/runners/*
 
 # Reproducible package timestamps.
 export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git -c safe.directory='*' -C "$BOSWAS_REPO_ROOT" log -1 --format=%ct 2>/dev/null || date +%s)}"

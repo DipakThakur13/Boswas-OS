@@ -235,6 +235,40 @@ class CommandTests(CliTestCase):
             self.assertEqual(code, 69)
             self.assertIn("not available", err)
 
+    def test_device_status_shows_profile_and_certificate_reference(self):
+        self.fs.write("/etc/boswas/device.conf",
+                      'DEVICE_PROFILE="engineering"\nDEVICE_CERTIFICATE="/var/lib/boswas/agent/device.crt"\n')
+        code, out, _ = self.run_cli("--json", "device", "status")
+        device = json.loads(out)["device"]
+        self.assertEqual((device["device_profile"], device["device_certificate"]),
+                         ("engineering", "/var/lib/boswas/agent/device.crt"))
+        code, out, _ = self.run_cli("device", "status")
+        self.assertIn("Profile:", out)
+
+    def test_winapp_delegates_to_boswas_winapp(self):
+        record = self.fs.root / "winapp-args"
+        tool = self.fs.write("/usr/bin/boswas-winapp", f'#!/bin/sh\necho "$@" > "{record}"\nexit 3\n')
+        tool.chmod(0o755)
+        code, _, _ = self.run_cli("--json", "winapp", "status", "com.example.app")
+        self.assertEqual(code, 3)
+        self.assertEqual(record.read_text().strip(), "--json status com.example.app")
+
+    def test_winapp_confinement_check(self):
+        self.assertEqual(checks.winapp_confinement().status, checks.INFO)        # boswas-compat absent
+        self.fs.write(checks.WINAPP_PROFILE_FILE, "profile boswas-winapp {}\n")
+        with mock.patch.object(system, "is_root", return_value=False):
+            result = checks.winapp_confinement()
+        self.assertEqual((result.status, result.scored), (checks.UNKNOWN, False))
+        with mock.patch.object(system, "is_root", return_value=True):
+            self.fs.write(checks.APPARMOR_PROFILES, "firefox (unconfined)\nboswas-winapp (enforce)\n")
+            self.assertEqual(checks.winapp_confinement().status, checks.PASS)
+            self.fs.write(checks.APPARMOR_PROFILES, "boswas-winapp (complain)\n")
+            self.assertEqual(checks.winapp_confinement().status, checks.WARN)
+            self.fs.write(checks.APPARMOR_PROFILES, "firefox (unconfined)\n")
+            self.assertEqual(checks.winapp_confinement().status, checks.WARN)
+            self.fs.mkdir("/run/live")
+            self.assertEqual(checks.winapp_confinement().status, checks.INFO)
+
     def test_usage_errors(self):
         with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
             with self.assertRaises(SystemExit) as ctx:

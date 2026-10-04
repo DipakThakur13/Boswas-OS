@@ -1,0 +1,47 @@
+#!/usr/bin/make -f
+# Boswas WinCompat. Code lives in this package; shipped data (manifests,
+# policy, AppArmor profile, runner, Wine runtime facts) in compatibility/ at
+# the repository root, two levels up. Every file is installed with an
+# explicit mode.
+
+REPO   := $(abspath $(CURDIR)/../..)
+COMPAT := $(REPO)/compatibility
+PKG    := debian/boswas-compat
+SHARE  := $(PKG)/usr/share/boswas/compat
+PYDIR  := $(PKG)/usr/lib/boswas/python/boswas_compat
+
+%:
+	dh $@
+
+override_dh_auto_test:
+ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+	python3 -B -m unittest discover -s tests -v
+endif
+
+override_dh_auto_install:
+	# Command and Python modules (private module directory, like boswas-cli)
+	install -D -m 0755 bin/boswas-winapp $(PKG)/usr/bin/boswas-winapp
+	install -d -m 0755 $(PYDIR)
+	install -m 0644 boswas_compat/*.py $(PYDIR)/
+	# In-sandbox runner: the AppArmor profile attaches to this path
+	install -D -m 0755 $(COMPAT)/runners/winapp-exec $(PKG)/usr/lib/boswas/compat/winapp-exec
+	# AppArmor profile and policy (conffiles)
+	install -D -m 0644 $(COMPAT)/policies/apparmor/boswas-winapp $(PKG)/etc/apparmor.d/boswas-winapp
+	install -D -m 0644 $(COMPAT)/policies/policy.conf $(PKG)/etc/boswas/compat/policy.conf
+	install -d -m 0755 $(PKG)/etc/boswas/compat/manifests
+	# Runtime facts, installer types, prefix defaults, manifest schema, catalog
+	install -D -m 0644 $(COMPAT)/wine/runtime.conf $(SHARE)/runtime.conf
+	install -D -m 0644 $(COMPAT)/installers/types.json $(SHARE)/installers.json
+	install -D -m 0644 $(COMPAT)/prefixes/defaults.reg $(SHARE)/prefix-defaults.reg
+	install -D -m 0644 $(COMPAT)/manifests/schema/manifest-v1.schema.json $(SHARE)/schema/manifest-v1.schema.json
+	install -d -m 0755 $(SHARE)/manifests
+	for m in $(wildcard $(COMPAT)/manifests/catalog/*.json); do \
+		install -m 0644 $$m $(SHARE)/manifests/ || exit 1; \
+	done
+	# "Run with Boswas" handler for Windows installers
+	install -D -m 0644 $(COMPAT)/desktop/boswas-winapp-install.desktop \
+		$(PKG)/usr/share/applications/boswas-winapp-install.desktop
+
+override_dh_installdeb:
+	dh_apparmor --profile-name=boswas-winapp -pboswas-compat
+	dh_installdeb

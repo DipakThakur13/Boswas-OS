@@ -1,0 +1,19 @@
+REGEDIT4
+
+; Boswas WinCompat prefix defaults (installed as
+; /usr/share/boswas/compat/prefix-defaults.reg). Imported once into every new
+; per-application prefix by `boswas-winapp install`, right after wineboot.
+
+; A crashing application must not block on Wine's interactive crash dialog
+; (unattended installs, headless runs). Crashes are recorded in the app log.
+[HKEY_CURRENT_USER\Software\Wine\WineDbg]
+"ShowCrashDialog"=dword:00000000
+
+; Persist the runtime's mandatory DLL overrides in the prefix as well, so they
+; also hold if the prefix is ever opened outside boswas-winapp:
+;   winemenubuilder.exe  no host desktop entries or MIME associations
+;   mscoree, mshtml      no Mono / Gecko download prompts
+[HKEY_CURRENT_USER\Software\Wine\DllOverrides]
+"winemenubuilder.exe"=""
+"mscoree"=""
+"mshtml"=""

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Run with Boswas
+GenericName=Windows application installer
+Comment=Install a Windows application into an isolated Boswas compatibility sandbox
+Exec=boswas-winapp install --pause %f
+Icon=application-x-ms-dos-executable
+Terminal=true
+NoDisplay=true
+MimeType=application/x-msdownload;application/x-ms-dos-executable;application/vnd.microsoft.portable-executable;application/x-msi;
+Categories=System;

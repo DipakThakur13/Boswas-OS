@@ -10,6 +10,7 @@ Package: boswas-os
 Architecture: all
 Depends: boswas-branding (>= 1.0~alpha1),
          boswas-cli (>= 1.0~alpha1),
+         boswas-compat (>= 1.0~alpha2),
          boswas-security (>= 1.0~alpha1),
          ${misc:Depends}
 Description: Boswas OS release identity and core configuration

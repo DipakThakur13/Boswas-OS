@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "com.boswas.testapp-net",
+  "name": "Boswas Test App (network)",
+  "version": "1.0",
+  "runtime": {"type": "wine", "wineVersion": "10"},
+  "architecture": "x86_64",
+  "launch": "boswas-testapp.exe",
+  "status": "experimental",
+  "installer": {"type": "exe", "sha256": "@SHA256_MAIN@", "silentArgs": ["/S"]},
+  "sandbox": {"network": true, "display": false}
+}

@@ -15,7 +15,8 @@ UPDATE_CONF = "/etc/boswas/update.conf"
 
 # Only these device.conf keys are ever displayed. Anything else (for example a
 # future credential reference) is ignored so it can never leak via the CLI.
-DEVICE_KEYS = ("DEVICE_ID", "TENANT_ID", "CONTROL_PLANE_URL", "ENROLLMENT_STATE", "POLICY_VERSION")
+DEVICE_KEYS = ("DEVICE_ID", "TENANT_ID", "CONTROL_PLANE_URL", "ENROLLMENT_STATE", "POLICY_VERSION",
+               "DEVICE_PROFILE", "DEVICE_CERTIFICATE")
 
 
 def architecture() -> str:

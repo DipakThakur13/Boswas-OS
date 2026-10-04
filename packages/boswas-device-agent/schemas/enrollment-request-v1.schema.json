@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.boswas.invalid/device/enrollment-request-v1.schema.json",
+  "title": "Device enrollment request (API v1)",
+  "description": "POST /api/v1/devices/enroll. The enrollment token is single-use and never stored on the device. Hardware facts are inventory attributes, never authentication.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "device_id",
+    "csr_pem",
+    "os",
+    "hardware",
+    "profile",
+    "enrollment_token"
+  ],
+  "properties": {
+    "schema": {
+      "const": "boswas-enrollment-request/1"
+    },
+    "device_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "csr_pem": {
+      "type": "string",
+      "pattern": "^-----BEGIN CERTIFICATE REQUEST-----"
+    },
+    "os": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version",
+        "version_id",
+        "build_id",
+        "debian_version",
+        "kernel"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "version_id": {
+          "type": "string"
+        },
+        "build_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "debian_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kernel": {
+          "type": "string"
+        }
+      }
+    },
+    "hardware": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "vendor",
+        "model",
+        "firmware_version",
+        "cpu",
+        "memory_gib",
+        "tpm_version",
+        "boot_mode"
+      ],
+      "properties": {
+        "vendor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "firmware_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cpu": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "memory_gib": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "tpm_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "boot_mode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "profile": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "enrollment_token": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

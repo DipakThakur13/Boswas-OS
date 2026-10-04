@@ -11,7 +11,10 @@ Scenario "uefi-secureboot"
 Scenario "serial"
     Boots the ISO's live kernel directly with a serial console, logs in as the
     live user and runs functional checks: boswas commands, firewall, AppArmor,
-    audit, KDE, Wine, network. Finally powers the VM off.
+    audit, KDE, Wine, network. With --fixtures-iso (built by
+    tests/compatibility/build_fixtures.sh) it also installs and launches the
+    Windows test application with boswas-winapp under the real kernel's
+    AppArmor (the boswas-winapp profile enforcing). Finally powers the VM off.
 
 Uses KVM when /dev/kvm is available, TCG otherwise (much slower).
 
@@ -324,16 +327,129 @@ def scenario_uefi(iso: Path, workdir: Path, outdir: Path, timeout: float) -> Non
         vm.stop(timeout=30)
 
 
-def scenario_serial(iso: Path, workdir: Path, outdir: Path, timeout: float) -> None:
+WINAPP = "com.boswas.testapp"
+WINAPP_PORT = 47011
+
+
+def probe_results(output: str) -> dict:
+    """{'read Z:/x': 'BLOCKED', ...} from the Windows test application's output."""
+    found = {}
+    for line in output.splitlines():
+        parts = line.split()
+        if len(parts) >= 4 and parts[0] == "PROBE":
+            found[f"{parts[1]} {parts[2]}"] = parts[3]
+    return found
+
+
+def winapp_checks(sh: "Shell", outdir: Path, fixtures: bool, timeout: float) -> None:
+    """WinCompat on the running system: confinement by the real kernel's AppArmor."""
+    rc, out = sh.run("boswas-winapp --version")
+    check(rc == 0 and out.strip().startswith("boswas-winapp "), f"boswas-winapp runs ({out.strip()})")
+    rc, out = sh.run("xdg-mime query default application/x-msdownload")
+    check("boswas-winapp-install.desktop" in out, "Windows executables open with \"Run with Boswas\"")
+    # Debian does not load AppArmor profiles on live media; boswas-compat's
+    # postinst loaded it during the image build only into the build kernel.
+    # Load it like apparmor.service does on an installed system.
+    rc, out = sh.run("sudo -n apparmor_parser -r -W /etc/apparmor.d/boswas-winapp && "
+                     "sudo -n grep '^boswas-winapp ' /sys/kernel/security/apparmor/profiles")
+    if not check(rc == 0 and "boswas-winapp (enforce)" in out,
+                 "AppArmor profile boswas-winapp loads into the running kernel in enforce mode"):
+        return
+    if not fixtures:
+        record("SKIP", "WinCompat install/launch in the VM (no --fixtures-iso)")
+        return
+    rc, _ = sh.run("sudo -n mount -o ro /dev/sr1 /mnt && sudo -n install -m 0644 /mnt/manifests/*.json "
+                   "/etc/boswas/compat/manifests/")
+    if not check(rc == 0, "WinCompat fixtures available (second CD) and manifests installed"):
+        return
+    rc, out = sh.run(f"sudo -n boswas-winapp install /mnt/boswas-testapp.exe --id {WINAPP}; echo rc=$?")
+    check("rc=4" in out and "root" in out, "boswas-winapp refuses to install Windows software as root")
+
+    # Negative: without the enforcing profile no Windows code runs at all.
+    rc, out = sh.run(f"sudo -n apparmor_parser -R /etc/apparmor.d/boswas-winapp; "
+                     f"boswas-winapp install /mnt/boswas-testapp.exe --id {WINAPP}; echo rc=$?; "
+                     f"boswas-winapp remove {WINAPP} >/dev/null; "
+                     f"sudo -n apparmor_parser -r -W /etc/apparmor.d/boswas-winapp", timeout=600)
+    check("rc=5" in out and "not enforcing" in out,
+          "without the AppArmor profile Windows code is refused (REQUIRE_APPARMOR)")
+
+    start = time.time()
+    rc, out = sh.run(f"boswas-winapp install /mnt/boswas-testapp.exe --id {WINAPP}; echo rc=$?", timeout=timeout)
+    (outdir / "winapp-install.txt").write_text(out + "\n")
+    if not check("rc=0" in out, f"boswas-winapp installs the Windows test application ({int(time.time() - start)} s)"):
+        rc, log = sh.run(f"boswas-winapp logs {WINAPP} --install --lines 40")
+        (outdir / "winapp-install.log").write_text(log + "\n")
+        return
+    rc, out = sh.run(f"stat -c '%U %a' ~/.local/share/boswas/wine/{WINAPP} && "
+                     f"test -f ~/.local/share/boswas/wine/{WINAPP}/sandbox/prefix/system.reg && echo prefix-ok")
+    check("boswas 700" in out and "prefix-ok" in out, "isolated per-application prefix owned by the user (0700)")
+    rc, out = sh.run("boswas-winapp --json list")
+    check(f'"id": "{WINAPP}"' in out, "boswas-winapp list shows the application")
+
+    sh.run(f"python3 -c 'import socket;s=socket.socket();s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1);"
+           f"s.bind((\"127.0.0.1\",{WINAPP_PORT}));s.listen(9)\nwhile 1: s.accept()[0].close()' "
+           f">/dev/null 2>&1 & sleep 1")
+    rc, out = sh.run(f"boswas-winapp launch {WINAPP} -- read Z:/home/boswas/.bashrc write Z:/home/boswas/pwned.txt "
+                     f"read Z:/etc/boswas/device.conf connect 127.0.0.1 {WINAPP_PORT} "
+                     f"write C:/users/boswas/AppData/Roaming/probe.txt; echo rc=$?", timeout=timeout)
+    (outdir / "winapp-launch.txt").write_text(out + "\n")
+    check("BOSWAS-TESTAPP OK" in out and "rc=0" in out, "boswas-winapp launch runs the Windows application")
+    probes = probe_results(out)
+    for key, expected, text in (
+            ("read Z:/home/boswas/.bashrc", "BLOCKED", "the user's home is not reachable"),
+            ("write Z:/home/boswas/pwned.txt", "BLOCKED", "cannot write into the user's home"),
+            ("read Z:/etc/boswas/device.conf", "BLOCKED", "AppArmor denies files outside the profile"),
+            (f"connect 127.0.0.1:{WINAPP_PORT}", "BLOCKED", "no network unless the manifest grants it"),
+            ("write C:/users/boswas/AppData/Roaming/probe.txt", "ALLOWED", "positive control: own prefix writable")):
+        check(probes.get(key) == expected, f"WinCompat isolation: {text} ({key}: {probes.get(key)})")
+    rc, out = sh.run(f"boswas-winapp --json status {WINAPP}")
+    check('"confinement": "boswas-winapp (enforce)"' in out,
+          "the Windows application ran confined by AppArmor (boswas-winapp, enforce)")
+    rc, out = sh.run("sudo -n grep -h 'apparmor=\"DENIED\"' /var/log/audit/audit.log | grep -c 'profile=\"boswas-winapp\"'")
+    sh_out = sh.run("sudo -n grep -h 'apparmor=\"DENIED\"' /var/log/audit/audit.log | grep 'profile=\"boswas-winapp\"' "
+                    "| tail -50")[1]
+    (outdir / "winapp-apparmor-denials.txt").write_text(sh_out + "\n")
+    log(f"boswas-winapp AppArmor denials recorded: {out.strip()} (build/logs/boot-test/winapp-apparmor-denials.txt)")
+    rc, out = sh.run(f"boswas-winapp remove {WINAPP} && test ! -e ~/.local/share/boswas/wine/{WINAPP} && echo removed")
+    check("removed" in out, "boswas-winapp remove deletes the application and its prefix")
+
+
+def winapp_gui_check(vm: "VM", sh: "Shell", outdir: Path, timeout: float) -> None:
+    """A Windows GUI program on the live Plasma session's (Xwayland) display, confined."""
+    rc, env = sh.run("p=$(pgrep -u boswas -x plasmashell | head -1); [ -n \"$p\" ] && "
+                     "tr '\\0' '\\n' < /proc/$p/environ | grep -E '^(DISPLAY|XAUTHORITY)=' | tr '\\n' ' '")
+    if "DISPLAY=" not in env:
+        record("SKIP", "WinCompat GUI check (no X display in the Plasma session)")
+        return
+    rc, out = sh.run("boswas-winapp install /mnt/boswas-testapp-unlisted.exe --id local.gui-test -- /S; echo rc=$?",
+                     timeout=timeout)
+    if not check("rc=0" in out, "an unlisted Windows application installs (policy: no network; display, audio, GPU)"):
+        return
+    sh.run(f"env {env.strip()} boswas-winapp launch local.gui-test --quiet --timeout 90 "
+           f"--exe 'C:\\windows\\notepad.exe' >/dev/null 2>&1 &")
+    vm.pump(70)
+    to_png(vm.screendump("winapp-gui"), outdir / "winapp-gui.png")
+    vm.pump(45)
+    rc, out = sh.run("boswas-winapp --json status local.gui-test")
+    # Without a working display Notepad exits at once; running until the
+    # 90 s timeout means its window loop ran.
+    check('"confinement": "boswas-winapp (enforce)"' in out and '"timed_out": true' in out,
+          "a Windows GUI program (Notepad) runs on the session's display, confined (screenshot winapp-gui.png)")
+    sh.run("boswas-winapp remove local.gui-test")
+
+
+def scenario_serial(iso: Path, workdir: Path, outdir: Path, timeout: float, fixtures: Path | None = None) -> None:
     kernel = iso_extract(iso, workdir, "vmlinuz*")
     initrd = iso_extract(iso, workdir, "initrd.img*")
     if not (kernel and initrd):
         check(False, "serial boot: live kernel and initrd found on the ISO")
         return
     append = "boot=live components quiet hostname=boswas-device username=boswas console=tty0 console=ttyS0,115200n8"
+    extra = ["-drive", f"file={fixtures},media=cdrom,readonly=on,if=ide"] if fixtures else []
     vm = VM("serial", workdir, outdir, [
         "-machine", "q35",
         "-drive", f"file={iso},media=cdrom,readonly=on,if=ide",
+        *extra,
         "-kernel", str(kernel), "-initrd", str(initrd), "-append", append,
     ])
     try:
@@ -410,6 +526,8 @@ def scenario_serial(iso: Path, workdir: Path, outdir: Path, timeout: float) -> N
         record("PASS" if "resolved" in out else "SKIP",
                "network: DNS resolution works" if "resolved" in out else "network: DNS resolution (no upstream network)")
 
+        winapp_checks(sh, outdir, fixtures is not None, timeout)
+
         # The graphical session (SDDM autologin -> Plasma) under emulation may
         # take a while; give it time, then capture the screen.
         plasma = False
@@ -424,6 +542,8 @@ def scenario_serial(iso: Path, workdir: Path, outdir: Path, timeout: float) -> N
         if plasma:
             vm.pump(60)
             to_png(vm.screendump("desktop"), outdir / "serial-desktop.png")
+            if fixtures is not None:
+                winapp_gui_check(vm, sh, outdir, timeout)
         rc, out = sh.run("cat /proc/cmdline; uname -r")
         (outdir / "kernel.txt").write_text(out + "\n")
 
@@ -443,6 +563,8 @@ def main() -> int:
     ap.add_argument("--out", type=Path, required=True, help="directory for screenshots and logs")
     ap.add_argument("--scenario", choices=("all", "uefi", "serial"), default="all")
     ap.add_argument("--timeout", type=float, default=None, help="per-scenario timeout in seconds")
+    ap.add_argument("--fixtures-iso", type=Path, default=None,
+                    help="WinCompat test fixtures (tests/compatibility/build_fixtures.sh) attached as a second CD")
     args = ap.parse_args()
 
     if not shutil.which("qemu-system-x86_64"):
@@ -458,7 +580,8 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="boswas-boot-") as tmp:
         workdir = Path(tmp)
         if args.scenario in ("all", "serial"):
-            scenario_serial(args.iso, workdir, args.out, timeout)
+            fixtures = args.fixtures_iso if args.fixtures_iso and args.fixtures_iso.is_file() else None
+            scenario_serial(args.iso, workdir, args.out, timeout, fixtures)
         if args.scenario in ("all", "uefi"):
             scenario_uefi(args.iso, workdir, args.out, timeout)
     return 1 if FAILED else 0

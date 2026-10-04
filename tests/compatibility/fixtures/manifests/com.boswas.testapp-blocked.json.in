@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "com.boswas.testapp-blocked",
+  "name": "Boswas Test App (blocked)",
+  "version": "1.0",
+  "runtime": {"type": "wine", "wineVersion": "10"},
+  "architecture": "x86_64",
+  "launch": "boswas-testapp.exe",
+  "status": "blocked",
+  "installer": {"sha256": "@SHA256_BLOCKED@"},
+  "notes": "Blocked on purpose: install must be refused whatever ID is requested."
+}

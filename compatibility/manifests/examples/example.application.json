@@ -1,0 +1,35 @@
+{
+  "$schema": "../schema/manifest-v1.schema.json",
+  "schemaVersion": 1,
+  "id": "example.application",
+  "name": "Example Application",
+  "version": "1.0",
+  "publisher": "Example Corp",
+  "runtime": {
+    "type": "wine",
+    "wineVersion": "10"
+  },
+  "architecture": "x86_64",
+  "dependencies": [],
+  "environment": {},
+  "winetricks": [],
+  "launch": "C:\\Program Files\\Example\\example.exe",
+  "status": "tested",
+  "installer": {
+    "type": "exe",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "silentArgs": ["/S"]
+  },
+  "sandbox": {
+    "network": false,
+    "display": true,
+    "audio": false,
+    "gpu": false,
+    "folders": ["documents"]
+  },
+  "notes": "Documentation example only (not shipped in the catalog). A real manifest pins the SHA-256 of the validated installer.",
+  "tested": {
+    "date": "2026-10-04",
+    "osVersion": "1.0~alpha2"
+  }
+}

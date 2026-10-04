@@ -14,7 +14,7 @@ wrap the same scripts.
 
 | Host | How it builds | Requirements |
 |------|---------------|--------------|
-| Debian 13 (trixie) | Natively (`./build.sh` as root, or `sudo ./build.sh`) | `apt install live-build debootstrap xorriso squashfs-tools mtools dosfstools grub-efi-amd64-bin grub-pc-bin dpkg-dev debhelper build-essential librsvg2-bin fonts-lato python3 rsync git`; 25 GB free |
+| Debian 13 (trixie) | Natively (`./build.sh` as root, or `sudo ./build.sh`) | `apt install live-build debootstrap xorriso squashfs-tools mtools dosfstools grub-efi-amd64-bin grub-pc-bin dpkg-dev debhelper dh-apparmor build-essential librsvg2-bin fonts-lato python3 rsync git`; for `test.sh` also `lintian apparmor gcc-mingw-w64-x86-64-win32 qemu-system-x86 ovmf`; 25 GB free |
 | Anything else (Windows + Docker Desktop/WSL2, macOS, other Linux) | Automatically inside `build/container/Containerfile` (`debian:trixie`) | Docker or Podman; the container runs `--privileged` because live-build mounts `/proc`, `/sys` and `/dev` in its chroot |
 
 On Windows, run the scripts from Git Bash or WSL. `./build.sh` detects that
@@ -28,8 +28,8 @@ Force a mode with `--container` or `--native`.
 
 1. **Preflight.** Checks the host (Debian 13, root), the required tools and
    the free disk space.
-2. **Packages.** Builds the four Boswas packages with `dpkg-buildpackage`;
-   the CLI unit tests run during the build.
+2. **Packages.** Builds the five Boswas packages with `dpkg-buildpackage`;
+   the CLI and WinCompat unit tests run during the build.
 3. **Metadata.** Writes `/usr/lib/boswas/image-info`: build ID, date, git
    commit, dirty flag, configuration hash, live-build version.
 4. **Staging.** Assembles the live-build tree in an isolated work directory
@@ -60,6 +60,8 @@ inside the image and **fails the build** if:
 - nftables, auditd or AppArmor is not enabled
 - sudoers does not validate
 - `boswas info` does not run
+- `boswas-winapp` does not run, or the `boswas-winapp` AppArmor profile does
+  not compile against Debian's kernel feature set
 
 ### Where state lives
 
@@ -112,6 +114,32 @@ exactly which versions were used.
 | Desktop defaults and artwork | `desktop/…`, installed by `packages/boswas-branding/debian/rules` |
 | Installer policy | `installer/configuration/preseed.cfg` |
 | Boot menu | `config/live-build/config/bootloaders/grub-pc/` and `desktop/branding/boot-splash.svg` |
+
+## Test stages
+
+`./test.sh` runs these stages in order and writes one report:
+
+1. static checks
+2. Boswas packages (lintian, contents, CLI unit tests)
+3. unit tests (WinCompat, device agent)
+4. WinCompat test fixtures: compiles the Windows test application from
+   `tests/compatibility/fixtures/` with MinGW-w64, writes manifests pinned to
+   its hash, and packs them into a fixtures ISO
+5. package manifest resolution
+6. image tests: artifacts, extraction, ISO contents, packages, security,
+   compatibility
+7. **WinCompat runtime** (`tests/compatibility/test_winapp_runtime.sh`)
+8. QEMU boot test
+
+The WinCompat runtime stage installs and launches the test application as an
+unprivileged user, with the image's own Wine, bubblewrap and boswas-compat:
+
+- **Mounts:** the image root goes through a throw-away overlay and is entered
+  with `pivot_root`, not `chroot`, because the kernel refuses the user
+  namespaces bubblewrap needs inside a chroot.
+- **AppArmor:** Docker Desktop's WSL2 kernel has no AppArmor, so this stage
+  reports the AppArmor layer as SKIP. The QEMU boot test attaches the
+  fixtures ISO as a second CD and checks enforcement with the real kernel.
 
 ## Boot test speed
 

@@ -13,18 +13,22 @@ ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8 \
     LC_ALL=C.UTF-8
 
-# live-build + its runtime helpers, Debian packaging toolchain, asset
-# rendering (librsvg + the Lato typeface used by Boswas branding), and the
-# tooling used by test.sh (ISO inspection, QEMU boot test).
+# live-build + its runtime helpers, Debian packaging toolchain (dh-apparmor
+# for boswas-compat), asset rendering (librsvg + the Lato typeface used by
+# Boswas branding), and the tooling used by test.sh: ISO inspection, the QEMU
+# boot test, apparmor_parser (profile compile checks) and a MinGW
+# cross-compiler that builds the Windows test application from source
+# (tests/compatibility/fixtures/).
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
         live-build debootstrap \
         xorriso squashfs-tools mtools dosfstools cpio xz-utils zstd \
         grub-common grub-efi-amd64-bin grub-pc-bin \
         wget curl ca-certificates gnupg rsync file git \
-        build-essential dpkg-dev debhelper fakeroot lintian \
+        build-essential dpkg-dev debhelper dh-apparmor fakeroot lintian \
         librsvg2-bin fonts-lato potrace netpbm \
         python3 \
+        apparmor gcc-mingw-w64-x86-64-win32 \
         qemu-system-x86 qemu-utils ovmf \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*

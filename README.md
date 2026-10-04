@@ -5,15 +5,20 @@ system, built on **Debian 13 "trixie"** with **KDE Plasma**. It is an
 internal platform for Boswas Group employees and company-owned hardware, not
 a public Linux distribution.
 
-> **Status: v1 alpha. Not production-ready.**
-> This release is a bootable foundation:
+> **Status: v1 alpha (1.0~alpha2). Not production-ready.**
+> This release is a bootable foundation plus Milestone 1 of the enterprise
+> platform:
 > - Debian 13 base, KDE Plasma desktop and Boswas branding
 > - security baseline and encrypted installer
 > - `boswas` status tools
+> - **WinCompat:** Windows applications in isolated, AppArmor-confined Wine
+>   sandboxes (`boswas-winapp`); 64-bit Windows programs only
+> - device agent interfaces (no service, nothing contacts a backend)
 > - reproducible, script-driven builds
 >
-> Device management, Boswas ID, the Boswas Store and WinCompat follow in
-> later phases (see `docs/architecture/roadmap.md`).
+> Device agent, Control Plane, policy engine, fleet, Store, updates, hardware
+> certification and signed releases follow in Milestones 2–9; Boswas ID is
+> deferred (see `docs/architecture/roadmap.md`).
 
 Debian remains upstream. This repository contains only Boswas-specific
 packaging, configuration, artwork, scripts, tests and documentation; every
@@ -82,6 +87,8 @@ On the device:
 boswas-info                 # identity, build, compliance summary
 boswas-status               # posture checks (firewall, AppArmor, encryption, ...)
 boswas --json device status # machine-readable output
+boswas-winapp install ~/Downloads/setup.exe   # Windows application, own sandbox
+boswas-winapp list
 ```
 
 ## What is in v1 alpha
@@ -95,7 +102,7 @@ boswas --json device status # machine-readable output
 | Installer | Debian Installer (live mode), Boswas banner, policy: full-disk encryption, root locked, host `boswas-device` |
 | Security | nftables (inbound deny), AppArmor, auditd rules, sudo/pwquality policy, kernel hardening, no SSH server, security-only automatic updates, enforced screen lock |
 | Tools | `boswas`, `boswas-info`, `boswas-status` (read-only, `--json`) |
-| Compatibility | Wine 10 (64-bit), Flatpak + bubblewrap (no remote until policy) |
+| Compatibility | Wine 10 (64-bit). `boswas-winapp`: one prefix per application, bubblewrap sandbox, `boswas-winapp` AppArmor profile, compatibility manifests and catalog, policy, "Run with Boswas". Flatpak without a remote |
 
 ## Documentation
 
@@ -114,6 +121,7 @@ boswas --json device status # machine-readable output
 | Hardware Compatibility List | [docs/deployment/hardware-compatibility.md](docs/deployment/hardware-compatibility.md) |
 | CLI reference | [docs/administration/cli.md](docs/administration/cli.md) |
 | Windows compatibility | [docs/compatibility/README.md](docs/compatibility/README.md) |
+| Device management (agent foundations) | [docs/device-management/README.md](docs/device-management/README.md) |
 
 ## Licensing and attribution
 

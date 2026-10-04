@@ -1,0 +1,53 @@
+#!/bin/sh
+# Boswas WinCompat in-sandbox runner (/usr/lib/boswas/compat/winapp-exec).
+#
+# boswas-winapp starts this script inside the application's bubblewrap
+# sandbox. The AppArmor profile "boswas-winapp" attaches to this path, so this
+# script, the Wine loader, wineserver and every Windows process run confined.
+#
+# Usage (only meaningful inside the sandbox): winapp-exec COMMAND [ARG...]
+#
+# 1. Report the AppArmor label of this process (first stderr line, parsed by
+#    boswas-winapp and kept in the application log).
+# 2. Refuse to run anything unless the profile is enforcing, when the policy
+#    requires it (REQUIRE_APPARMOR in /etc/boswas/compat/policy.conf; any
+#    value other than "no" means required).
+# 3. Run COMMAND, then wait until every Wine process of this prefix has
+#    exited (installers often leave a child running when they return).
+#
+# Only shell builtins are used before COMMAND, so the AppArmor profile does
+# not need to grant any other executable.
+set -u
+
+label="unconfined"
+if [ -r /proc/self/attr/apparmor/current ]; then
+	read -r label < /proc/self/attr/apparmor/current || label="unknown"
+elif [ -r /proc/self/attr/current ]; then
+	read -r label < /proc/self/attr/current || label="unknown"
+fi
+echo "boswas-winapp-exec: confinement=$label" >&2
+
+require="yes"
+if [ -r /etc/boswas/compat/policy.conf ]; then
+	while IFS='=' read -r key value; do
+		if [ "$key" = "REQUIRE_APPARMOR" ]; then
+			value="${value#\"}"
+			require="${value%\"}"
+		fi
+	done < /etc/boswas/compat/policy.conf
+fi
+
+if [ "$require" != "no" ] && [ "$label" != "boswas-winapp (enforce)" ]; then
+	echo "boswas-winapp-exec: refused: AppArmor profile boswas-winapp is not enforcing (REQUIRE_APPARMOR)" >&2
+	exit 77
+fi
+
+if [ "$#" -eq 0 ]; then
+	echo "boswas-winapp-exec: refused: no command" >&2
+	exit 64
+fi
+
+"$@"
+rc=$?
+/usr/lib/wine/wineserver64 -w 2>/dev/null || true
+exit "$rc"

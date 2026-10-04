@@ -1,6 +1,8 @@
 # Boswas command-line tools
 
-Installed by `boswas-cli`. All commands are **read-only** in v1 alpha,
+`boswas`, `boswas-info` and `boswas-status` are installed by `boswas-cli`;
+`boswas-winapp` by `boswas-compat` (see below). The `boswas` commands are
+**read-only**,
 work offline, and never print credentials, tokens or key material.
 
 ```
@@ -18,12 +20,12 @@ boswas-status [--json]     # = boswas status
 | `boswas info` | OS name, version, build ID, channel, Debian base and codename, architecture, kernel, desktop, hostname, boot mode and Secure Boot state, live or installed, device ID, enrollment, compliance summary |
 | `boswas status` | All posture checks with PASS/WARN/FAIL/INFO/UNKNOWN |
 | `boswas security status` | Security checks only |
-| `boswas device status` | `/etc/boswas/device.conf` identifiers plus a non-sensitive hardware summary (no serial numbers) |
-| `boswas policy status` | Policy state (unmanaged until the Phase 4 agent) |
+| `boswas device status` | `/etc/boswas/device.conf` identifiers (device ID, tenant, enrollment, control plane, policy version, profile, certificate reference) plus a non-sensitive hardware summary (no serial numbers) |
+| `boswas policy status` | Policy state (unmanaged until the policy engine, Milestone 4) |
 | `boswas update status` | Update channel, repository, automatic security updates, package list age |
 | `boswas version` | CLI version |
-| `boswas app list` | Reserved for the Boswas Store (Phase 5). Exits 69 |
-| `boswas winapp list` | Reserved for WinCompat (Phase 6). Exits 69 |
+| `boswas app list` | Reserved for the Boswas Store (Milestone 6). Exits 69 |
+| `boswas winapp ...` | Runs `boswas-winapp ...` (passes `--json`). Exits 69 if `boswas-compat` is not installed |
 
 ### Example
 
@@ -81,7 +83,7 @@ checks report UNKNOWN and are not scored.
 | 0 | Success. For status commands, no check failed |
 | 1 | At least one posture check FAILed (`NON_COMPLIANT`) |
 | 2 | Usage error |
-| 69 | Command planned for a later phase |
+| 69 | Command not available: planned for a later milestone, or its package is not installed |
 | 70 | Internal error |
 
 ## JSON
@@ -107,12 +109,110 @@ Check IDs are stable:
 
 | Category | Check IDs |
 |----------|-----------|
-| Security | `secure-boot`, `tpm`, `disk-encryption`, `firewall`, `apparmor`, `audit`, `ssh-server`, `root-account`, `apt-trust`, `screen-lock`, `usb-policy` |
+| Security | `secure-boot`, `tpm`, `disk-encryption`, `firewall`, `apparmor`, `audit`, `ssh-server`, `root-account`, `apt-trust`, `screen-lock`, `usb-policy`, `winapp-confinement` |
 | Updates | `updates` |
 | Management | `agent`, `enrollment` |
 
+### `winapp-confinement`
+
+`winapp-confinement` reports whether the `boswas-winapp` AppArmor profile is
+loaded in enforce mode. It reads `/sys/kernel/security/apparmor/profiles`,
+which only root can read:
+
+| Situation | Result |
+|-----------|--------|
+| `boswas-compat` not installed | INFO, unscored |
+| Run without root | UNKNOWN, unscored |
+| Profile loaded in enforce mode | PASS |
+| Profile in complain mode, or not loaded on an installed system | WARN. Windows applications refuse to start in that case |
+| Live session | INFO: Debian does not load AppArmor profiles on live media |
+
+## boswas-winapp (WinCompat)
+
+Installed by `boswas-compat`. Windows applications in isolated, confined Wine
+sandboxes; the design is in
+[docs/compatibility/README.md](../compatibility/README.md).
+
+```
+boswas-winapp [--json] install INSTALLER [--id ID] [--name NAME] [--portable] [--interactive]
+                                         [--timeout S] [--verbose] [-- INSTALLER-ARGS]
+boswas-winapp [--json] remove APPLICATION
+boswas-winapp [--json] list [--all-users]
+boswas-winapp [--json] launch APPLICATION [--exe PROGRAM] [--timeout S] [--quiet] [-- ARGS]
+boswas-winapp [--json] status APPLICATION
+boswas-winapp [--json] repair APPLICATION [--timeout S]
+boswas-winapp [--json] logs APPLICATION [--install | --repair] [--lines N]
+boswas-winapp [--json] catalog
+boswas-winapp [--json] manifest validate FILE...
+```
+
+| Command | Does |
+|---------|------|
+| `install` | Verifies the installer, matches the catalog (SHA-256 or `--id`), applies policy, creates the prefix, runs the installer in the sandbox, creates a desktop launcher |
+| `remove` | Deletes the application, its prefix and its launcher (refused while it runs) |
+| `list` | The user's applications with their effective status. `--all-users` (root only) is the device inventory: IDs, versions, statuses |
+| `launch` | Starts the application in its sandbox; output is shown and logged |
+| `status` | State, catalog status, policy decision, sandbox grants, last launch, AppArmor confinement |
+| `repair` | Recreates missing state, updates the prefix, re-applies Boswas defaults and the launcher, checks the program still exists |
+| `logs` | The latest launch, install or repair log |
+| `catalog` | Effective manifests per layer, ignored manifests, effective policy |
+| `manifest validate` | Validates manifest files (administrators, CI) |
+
+**Root.** `install`, `launch`, `repair` and `remove` refuse to run as root
+(exit 4). Windows software always runs as the user who uses it.
+
+**JSON.** Every document carries `"schema": "boswas-winapp/1"`, `"command"`
+and `"generated_at"`. Errors in JSON mode carry
+`{"error": {"reason": ..., "message": ...}}`. Reasons include `root`,
+`blocked`, `unlisted-denied`, `status-not-allowed`, `installer-mismatch`,
+`architecture`, `dependencies`, `winetricks`, `already-installed`,
+`confinement`, `sandbox` and `not-found`.
+
+**Exit codes.**
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | The operation ran and failed (installer error, prefix creation failed, repair found a missing program) |
+| 2 | Usage error (including an installer pinned by several manifests without `--id`) |
+| 3 | Application, installer or manifest not found |
+| 4 | Refused by policy or a safety rule: root, blocked, unlisted denied, status not allowed, installer mismatch, 32-bit program |
+| 5 | Runtime unavailable: Wine or bubblewrap missing, or no enforcing AppArmor confinement |
+| 6 | Busy: the application is running or another operation holds it |
+| 70 | Internal error |
+
+For `launch`, once the program has started the exit code is the Windows
+program's own (values above 255 become 1).
+
+### Example
+
+Captured in the live VM during development: the Windows test application,
+installed under a local catalog manifest that grants network access.
+
+```
+$ boswas-winapp install /mnt/fixtures/boswas-testapp.exe --id com.boswas.testapp-net
+boswas-winapp: verifying boswas-testapp.exe
+boswas-winapp: creating the Wine prefix (first run takes a while)
+boswas-winapp: running the installer in its sandbox (/S)
+boswas-winapp: installed com.boswas.testapp-net; start it with: boswas-winapp launch com.boswas.testapp-net
+Application: Boswas Test App (network) (com.boswas.testapp-net)
+Version:     1.0
+Status:      experimental (local)
+Program:     C:\Program Files\Boswas Test App\boswas-testapp.exe
+Sandbox:     network
+Log:         /home/boswas/.local/share/boswas/wine/com.boswas.testapp-net/logs/install-20261004T035143Z.log
+
+$ boswas-winapp launch com.boswas.testapp-net -- connect 127.0.0.1 47011
+BOSWAS-TESTAPP OK (variant 1)
+PROBE connect 127.0.0.1:47011 ALLOWED
+```
+
+(The progress lines go to stderr.)
+
 ## Logging
 
-The v1 alpha CLI does not write logs. The journal identifiers `boswas-device`,
-`boswas-security`, `boswas-update` and `boswas-winapp` are reserved for the
-services that arrive in Phases 4–7.
+The `boswas` CLI does not write logs. `boswas-winapp` keeps per-application
+logs in `~/.local/share/boswas/wine/<id>/logs/`, with the last 10 of each
+kind kept and each capped at 8 MiB. The journal identifiers `boswas-device`,
+`boswas-security` and `boswas-update` are reserved for the services that
+arrive in later milestones.

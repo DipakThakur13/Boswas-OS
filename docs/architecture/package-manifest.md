@@ -62,8 +62,8 @@ This page must be updated whenever a list changes.
 
 | Package | Why |
 |---------|-----|
-| wine, wine64 | Windows application compatibility (64-bit, Wine 10) |
-| flatpak, bubblewrap | Application sandboxing. No remote configured until policy allows |
+| wine, wine64 | Windows application compatibility (64-bit, Wine 10), run only through `boswas-winapp` sandboxes |
+| flatpak, bubblewrap | Application sandboxing. bubblewrap isolates every Windows application (boswas-compat); Flatpak has no remote configured until policy allows |
 
 ## Hardware (`boswas-hardware.list.chroot`)
 
@@ -78,6 +78,7 @@ The selected redistributable firmware is listed in
 | boswas-cli | `boswas`, `boswas-info`, `boswas-status` |
 | boswas-branding | Visual identity and KDE defaults |
 | boswas-security | Security baseline configuration |
+| boswas-compat | WinCompat: `boswas-winapp`, Wine AppArmor profile, compatibility catalog and policy. Depends on `wine`, `wine64`, `bubblewrap`, `apparmor` (all already in the manifest) |
 
 ## Deliberately excluded
 

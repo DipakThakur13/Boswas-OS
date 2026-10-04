@@ -11,8 +11,9 @@
 # Like build.sh, runs inside the boswas-os-builder container unless the host
 # is Debian 13 and the script runs as root.
 #
-# Stages: static, packages, manifest (network), artifacts, image extraction,
-# ISO contents, image packages, security, compatibility, boot (QEMU).
+# Stages: static, packages, unit tests, WinCompat fixtures, manifest (network),
+# artifacts, image extraction, ISO contents, image packages, security,
+# compatibility, WinCompat runtime, boot (QEMU, incl. WinCompat under AppArmor).
 # Report: build/logs/test-report-<timestamp>.txt; screenshots and serial logs
 # of the boot test: build/logs/boot-test/.
 set -Eeuo pipefail
@@ -76,6 +77,10 @@ has_iso=false
 if [ "$stages_mode" != "boot-only" ]; then
 	run_stage "static checks" bash "$t/static/test_sources.sh"
 	run_stage "Boswas packages" bash "$t/packages/test_packages.sh"
+	run_stage "unit tests (WinCompat, device agent)" bash "$t/unit/test_units.sh"
+fi
+if [ "$stages_mode" = "all" ] || [ "$stages_mode" = "no-boot" ] || [ "$stages_mode" = "boot-only" ]; then
+	$has_iso && run_stage "WinCompat test fixtures" bash "$t/compatibility/build_fixtures.sh"
 fi
 if [ "$stages_mode" = "all" ] || [ "$stages_mode" = "no-boot" ]; then
 	run_stage "package manifest resolves" bash "$t/packages/test_manifest_resolves.sh"
@@ -86,6 +91,7 @@ if [ "$stages_mode" = "all" ] || [ "$stages_mode" = "no-boot" ]; then
 		run_stage "image packages" bash "$t/packages/test_image_packages.sh"
 		run_stage "security baseline" bash "$t/security/test_image_security.sh"
 		run_stage "compatibility" bash "$t/compatibility/test_wine.sh"
+		run_stage "WinCompat runtime (install, isolate, launch)" bash "$t/compatibility/test_winapp_runtime.sh"
 	else
 		printf 'SKIP\tbuild\timage tests (no ISO at %s; run ./build.sh)\n' "$ISO" >> "$BOSWAS_TEST_REPORT"
 		warn "no ISO at $ISO - image tests skipped (run ./build.sh first)"
@@ -93,7 +99,10 @@ if [ "$stages_mode" = "all" ] || [ "$stages_mode" = "no-boot" ]; then
 fi
 if [ "$stages_mode" = "all" ] || [ "$stages_mode" = "boot-only" ]; then
 	if $has_iso; then
-		run_stage "QEMU boot test" python3 "$t/boot/qemu_boot_test.py" --iso "$ISO" --out "$BOSWAS_REPO_ROOT/build/logs/boot-test"
+		fixtures=()
+		[ -s "$TESTWORK/fixtures.iso" ] && fixtures=(--fixtures-iso "$TESTWORK/fixtures.iso")
+		run_stage "QEMU boot test" python3 "$t/boot/qemu_boot_test.py" --iso "$ISO" \
+			--out "$BOSWAS_REPO_ROOT/build/logs/boot-test" "${fixtures[@]}"
 	else
 		printf 'SKIP\tboot/qemu\tboot test (no ISO)\n' >> "$BOSWAS_TEST_REPORT"
 	fi

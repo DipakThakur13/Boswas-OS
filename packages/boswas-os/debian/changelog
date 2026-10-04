@@ -1,3 +1,12 @@
+boswas-os (1.0~alpha2) trixie; urgency=medium
+
+  * Boswas OS 1.0~alpha2 (Milestone 1: Windows compatibility platform).
+  * Depend on boswas-compat.
+  * device.conf contract: add DEVICE_PROFILE and DEVICE_CERTIFICATE (a
+    reference to the device's public certificate; never secrets).
+
+ -- Boswas OS Platform Team <os-platform@boswas.invalid>  Sun, 04 Oct 2026 12:00:00 +0000
+
 boswas-os (1.0~alpha1) trixie; urgency=medium
 
   * Initial Boswas OS v1 alpha release.

@@ -1,0 +1,167 @@
+# Boswas OS: AppArmor confinement for Windows applications (boswas-winapp).
+#
+# Installed as /etc/apparmor.d/boswas-winapp by boswas-compat.
+#
+# Attaches to the in-sandbox runner /usr/lib/boswas/compat/winapp-exec, which
+# boswas-winapp starts inside a bubblewrap sandbox. The runner, the Wine
+# loader, wineserver and every Windows process inherit this profile, and the
+# runner refuses to start Wine unless it is enforcing (policy
+# REQUIRE_APPARMOR). Running /usr/bin/wine directly is not affected.
+#
+# Two layers (docs/compatibility/README.md, "Security model"):
+#   bubblewrap  decides per application what exists in the sandbox: the
+#               application's own state at /var/lib/boswas/wine/<id>, the
+#               folders its manifest grants, and network, display, audio and
+#               GPU only when granted.
+#   AppArmor    this profile, the upper bound for every Windows application
+#               whatever the sandbox contains: the system is read-only, host
+#               home directories are denied, no capabilities, no mounts, no
+#               user namespaces, no D-Bus, no raw devices, no Linux programs
+#               other than the Wine runtime, and signals, ptrace and
+#               unix-socket traffic only between processes in this profile.
+#
+# Deliberate exceptions (each one is needed for Windows applications to work):
+#   - Files in the application's state are mapped executable (m): Windows
+#     code (.exe/.dll) is loaded from the prefix. Nothing there may be
+#     executed as a Linux program (no x).
+#   - /tmp and /dev/shm inside the sandbox are private tmpfs mounts; Wine
+#     maps anonymous file mappings from there (m).
+#   - Network rules are present. Whether an application has a network at
+#     all is decided by bubblewrap (--unshare-net unless the manifest grants
+#     network).
+#   - X11 (abstractions/X): an X11 client can observe and send input to other
+#     X11 clients on the same display. Under Plasma Wayland this is limited
+#     to other Xwayland clients; native Wayland applications are not exposed.
+#
+# Reviewed local additions belong in /etc/apparmor.d/local/boswas-winapp.
+
+abi <abi/4.0>,
+
+include <tunables/global>
+
+profile boswas-winapp /usr/lib/boswas/compat/winapp-exec flags=(attach_disconnected) {
+  include <abstractions/base>
+  include <abstractions/fonts>
+  include <abstractions/nameservice>
+  include <abstractions/X>
+  include <abstractions/audio>
+  include <abstractions/mesa>
+  include <abstractions/vulkan>
+  # Public CA certificates: Wine's crypt32/GnuTLS validates TLS with them
+  # (network-enabled applications).
+  include <abstractions/ssl_certs>
+
+  # --- Runner and Wine runtime (Debian packages, read-only) -----------------
+  /usr/lib/boswas/compat/winapp-exec r,
+  /usr/bin/dash mrix,
+  /usr/lib/wine/wine64 mrix,
+  /usr/lib/wine/wineserver64 mrix,
+  # Debian's wineserver wrapper script (execs wineserver64), started by Wine itself.
+  /usr/lib/wine/wineserver rix,
+  /usr/lib/@{multiarch}/wine/ r,
+  /usr/lib/@{multiarch}/wine/** mr,
+  /usr/share/wine/ r,
+  /usr/share/wine/** r,
+  /usr/share/boswas/compat/** r,
+  /etc/boswas/compat/policy.conf r,
+
+  # --- Application state ---------------------------------------------------
+  # Inside the sandbox the application's prefix and private home appear at
+  # /var/lib/boswas/wine/<id>/; nothing else of the user's home is mounted.
+  /var/lib/boswas/ r,
+  /var/lib/boswas/wine/ r,
+  owner /var/lib/boswas/wine/*/ rw,
+  owner /var/lib/boswas/wine/*/** rwlkm,
+
+  # Private tmpfs mounts of the sandbox (file mappings, temporary files).
+  /tmp/ r,
+  owner /tmp/** rwlkm,
+  owner /dev/shm/ r,
+  owner /dev/shm/** rwlkm,
+  # The sandbox's private runtime directory. wineserver keeps its socket,
+  # lock and anonymous file mappings in $XDG_RUNTIME_DIR/wine.
+  owner @{run}/user/[0-9]*/ r,
+  owner @{run}/user/[0-9]*/wine/ rw,
+  owner @{run}/user/[0-9]*/wine/** rwlkm,
+
+  # --- Process and system information --------------------------------------
+  # Path lookups on Z:\ start at the sandbox's root (a tmpfs with /usr, /etc,
+  # /var/lib/boswas/wine/<id> and empty mount points only).
+  / r,
+  @{PROC}/ r,
+  @{PROC}/uptime r,
+  @{PROC}/loadavg r,
+  @{PROC}/version r,
+  @{PROC}/sys/kernel/osrelease r,
+  @{PROC}/sys/kernel/ostype r,
+  @{PROC}/sys/kernel/pid_max r,
+  @{PROC}/sys/kernel/random/boot_id r,
+  @{PROC}/sys/kernel/yama/ptrace_scope r,
+  @{PROC}/sys/vm/mmap_min_addr r,
+  @{PROC}/sys/fs/inotify/max_user_watches r,
+  owner @{PROC}/@{pid}/attr/{apparmor/,}current r,
+  # Thread names (SetThreadDescription) of the application's own threads.
+  owner @{PROC}/@{pid}/task/[0-9]*/comm rw,
+  owner @{PROC}/@{pid}/{cmdline,environ,fd/,fdinfo/*,mountinfo,mounts,stat,statm,task/,task/*/stat,task/*/status} r,
+  # wineserver implements ReadProcessMemory/WriteProcessMemory between
+  # Windows processes of this prefix through /proc/<pid>/mem.
+  owner @{PROC}/@{pid}/mem rw,
+  # Network adapter and connection tables (GetIfTable, GetAdaptersAddresses,
+  # netstat-like APIs); inside the sandbox these only show its own network
+  # namespace.
+  @{PROC}/@{pid}/net/{dev,if_inet6,route,ipv6_route,arp,snmp,snmp6,tcp,tcp6,udp,udp6,unix} r,
+  # Device enumeration lists /dev (the sandbox's minimal /dev).
+  /dev/ r,
+  @{sys}/devices/system/cpu/** r,
+  @{sys}/devices/system/node/ r,
+  @{sys}/devices/system/node/** r,
+  # GPU detection (only mounted in sandboxes granted "gpu").
+  @{sys}/bus/ r,
+  @{sys}/class/ r,
+  @{sys}/devices/pci[0-9]*/** r,
+  # Cursor and icon themes for windows (public, read-only).
+  /usr/share/icons/ r,
+  /usr/share/icons/** r,
+
+  # --- Processes -----------------------------------------------------------
+  # Same-profile peers only (base already allows same-profile signals and
+  # unix sockets); the user can still stop applications (signal receive from
+  # unconfined, granted by abstractions/base).
+  ptrace (read, trace) peer=boswas-winapp,
+
+  # --- Network (upper bound; bubblewrap removes it unless granted) ----------
+  network inet stream,
+  network inet6 stream,
+  network inet dgram,
+  network inet6 dgram,
+  network netlink raw,
+
+  # fontconfig tries the system cache first (an empty, throw-away directory in
+  # the sandbox root); deny it quietly so it uses the application's own
+  # $XDG_CACHE_HOME instead.
+  deny /var/cache/ w,
+  deny /var/cache/fontconfig/ w,
+  deny /var/cache/fontconfig/** wl,
+  # No stable host identifier for Windows applications (fingerprinting); Wine
+  # works without it.
+  deny /etc/machine-id r,
+  deny /var/lib/dbus/machine-id r,
+
+  # --- Explicit denials (also against broad local additions) ----------------
+  audit deny @{HOME}/** rwklmx,
+  audit deny /home/** rwklmx,
+  deny /etc/boswas/** w,
+  deny /etc/apparmor.d/** w,
+  deny @{sys}/kernel/security/** rw,
+  deny @{PROC}/sys/** w,
+  deny capability,
+  deny mount,
+  deny remount,
+  deny umount,
+  deny pivot_root,
+  deny userns,
+  deny dbus,
+  deny ptrace (read, trace) peer=unconfined,
+
+  include if exists <local/boswas-winapp>
+}

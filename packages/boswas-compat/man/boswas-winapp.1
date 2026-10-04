@@ -1,0 +1,92 @@
+.TH BOSWAS-WINAPP 1 "October 2026" "boswas-compat 1.0~alpha2" "Boswas OS"
+.SH NAME
+boswas-winapp \- install and run Windows applications in isolated sandboxes
+.SH SYNOPSIS
+.B boswas-winapp
+.RB [ \-\-json ]
+.I command
+.RI [ options ]
+.RB [ \-\-
+.IR arguments ]
+.SH DESCRIPTION
+.B boswas-winapp
+is the Boswas OS compatibility tool for Windows applications. Every
+application gets its own Wine prefix, runs inside its own bubblewrap sandbox,
+and is confined by the
+.B boswas-winapp
+AppArmor profile. Windows software is never run as root.
+.PP
+An application can access only its own prefix, plus whatever its
+compatibility manifest (or, for unlisted installers, the device policy) grants:
+network, display, audio, GPU, and selected folders such as Documents.
+The user's home directory, other applications, the session D-Bus and raw
+devices are never visible.
+.SH COMMANDS
+.TP
+.BI "install " INSTALLER " [\-\-id " ID "] [\-\-name " NAME "] [\-\-portable] [\-\-interactive] [\-\-timeout " S "] [\-\-verbose] [\-\- " ARGS ]
+Verify the installer (.exe or .msi), match it against the compatibility
+catalog by SHA-256 (or by
+.BR \-\-id ),
+create the application's prefix and run the installer in the sandbox.
+Silent switches are used when the manifest names them or the installer
+framework is recognised;
+.B \-\-interactive
+shows the installer's own dialogs.
+.B \-\-portable
+copies a self-contained program instead of running it.
+.TP
+.BI "remove " APPLICATION
+Remove the application, its prefix and its desktop entry.
+.TP
+.B list \fR[\fB\-\-all\-users\fR]
+List installed applications. With
+.B \-\-all\-users
+(root only) list every user's applications for device inventory.
+.TP
+.BI "launch " APPLICATION " [\-\-exe " PROGRAM "] [\-\-timeout " S "] [\-\-quiet] [\-\- " ARGS ]
+Start the application in its sandbox. Its output is shown and logged.
+.TP
+.BI "status " APPLICATION
+Show state, catalog status, policy decision, sandbox grants and the
+AppArmor confinement of the last launch.
+.TP
+.BI "repair " APPLICATION
+Update the prefix, re-apply the Boswas prefix defaults and the desktop entry,
+and verify the program still exists.
+.TP
+.BI "logs " APPLICATION " [\-\-install | \-\-repair] [\-\-lines " N ]
+Show the latest launch (or install, or repair) log.
+.TP
+.B catalog
+List the compatibility catalog and the effective policy.
+.TP
+.BI "manifest validate " FILE ...
+Validate compatibility manifests.
+.SH FILES
+.TP
+.I ~/.local/share/boswas/wine/<id>/
+Application data: record, logs, and the sandbox state (prefix and private
+home) that appears as
+.I /var/lib/boswas/wine/<id>/
+inside the sandbox.
+.TP
+.I /etc/boswas/compat/policy.conf
+Device policy (root).
+.TP
+.IR /usr/share/boswas/compat/manifests/ ", " /etc/boswas/compat/manifests/
+System and local compatibility catalogs.
+.TP
+.I /etc/apparmor.d/boswas-winapp
+AppArmor profile; local additions in
+.IR /etc/apparmor.d/local/boswas-winapp .
+.SH EXIT STATUS
+0 success; 1 operation failed; 2 usage error; 3 not found; 4 refused by
+policy or a safety rule; 5 runtime or confinement unavailable; 6 busy;
+70 internal error. After a program has started,
+.B launch
+returns the program's exit code.
+.SH SEE ALSO
+.BR boswas (1),
+.BR bwrap (1),
+.BR apparmor (7),
+.BR wine (1)

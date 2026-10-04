@@ -1,0 +1,12 @@
+boswas-compat (1.0~alpha2) trixie; urgency=medium
+
+  * Initial release: Boswas WinCompat (Milestone 1).
+    - boswas-winapp: install, remove, list, launch, status, repair, logs,
+      catalog and manifest validation, with --json output.
+    - One isolated Wine prefix per application, run inside a bubblewrap
+      sandbox and confined by the boswas-winapp AppArmor profile.
+    - Compatibility manifest format v1 and layered catalog.
+    - WinCompat policy (/etc/boswas/compat/policy.conf).
+    - "Run with Boswas" handler for Windows installers.
+
+ -- Boswas OS Platform Team <os-platform@boswas.invalid>  Sun, 04 Oct 2026 12:00:00 +0000

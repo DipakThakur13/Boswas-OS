@@ -1,0 +1,10 @@
+#!/usr/bin/python3 -IB
+"""Boswas WinCompat: Windows applications in isolated sandboxes. See `boswas-winapp --help`."""
+
+import sys
+
+sys.path.insert(0, "/usr/lib/boswas/python")
+
+from boswas_compat.cli import main  # noqa: E402
+
+sys.exit(main())

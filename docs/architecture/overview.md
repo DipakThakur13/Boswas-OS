@@ -22,9 +22,10 @@ repository and shows what exists today.
             ▼
  ┌──────────────────────────────── Boswas OS workstation ───────────────────────────────┐
  │ Boswas layer       boswas-os · boswas-cli · boswas-branding · boswas-security         │
- │                    (later: boswas-device-agent, boswas-id, boswas-store, boswas-compat) │
+ │                    boswas-compat (WinCompat)  ·  later: boswas-device-agent, store,    │
+ │                    updater, hardware                                                   │
  │ Desktop            KDE Plasma 6.3 (Wayland, X11 fallback) · SDDM · Boswas theme         │
- │ Applications       APT · Flatpak (no remote until policy) · Wine 10 (64-bit)            │
+ │ Applications       APT · Flatpak (no remote) · Wine 10 (64-bit) in per-app sandboxes    │
  │ Security           AppArmor · nftables · auditd · polkit · sudo · pwquality · journald  │
  │ Foundation         Debian 13 "trixie" · Linux 6.12 · systemd · PAM · NetworkManager     │
  │ Boot & disk        UEFI (BIOS fallback) · shim → GRUB → kernel (Debian-signed) · LUKS2  │
@@ -35,7 +36,7 @@ repository and shows what exists today.
 
 | Upstream (Debian 13, unmodified) | Boswas-specific (this repository) |
 |----------------------------------|-----------------------------------|
-| Every package in the image manifest, pulled from deb.debian.org at build time | `packages/boswas-*`: four native Debian packages |
+| Every package in the image manifest, pulled from deb.debian.org at build time | `packages/boswas-*`: five native Debian packages |
 | `live-build`, `debootstrap`, Debian Installer | `config/live-build/`: image configuration, package lists, boot menu, hooks |
 | Debian-signed shim, GRUB and kernel (Secure Boot) | `installer/`: preseed policy and installer branding |
 | `/etc/os-release` (Debian identity kept) | `/usr/lib/boswas/release`, `image-info`, `/etc/boswas/` |
@@ -44,7 +45,7 @@ Licences: Debian components keep their own (see
 `/usr/share/doc/*/copyright` on any device). Boswas components are covered by
 `LICENSES/`.
 
-## What runs on a device today (v1 alpha)
+## What runs on a device today (1.0~alpha2)
 
 | Blueprint component | v1 alpha state |
 |---------------------|----------------|
@@ -55,11 +56,13 @@ Licences: Debian components keep their own (see
 | AppArmor, nftables, auditd, sudo/pwquality, journald | **Implemented** (boswas-security) |
 | USB / removable media policy | Framework only; not enforced |
 | `boswas`, `boswas-info`, `boswas-status` | **Implemented**: read-only, `--json` |
-| Device agent, enrollment, heartbeat | Phase 4. `/etc/boswas/device.conf` contract exists; nothing contacts a backend |
-| Boswas ID / SSO login broker | Phase 7. Local administrator account only |
-| Boswas Store, app policy | Phase 5. `boswas app` reserved |
-| WinCompat (`boswas-winapp`, per-app prefixes) | Phase 6. Wine 10 runtime installed |
-| Boswas repositories and promotion | Phase 7/8. See `update-architecture.md` |
+| WinCompat (`boswas-winapp`, per-app prefixes, sandbox, AppArmor profile, manifests, catalog, policy) | **Implemented** (Milestone 1, `boswas-compat`). 64-bit Windows programs only |
+| Device agent, enrollment, heartbeat | **Interfaces only** (Milestone 1: models, schemas, identity, privacy guard); the service arrives in Milestone 2. Nothing contacts a backend |
+| Control Plane, policy engine, fleet | Milestones 3–5 |
+| Boswas Store, app policy | Milestone 6. `boswas app` reserved |
+| Boswas repositories and promotion | Milestone 7. See `update-architecture.md` |
+| Hardware certification, signed releases | Milestones 8–9 |
+| Boswas ID / SSO | **Deferred**. Interfaces only (ADR-0015); local administrator account |
 
 ## Data and privacy boundaries
 
@@ -72,10 +75,14 @@ are bounded and stay on the device. See `docs/security/privacy.md`.
 |------|-------|---------|
 | `/usr/lib/boswas/release` | boswas-os | OS identity (from `config/boswas/release.conf`) |
 | `/usr/lib/boswas/image-info` | image build | Build ID, date, git commit, config hash |
-| `/etc/boswas/device.conf` | boswas-os → agent | Device ID, tenant, enrollment state (**never secrets**) |
+| `/etc/boswas/device.conf` | boswas-os → agent | Device ID, tenant, enrollment state, profile, public certificate reference (**never secrets**) |
+| `/etc/boswas/compat/` | boswas-compat | WinCompat policy and local compatibility manifests |
+| `/etc/apparmor.d/boswas-winapp` | boswas-compat | AppArmor profile for Windows applications |
+| `/usr/share/boswas/compat/` | boswas-compat | Wine runtime facts, system catalog, manifest schema |
+| `~/.local/share/boswas/wine/<id>/` | boswas-winapp (user) | One application: record, logs, prefix (seen as `/var/lib/boswas/wine/<id>/` inside its sandbox) |
 | `/etc/boswas/update.conf` | boswas-os | Update channel |
 | `/etc/boswas/firewall/` | boswas-security | Firewall ruleset and local drop-ins |
 | `/etc/boswas/usb-policy/` | boswas-security | Removable-media policy |
 | `/usr/share/boswas/` | boswas-branding | Artwork and KDE defaults |
-| `/var/lib/boswas/` | future agent | Agent state and policy cache |
+| `/var/lib/boswas/` | future agent | Agent state and policy cache; `compat/manifests/` reserved for the managed catalog |
 | `/opt/boswas/` | reserved | Components that cannot be distro packages |

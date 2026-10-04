@@ -145,6 +145,35 @@ def apparmor() -> Check:
     return Check("apparmor", "security", title, FAIL, f"enabled in kernel but profiles not loaded (apparmor.service {state})")
 
 
+APPARMOR_PROFILES = "/sys/kernel/security/apparmor/profiles"
+WINAPP_PROFILE_FILE = "/etc/apparmor.d/boswas-winapp"
+WINAPP_PROFILE = "boswas-winapp"
+
+
+def winapp_confinement() -> Check:
+    """The AppArmor profile that confines Windows applications (boswas-compat)."""
+    cid, title = "winapp-confinement", "Windows app confinement"
+    if not system.sysroot_path(WINAPP_PROFILE_FILE).exists():
+        return Check(cid, "security", title, INFO, "WinCompat (boswas-compat) not installed", scored=False)
+    if not system.is_root():
+        return Check(cid, "security", title, UNKNOWN, "run as root to check", scored=False)
+    profiles = system.read_text(APPARMOR_PROFILES)
+    for line in (profiles or "").splitlines():
+        name, _, mode = line.strip().partition(" ")
+        if name == WINAPP_PROFILE:
+            mode = mode.strip("()")
+            if mode == "enforce":
+                return Check(cid, "security", title, PASS, "boswas-winapp AppArmor profile enforcing")
+            return Check(cid, "security", title, WARN, f"boswas-winapp profile loaded in {mode} mode (not enforcing)")
+    if system.is_live_session():
+        return Check(cid, "security", title, INFO,
+                     "live session: AppArmor profiles are not loaded on live media", scored=False)
+    if profiles is None:
+        return Check(cid, "security", title, WARN, "AppArmor not available; Windows applications will not start")
+    return Check(cid, "security", title, WARN,
+                 "boswas-winapp profile not loaded; Windows applications will not start")
+
+
 def ssh_server() -> Check:
     title = "SSH server"
     if not system.sysroot_path("/usr/sbin/sshd").exists():
@@ -263,7 +292,7 @@ def agent() -> Check:
         state = system.unit_active("boswas-device-agent.service")
         return Check("agent", "management", "Boswas agent", INFO, f"boswas-device-agent.service {state}", scored=False)
     return Check("agent", "management", "Boswas agent", INFO,
-                 "not installed in v1 alpha (device agent arrives in Phase 4)", scored=False)
+                 "not installed (the device agent arrives in Milestone 2)", scored=False)
 
 
 def enrollment() -> Check:
@@ -273,7 +302,7 @@ def enrollment() -> Check:
 
 
 SECURITY_CHECKS = (secure_boot, tpm, disk_encryption, firewall, apparmor, audit,
-                   ssh_server, root_account, apt_trust, screen_lock, usb_policy)
+                   ssh_server, root_account, apt_trust, screen_lock, usb_policy, winapp_confinement)
 ALL_CHECKS = SECURITY_CHECKS + (updates, agent, enrollment)
 
 

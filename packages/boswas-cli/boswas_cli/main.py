@@ -4,7 +4,8 @@ Exit codes (stable, documented in docs/administration/cli.md):
   0   success; for status commands: no check FAILed
   1   one or more posture checks FAILed
   2   usage error
-  69  command planned for a later phase, not available in this release
+  69  command not available (planned for a later milestone, or its package
+      is not installed)
   70  internal error
 """
 
@@ -12,6 +13,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import subprocess
 import sys
 from datetime import datetime, timezone
 
@@ -114,6 +117,8 @@ def cmd_device_status(args) -> int:
         ("Enrollment", device["enrollment_state"] or "unenrolled"),
         ("Control plane", device["control_plane_url"] or "not configured"),
         ("Policy version", device["policy_version"] or "none"),
+        ("Profile", device["device_profile"] or "none"),
+        ("Certificate", device["device_certificate"] or "none"),
         ("Vendor", hardware["vendor"] or "unknown"),
         ("Model", hardware["product"] or "unknown"),
         ("Firmware", hardware["firmware_version"] or "unknown"),
@@ -134,13 +139,13 @@ def cmd_policy_status(args) -> int:
             "state": state,
             "policy_version": device["policy_version"],
             "engine": None,
-            "note": "No policy engine in v1 alpha; local baseline is delivered by boswas-security (Phase 4 adds policy retrieval).",
+            "note": "No policy engine yet; the local baseline is delivered by boswas-security (the policy engine arrives in Milestone 4).",
         }
     }
     text = "Boswas policy\n" + _rows([
         ("State", state),
         ("Policy version", device["policy_version"] or "none"),
-        ("Engine", "not installed (Phase 4)"),
+        ("Engine", "not installed (Milestone 4)"),
         ("Local baseline", "boswas-security " + (system.package_version("boswas-security") or "not installed")),
     ])
     _emit(args, "policy-status", payload, text)
@@ -171,9 +176,23 @@ def cmd_update_status(args) -> int:
     return EXIT_OK
 
 
+WINAPP = "/usr/bin/boswas-winapp"
+
+
+def cmd_winapp(args) -> int:
+    """`boswas winapp ...` runs boswas-winapp (package boswas-compat) when installed."""
+    tool = system.sysroot_path(WINAPP)
+    if not os.access(tool, os.X_OK):
+        return _unavailable("Windows application management (boswas winapp)",
+                            "install the boswas-compat package")(args)
+    argv = [str(tool), *(["--json"] if args.json else []), *args.winapp_args]
+    sys.stdout.flush()
+    return subprocess.run(argv, check=False).returncode
+
+
 def _unavailable(feature: str, phase: str):
     def handler(args) -> int:
-        message = f"{feature} is not available in Boswas OS v1 alpha (planned: {phase})."
+        message = f"{feature} is not available ({phase})."
         if args.json:
             _emit(args, "unavailable", {"error": "unavailable", "message": message}, message)
         else:
@@ -210,14 +229,17 @@ def build_parser() -> argparse.ArgumentParser:
         ("update", "update channel and state", {"status": cmd_update_status}),
         ("security", "security baseline checks", {"status": cmd_security_status}),
         ("app", "managed applications (Boswas Store)",
-         {"list": _unavailable("Application management (boswas app)", "Phase 5")}),
-        ("winapp", "Windows applications (WinCompat)",
-         {"list": _unavailable("Windows application management (boswas winapp)", "Phase 6")}),
+         {"list": _unavailable("Application management (boswas app)", "planned: Boswas Store, Milestone 6")}),
     ):
         gp = sub.add_parser(group, parents=[common], help=help_text, description=help_text)
         gsub = gp.add_subparsers(dest="action", metavar="<action>", required=True)
         for action, handler in actions.items():
             add(action, handler, f"{group} {action}", parent=gsub)
+
+    wp = sub.add_parser("winapp", parents=[common], help="Windows applications (runs boswas-winapp)",
+                        description="Windows applications: passes its arguments to boswas-winapp.")
+    wp.add_argument("winapp_args", nargs=argparse.REMAINDER, metavar="...")
+    wp.set_defaults(handler=cmd_winapp)
     return parser
 
 

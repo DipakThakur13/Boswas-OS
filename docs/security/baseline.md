@@ -23,6 +23,7 @@ Results are a **local self-assessment**, not remote attestation.
 | Repository trust | Only Debian archive sources signed by the Debian archive keyring. live-build's unsigned boot-medium source is removed by the installer (`preseed/late_command`) | `apt-trust` | **FAIL** for any `trusted=yes` source on an installed system; INFO for the boot medium in the live session |
 | Logging | Persistent journal, 1 GB / 90 days maximum | (none) | (none) |
 | Removable media | Policy file and reporting only (`MODE=allow`) | `usb-policy` | INFO, not enforced |
+| Windows applications | `boswas-winapp`: one prefix per application, never as root, bubblewrap sandbox (no home, D-Bus, other prefixes; network and devices only when granted), `boswas-winapp` AppArmor profile enforced or nothing runs, catalog statuses incl. `blocked`, fail-closed policy ([details](../compatibility/README.md#security-model)) | `winapp-confinement` (as root) | WARN if the profile is not enforcing on an installed system |
 | Service minimisation | Network-listening and unmanaged-install software pinned out of the image: KDE Connect, Discover/PackageKit, cups-browsed, openssh-server, fingerprint PAM | test suite | (none) |
 
 Compliance states:
@@ -40,8 +41,9 @@ Compliance states:
   created by the person installing the device.
 - **No secrets in images or Git.** `device.conf` holds identifiers only;
   credentials will live in the TPM / OS secret store (Phase 4+).
-- **Untrusted installers never run as root.** Planned WinCompat tooling runs
-  Windows installers as the user in per-application prefixes.
+- **Untrusted installers never run as root.** `boswas-winapp` refuses root
+  and runs Windows installers as the user, in per-application prefixes,
+  sandboxed and AppArmor-confined.
 - **Upstream first.** Debian mechanisms only; no Debian file is modified (see
   ADR-0006).
 
@@ -62,9 +64,14 @@ installed system never inherits the live user.
 ## Known gaps (tracked in the roadmap)
 
 - **USB storage:** not enforced.
-- **AppArmor:** no Boswas-specific profiles yet (e.g. for Wine applications).
+- **AppArmor:** Boswas profile for Windows applications only (`boswas-winapp`);
+  browsers use Debian's profiles.
 - **Secure Boot:** not enforced as a policy; the device only reports its state.
 - **TPM:** not yet used to protect LUKS or device keys.
 - **Release artifacts:** not yet signed.
 - **systemd units:** Boswas units are not sandboxed yet (no Boswas services
-  exist in v1 alpha).
+  exist yet; the device agent arrives in Milestone 2).
+- **Windows applications:** 64-bit only. Running `/usr/bin/wine` directly is
+  not mediated (it runs with the user's normal rights). X11 applications can
+  observe other X11 clients on the same display (limited to Xwayland under
+  Plasma Wayland).

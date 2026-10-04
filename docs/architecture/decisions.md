@@ -17,17 +17,21 @@ Group responsible for maintaining thousands of packages.
 
 ## ADR-0002 Boswas customisation ships as Debian packages
 
-**Decision.** Everything Boswas adds to a device lives in four native Debian
-packages built from `packages/`:
+**Decision.** Everything Boswas adds to a device lives in native Debian
+packages built from `packages/` (five since 1.0~alpha2):
 
 - `boswas-os`: release identity and `/etc/boswas`; depends on the others.
 - `boswas-cli`: `boswas`, `boswas-info`, `boswas-status`.
 - `boswas-branding`: KDE look-and-feel, wallpaper, login, About and icons.
 - `boswas-security`: the security baseline.
+- `boswas-compat`: WinCompat (`boswas-winapp`, the Wine AppArmor profile,
+  the compatibility catalog and its policy); since 1.0~alpha2.
 
 The packages reference shared sources in the monorepo (`security/`,
-`desktop/`, `config/boswas/`). `debian/rules` installs every file with an
-explicit mode.
+`desktop/`, `compatibility/`, `config/boswas/`). `debian/rules` installs
+every file with an explicit mode. `packages/boswas-device-agent/` holds the
+agent's interfaces and has no `debian/` directory until Milestone 2, so it is
+not built into the image.
 
 **Why.** Installed devices can then be updated through APT like the rest of
 the system, which a one-off image customisation cannot do. Explicit modes
@@ -185,3 +189,146 @@ release pipeline (Phase 4), together with a pinned builder image digest.
 
 **Why.** It needs no extra dependencies, is easy to audit, and gives
 structured output for the future agent and control plane.
+
+## ADR-0011 WinCompat prefixes live in the user's home, seen at /var/lib/boswas/wine inside the sandbox
+
+**Decision.**
+
+- **On the host:** each Windows application gets its own Wine prefix in
+  `~/.local/share/boswas/wine/<id>/sandbox/prefix`, owned by the user who
+  installed it.
+- **Inside the application's sandbox:** that state appears as
+  `/var/lib/boswas/wine/<id>/`. The AppArmor profile only grants that view.
+
+**Why.**
+
+- **Wine requirement:** Wine refuses a prefix not owned by the user who runs
+  it, and Windows software must never run as root.
+- **No new attack surface:** a host-wide `/var/lib/boswas/wine` would need a
+  privileged helper or a world-writable directory.
+- **Per-user isolation:** per-user storage keeps users' applications apart.
+- **Stable confinement:** the fixed sandbox path keeps the AppArmor profile
+  independent of home-directory locations, and the profile can deny all
+  home directories outright.
+
+**Revisit when** shared, machine-wide Windows applications are required.
+That needs a dedicated service account per application and a reviewed
+display-sharing design.
+
+## ADR-0012 Two isolation layers for Windows applications: bubblewrap and AppArmor
+
+**Decision.**
+
+- **bubblewrap (per application):** every Windows process runs inside a
+  sandbox that decides what exists for the application, from its manifest
+  and the device policy.
+- **AppArmor (upper bound):** the `boswas-winapp` profile, attached by path
+  to the in-sandbox runner, sets the upper bound for every application.
+- **Fail closed:** the runner refuses to start Wine unless its own label is
+  `boswas-winapp (enforce)`.
+
+**Why.**
+
+- **Wine is not a sandbox:** Windows programs are arbitrary native code.
+- **bubblewrap:** removes what an application must not see (home, D-Bus,
+  network, other prefixes).
+- **AppArmor:** limits what it may do with what it sees (no exec of dropped
+  binaries, no mounts or capabilities, read-only system), even if a sandbox
+  grant is wrong.
+
+**Alternatives.**
+
+- **Flatpak-packaged Wine:** a second runtime stack outside Debian's
+  security support.
+- **A named profile entered with aa-exec:** fragile if a caller forgets the
+  transition.
+- **A system-wide profile on /usr/lib/wine/wine64:** would also confine
+  unrelated use.
+
+**Known limits.** X11 clients can observe each other (limited to Xwayland
+clients under Plasma Wayland). Direct `/usr/bin/wine` use is not mediated;
+that is left to the policy engine (Milestone 4).
+
+## ADR-0013 Compatibility manifest format v1 and a layered catalog
+
+**Decision.**
+
+- **Format:** applications are described by JSON manifests, normatively
+  defined by `compatibility/manifests/schema/manifest-v1.schema.json` with a
+  stdlib validator kept in sync by a unit test.
+- **Statuses:** `unknown`, `untested`, `experimental`, `tested`, `approved`,
+  `blocked`.
+- **Pinning:** `tested` and `approved` must pin the installer SHA-256.
+- **Layers:** the catalog has three layers, `managed` (Control Plane,
+  reserved), `local` (administrator) and `system` (package). The highest
+  wins, except that `blocked` in any layer wins.
+- **Recomputation:** sandbox grants are recomputed from the catalog and
+  policy at every launch.
+- **Replaced format:** the earlier planned statuses (`gold`, `silver`, ...)
+  are replaced.
+
+**Why.**
+
+- A validated status must refer to exactly one installer.
+- Blocks must not be undone by a lower-trust layer.
+- Nothing an application writes can widen its own sandbox.
+
+## ADR-0014 64-bit-only Windows runtime retained for Milestone 1
+
+**Decision.**
+
+- **Runtime unchanged:** WinCompat ships with Debian's `wine64` only,
+  without `wine32` or i386 multiarch.
+- **Early refusal:** `boswas-winapp` reads the PE header and refuses 32-bit
+  programs (exit 4).
+- **Ready for later:** the runtime declares its architectures in
+  `runtime.conf`, so adding a 32-bit runtime later is a data change.
+
+**Why.** Enabling i386 multiarch adds roughly 300 MB and a second copy of the
+library attack surface. It is a product decision, not an implementation
+detail, and has been an open item since v1 alpha. Many installers are 32-bit,
+so this is the main compatibility limit to resolve next (roadmap).
+
+## ADR-0015 Device identity is separate from user identity; Boswas ID deferred
+
+**Decision.**
+
+- **Device identity:** a random UUID v4 plus, after enrollment, a device
+  certificate whose private key stays in the agent's credential store.
+- **User identity:** not implemented. Interfaces only (`IdentityProvider`,
+  `IdentityContext`, `AuthenticatedPrincipal`), with a `NoIdentityProvider`.
+- **Never used for authentication:** the hostname, MAC or IP addresses,
+  user names and serial numbers.
+- **Closed messages:** device messages have closed field allowlists
+  (`privacy.py`).
+
+**Why.**
+
+- Devices must be manageable before and without Boswas ID.
+- Mixing the two identities would make device trust depend on a user
+  session.
+- Closed allowlists turn "no invasive monitoring" into a tested property
+  instead of a promise.
+
+## ADR-0016 Enterprise platform delivered in milestones
+
+**Decision.** The enterprise platform is delivered in nine milestones (see
+`roadmap.md`), each with code, tests, documentation and a security review
+before it counts as complete:
+
+1. Windows/Wine platform (this release)
+2. Device agent
+3. Control Plane foundation
+4. Policy engine
+5. Fleet management
+6. Boswas Store
+7. Update infrastructure
+8. Hardware certification
+9. Production signing and release
+
+The Control Plane is a modular monolith (TypeScript/NestJS, PostgreSQL, Redis
+only where useful), not microservices.
+
+**Why.** Each milestone depends on the contracts of the previous ones:
+WinCompat inventory feeds the agent, the agent feeds the Control Plane, and
+signed policy needs both.

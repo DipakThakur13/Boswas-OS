@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "com.boswas.testapp",
+  "name": "Boswas Test App",
+  "version": "1.0",
+  "publisher": "Boswas OS Platform Team",
+  "description": "Test fixture for the WinCompat integration tests (built from tests/compatibility/fixtures/testapp).",
+  "runtime": {"type": "wine", "wineVersion": "10"},
+  "architecture": "x86_64",
+  "dependencies": [],
+  "environment": {},
+  "winetricks": [],
+  "launch": "C:\\Program Files\\Boswas Test App\\boswas-testapp.exe",
+  "status": "tested",
+  "installer": {"type": "exe", "sha256": "@SHA256_MAIN@", "silentArgs": ["/S"]},
+  "sandbox": {"network": false, "display": false, "audio": false, "gpu": false, "folders": []}
+}

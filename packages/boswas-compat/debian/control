@@ -1,0 +1,31 @@
+Source: boswas-compat
+Section: otherosfs
+Priority: optional
+Maintainer: Boswas OS Platform Team <os-platform@boswas.invalid>
+Build-Depends: debhelper-compat (= 13), dh-apparmor, python3:any
+Standards-Version: 4.7.2
+Rules-Requires-Root: no
+
+Package: boswas-compat
+Architecture: all
+Depends: apparmor,
+         bubblewrap (>= 0.8),
+         python3 (>= 3.11),
+         wine (>= 10.0~),
+         wine64 (>= 10.0~),
+         ${misc:Depends}
+Recommends: boswas-cli
+Description: Boswas OS Windows application compatibility (WinCompat)
+ Runs approved Windows applications on Boswas OS with Wine, each in its own
+ isolated environment:
+ .
+  * boswas-winapp installs, lists, launches, repairs and removes Windows
+    applications; every command supports --json
+  * one Wine prefix per application, never shared, never run as root
+  * a bubblewrap sandbox per application: no access to the user's home
+    directory, other applications, the network or devices unless the
+    application's compatibility manifest grants it
+  * the boswas-winapp AppArmor profile confines every Windows process
+  * compatibility manifests (format v1) and a layered catalog with the
+    statuses unknown, untested, experimental, tested, approved and blocked
+  * device policy in /etc/boswas/compat/policy.conf

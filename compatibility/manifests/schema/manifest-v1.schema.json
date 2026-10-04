@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.boswas.invalid/compat/manifest-v1.schema.json",
+  "title": "Boswas compatibility manifest, version 1",
+  "description": "Describes how one Windows application version is installed and run on Boswas OS. Implemented by boswas_compat.manifest (kept in sync by a unit test); the Control Plane validates against this file.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "name", "version", "runtime", "architecture", "launch", "status"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schemaVersion": {"const": 1},
+    "id": {
+      "description": "Lower-case reverse-DNS application ID; also the manifest file name (<id>.json).",
+      "type": "string",
+      "maxLength": 96,
+      "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$"
+    },
+    "name": {"type": "string", "minLength": 1, "maxLength": 80},
+    "version": {"type": "string", "minLength": 1, "maxLength": 40},
+    "publisher": {"type": "string", "maxLength": 80},
+    "description": {"type": "string", "maxLength": 500},
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "wineVersion"],
+      "properties": {
+        "type": {"const": "wine"},
+        "wineVersion": {"type": "string", "pattern": "^[0-9]+(\\.[0-9]+)?$"}
+      }
+    },
+    "architecture": {"enum": ["x86_64", "x86"]},
+    "dependencies": {
+      "description": "Boswas-provided runtime components (none exist yet; a non-empty list is refused).",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[a-z0-9][a-z0-9.+-]*$"}
+    },
+    "environment": {
+      "description": "Extra environment variables. Variables the sandbox controls (PATH, HOME, XDG_*, LD_*, WINEPREFIX, ...) are rejected.",
+      "type": "object",
+      "propertyNames": {"pattern": "^[A-Z][A-Z0-9_]{0,63}$"},
+      "additionalProperties": {"type": "string", "maxLength": 1024}
+    },
+    "winetricks": {
+      "description": "winetricks verbs; each must be allowed by policy (WINETRICKS_ALLOWED).",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[a-z0-9_]+(=[a-z0-9_.]+)?$"}
+    },
+    "launch": {
+      "description": "Program to start: 'C:\\\\dir\\\\app.exe', 'dir/app.exe' (relative to C:\\\\) or a unique file name. Never another drive, UNC or '..'.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 260
+    },
+    "arguments": {"type": "array", "items": {"type": "string"}},
+    "status": {"enum": ["unknown", "untested", "experimental", "tested", "approved", "blocked"]},
+    "installer": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {"enum": ["exe", "msi", "portable"]},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "silentArgs": {"type": "array", "items": {"type": "string"}},
+        "fileName": {"type": "string", "pattern": "^[^\\\\/:*?\"<>|\\u0000-\\u001f]{1,255}$"}
+      }
+    },
+    "sandbox": {
+      "description": "What the application may access besides its own prefix. Everything defaults to off except display.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "network": {"type": "boolean", "default": false},
+        "display": {"type": "boolean", "default": true},
+        "audio": {"type": "boolean", "default": false},
+        "gpu": {"type": "boolean", "default": false},
+        "folders": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"enum": ["documents", "downloads", "desktop", "pictures", "music", "videos"]}
+        }
+      }
+    },
+    "notes": {"type": "string", "maxLength": 2000},
+    "tested": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "date": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
+        "osVersion": {"type": "string"},
+        "by": {"type": "string"}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"enum": ["tested", "approved"]}}, "required": ["status"]},
+      "then": {"required": ["installer"], "properties": {"installer": {"required": ["sha256"]}}}
+    }
+  ]
+}
