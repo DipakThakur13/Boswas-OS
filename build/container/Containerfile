@@ -22,8 +22,8 @@ RUN apt-get update \
         xorriso squashfs-tools mtools dosfstools cpio xz-utils zstd \
         grub-common grub-efi-amd64-bin grub-pc-bin \
         wget curl ca-certificates gnupg rsync file git \
-        dpkg-dev debhelper fakeroot lintian \
-        librsvg2-bin fonts-lato \
+        build-essential dpkg-dev debhelper fakeroot lintian \
+        librsvg2-bin fonts-lato potrace netpbm \
         python3 \
         qemu-system-x86 qemu-utils ovmf \
  && apt-get clean \

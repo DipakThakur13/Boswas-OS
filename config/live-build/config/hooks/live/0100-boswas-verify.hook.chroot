@@ -1,0 +1,38 @@
+#!/bin/sh
+# Boswas OS build guard rails. Runs inside the image chroot after all packages
+# are installed and fails the build when the image does not match the Boswas
+# manifest decisions, instead of shipping a silently different image.
+set -e
+
+fail() {
+	echo "E: boswas-verify: $*" >&2
+	exit 1
+}
+
+installed() {
+	[ "$(dpkg-query -W -f='${db:Status-Status}' "$1" 2>/dev/null)" = "installed" ]
+}
+
+for pkg in boswas-os boswas-cli boswas-branding boswas-security \
+	plasma-workspace sddm kwin-wayland firefox-esr \
+	apparmor auditd nftables libpam-pwquality \
+	cryptsetup cryptsetup-initramfs lvm2 \
+	wine wine64 flatpak network-manager; do
+	installed "$pkg" || fail "required package missing: $pkg"
+done
+
+for pkg in openssh-server kdeconnect plasma-discover packagekit libpam-fprintd cups-browsed; do
+	installed "$pkg" && fail "excluded package present: $pkg"
+done
+
+for unit in nftables.service auditd.service apparmor.service; do
+	state="$(systemctl is-enabled "$unit" 2>/dev/null || true)"
+	[ "$state" = "enabled" ] || fail "$unit is not enabled (state: ${state:-unknown})"
+done
+
+visudo -c -q >/dev/null || fail "sudoers configuration does not validate"
+[ "$(stat -c %a /etc/sudoers.d/boswas)" = "440" ] || fail "/etc/sudoers.d/boswas must be mode 0440"
+
+boswas --json info >/dev/null || fail "boswas CLI does not run"
+
+echo "I: boswas-verify: image matches the Boswas OS manifest"

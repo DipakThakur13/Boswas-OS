@@ -1,0 +1,3 @@
+# Same mode as Debian's own /etc/audit/rules.d/audit.rules (auditd package):
+# audit rules are only readable by root.
+boswas-security: non-standard-file-perm 0640 != 0644 [etc/audit/rules.d/50-boswas.rules]

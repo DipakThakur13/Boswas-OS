@@ -81,6 +81,28 @@ host_repo_path() {
 	fi
 }
 
+# Unmount everything below DIR (deepest first). A failed live-build can leave
+# /proc, /sys or /dev bind-mounted inside its chroot; deleting such a tree
+# without unmounting first would delete through the mounts.
+unmount_under() {
+	local dir mounts m
+	dir="$(readlink -f "$1" 2>/dev/null || echo "$1")"
+	[ -d "$dir" ] || return 0
+	mounts="$(awk -v d="$dir/" 'index($2 "/", d) == 1 { print $2 }' /proc/mounts | sort -r)"
+	for m in $mounts; do
+		umount "$m" 2>/dev/null || umount -l "$m" 2>/dev/null || true
+	done
+	if awk -v d="$dir/" 'index($2 "/", d) == 1 { found = 1 } END { exit !found }' /proc/mounts; then
+		die "refusing to continue: filesystems are still mounted below $dir"
+	fi
+}
+
+# rm -rf that never descends into mounted filesystems.
+safe_rm_tree() {
+	unmount_under "$1"
+	rm -rf --one-file-system "$1"
+}
+
 is_supported_build_host() {
 	[ -r /etc/os-release ] || return 1
 	# shellcheck source=/dev/null
