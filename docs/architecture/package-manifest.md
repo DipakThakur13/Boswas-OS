@@ -91,6 +91,7 @@ the build fails if anything requires them.
 | libpam-fprintd, fprintd | Biometric PAM is a policy decision |
 | openssh-server | No inbound remote access by default |
 | cups-browsed | Network-listening print discovery; printing comes later |
+| plasma-welcome | Upstream first-login wizard ("Welcome to Debian", KDE community and donation links); Boswas onboarding comes later |
 
 Not selected (would arrive with a profile later): LibreOffice, printing
 (CUPS), the KDE PIM suite, games, `task-kde-desktop`.

@@ -83,7 +83,7 @@ Check IDs are stable:
 
 | Category | Check IDs |
 |----------|-----------|
-| Security | `secure-boot`, `tpm`, `disk-encryption`, `firewall`, `apparmor`, `audit`, `ssh-server`, `root-account`, `screen-lock`, `usb-policy` |
+| Security | `secure-boot`, `tpm`, `disk-encryption`, `firewall`, `apparmor`, `audit`, `ssh-server`, `root-account`, `apt-trust`, `screen-lock`, `usb-policy` |
 | Updates | `updates` |
 | Management | `agent`, `enrollment` |
 

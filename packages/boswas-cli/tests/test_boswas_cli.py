@@ -32,6 +32,7 @@ def fake_run(cmd, timeout=10.0):
         ("dpkg", "--print-architecture"): (0, "amd64"),
         ("systemctl", "is-active", "nftables.service"): (0, "active"),
         ("systemctl", "is-active", "auditd.service"): (0, "active"),
+        ("systemctl", "is-active", "apparmor.service"): (0, "active"),
         ("apt-config", "shell", "UU", "APT::Periodic::Unattended-Upgrade"): (0, "UU='1'"),
     }
     if cmd[0] == "dpkg-query" and cmd[-1] == "plasma-workspace":
@@ -149,6 +150,31 @@ class CheckTests(CliTestCase):
             result = checks.root_account()
         self.assertEqual(result.status, checks.PASS)
         self.assertNotIn("*", result.detail)
+
+    def test_apparmor_requires_loaded_profiles(self):
+        self.fs.write("/sys/module/apparmor/parameters/enabled", "Y\n")
+        self.assertEqual(checks.apparmor().status, checks.PASS)
+        inactive = lambda cmd, timeout=10.0: (3, "inactive") if cmd[-1] == "apparmor.service" else fake_run(cmd)  # noqa: E731
+        with mock.patch.object(system, "run", side_effect=inactive):
+            self.assertEqual(checks.apparmor().status, checks.FAIL)      # installed: profiles missing
+            self.fs.mkdir("/run/live")
+            result = checks.apparmor()
+        self.assertEqual(result.status, checks.WARN)                     # live media: Debian skips profiles
+        self.assertIn("live session", result.detail)
+
+    def test_apt_trust(self):
+        self.fs.write("/etc/apt/sources.list", "deb http://deb.debian.org/debian trixie main\n"
+                                               "# deb [trusted=yes] file:/old ./\n")
+        self.assertEqual(checks.apt_trust().status, checks.PASS)
+        self.fs.write("/etc/apt/sources.list.d/x.sources", "Types: deb\nURIs: file:/x\nTrusted: yes\n")
+        self.assertEqual(checks.apt_trust().status, checks.FAIL)
+        self.fs.write("/etc/apt/sources.list.d/x.sources", "")
+        self.fs.write("/etc/apt/sources.list", "deb [trusted=yes] file:/run/live/medium trixie main\n")
+        self.assertEqual(checks.apt_trust().status, checks.FAIL)         # installed system: never acceptable
+        self.fs.mkdir("/run/live")
+        result = checks.apt_trust()
+        self.assertEqual(result.status, checks.INFO)                     # live session: boot medium pool
+        self.assertFalse(result.scored)
 
     def test_compliance_states(self):
         mk = lambda s, scored=True: checks.Check("x", "security", "x", s, "", scored)  # noqa: E731

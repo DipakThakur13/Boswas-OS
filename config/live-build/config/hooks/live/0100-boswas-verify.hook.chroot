@@ -21,7 +21,7 @@ for pkg in boswas-os boswas-cli boswas-branding boswas-security \
 	installed "$pkg" || fail "required package missing: $pkg"
 done
 
-for pkg in openssh-server kdeconnect plasma-discover packagekit libpam-fprintd cups-browsed; do
+for pkg in openssh-server kdeconnect plasma-discover packagekit libpam-fprintd cups-browsed plasma-welcome; do
 	installed "$pkg" && fail "excluded package present: $pkg"
 done
 

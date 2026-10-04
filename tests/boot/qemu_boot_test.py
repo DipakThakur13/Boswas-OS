@@ -366,27 +366,40 @@ def scenario_serial(iso: Path, workdir: Path, outdir: Path, timeout: float) -> N
         except (ValueError, KeyError):
             status = {}
         check(bool(status), "boswas --json status returns valid JSON")
-        for cid in ("firewall", "apparmor", "audit", "ssh-server"):
+        for cid in ("firewall", "audit", "ssh-server"):
             st = status.get(cid, {}).get("status")
             check(st == "PASS", f"boswas status: {cid} is PASS on the running system (got {st})")
+        # Debian does not load AppArmor profiles on live media; the CLI must say so
+        # (WARN) instead of claiming PASS from the kernel flag alone.
+        aa = status.get("apparmor", {})
+        check(aa.get("status") == "WARN" and "live session" in aa.get("detail", ""),
+              f"boswas status: apparmor reports live-media state honestly (got {aa.get('status')})")
+        trust = status.get("apt-trust", {})
+        check(trust.get("status") in ("PASS", "INFO"), f"boswas status: repository trust (got {trust.get('status')})")
 
-        for unit in ("nftables", "auditd", "apparmor", "NetworkManager"):
+        for unit in ("nftables", "auditd", "NetworkManager"):
             rc, out = sh.run(f"systemctl is-active {unit}")
             check(out.strip() == "active", f"service {unit} is active")
         rc, out = sh.run("sudo -n nft list table inet boswas_filter")
         check("policy drop" in out, "Boswas firewall ruleset is loaded (inbound policy drop)")
         rc, out = sh.run("sudo -n auditctl -l")
         check("boswas-identity" in out, "Boswas audit rules are loaded into the kernel")
-        rc, out = sh.run("cat /sys/module/apparmor/parameters/enabled")
-        check(out.strip() == "Y", "AppArmor is enabled in the running kernel")
-        rc, out = sh.run("sudo -n aa-status --profiled 2>/dev/null || true")
-        check(out.strip().isdigit() and int(out.strip()) > 0, f"AppArmor profiles loaded ({out.strip() or 0})")
-        rc, out = sh.run("sysctl -n kernel.kptr_restrict kernel.unprivileged_userns_clone")
-        check(out.split() == ["2", "1"], "Boswas sysctl hardening applied; user namespaces still available")
+        rc, out = sh.run("cat /sys/module/apparmor/parameters/enabled /sys/kernel/security/lsm")
+        check(out.split()[:1] == ["Y"] and "apparmor" in out, "AppArmor is enabled in the running kernel (active LSM)")
+        rc, out = sh.run("systemctl is-enabled apparmor.service; "
+                         "systemctl show -p ConditionResult apparmor.service; "
+                         "systemctl status apparmor.service --no-pager 2>&1 | grep -o 'ConditionPathExists=[^ ]*'")
+        check("enabled" in out and "ConditionPathExists=!/run/live/overlay/work" in out,
+              "apparmor.service enabled; skipped only by Debian's live-media condition (profiles load once installed)")
+        rc, out = sh.run("cat /proc/sys/kernel/kptr_restrict /proc/sys/kernel/kexec_load_disabled "
+                         "/proc/sys/kernel/sysrq /proc/sys/kernel/unprivileged_userns_clone")
+        check(out.split() == ["2", "1", "176", "1"],
+              f"Boswas sysctl hardening applied, user namespaces still available ({' '.join(out.split())})")
 
-        rc, out = sh.run("wine --version")
-        check(out.strip().startswith("wine-10."), f"Wine runs ({out.strip()})")
-        rc, out = sh.run("plasmashell --version")
+        rc, out = sh.run("wine --version 2>/dev/null")
+        version = next((line for line in out.splitlines() if line.startswith("wine-")), "")
+        check(version.startswith("wine-10."), f"Wine runs ({version or 'no version output'})")
+        rc, out = sh.run("QT_QPA_PLATFORM=offscreen plasmashell --version 2>/dev/null")
         check(out.strip().startswith("plasmashell 6."), f"KDE Plasma present ({out.strip()})")
 
         rc, out = sh.run("ip -4 -o addr show scope global")

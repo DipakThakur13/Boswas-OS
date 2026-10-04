@@ -45,7 +45,7 @@ if out="$(apt-get "${apt_opts[@]}" install -s -qq linux-image-amd64 live-boot li
 else
 	fail "manifest does not resolve: $(grep -E '^E:|Depends:' <<<"$out" | head -5 | tr '\n' ';')"
 fi
-for p in kdeconnect plasma-discover packagekit libpam-fprintd openssh-server cups-browsed; do
+for p in kdeconnect plasma-discover packagekit libpam-fprintd openssh-server cups-browsed plasma-welcome; do
 	check_not "excluded package '$p' is not pulled in" grep -q "^Inst $p " <<<"$out"
 done
 rm -rf "$root"

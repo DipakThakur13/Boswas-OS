@@ -14,7 +14,7 @@ for p in $(manifest_packages); do
 done
 [ -z "$missing" ] && pass "all $(manifest_packages | wc -l) manifest packages installed" || fail "manifest packages missing:$missing"
 
-for p in kdeconnect plasma-discover packagekit libpam-fprintd fprintd openssh-server cups-browsed; do
+for p in kdeconnect plasma-discover packagekit libpam-fprintd fprintd openssh-server cups-browsed plasma-welcome; do
 	check_not "excluded package '$p' absent" pkg_installed "$root" "$p"
 done
 check "live-build exclusion pins not left on the image" bash -c "! ls '$root'/etc/apt/preferences.d/boswas-exclude* 2>/dev/null"

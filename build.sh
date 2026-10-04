@@ -56,6 +56,7 @@ if [ "$mode" = "container" ]; then
 	image="${BOSWAS_BUILDER_IMAGE:-boswas-os-builder:trixie}"
 	log "building builder image $image ($rt)"
 	"$rt" build -q -t "$image" -f "$BOSWAS_REPO_ROOT/build/container/Containerfile" "$BOSWAS_REPO_ROOT/build/container" >/dev/null
+	image_id="$("$rt" image inspect -f '{{.Id}}' "$image")"
 	pass=()
 	$keep_work && pass+=(--keep-work)
 	$clean_cache && pass+=(--clean-cache)
@@ -66,7 +67,7 @@ if [ "$mode" = "container" ]; then
 		-v "$(host_repo_path):/src" \
 		-v boswas-os-build:/var/cache/boswas \
 		-e BOSWAS_IN_CONTAINER=1 \
-		-e BOSWAS_BUILDER_IMAGE="$image" \
+		-e BOSWAS_BUILDER_IMAGE="$image ($image_id)" \
 		-e BOSWAS_HOST_UID="$(id -u)" -e BOSWAS_HOST_GID="$(id -g)" \
 		-e BOSWAS_MIRROR -e BOSWAS_MIRROR_SECURITY -e NO_COLOR \
 		-w /src "$image" ./build.sh --native "${pass[@]}"

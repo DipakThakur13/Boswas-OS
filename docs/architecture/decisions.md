@@ -67,6 +67,7 @@ deliberately kept out are pinned to priority -1 in
 - fingerprint PAM
 - openssh-server
 - cups-browsed
+- the KDE Welcome Center
 
 The full resolved package list of every build is recorded in its manifest.
 

@@ -40,7 +40,7 @@ check_not "audit rules do not log user command lines (execve)" grep -q 'execve' 
 # Privilege and authentication
 check "sudoers configuration validates" chroot "$root" visudo -c -q
 check "sudoers drop-in mode 0440" bash -c "[ \"\$(stat -c %a '$root/etc/sudoers.d/boswas')\" = 440 ]"
-check_not "no NOPASSWD rules baked into the image" grep -rqs 'NOPASSWD' "$root/etc/sudoers" "$root/etc/sudoers.d"
+check_not "no NOPASSWD rules baked into the image" grep -rqsE '^[^#]*NOPASSWD' "$root/etc/sudoers" "$root/etc/sudoers.d"
 check "password quality policy present" test -s "$root/etc/security/pwquality.conf.d/50-boswas.conf"
 check "pam_pwquality enabled in PAM" grep -q 'pam_pwquality' "$root/etc/pam.d/common-password"
 
@@ -70,7 +70,13 @@ if [ -n "$origins" ] && ! grep -v 'label=Debian-Security' <<<"$origins" | grep -
 else
 	fail "unattended-upgrades origins: $(tr '\n' ' ' <<<"$origins")"
 fi
-check_not "no unauthenticated APT sources ([trusted=yes])" grep -rqs 'trusted=yes' "$root/etc/apt"
+# live-build adds one unsigned source for the boot medium's pool (live session
+# only); anything else is a failure, and the installer must remove it.
+unsigned="$(grep -rhsE '^[^#]*trusted=yes' "$root/etc/apt" | grep -v 'file:/run/live/medium' || true)"
+[ -z "$unsigned" ] && pass "no unauthenticated APT sources besides the live boot medium" \
+	|| fail "unauthenticated APT sources: $unsigned"
+preseed_late="$(zcat "$TESTWORK/iso/install/gtk/initrd.gz" 2>/dev/null | cpio -i --quiet --to-stdout preseed.cfg 2>/dev/null | grep 'preseed/late_command' || true)"
+check "installer removes the live-medium source from installed systems" grep -q 'file:/run/live/medium' <<<"$preseed_late"
 check "Debian archive keyring present" bash -c "ls '$root'/usr/share/keyrings/debian-archive-keyring.* >/dev/null"
 
 # Screen lock policy

@@ -28,6 +28,14 @@ Package: libpam-fprintd fprintd
 Pin: release *
 Pin-Priority: -1
 
+# KDE Welcome Center: first-login wizard that introduces "Debian GNU/Linux",
+# links to KDE community and donation pages. Boswas onboarding (company
+# services, support, policies) is delivered by Boswas instead (later phase).
+Explanation: Boswas: upstream first-run wizard replaced by Boswas onboarding
+Package: plasma-welcome
+Pin: release *
+Pin-Priority: -1
+
 # Inbound remote access is never installed by default. SSH server must be
 # explicitly provisioned (docs/security/baseline.md).
 Explanation: Boswas: no inbound remote access by default

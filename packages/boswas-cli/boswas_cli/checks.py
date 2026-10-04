@@ -125,12 +125,24 @@ def audit() -> Check:
 
 
 def apparmor() -> Check:
+    title = "AppArmor"
     enabled = system.read_text("/sys/module/apparmor/parameters/enabled")
-    if enabled == "Y":
-        return Check("apparmor", "security", "AppArmor", PASS, "enabled in kernel")
     if enabled is None:
-        return Check("apparmor", "security", "AppArmor", FAIL, "AppArmor not available in this kernel")
-    return Check("apparmor", "security", "AppArmor", FAIL, "disabled")
+        return Check("apparmor", "security", title, FAIL, "AppArmor not available in this kernel")
+    if enabled != "Y":
+        return Check("apparmor", "security", title, FAIL, "disabled in the kernel")
+    # The kernel flag alone is not enough: profiles are loaded by apparmor.service.
+    state = system.unit_active("apparmor.service")
+    if state == "active":
+        return Check("apparmor", "security", title, PASS, "enabled, profiles loaded")
+    if state == "unknown":
+        return Check("apparmor", "security", title, UNKNOWN, "enabled in kernel; systemd not running")
+    if system.is_live_session():
+        # Debian's apparmor.service is skipped on live media
+        # (ConditionPathExists=!/run/live/overlay/work); installed systems load profiles.
+        return Check("apparmor", "security", title, WARN,
+                     "enabled in kernel; profiles not loaded in the live session (Debian skips them on live media)")
+    return Check("apparmor", "security", title, FAIL, f"enabled in kernel but profiles not loaded (apparmor.service {state})")
 
 
 def ssh_server() -> Check:
@@ -177,6 +189,39 @@ def screen_lock() -> Check:
         return Check("screen-lock", "security", "Screen lock", PASS,
                      f"automatic lock after {timeout or '?'} min idle, enforced")
     return Check("screen-lock", "security", "Screen lock", WARN, "Boswas screen lock policy not installed")
+
+
+LIVE_MEDIUM_SOURCE = "file:/run/live/medium"
+
+
+def _apt_source_files() -> list[str]:
+    files = ["/etc/apt/sources.list"]
+    try:
+        for name in sorted(os.listdir(system.sysroot_path("/etc/apt/sources.list.d"))):
+            if name.endswith((".list", ".sources")):
+                files.append(f"/etc/apt/sources.list.d/{name}")
+    except OSError:
+        pass
+    return files
+
+
+def apt_trust() -> Check:
+    """Every enabled APT source must be signature-verified (no trusted=yes)."""
+    title = "Repository trust"
+    unauthenticated = []
+    for path in _apt_source_files():
+        for line in (system.read_text(path) or "").splitlines():
+            entry = line.split("#", 1)[0].strip()
+            lowered = entry.lower().replace(" ", "")
+            if "trusted=yes" in lowered or lowered == "trusted:yes":
+                unauthenticated.append(entry)
+    if not unauthenticated:
+        return Check("apt-trust", "security", title, PASS, "all APT sources are signature-verified")
+    if system.is_live_session() and all(LIVE_MEDIUM_SOURCE in e for e in unauthenticated):
+        return Check("apt-trust", "security", title, INFO,
+                     "live session: only the boot medium's package pool is unsigned (removed at install)", scored=False)
+    return Check("apt-trust", "security", title, FAIL,
+                 f"{len(unauthenticated)} APT source(s) bypass signature verification (trusted=yes)")
 
 
 def usb_policy() -> Check:
@@ -228,7 +273,7 @@ def enrollment() -> Check:
 
 
 SECURITY_CHECKS = (secure_boot, tpm, disk_encryption, firewall, apparmor, audit,
-                   ssh_server, root_account, screen_lock, usb_policy)
+                   ssh_server, root_account, apt_trust, screen_lock, usb_policy)
 ALL_CHECKS = SECURITY_CHECKS + (updates, agent, enrollment)
 
 
