@@ -69,6 +69,9 @@ All notable changes to Boswas OS. Versions follow `config/boswas/release.conf`.
   user's home.
 
 ### Changed
+- **`test.sh`:** a stage that exits non-zero without recording a failure
+  (a crashed test script) is now recorded as a FAIL instead of passing
+  silently.
 - **Builder image:** gains `dh-apparmor`, `apparmor` and
   `gcc-mingw-w64-x86-64-win32`.
 - **Build inputs:** the package build and the config hash include

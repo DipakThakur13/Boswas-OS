@@ -67,7 +67,16 @@ export BOSWAS_TEST_REPORT="$BOSWAS_REPO_ROOT/build/logs/test-report-${stamp}.txt
 run_stage() {
 	local name="$1"; shift
 	log "stage: $name"
-	"$@" || true   # failures are recorded in the report; keep running other stages
+	local before rc=0
+	before="$(grep -c '^FAIL' "$BOSWAS_TEST_REPORT" || true)"
+	"$@" || rc=$?   # failures are recorded in the report; keep running other stages
+	# A stage that exits non-zero without recording a failure has crashed or
+	# stopped early: its remaining tests did not run, which is a failure too.
+	if [ "$rc" -ne 0 ] && [ "$(grep -c '^FAIL' "$BOSWAS_TEST_REPORT" || true)" -eq "$before" ]; then
+		printf 'FAIL\tstage\t%s exited with code %s without reporting a failure (crashed or stopped early)\n' \
+			"$name" "$rc" >> "$BOSWAS_TEST_REPORT"
+		warn "stage '$name' exited with code $rc without reporting a failure"
+	fi
 }
 
 t="$BOSWAS_REPO_ROOT/tests"

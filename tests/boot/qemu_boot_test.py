@@ -377,8 +377,8 @@ def winapp_checks(sh: "Shell", outdir: Path, fixtures: bool, timeout: float) -> 
     rc, out = sh.run(f"boswas-winapp install /mnt/boswas-testapp.exe --id {WINAPP}; echo rc=$?", timeout=timeout)
     (outdir / "winapp-install.txt").write_text(out + "\n")
     if not check("rc=0" in out, f"boswas-winapp installs the Windows test application ({int(time.time() - start)} s)"):
-        rc, log = sh.run(f"boswas-winapp logs {WINAPP} --install --lines 40")
-        (outdir / "winapp-install.log").write_text(log + "\n")
+        rc, install_log = sh.run(f"boswas-winapp logs {WINAPP} --install --lines 40")
+        (outdir / "winapp-install.log").write_text(install_log + "\n")
         return
     rc, out = sh.run(f"stat -c '%U %a' ~/.local/share/boswas/wine/{WINAPP} && "
                      f"test -f ~/.local/share/boswas/wine/{WINAPP}/sandbox/prefix/system.reg && echo prefix-ok")
@@ -425,8 +425,10 @@ def winapp_gui_check(vm: "VM", sh: "Shell", outdir: Path, timeout: float) -> Non
                      timeout=timeout)
     if not check("rc=0" in out, "an unlisted Windows application installs (policy: no network; display and GPU)"):
         return
-    sh.run(f"env {env.strip()} boswas-winapp launch local.gui-test --quiet --timeout 90 "
-           f"--exe 'C:\\windows\\notepad.exe' >/dev/null 2>&1 &")
+    # Background it in a subshell: Shell.run appends "; echo <marker>", and "&;"
+    # would be a syntax error.
+    sh.run(f"( env {env.strip()} boswas-winapp launch local.gui-test --quiet --timeout 90 "
+           f"--exe 'C:\\windows\\notepad.exe' >/dev/null 2>&1 & )")
     vm.pump(70)
     to_png(vm.screendump("winapp-gui"), outdir / "winapp-gui.png")
     vm.pump(45)

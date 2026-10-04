@@ -131,6 +131,10 @@ exactly which versions were used.
 7. **WinCompat runtime** (`tests/compatibility/test_winapp_runtime.sh`)
 8. QEMU boot test
 
+A stage that exits non-zero without recording a failure, such as a crashed
+test script, is itself recorded as a FAIL. Tests that never ran can therefore
+not pass silently.
+
 The WinCompat runtime stage installs and launches the test application as an
 unprivileged user, with the image's own Wine, bubblewrap and boswas-compat:
 
