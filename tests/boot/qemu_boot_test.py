@@ -574,7 +574,8 @@ def device_management_checks(vm: "VM", sh: "Shell", outdir: Path, workdir: Path,
         result = run_command({"type": "INSTALL_APPLICATION", "application_id": WINAPP}, timeout)
         check(result.get("status") == "SUCCEEDED",
               f"remote INSTALL_APPLICATION under AppArmor: downloaded over mutual TLS, installed for the live user "
-              f"({int(time.time() - started)} s; {result.get('status')} {result.get('error')})")
+              f"({int(time.time() - started)} s; {result.get('status')}"
+              f"{' ' + str(result['error']) if result.get('error') else ''})")
         result = run_command({"type": "LAUNCH_APPLICATION", "application_id": WINAPP}, 900)
         check(result.get("status") == "SUCCEEDED", f"remote LAUNCH_APPLICATION ({result.get('status')})")
         confinement = None

@@ -43,7 +43,7 @@ This page must be updated whenever a list changes.
 | pipewire-audio | Audio stack |
 | konsole, dolphin, kwrite, ark, okular, gwenview, kde-spectacle, kcalc, plasma-systemmonitor | Core apps: terminal, files, editor, archives, PDF, images, screenshots, calculator, system monitor |
 | firefox-esr | Browser on Debian's long-term security-supported channel |
-| fonts-lato | Boswas text typeface |
+| fonts-lato | Secondary text in Boswas artwork (the brand typeface, Orbitron, is not in Debian and ships in `boswas-branding`) |
 | fonts-liberation2 | Metric-compatible with common Windows fonts (documents, Wine) |
 | fonts-noto-core | Broad Unicode coverage |
 

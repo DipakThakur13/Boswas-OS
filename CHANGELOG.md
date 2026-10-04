@@ -87,6 +87,17 @@ All notable changes to Boswas OS. Versions follow `config/boswas/release.conf`.
   - updated compatibility, privacy, security, CLI and build documentation.
 
 ### Changed
+- **New Boswas OS brand (ADR-0008 revised;
+  [desktop/branding](desktop/branding/README.md)):**
+  - **Logo:** the Boswas OS "b" mark (gold stem and dot, silver ring and
+    swoosh) replaces the Boswas Group gear everywhere: launcher icon, About
+    page, boot menu, wallpaper, login and lock screens, installer banner,
+    Compatibility Manager icon and dashboard favicon. It is traced from the
+    supplied logo (`tools/trace_mark.py`).
+  - **Typeface:** Orbitron is the brand typeface. The wordmarks are
+    Orbitron outlines, and `boswas-branding` installs the font (SIL OFL 1.1).
+  - **Accent:** the logo's gold replaces teal in the KDE colour scheme, the
+    boot menu, the installer and the Control Plane dashboard.
 - **64-bit only is final (ADR-0014):** Boswas OS v1 runs x86_64 Windows
   applications only. Every 32-bit refusal says "This application requires
   32-bit Windows compatibility, which is not supported by Boswas OS." The

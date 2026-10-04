@@ -137,6 +137,20 @@ done
 cp_unit=control-plane/systemd/boswas-control-plane.service
 check "Control Plane service runs unprivileged (User=boswas-cp, no capabilities)" \
 	bash -c "grep -qx 'User=boswas-cp' '$cp_unit' && grep -qx 'CapabilityBoundingSet=' '$cp_unit' && grep -qx 'NoNewPrivileges=yes' '$cp_unit'"
+# Brand: the Boswas OS mark, Orbitron, the logo's gold accent (desktop/branding/README.md).
+brand_src=(desktop installer config/live-build/config/bootloaders control-plane/dashboard
+	packages/boswas-compat-manager/data packages/boswas-compat-manager/boswas_manager)
+check_not "brand sources use the gold accent (no retired teal #17C6C0/#2ED3CD)" \
+	grep -rqiE '#17C6C0|#2ED3CD|23,198,192|46,211,205' "${brand_src[@]}"
+check_not "brand sources no longer use the Boswas Group gear logo" \
+	grep -rqE 'boswas-symbol\.svg|boswas-group-logo\.svg' "${brand_src[@]}" packages/boswas-branding/debian
+check "brand mark and wordmarks are generated (traced mark, Orbitron outlines)" \
+	bash -c "grep -q 'trace_mark.py' desktop/branding/boswas-os-mark.svg && grep -q 'trace_mark.py' desktop/branding/boswas-os-mark-mono.svg &&
+		for w in boswas-os boswas os; do grep -q 'Orbitron SemiBold' desktop/branding/wordmark-\$w.svg || exit 1; done"
+check "Orbitron is shipped with its SIL OFL 1.1 licence" \
+	bash -c "grep -q 'SIL OPEN FONT LICENSE Version 1.1' desktop/fonts/orbitron/OFL.txt &&
+		test \$(ls desktop/fonts/orbitron/static/Orbitron-*.ttf | wc -l) -eq 6"
+
 check "agent and Control Plane share one command set (schema enum == model)" python3 -B -c '
 import json, sys
 sys.path[:0] = ["packages/boswas-device-agent", "packages/boswas-compat"]

@@ -11,11 +11,12 @@ Architecture: all
 Depends: ${misc:Depends}
 Recommends: breeze-icon-theme, fonts-lato, plasma-workspace, sddm-theme-breeze
 Description: Boswas OS visual identity for KDE Plasma
- Boswas Group branding for the Boswas OS desktop, built from the official
- Boswas Group logo and lettering:
+ The Boswas OS visual identity for the desktop, built from the Boswas OS
+ logo (the gold and silver "b" mark) and the brand typeface:
  .
+  * Orbitron, the brand typeface (SIL Open Font License 1.1)
   * "Boswas" Plasma Global Theme (look-and-feel) and default desktop layout
-  * "Boswas Dark" colour scheme
+  * "Boswas Dark" colour scheme with the logo's gold as the accent
   * Boswas wallpaper, login (SDDM) and lock screen backgrounds
   * Boswas launcher icon and System Settings "About this System" branding
   * screen lock policy (automatic lock after 10 minutes, enforced)

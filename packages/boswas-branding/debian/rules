@@ -13,6 +13,7 @@ BRAND  := $(SHARE)/boswas/branding
 LNF    := $(SHARE)/plasma/look-and-feel/com.boswas.desktop
 WALL   := $(SHARE)/wallpapers/Boswas
 SIZES  := 3840x2160 2560x1440 1920x1080
+ORBITRON := Regular Medium SemiBold Bold ExtraBold Black
 
 %:
 	dh $@
@@ -22,7 +23,7 @@ override_dh_auto_build:
 	# Self-contained SVGs (Qt cannot follow <image> references)
 	$(INLINE) $(DESK)/branding/boswas-mark.svg $(B)/boswas-logo.svg
 	$(INLINE) $(DESK)/branding/boswas-about-logo.svg $(B)/boswas-about-logo.svg
-	$(INLINE) $(DESK)/branding/boswas-group-logo.svg $(B)/boswas-group-logo.svg
+	$(INLINE) $(DESK)/branding/boswas-os-mark.svg $(B)/boswas-os-mark.svg
 	$(INLINE) $(DESK)/wallpapers/Boswas/wallpaper.svg $(B)/wallpaper.svg
 	$(INLINE) $(DESK)/wallpapers/Boswas/background.svg $(B)/background.svg
 	# Raster artwork
@@ -38,7 +39,13 @@ override_dh_auto_build:
 override_dh_auto_install:
 	install -D -m 0644 $(B)/boswas-logo.svg $(BRAND)/boswas-logo.svg
 	install -D -m 0644 $(B)/boswas-about-logo.svg $(BRAND)/boswas-about-logo.svg
-	install -D -m 0644 $(B)/boswas-group-logo.svg $(BRAND)/boswas-group-logo.svg
+	install -D -m 0644 $(B)/boswas-os-mark.svg $(BRAND)/boswas-os-mark.svg
+	# Brand typeface: Orbitron (SIL OFL 1.1, not packaged by Debian). The static
+	# instances only; the variable font would duplicate the family in font pickers.
+	for weight in $(ORBITRON); do \
+		install -D -m 0644 $(DESK)/fonts/orbitron/static/Orbitron-$$weight.ttf \
+			$(SHARE)/fonts/truetype/orbitron/Orbitron-$$weight.ttf || exit 1; \
+	done
 	install -D -m 0644 $(B)/login-background.png $(BRAND)/login-background.png
 	install -D -m 0644 $(B)/boswas-logo.svg $(SHARE)/icons/hicolor/scalable/apps/boswas-logo.svg
 	# Wallpaper package

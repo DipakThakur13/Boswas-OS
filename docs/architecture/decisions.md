@@ -147,19 +147,35 @@ path would conflict. Appending also keeps `/etc/xdg` (local admin) and user
 settings at higher precedence, while Kiosk `[$i]` keys still lock the
 screen-lock policy.
 
-## ADR-0008 Brand lettering is traced from official artwork
+## ADR-0008 Boswas OS brand: the "b" mark and the Orbitron typeface
 
-**Decision.** The Boswas Group typeface is not available as a font file, so
-the brand lettering is vectorised from the official logo images with potrace
-(`desktop/branding/tools/trace_brand.py`).
+*Revised in 1.0~alpha3.* The first version of this decision traced the Boswas
+Group gear logo and its lettering from images, because no font file existed.
+Boswas Group has since supplied the Boswas OS logo and chosen Orbitron as the
+brand typeface, so this decision replaces that one.
 
-- **Lettering:** "BOSWAS OS" is composed from the traced glyphs. B, O, S, W,
-  A, G, R, U and P are available.
-- **Secondary text:** Lato.
+**Decision.**
 
-**Revisit when** Boswas Group supplies the original font file with a licence
-permitting embedding. It can then be used for any text, including the
-desktop UI.
+- **Logo:** the Boswas OS mark, a "b" monogram with a gold stem and dot and a
+  silver ring and swoosh (`desktop/branding/source/boswas-os-logo.png`). It
+  replaces the Boswas Group gear everywhere. Only a raster original exists,
+  so it is vectorised with potrace (`desktop/branding/tools/trace_mark.py`):
+  - colour by colour;
+  - with its gold and silver shading fitted as linear gradients.
+- **Brand typeface:** Orbitron (SIL OFL 1.1).
+  - **Wordmarks:** set in Orbitron SemiBold with 0.12 em tracking and
+    converted to outlines (`tools/build_wordmarks.py`), so Qt, GRUB and the
+    installer render them without the font.
+  - **Packaging:** Debian does not package Orbitron, so `boswas-branding`
+    installs the six static weights unmodified, with the licence.
+- **Text face:** Lato for secondary text in artwork; the KDE default for the
+  desktop UI. Orbitron is a display face and is not used for running text.
+- **Accent:** the logo's gold (`#D9B26E`) replaces teal in the colour
+  scheme, the boot menu, the installer, the Compatibility Manager icon and
+  the Control Plane dashboard.
+
+**Revisit when** a designer's vector original of the mark exists. It then
+replaces the traced SVG.
 
 ## ADR-0009 Reproducible, containerised builds
 

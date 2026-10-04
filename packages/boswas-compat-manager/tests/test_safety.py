@@ -241,8 +241,8 @@ class DataFilesTest(unittest.TestCase):
 
     def test_icon_is_self_contained(self):
         svg = (PACKAGE / "data" / "boswas-compat-manager.svg").read_text(encoding="utf-8")
-        self.assertIn("#2ED3CD", svg)
-        self.assertIn("#0B1F33", svg)
+        self.assertIn("#EBC786", svg)                     # brand gold (desktop/branding/README.md)
+        self.assertIn("#080C16", svg)                     # brand navy
         self.assertNotIn("href", svg)
         self.assertNotIn("<script", svg)
 

@@ -44,6 +44,7 @@ for f in \
 	usr/share/color-schemes/BoswasDark.colors \
 	usr/share/icons/hicolor/scalable/apps/boswas-logo.svg \
 	usr/share/boswas/branding/boswas-about-logo.svg usr/share/boswas/branding/login-background.png \
+	usr/share/boswas/branding/boswas-os-mark.svg usr/share/fonts/truetype/orbitron/Orbitron-SemiBold.ttf \
 	usr/share/boswas/kde-settings/kdeglobals usr/share/boswas/kde-settings/kcm-about-distrorc \
 	etc/xdg/plasma-workspace/env/boswas-kde-settings.sh etc/sddm.conf.d/10-boswas.conf \
 	usr/share/sddm/themes/breeze/theme.conf.user etc/issue.d/boswas.issue; do
