@@ -87,7 +87,7 @@ check "AppArmor profile grants exactly the runtime's Wine loader and server" \
 	bash -c "grep -qF '$loader mrix,' '$profile' && grep -qF '$server mrix,' '$profile'"
 check "runner path agrees between profile, code and package" \
 	bash -c "grep -q 'profile boswas-winapp /usr/lib/boswas/compat/winapp-exec ' '$profile' && grep -q 'RUNNER = \"/usr/lib/boswas/compat/winapp-exec\"' packages/boswas-compat/boswas_compat/paths.py && grep -q 'usr/lib/boswas/compat/winapp-exec' packages/boswas-compat/debian/rules"
-for rule in 'deny capability,' 'deny mount,' 'deny pivot_root,' 'deny userns,' 'deny dbus,' 'audit deny @{HOME}/** rwklmx,' 'audit deny /home/** rwklmx,' 'deny /etc/machine-id r,'; do
+for rule in 'deny capability,' 'deny mount,' 'deny pivot_root,' 'deny userns,' 'deny dbus,' 'audit deny @{HOME}/** rwklmx,' 'audit deny /home/** rwklmx,' 'deny /etc/machine-id r,' 'deny @{sys}/devices/**/net/** r,' 'deny @{sys}/devices/virtual/dmi/** r,'; do
 	contains "AppArmor profile keeps '$rule'" "$profile" "$rule"
 done
 check_not "AppArmor profile grants no capability" grep -qE '^[[:space:]]*capability' "$profile"

@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 from . import JSON_SCHEMA, __version__, ops
 from . import manifest as mf
 from .errors import (EXIT_FAILED, EXIT_OK, EXIT_SOFTWARE, EXIT_USAGE, ManifestError, WinAppError)
+from .executor import sanitize
 
 
 def _now() -> str:
@@ -38,7 +39,14 @@ def _emit(args, command: str, payload: dict, text: str | None) -> None:
         sys.stdout.write(text.rstrip("\n") + "\n")
 
 
+def _text(value: object) -> str:
+    """Values printed as text may come from records or file names the
+    application chose: never let them carry terminal control sequences."""
+    return sanitize(str(value)).replace("\n", " ")
+
+
 def _table(rows: list[list[str]], header: list[str]) -> str:
+    rows = [[_text(c) for c in r] for r in rows]
     widths = [max(len(str(r[i])) for r in [header, *rows]) for i in range(len(header))]
     lines = ["  ".join(str(c).ljust(w) for c, w in zip(header, widths)).rstrip()]
     lines += ["  ".join(str(c).ljust(w) for c, w in zip(r, widths)).rstrip() for r in rows]
@@ -47,7 +55,7 @@ def _table(rows: list[list[str]], header: list[str]) -> str:
 
 def _rows(pairs: list[tuple[str, object]]) -> str:
     width = max(len(k) for k, _ in pairs) + 2
-    return "\n".join(f"{(k + ':').ljust(width)}{'-' if v in (None, '') else v}" for k, v in pairs)
+    return "\n".join(f"{(k + ':').ljust(width)}{'-' if v in (None, '') else _text(v)}" for k, v in pairs)
 
 
 def _sandbox_text(sb: dict) -> str:
@@ -272,7 +280,7 @@ def main(argv: list[str] | None = None) -> int:
             _emit(args, args.command, {"error": {"reason": exc.reason, "message": str(exc),
                                                  **({"problems": exc.problems} if isinstance(exc, ManifestError) else {})}}, None)
         else:
-            sys.stderr.write(f"boswas-winapp: {exc}\n")
+            sys.stderr.write(f"boswas-winapp: {_text(exc)}\n")
         code = exc.exit_code
     except BrokenPipeError:
         code = EXIT_OK
@@ -280,7 +288,7 @@ def main(argv: list[str] | None = None) -> int:
         sys.stderr.write("boswas-winapp: interrupted\n")
         code = 130
     except Exception as exc:  # report, never dump a traceback with local state
-        sys.stderr.write(f"boswas-winapp: internal error: {type(exc).__name__}: {exc}\n")
+        sys.stderr.write(f"boswas-winapp: internal error: {type(exc).__name__}: {_text(exc)}\n")
         code = EXIT_SOFTWARE
     if getattr(args, "pause", False) and sys.stdin.isatty():
         try:

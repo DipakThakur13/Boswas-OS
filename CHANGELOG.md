@@ -63,6 +63,10 @@ All notable changes to Boswas OS. Versions follow `config/boswas/release.conf`.
   - The Windows test application is built from source with MinGW-w64.
 - **Documentation:** compatibility guide, device-management guide, ADRs
   0011–0016, milestone roadmap.
+- **Security review of WinCompat:** seven findings, all fixed with regression
+  tests (docs/compatibility/README.md, "Security review"). The most severe
+  was a planted symlink that made the installer clean-up delete files in the
+  user's home.
 
 ### Changed
 - **Builder image:** gains `dh-apparmor`, `apparmor` and

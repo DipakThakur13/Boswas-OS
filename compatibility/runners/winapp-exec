@@ -27,14 +27,21 @@ elif [ -r /proc/self/attr/current ]; then
 fi
 echo "boswas-winapp-exec: confinement=$label" >&2
 
-require="yes"
+# The policy file says whether confinement is required; boswas-winapp also
+# passes its own reading of it. Confinement is skipped only if BOTH say "no",
+# so any difference between the two parsers fails closed.
+from_file="yes"
 if [ -r /etc/boswas/compat/policy.conf ]; then
-	while IFS='=' read -r key value; do
+	while IFS=' =' read -r key value || [ -n "$key" ]; do
 		if [ "$key" = "REQUIRE_APPARMOR" ]; then
 			value="${value#\"}"
-			require="${value%\"}"
+			from_file="${value%\"}"
 		fi
 	done < /etc/boswas/compat/policy.conf
+fi
+require="yes"
+if [ "$from_file" = "no" ] && [ "${BOSWAS_WINAPP_REQUIRE_APPARMOR:-yes}" = "no" ]; then
+	require="no"
 fi
 
 if [ "$require" != "no" ] && [ "$label" != "boswas-winapp (enforce)" ]; then

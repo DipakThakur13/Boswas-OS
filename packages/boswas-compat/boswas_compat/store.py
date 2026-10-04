@@ -223,6 +223,12 @@ class AppStore:
             shutil.rmtree(path, ignore_errors=True)
 
 
+def _inventory_value(value) -> str | None:
+    if not isinstance(value, str):
+        return None
+    return "".join(c for c in value if c.isprintable())[:200] or None
+
+
 def list_all_users(min_uid: int = 1000) -> list[dict]:
     """Inventory of every user's Windows applications (root only).
 
@@ -250,7 +256,13 @@ def list_all_users(min_uid: int = 1000) -> list[dict]:
             record = read_json_safely(root / name / "app.json", owner=entry.pw_uid)
             if not record or record.get("id") != name:
                 continue
-            apps.append({k: record.get(k) for k in INVENTORY_FIELDS})
+            # Records are user-writable: report short, plain strings only.
+            item = {k: _inventory_value(record.get(k)) for k in INVENTORY_FIELDS}
+            item["manifest_source"] = _inventory_value((record.get("manifest") or {}).get("source")
+                                                       if isinstance(record.get("manifest"), dict) else None)
+            item["installer_sha256"] = _inventory_value((record.get("installer") or {}).get("sha256")
+                                                        if isinstance(record.get("installer"), dict) else None)
+            apps.append(item)
         if apps:
             result.append({"user": entry.pw_name, "uid": entry.pw_uid, "applications": apps})
     return result

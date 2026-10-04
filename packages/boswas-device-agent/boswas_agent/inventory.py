@@ -38,11 +38,15 @@ class WindowsApplicationsCollector(InventoryCollector):
             users = doc["users"]
         except (ValueError, KeyError, TypeError):
             return {"available": False, "error": "unreadable output", "applications": []}
+        def text(value):
+            return value if isinstance(value, str) else None
+
         counts: Counter = Counter()
-        for user in users:
-            for app in user.get("applications", []):
-                if app.get("state") == "installed" and isinstance(app.get("id"), str):
-                    counts[(app["id"], app.get("version"), app.get("status"))] += 1
+        for user in users if isinstance(users, list) else []:
+            apps = user.get("applications", []) if isinstance(user, dict) else []
+            for app in apps if isinstance(apps, list) else []:
+                if isinstance(app, dict) and app.get("state") == "installed" and isinstance(app.get("id"), str):
+                    counts[(app["id"], text(app.get("version")), text(app.get("status")))] += 1
         items = [ApplicationInventoryItem(kind="winapp", id=i, version=v, status=s, installations=n)
                  for (i, v, s), n in sorted(counts.items(), key=lambda kv: kv[0][0])]
         return {"available": True, "applications": [item.to_dict() for item in items]}

@@ -71,7 +71,8 @@ class Context:
 
     def say(self, message: str) -> None:
         if self.out is not None:
-            self.out.write(f"boswas-winapp: {message}\n")
+            # Messages can contain names the application chose (program paths).
+            self.out.write(f"boswas-winapp: {sanitize(message)}\n")
             self.out.flush()
 
 
@@ -127,8 +128,46 @@ def _to_windows(parts: list[str]) -> str:
     return "C:\\" + "\\".join(parts)
 
 
-def _resolve_ci(base: Path, parts: list[str]) -> list[str] | None:
+def _real_dir(path: Path) -> bool:
+    """A real directory, not a symbolic link (lstat)."""
+    try:
+        return stat.S_ISDIR(path.lstat().st_mode)
+    except OSError:
+        return False
+
+
+def _safe_drive_c(appdir: Path) -> Path | None:
+    """drive_c, if every component below the application directory is a real
+    directory. The application controls the contents of sandbox/ and may
+    replace any of them with symbolic links to the user's files; host-side
+    code must never walk through those."""
+    path = appdir
+    for part in ("sandbox", "prefix", "drive_c"):
+        path = path / part
+        if not _real_dir(path):
+            return None
+    return path
+
+
+def _prefix_initialised(appdir: Path) -> bool:
+    prefix = appdir / "sandbox" / "prefix"
+    if not _real_dir(prefix):
+        return False
+    try:
+        return stat.S_ISREG((prefix / "system.reg").lstat().st_mode)
+    except OSError:
+        return False
+
+
+def _safe_name(name: str) -> bool:
+    """File names created by the application are shown to the user: no control characters."""
+    return not any(ord(c) < 32 or 0x7F <= ord(c) <= 0x9F for c in name)
+
+
+def _resolve_ci(base: Path | None, parts: list[str]) -> list[str] | None:
     """Case-insensitive lookup below base; never follows symbolic links."""
+    if base is None:
+        return None
     current, actual = base, []
     for i, part in enumerate(parts):
         try:
@@ -153,17 +192,22 @@ def _resolve_ci(base: Path, parts: list[str]) -> list[str] | None:
 
 def exe_snapshot(appdir: Path) -> set[str]:
     """Relative paths of .exe files in drive_c (outside C:\\windows)."""
-    base = _drive_c(appdir)
+    base = _safe_drive_c(appdir)
     found: set[str] = set()
+    if base is None:
+        return found
     seen = 0
     for root, dirs, files in os.walk(base, followlinks=False):
         rel_root = os.path.relpath(root, base)
         if rel_root == ".":
             dirs[:] = [d for d in dirs if d.lower() != "windows"]
+        dirs[:] = [d for d in dirs if _safe_name(d)]
         for name in files:
             seen += 1
             if seen > MAX_SNAPSHOT_ENTRIES:
                 return found
+            if not _safe_name(name):
+                continue
             if name.lower().endswith(".exe") and stat.S_ISREG(os.lstat(os.path.join(root, name)).st_mode):
                 rel = name if rel_root == "." else os.path.join(rel_root, name)
                 found.add(rel.replace(os.sep, "/"))
@@ -176,7 +220,7 @@ def find_launch_target(appdir: Path, launch: str) -> list[str] | None:
         return None
     parts = _windows_parts(launch)
     if len(parts) > 1:
-        return _resolve_ci(_drive_c(appdir), parts)
+        return _resolve_ci(_safe_drive_c(appdir), parts)
     matches = sorted(p for p in exe_snapshot(appdir) if p.rsplit("/", 1)[-1].lower() == parts[0].lower())
     return matches[0].split("/") if len(matches) == 1 else None
 
@@ -259,7 +303,8 @@ def run_in_sandbox(ctx: Context, app_id: str, appdir: Path, grants: Grants, comm
                    timeout: float | None = None) -> RunResult:
     argv = sandbox.build_command(app_id=app_id, appdir=appdir, session=ctx.session, grants=grants,
                                  runtime=ctx.runtime, command=command, cwd=cwd, extra_env=env,
-                                 disable_userns=ctx.disable_userns)
+                                 disable_userns=ctx.disable_userns,
+                                 require_apparmor=ctx.policy.require_apparmor)
     result = ctx.executor.run(argv, log, mirror=mirror, timeout=timeout, title=title)
     if result.refused:
         raise Unavailable(f"Windows code was not started: {result.refused} (see {log})", reason="confinement")
@@ -276,7 +321,7 @@ def _create_prefix(ctx: Context, app_id: str, appdir: Path, grants: Grants, log:
     loader = ctx.runtime.loader
     ctx.say("creating the Wine prefix (first run takes a while)")
     result = run_in_sandbox(ctx, app_id, appdir, grants, [loader, "wineboot", "--init"], log, title="wineboot --init")
-    if result.exit_code != 0 or not (appdir / "sandbox" / "prefix" / "system.reg").is_file():
+    if result.exit_code != 0 or not _prefix_initialised(appdir):
         raise WinAppError(f"creating the Wine prefix failed (exit {result.exit_code}; see {log})",
                           reason="prefix-failed")
     defaults = "Z:" + paths.PREFIX_DEFAULTS.replace("/", "\\")
@@ -400,9 +445,22 @@ def _install_into(ctx, appdir, staged, src, sha256, size, info, manifest, app_id
         before = exe_snapshot(appdir)
         loader = ctx.runtime.loader
         if kind == "portable":
-            dest_dir = _drive_c(appdir) / "Program Files" / app_id
-            dest_dir.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(target, dest_dir / file_name)
+            # Only Wine's own wineboot has run in this fresh prefix; still never
+            # write through symbolic links.
+            drive_c = _safe_drive_c(appdir)
+            if drive_c is None:
+                raise WinAppError("the new prefix has an unexpected layout", reason="prefix-failed")
+            dest_dir = drive_c
+            for part in ("Program Files", app_id):
+                dest_dir = dest_dir / part
+                if not dest_dir.exists() and not dest_dir.is_symlink():
+                    dest_dir.mkdir(mode=0o755)
+                if not _real_dir(dest_dir):
+                    raise WinAppError(f"unexpected file at {dest_dir}", reason="prefix-failed")
+            fd = os.open(dest_dir / file_name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                         0o755)
+            with os.fdopen(fd, "wb") as dst, open(target, "rb") as src_fh:
+                shutil.copyfileobj(src_fh, dst)
             launch_parts: list[str] | None = ["Program Files", app_id, file_name]
             ctx.say("portable application copied into the prefix")
         else:
@@ -457,17 +515,31 @@ def _install_into(ctx, appdir, staged, src, sha256, size, info, manifest, app_id
 
 
 def _clear_installer_dir(appdir: Path) -> None:
-    installer_dir = appdir / "sandbox" / "installer"
-    try:
-        entries = list(os.scandir(installer_dir))
-    except OSError:
+    """Remove the installer copy after installation.
+
+    The installer has just run with write access to this directory, so it may
+    have replaced it with a symbolic link (e.g. to the user's home). Never list
+    or descend through it: check the directory itself with lstat, remove it as
+    a whole (rmtree refuses a symlink and never follows links inside), then
+    recreate it empty.
+    """
+    sandbox_dir = appdir / "sandbox"
+    if not _real_dir(sandbox_dir):
         return
-    for entry in entries:
-        path = Path(entry.path)
-        if entry.is_dir(follow_symlinks=False):
-            shutil.rmtree(path, ignore_errors=True)
+    installer_dir = sandbox_dir / "installer"
+    try:
+        st = installer_dir.lstat()
+    except FileNotFoundError:
+        st = None
+    if st is not None:
+        if stat.S_ISDIR(st.st_mode):
+            shutil.rmtree(installer_dir, ignore_errors=True)
         else:
-            path.unlink(missing_ok=True)
+            installer_dir.unlink(missing_ok=True)       # symlink or file planted by the application
+    try:
+        installer_dir.mkdir(mode=0o700)
+    except FileExistsError:
+        pass
 
 
 def _public(record: dict) -> dict:
@@ -497,7 +569,16 @@ def _effective_for(ctx: Context, record: dict) -> Effective:
 
 def list_apps(ctx: Context, all_users: bool = False) -> dict:
     if all_users:
-        return {"users": list_all_users()}
+        users = list_all_users()
+        for user in users:
+            for app in user["applications"]:
+                # Report the status that applies now (catalog and policy), not
+                # the one stored in the user-writable record.
+                if app.get("id") and valid_id(app["id"]):
+                    eff = effective(ctx, app["id"], app.get("manifest_source") or "unlisted",
+                                    app.get("installer_sha256"))
+                    app.update(status=eff.status, allowed=eff.allowed)
+        return {"users": users}
     apps = []
     for app_id in ctx.store.list_ids():
         record = ctx.store.read_record(app_id)
@@ -539,7 +620,7 @@ def _launch_target(appdir: Path, record: dict, exe: str | None) -> list[str]:
     if not record.get("launch"):
         raise UsageError("this application has no default program; choose one with --exe "
                          f"(candidates: {', '.join(record.get('launch_candidates') or []) or 'none'})")
-    parts = _resolve_ci(_drive_c(appdir), _windows_parts(record["launch"]))
+    parts = _resolve_ci(_safe_drive_c(appdir), _windows_parts(record["launch"]))
     if parts is None:
         raise NotFound(f"the program {record['launch']} no longer exists; run 'boswas-winapp repair "
                        f"{record['id']}' or reinstall")
@@ -595,15 +676,22 @@ def repair(ctx: Context, app_id: str, *, timeout: float | None = None) -> dict:
     check_runtime(ctx)
     record, appdir = _load(ctx, app_id)
     eff = _effective_for(ctx, record)
+    if not eff.allowed:
+        # Repair starts Wine in the prefix, which runs code the application
+        # registered there; a blocked or disallowed application must not run.
+        raise Refused(f"{app_id} may not be started, so it cannot be repaired: {eff.reason}", reason="policy")
     actions: list[str] = []
     with ctx.store.lock(app_id):
         for sub in ("sandbox/prefix", "sandbox/home", "sandbox/installer"):
             path = appdir / sub
-            if not path.exists() and not path.is_symlink():
-                path.mkdir(mode=0o700, parents=True)
+            if path.is_symlink() or (path.exists() and not _real_dir(path)):
+                path.unlink()                    # planted by the application
+                actions.append(f"removed a symbolic link or file at {sub}")
+            if not path.exists():
+                path.mkdir(mode=0o700)
                 actions.append(f"recreated {sub}")
         log = ctx.store.new_log(app_id, "repair")
-        prefix_ok = (appdir / "sandbox" / "prefix" / "system.reg").is_file()
+        prefix_ok = _prefix_initialised(appdir)
         if prefix_ok:
             ctx.say("updating the Wine prefix")
             result = run_in_sandbox(ctx, app_id, appdir, eff.grants, [ctx.runtime.loader, "wineboot", "--update"],
@@ -617,7 +705,7 @@ def repair(ctx: Context, app_id: str, *, timeout: float | None = None) -> dict:
             _create_prefix(ctx, app_id, appdir, eff.grants, log)
             actions.append("recreated the Wine prefix (the application must be reinstalled)")
         launch_ok = bool(record.get("launch")) and \
-            _resolve_ci(_drive_c(appdir), _windows_parts(record["launch"])) is not None
+            _resolve_ci(_safe_drive_c(appdir), _windows_parts(record["launch"])) is not None
         if record.get("launch") and launch_ok:
             write_entry(ctx.home, app_id, record.get("name") or app_id, eff.status)
             actions.append("rewrote the desktop entry")

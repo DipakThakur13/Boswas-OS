@@ -256,6 +256,8 @@ local additions go in `/etc/apparmor.d/local/boswas-winapp`.
 | `/tmp`, `/dev/shm`, `$XDG_RUNTIME_DIR/wine` mapped executable | Wine's anonymous file mappings and wineserver | All three are private to the sandbox |
 | Network rules in the profile | Applications whose manifest grants network | bubblewrap removes the network otherwise (loopback only) |
 | X11 | Windows applications use Wine's X11 driver (Xwayland) | An X11 client can observe other X11 clients. Under Plasma Wayland that is only other Xwayland clients. `display` is a grant |
+| `audio` grant | Sound through the user's PulseAudio/PipeWire socket | The PulseAudio protocol lets clients load server modules (for example a network tunnel), which then run in the host audio server, outside the sandbox. `audio` is therefore **not** granted to unlisted applications by default; grant it only in reviewed manifests |
+| `network` grant | Applications that need the network | The host network namespace: interface addresses, including MAC addresses, and abstract unix sockets (for example X11's) are visible |
 | `ptrace` and `/proc/<pid>/mem` within the profile | wineserver implements Read/WriteProcessMemory | Same-profile peers only |
 | Read-only system information: `/proc/<pid>/net/*`, CPU topology, the sandbox root and `/dev` listings, public CA certificates | Wine's network-adapter APIs, CPU detection, path lookups on `Z:\`, TLS certificate validation | Reads only. Inside the sandbox they show its own network namespace, minimal `/dev` and empty root |
 | Running `/usr/bin/wine` directly is not mediated | Debian's wine is a normal user program | Users cannot gain privileges through it. Restricting direct use is a policy-engine decision (Milestone 4) |
@@ -278,8 +280,34 @@ local additions go in `/etc/apparmor.d/local/boswas-winapp`.
     reaches a terminal or a log.
 - **One instance per prefix:** a second launch, or removing a running
   application, is refused (exit 6).
-- **No stable host identifier:** Windows applications cannot read
-  `/etc/machine-id`, so it cannot be used for fingerprinting.
+- **No stable host identifiers:** Windows applications cannot read
+  `/etc/machine-id`, network hardware addresses or device serial numbers in
+  sysfs, monitor EDID, or DMI firmware data. The `gpu` grant mounts only the
+  GPU's own PCI directory. With `network` granted, interface (MAC) addresses
+  are visible through the network namespace.
+- **The host side never walks through the application's links.** The
+  application controls everything in `sandbox/` and can replace directories
+  there with symbolic links (for example to the user's home).
+  `boswas-winapp` checks every directory it touches there with `lstat`:
+  - it removes the installer copy as a whole, refusing links;
+  - it does not list a linked prefix;
+  - `repair` replaces planted links instead of following them.
+
+### Security review (Milestone 1)
+
+An adversarial review of the WinCompat code, assuming a fully malicious
+Windows program, found seven issues. All are fixed and covered by regression
+tests:
+
+| # | Finding | Severity | Fix |
+|---|---------|----------|-----|
+| 1 | Installer clean-up listed `sandbox/installer` after the installer ran. A planted symlink to the home directory made it delete the user's files | Critical | `lstat` the directory, remove it as a whole (`rmtree` refuses links), recreate it. Same checks for `prefix`/`drive_c` walks and the portable copy. `repair` replaces planted links |
+| 2 | The `audio` grant exposes the PulseAudio protocol, which can load server modules (network tunnel) outside the sandbox | High | `audio` removed from the default grants of unlisted applications; documented as a trusted grant |
+| 3 | Program file names chosen by the application reached the terminal unsanitised, and C1 control characters passed the sanitiser | Medium | Names with control characters are ignored. All text output is sanitised, including C1 (U+0080–U+009F) |
+| 4 | `repair` started Wine for an application that policy no longer allowed | Medium | `repair` refuses disallowed applications |
+| 5 | The `gpu` grant mounted all of `/sys/devices` (MAC addresses, disk serials) | Medium | Only the GPU's PCI directory is mounted; AppArmor denies identifier files |
+| 6 | The runner and `boswas-winapp` could parse `REQUIRE_APPARMOR` differently | Low | Confinement is skipped only if both say `no`; the runner parser handles spaces and a final line without a newline |
+| 7 | The root inventory reported values from user-writable records unchecked | Low | Values coerced to short plain strings; status recomputed from the current catalog and policy |
 
 ## Policy
 
@@ -291,7 +319,7 @@ local additions go in `/etc/apparmor.d/local/boswas-winapp`.
 | `ALLOWED_STATUSES` | `approved tested experimental untested unknown` | Catalog statuses that may be installed and launched (`blocked` never) |
 | `UNLISTED_APPS` | `allow` | Installers in no manifest: `allow` or `deny`. Production devices should use `deny` |
 | `UNLISTED_NETWORK` | `no` | Network for unlisted applications |
-| `UNLISTED_DEVICES` | `display audio gpu` | Devices for unlisted applications |
+| `UNLISTED_DEVICES` | `display gpu` | Devices for unlisted applications. `audio` is deliberately not granted by default (see the audio exception) |
 | `UNLISTED_FOLDERS` | (empty) | Host folders for unlisted applications |
 | `REQUIRE_APPARMOR` | `yes` | Refuse to run Windows code unless confined |
 | `MAX_INSTALLER_MB` | `4096` | Installer size limit |
@@ -342,7 +370,7 @@ Desktop launcher "boswas-winapp launch <id>" in the application menu
 
 | Suite | What it proves |
 |-------|----------------|
-| `packages/boswas-compat/tests` (57 unit tests) | Manifest rules and schema sync, catalog layering, policy fail-closed behaviour, installer inspection, sandbox argument construction, refusals (root, blocked, unlisted, mismatch, 32-bit, dependencies), launch, repair, remove, CLI exit codes, output sanitising |
+| `packages/boswas-compat/tests` (64 unit tests) | Manifest rules and schema sync, catalog layering, policy fail-closed behaviour, installer inspection, sandbox argument construction, refusals (root, blocked, unlisted, mismatch, 32-bit, dependencies), launch, repair, remove, CLI exit codes, output sanitising, and regression tests for the security review (symlinks planted by the application, control characters in file names, repair of disallowed apps, GPU sysfs exposure, runner policy agreement) |
 | `tests/static/test_sources.sh` | Manifests validate. Runtime facts, profile and code agree. The profile keeps its denials and has no exec transitions |
 | `tests/packages/test_packages.sh` | Package contents and modes, conffiles, dh_apparmor postinst, profile compiles |
 | `tests/compatibility/test_wine.sh` | Image: package, profile compiles with the image's parser, policy, root refusal, desktop handler |

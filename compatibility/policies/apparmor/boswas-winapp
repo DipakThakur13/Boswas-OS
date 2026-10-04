@@ -46,6 +46,7 @@ profile boswas-winapp /usr/lib/boswas/compat/winapp-exec flags=(attach_disconnec
   include <abstractions/X>
   include <abstractions/audio>
   include <abstractions/mesa>
+  include <abstractions/dri-enumerate>
   include <abstractions/vulkan>
   # Public CA certificates: Wine's crypt32/GnuTLS validates TLS with them
   # (network-enabled applications).
@@ -115,10 +116,17 @@ profile boswas-winapp /usr/lib/boswas/compat/winapp-exec flags=(attach_disconnec
   @{sys}/devices/system/cpu/** r,
   @{sys}/devices/system/node/ r,
   @{sys}/devices/system/node/** r,
-  # GPU detection (only mounted in sandboxes granted "gpu").
+  # GPU detection (only mounted in sandboxes granted "gpu", and then only the
+  # GPU's own PCI directory): directory listings and the attributes Mesa and
+  # Vulkan read (plus abstractions/dri-enumerate, mesa, vulkan). Hardware
+  # identifiers are denied below.
   @{sys}/bus/ r,
   @{sys}/class/ r,
-  @{sys}/devices/pci[0-9]*/** r,
+  @{sys}/class/drm/ r,
+  @{sys}/dev/char/ r,
+  @{sys}/devices/pci[0-9]*/**/ r,
+  @{sys}/devices/pci[0-9]*/**/{boot_vga,class,resource} r,
+  @{sys}/devices/pci[0-9]*/**/drm/*/{dev,uevent} r,
   # Cursor and icon themes for windows (public, read-only).
   /usr/share/icons/ r,
   /usr/share/icons/** r,
@@ -142,10 +150,15 @@ profile boswas-winapp /usr/lib/boswas/compat/winapp-exec flags=(attach_disconnec
   deny /var/cache/ w,
   deny /var/cache/fontconfig/ w,
   deny /var/cache/fontconfig/** wl,
-  # No stable host identifier for Windows applications (fingerprinting); Wine
-  # works without it.
+  # No stable host identifiers for Windows applications (fingerprinting):
+  # machine ID, network hardware addresses, disk/device serial numbers,
+  # monitor EDID, firmware (DMI) data. Wine works without them.
   deny /etc/machine-id r,
   deny /var/lib/dbus/machine-id r,
+  deny @{sys}/devices/**/net/** r,
+  deny @{sys}/devices/**/{serial,address,wwid,vpd,eui,nguid,uuid,edid,phys_port_id,phys_switch_id} r,
+  deny @{sys}/devices/virtual/dmi/** r,
+  deny @{sys}/class/dmi/** r,
 
   # --- Explicit denials (also against broad local additions) ----------------
   audit deny @{HOME}/** rwklmx,

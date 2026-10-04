@@ -268,7 +268,7 @@ class CatalogPolicyTests(CompatTestCase):
         self.assertEqual(p.problems, ())
         self.assertTrue(p.require_apparmor)
         self.assertTrue(p.unlisted_apps)
-        self.assertEqual(p.unlisted_grants(), policy.Grants(network=False, display=True, audio=True, gpu=True))
+        self.assertEqual(p.unlisted_grants(), policy.Grants(network=False, display=True, audio=False, gpu=True))
         self.assertNotIn("blocked", p.allowed_statuses)
 
     def test_missing_policy_is_restrictive(self):
@@ -449,7 +449,16 @@ class StoreTests(CompatTestCase):
         with mock.patch.object(os, "geteuid", return_value=0), mock.patch("pwd.getpwall", return_value=[entry]):
             users = store.list_all_users(min_uid=0)
         self.assertEqual(users[0]["user"], "tester")
-        self.assertEqual(set(users[0]["applications"][0]), set(store.INVENTORY_FIELDS))
+        self.assertEqual(set(users[0]["applications"][0]),
+                         set(store.INVENTORY_FIELDS) | {"manifest_source", "installer_sha256"})
+        # User-writable records: only short plain strings are reported.
+        s.write_record("com.example.app", {"id": "com.example.app", "version": ["x"] * 3,
+                                           "name": "A\x1b[2J" + "n" * 500})
+        with mock.patch.object(os, "geteuid", return_value=0), mock.patch("pwd.getpwall", return_value=[entry]):
+            app = store.list_all_users(min_uid=0)[0]["applications"][0]
+        self.assertIsNone(app["version"])
+        self.assertNotIn("\x1b", app["name"])
+        self.assertLessEqual(len(app["name"]), 200)
 
 
 # --- operations --------------------------------------------------------------------------------------
@@ -598,6 +607,95 @@ class InstallTests(CompatTestCase):
         self.assertEqual(store.AppStore(self.home).read_record("local.broken")["state"], "failed")
         with self.assertRaises(Refused):
             ops.launch(self.ctx(), "local.broken", [])
+
+
+class HostSideHardeningTests(CompatTestCase):
+    """Regression tests for the security review (the application controls sandbox/)."""
+
+    def test_installer_dir_replaced_by_symlink_never_deletes_through_it(self):
+        victim = self.tmp / "victim-home"
+        (victim / ".ssh").mkdir(parents=True)
+        (victim / ".ssh/id_ed25519").write_text("key")
+        (victim / "notes.txt").write_text("notes")
+        real_run = self.executor.run
+
+        def malicious(argv, log_path, **kw):
+            result = real_run(argv, log_path, **kw)
+            if kw.get("title") == "installer":
+                installer_dir = self.executor.host_sandbox(argv) / "installer"
+                shutil.rmtree(installer_dir)
+                os.symlink(victim, installer_dir)
+            return result
+
+        self.executor.run = malicious
+        ops.install(self.ctx(), str(self.installer_file()), app_id="local.evil")
+        self.assertTrue((victim / ".ssh/id_ed25519").is_file())
+        self.assertTrue((victim / "notes.txt").is_file())
+        installer_dir = self.home / ".local/share/boswas/wine/local.evil/sandbox/installer"
+        self.assertTrue(installer_dir.is_dir() and not installer_dir.is_symlink())
+
+    def test_prefix_replaced_by_symlink_is_not_walked(self):
+        ops.install(self.ctx(), str(self.installer_file()), app_id="local.fake")
+        appdir = self.home / ".local/share/boswas/wine/local.fake"
+        victim = self.tmp / "victim"
+        (victim / "drive_c/Secret").mkdir(parents=True)
+        (victim / "drive_c/Secret/app.exe").write_bytes(pe_bytes())
+        shutil.rmtree(appdir / "sandbox/prefix")
+        os.symlink(victim, appdir / "sandbox/prefix")
+        self.assertEqual(ops.exe_snapshot(appdir), set())
+        self.assertIsNone(ops.find_launch_target(appdir, "C:\\Secret\\app.exe"))
+        result = ops.repair(self.ctx(), "local.fake")          # replaces the link, recreates the prefix
+        self.assertFalse((appdir / "sandbox/prefix").is_symlink())
+        self.assertTrue(any("symbolic link" in a for a in result["actions"]))
+        self.assertTrue(victim.joinpath("drive_c/Secret/app.exe").exists())
+
+    def test_program_names_with_control_characters_are_ignored(self):
+        self.executor.install_creates = ["Evil/\x1b[2Jspoof\x9b31m.exe", "Good/good.exe"]
+        result = ops.install(self.ctx(), str(self.installer_file()), app_id="local.names")
+        self.assertEqual(result["application"]["launch"], "C:\\Good\\good.exe")
+        self.assertEqual(executor.sanitize("a\x9b2Jb\x9d0;t\x07c\x1b]0;x\x07d"), "a2Jb0;tcd")
+
+    def test_repair_refused_when_policy_disallows(self):
+        exe = self.installer_file()
+        ops.install(self.ctx(), str(exe), app_id="local.fake")
+        self.add_manifest(id="block.fake", status="blocked",
+                          installer={"sha256": hashlib.sha256(exe.read_bytes()).hexdigest()})
+        self.executor.calls.clear()
+        with self.assertRaises(Refused):
+            ops.repair(self.ctx(), "local.fake")
+        self.assertEqual(self.executor.calls, [])
+
+    def test_gpu_grant_binds_only_the_gpu_sysfs_directory(self):
+        gpu = self.root / "sys/devices/pci0000:00/0000:00:02.0"
+        (gpu / "drm/card0").mkdir(parents=True)
+        nic = self.root / "sys/devices/pci0000:00/0000:00:1f.6/net/eth0"
+        nic.mkdir(parents=True)
+        (self.root / "sys/class/drm").mkdir(parents=True)
+        os.symlink(gpu / "drm/card0", self.root / "sys/class/drm/card0")
+        os.symlink(gpu, gpu / "drm/card0/device")
+        argv = sandbox.build_command(app_id="com.example.app", appdir=self.home / "x",
+                                     session=sandbox.HostSession(uid=4242, username="t", home=self.home),
+                                     grants=policy.Grants(gpu=True), runtime=sandbox.Runtime(), command=["x"])
+        binds = [argv[i + 1] for i, a in enumerate(argv) if a.startswith("--ro-bind")]
+        self.assertIn("/sys/devices/pci0000:00/0000:00:02.0", binds)
+        self.assertNotIn("/sys/devices", binds)
+        self.assertFalse(any("1f.6" in b or b == "/sys/devices/pci0000:00" for b in binds))
+
+    def test_runner_receives_the_policy_decision(self):
+        def env_of(argv):
+            return {argv[i + 1]: argv[i + 2] for i, a in enumerate(argv) if a == "--setenv"}
+        ops.install(self.ctx(), str(self.installer_file()), app_id="local.a")
+        self.assertEqual(env_of(self.executor.calls[-1]["argv"])["BOSWAS_WINAPP_REQUIRE_APPARMOR"], "yes")
+        self.set_policy(REQUIRE_APPARMOR="no")
+        self.executor.confinement = "unconfined"
+        ops.launch(self.ctx(), "local.a", [])
+        self.assertEqual(env_of(self.executor.calls[-1]["argv"])["BOSWAS_WINAPP_REQUIRE_APPARMOR"], "no")
+
+    def test_runner_policy_parsing_fails_closed(self):
+        runner = (COMPAT / "runners/winapp-exec").read_text()
+        self.assertIn('|| [ -n "$key" ]', runner)          # last line without newline
+        self.assertIn("IFS=' ='", runner)                  # spaces around '='
+        self.assertIn('"${BOSWAS_WINAPP_REQUIRE_APPARMOR:-yes}" = "no"', runner)
 
 
 class LaunchAndManageTests(CompatTestCase):

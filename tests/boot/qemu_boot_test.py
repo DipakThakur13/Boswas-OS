@@ -423,7 +423,7 @@ def winapp_gui_check(vm: "VM", sh: "Shell", outdir: Path, timeout: float) -> Non
         return
     rc, out = sh.run("boswas-winapp install /mnt/boswas-testapp-unlisted.exe --id local.gui-test -- /S; echo rc=$?",
                      timeout=timeout)
-    if not check("rc=0" in out, "an unlisted Windows application installs (policy: no network; display, audio, GPU)"):
+    if not check("rc=0" in out, "an unlisted Windows application installs (policy: no network; display and GPU)"):
         return
     sh.run(f"env {env.strip()} boswas-winapp launch local.gui-test --quiet --timeout 90 "
            f"--exe 'C:\\windows\\notepad.exe' >/dev/null 2>&1 &")

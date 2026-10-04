@@ -142,6 +142,31 @@ def user_folder(home: Path, folder: str) -> Path | None:
     return resolved
 
 
+_DRM_NODE_RE = re.compile(r"^(card|renderD)\d+$")
+
+
+def gpu_sysfs_dirs() -> list[str]:
+    """PCI device directories of the GPUs (/sys/class/drm/<node>/device)."""
+    root = paths.sysroot()
+    drm = paths.system_path("/sys/class/drm")
+    try:
+        names = sorted(os.listdir(drm))
+    except OSError:
+        return []
+    found = set()
+    for name in names:
+        if not _DRM_NODE_RE.fullmatch(name):
+            continue
+        real = Path(os.path.realpath(drm / name / "device"))
+        try:
+            host = "/" + str(real.relative_to(root.resolve()))
+        except ValueError:
+            continue
+        if host.startswith("/sys/devices/pci") and real.is_dir():
+            found.add(host)
+    return sorted(found)
+
+
 def _merged_usr_args() -> list[str]:
     args = []
     for name in ("bin", "sbin", "lib", "lib64"):
@@ -158,7 +183,7 @@ def _merged_usr_args() -> list[str]:
 
 def build_command(*, app_id: str, appdir: Path, session: HostSession, grants: Grants, runtime: Runtime,
                   command: list[str], cwd: str | None = None, extra_env: dict[str, str] | None = None,
-                  disable_userns: bool = True) -> list[str]:
+                  disable_userns: bool = True, require_apparmor: bool = True) -> list[str]:
     """bwrap argv that runs ``command`` (via the AppArmor-attached runner) for one application."""
     view = paths.view_dir(app_id)
     home_view = f"{view}/home"
@@ -184,12 +209,13 @@ def build_command(*, app_id: str, appdir: Path, session: HostSession, grants: Gr
             pass
     argv += ["--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp"]
 
+    for sysdir in ("/sys/devices/system/cpu", "/sys/devices/system/node"):
+        argv += ["--ro-bind-try", sysdir, sysdir]
     if grants.gpu:
+        # The DRM device nodes and only the GPUs' own PCI directories: never all
+        # of /sys/devices (network devices, disks and their serial numbers).
         argv += ["--dev-bind-try", "/dev/dri", "/dev/dri"]
-        for sysdir in ("/sys/devices", "/sys/dev", "/sys/bus/pci", "/sys/class/drm"):
-            argv += ["--ro-bind-try", sysdir, sysdir]
-    else:
-        for sysdir in ("/sys/devices/system/cpu", "/sys/devices/system/node"):
+        for sysdir in ("/sys/class/drm", "/sys/dev/char", *gpu_sysfs_dirs()):
             argv += ["--ro-bind-try", sysdir, sysdir]
 
     argv += ["--perms", "0700", "--dir", run_dir]
@@ -233,6 +259,9 @@ def build_command(*, app_id: str, appdir: Path, session: HostSession, grants: Gr
         "WINESERVER": runtime.server,
         "WINEDEBUG": runtime.winedebug,
         "WINEDLLOVERRIDES": runtime.dll_overrides,
+        # The runner refuses to start Wine unconfined unless both this and the
+        # policy file it reads itself say "no".
+        "BOSWAS_WINAPP_REQUIRE_APPARMOR": "yes" if require_apparmor else "no",
     })
     if session.tz:
         env["TZ"] = session.tz

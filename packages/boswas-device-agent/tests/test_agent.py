@@ -243,6 +243,16 @@ class InventoryTests(unittest.TestCase):
                                                    "status": "tested", "installations": 2}])
         self.assertNotIn("alice", json.dumps(result))
 
+    def test_malformed_records_do_not_break_the_collector(self):
+        out = json.dumps({"users": [
+            {"user": "u", "applications": [
+                {"id": "a.b", "version": ["not", "a", "string"], "status": {"x": 1}, "state": "installed"},
+                "garbage", {"id": 7, "state": "installed"}]},
+            "garbage"]})
+        result = inventory.WindowsApplicationsCollector(run=self.fake_run(out)).collect()
+        self.assertEqual(result["applications"], [{"kind": "winapp", "id": "a.b", "version": None,
+                                                   "status": None, "installations": 1}])
+
     def test_collector_failures_are_reported_not_raised(self):
         self.assertFalse(inventory.WindowsApplicationsCollector(run=self.fake_run("", 5)).collect()["available"])
         self.assertFalse(inventory.WindowsApplicationsCollector(run=self.fake_run("{")).collect()["available"])

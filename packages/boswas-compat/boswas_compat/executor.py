@@ -22,11 +22,15 @@ RUNNER_REFUSED_EXIT = 77
 MAX_LOG_BYTES = 8 * 1024 * 1024
 KILL_GRACE_SECONDS = 10
 
-_CONTROL_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?|\x1b.|[\x00-\x08\x0b-\x1f\x7f]")
+_CONTROL_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?|\x1b.|[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 
 
 def sanitize(text: str) -> str:
-    """Remove escape sequences and control characters (keeps newline and tab)."""
+    """Remove escape sequences and C0/C1 control characters (keeps newline and tab).
+
+    C1 controls (U+0080-U+009F) matter too: U+009B (CSI) and U+009D (OSC) start
+    escape sequences in terminals that honour 8-bit controls.
+    """
     return _CONTROL_RE.sub("", text)
 
 
