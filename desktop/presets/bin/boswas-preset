@@ -1,0 +1,13 @@
+#!/usr/bin/python3
+"""boswas-preset: list and apply the Boswas OS visual presets (launcher).
+
+The implementation lives in /usr/lib/boswas/python/boswas_preset/.
+"""
+
+import sys
+
+sys.path.insert(0, "/usr/lib/boswas/python")
+
+from boswas_preset.cli import main  # noqa: E402
+
+sys.exit(main())

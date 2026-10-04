@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Boswas Update Center
+GenericName=System Updates
+Comment=See how Boswas OS keeps this device up to date
+Exec=boswas-control-center --page updates
+Icon=boswas-update-center
+Terminal=false
+StartupNotify=true
+Categories=System;Qt;
+Keywords=updates;upgrade;security updates;patches;unattended-upgrades;

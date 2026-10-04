@@ -1,0 +1,5 @@
+# Boswas OS terminal default (installed by boswas-branding as
+# /usr/share/boswas/kde-settings/konsolerc). boswas-preset switches the
+# profile with the preset; users can pick any profile in Konsole.
+[Desktop Entry]
+DefaultProfile=Boswas Horizon.profile

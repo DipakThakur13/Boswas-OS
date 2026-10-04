@@ -1,0 +1,22 @@
+{
+    "KPackageStructure": "Plasma/Applet",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Boswas Group"
+            }
+        ],
+        "Category": "Application Launchers",
+        "Description": "Search, favourites, recently used, every installed application (native, Boswas and Windows) and power actions",
+        "EnabledByDefault": true,
+        "Icon": "boswas-logo",
+        "Id": "com.boswas.launcher",
+        "License": "GPL-2.0+",
+        "Name": "Boswas Launcher"
+    },
+    "X-Plasma-API-Minimum-Version": "6.0",
+    "X-Plasma-Provides": [
+        "org.kde.plasma.launchermenu"
+    ],
+    "X-Plasma-RootPath": "org.kde.plasma.kickoff"
+}

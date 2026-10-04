@@ -1,0 +1,59 @@
+#!/bin/sh
+
+. /usr/lib/live/config.sh
+
+## Boswas OS live session (installed by boswas-os as /usr/lib/live/config/9000-boswas).
+##
+## live-config runs this component only when booted from the Boswas OS live
+## medium; installed systems never run it (live-config is not installed there).
+## It makes the live session say what it is, and offers installation as an
+## explicit choice. It never starts an installer, opens a web page or touches
+## internal disks.
+
+Init ()
+{
+	if component_was_executed "boswas"
+	then
+		exit 0
+	fi
+
+	echo -n " boswas"
+}
+
+Config ()
+{
+	# "Install Boswas OS" in the application menu (and in Boswas Control Center).
+	# The installer itself runs as a separate boot mode; the entry explains that
+	# and offers a restart. Nothing launches on its own.
+	mkdir -p /usr/local/share/applications
+	cat > /usr/local/share/applications/com.boswas.InstallBoswasOS.desktop <<EOF
+[Desktop Entry]
+Type=Application
+Name=Install Boswas OS
+GenericName=Installer
+Comment=Install Boswas OS on this computer (optional; the live session works without installing)
+Exec=boswas-control-center --page install
+Icon=boswas-install
+Terminal=false
+Categories=System;
+Keywords=install;installer;setup;disk;
+EOF
+	chmod 0644 /usr/local/share/applications/com.boswas.InstallBoswasOS.desktop
+
+	# System Settings > About this System: show that this is the live session.
+	_ABOUT="/usr/share/boswas/kde-settings/kcm-about-distrorc"
+	if [ -f "${_ABOUT}" ] && ! grep -qs '^Variant=' "${_ABOUT}"
+	then
+		echo "Variant=Live session" >> "${_ABOUT}"
+	fi
+
+	# Marker for Boswas tools (Control Center, terminal banner, boswas-info).
+	mkdir -p /run/boswas
+	echo "live" > /run/boswas/session
+
+	# Creating state file
+	touch /var/lib/live/config/boswas
+}
+
+Init
+Config

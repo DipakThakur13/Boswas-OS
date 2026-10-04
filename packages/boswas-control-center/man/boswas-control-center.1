@@ -1,0 +1,95 @@
+.TH BOSWAS-CONTROL-CENTER 1 "October 2026" "boswas-control-center 1.0~alpha3" "Boswas OS"
+.SH NAME
+boswas-control-center \- settings hub of Boswas OS
+.SH SYNOPSIS
+.B boswas-control-center
+.RB [ \-\-page
+.IR page ]
+.br
+.B boswas-control-center
+.B \-\-version
+.SH DESCRIPTION
+.B boswas-control-center
+is Boswas Control Center, the settings hub of Boswas OS. It has one page per
+area. Each page explains the state of the device and opens the matching KDE
+settings module with
+.BR kcmshell6 (1)
+for everything that is configured there.
+.PP
+The pages are Personalization (Boswas desktop presets and the KDE
+appearance modules), Network, Bluetooth, Display, Sound, Power, Storage,
+Applications (the Boswas Software Center), Windows Compatibility, Security
+(the Boswas Security Center), Users, Updates (the Boswas Update Center),
+Devices, Privacy, System and About Boswas OS. In a live session an Install
+Boswas OS page explains how to restart into the installer.
+.PP
+The Security Center shows the local posture checks of
+.B boswas \-\-json status
+and the state of the Boswas device agent. Each item is shown as Secure,
+Warning, Attention, Info, Not available or Error, always as text and as an
+icon. The checks are a local self\-assessment of the device, not remote
+attestation.
+.PP
+The Update Center shows whether automatic security updates are enabled, read
+from the APT periodic settings, and when they last ran. It changes nothing:
+updates are installed automatically, and this release has no manual updater.
+.PP
+The Software Center lists the installed applications in three groups: Boswas
+applications, Windows applications (from the user's Boswas session service)
+and the other desktop applications. It opens native applications with
+.BR kstart (1).
+Windows applications are managed in the Compatibility Manager and are never
+started by Control Center. Installing new software is not possible here.
+.PP
+Control Center runs as the desktop user and never as root. It starts only the
+programs it knows (boswas, boswas\-preset, kcmshell6, kstart, kioclient,
+dolphin, partitionmanager, kinfocenter, boswas\-compat\-manager, plasmashell,
+apt\-config and, in a live session after confirmation, systemctl reboot), each
+with a fixed argument list and a timeout, and never through a shell.
+.SH OPTIONS
+.TP
+.BI \-\-page " page"
+Open the window at
+.IR page :
+one of personalization, network, bluetooth, display, sound, power, storage,
+applications, windows, security, users, updates, devices, privacy, system,
+about or install. The install page exists only in a live session.
+.TP
+.B \-\-version
+Print the version and exit.
+.TP
+.B \-\-help
+Print a short usage summary and exit.
+.SH KEYBOARD
+.TP
+.B Up, Down
+In the category list: switch pages.
+.TP
+.B F5
+Refresh the current page.
+.TP
+.B Ctrl+F
+Search the installed applications.
+.TP
+.B Ctrl+Q
+Quit.
+.SH FILES
+.TP
+.I /run/boswas\-agent/agent.sock
+The Boswas device agent, used read\-only for the device, policy, privacy and
+runtime status.
+.TP
+.I $XDG_RUNTIME_DIR/boswas/session.sock
+The user's Boswas session service, used read\-only for the Windows
+applications and the compatibility runtime.
+.TP
+.I /usr/lib/boswas/release
+.TQ
+.I /usr/lib/boswas/image\-info
+The Boswas OS version and build shown on the About page.
+.SH EXIT STATUS
+0 when the window was closed normally; 4 when started as root.
+.SH SEE ALSO
+.BR boswas (1),
+.BR boswas\-compat\-manager (1),
+.BR kcmshell6 (1)

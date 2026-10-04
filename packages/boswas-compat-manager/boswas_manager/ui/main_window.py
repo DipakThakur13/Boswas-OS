@@ -65,7 +65,7 @@ class MainWindow(QMainWindow):
         self.ask = self._ask
         self.notify_error = self._notify_error
 
-        self.setWindowTitle("Compatibility Manager")
+        self.setWindowTitle("Boswas Compatibility Manager")
         self.setWindowIcon(app_icon())
         self.resize(1120, 720)
         self._build()

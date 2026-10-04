@@ -41,6 +41,20 @@ contains "boot menu: Boswas installer entry" "$isodir/boot/grub/install_start.cf
 contains "boot menu: live session sets hostname boswas-device" "$grubcfg" "hostname=boswas-device"
 check_not "boot menu: AppArmor not disabled on the kernel command line" grep -q 'apparmor=0' "$grubcfg"
 check "boot menu: Boswas splash (800x600 PNG)" bash -c "file -b '$isodir/boot/grub/splash.png' | grep -q '800 x 600'"
-contains "boot menu: Boswas theme colours" "$isodir/boot/grub/live-theme/theme.txt" "#2ED3CD"
+contains "boot menu: Boswas theme colours (logo gold accent)" "$isodir/boot/grub/live-theme/theme.txt" "#EBC786"
+
+# Live USB behaviour (release blocker): the default entry is the live session
+# with the boot splash; the installer is a separate, explicitly chosen entry.
+check "boot menu: the first (default) entry is the live session, not the installer" \
+	bash -c "grep -m1 '^menuentry' '$grubcfg' | grep -q 'Live session'"
+check "boot menu: the live session shows the Boswas boot splash (splash on the kernel command line)" \
+	bash -c "grep -A2 'Live session\" --hotkey=l' '$grubcfg' | grep -q ' splash'"
+check_not "boot menu: no automatic installer on the live entry (no auto/priority=critical/preseed)" \
+	bash -c "grep -A2 'Live session\" --hotkey=l' '$grubcfg' | grep -qE 'auto=true|priority=critical|preseed/file|install'"
+check_not "boot menu: no Debian branding in the menu entries (comments excluded)" \
+	bash -c "cat '$grubcfg' '$isodir/boot/grub/install_start.cfg' '$isodir/boot/grub/install.cfg' 2>/dev/null |
+		grep -v '^[[:space:]]*#' | grep -E '^[[:space:]]*(menuentry|submenu)' | grep -qi debian"
+contains "boot medium: named Boswas OS (.disk/info)" "$isodir/.disk/info" "Boswas OS"
+check_not "boot medium: .disk/info does not name Debian" grep -qi debian "$isodir/.disk/info"
 
 finish

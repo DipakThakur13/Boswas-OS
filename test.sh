@@ -23,10 +23,11 @@ set -Eeuo pipefail
 . "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/build/scripts/lib.sh"
 load_release
 
-stages_mode="all" iso=""
+stages_mode="all" iso="" boot_scenario="all"
 args=("$@")
 while [ $# -gt 0 ]; do
 	case "$1" in
+		--install-test) boot_scenario="full" ;;
 		--no-boot) stages_mode="no-boot" ;;
 		--boot-only) stages_mode="boot-only" ;;
 		--packages-only) stages_mode="packages-only" ;;
@@ -115,7 +116,7 @@ if [ "$stages_mode" = "all" ] || [ "$stages_mode" = "boot-only" ]; then
 		fixtures=()
 		[ -s "$TESTWORK/fixtures.iso" ] && fixtures=(--fixtures-iso "$TESTWORK/fixtures.iso")
 		run_stage "QEMU boot test" python3 "$t/boot/qemu_boot_test.py" --iso "$ISO" \
-			--out "$BOSWAS_REPO_ROOT/build/logs/boot-test" "${fixtures[@]}"
+			--out "$BOSWAS_REPO_ROOT/build/logs/boot-test" --scenario "$boot_scenario" "${fixtures[@]}"
 	else
 		printf 'SKIP\tboot/qemu\tboot test (no ISO)\n' >> "$BOSWAS_TEST_REPORT"
 	fi

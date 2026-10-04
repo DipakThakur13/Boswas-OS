@@ -39,9 +39,11 @@ assert info["os"]["build"]["id"] == latest["build_id"]' "$info" "$BOSWAS_REPO_RO
 for f in \
 	usr/lib/boswas/release usr/lib/boswas/image-info \
 	usr/share/wallpapers/Boswas/metadata.json usr/share/wallpapers/Boswas/contents/images/3840x2160.png \
-	usr/share/plasma/look-and-feel/com.boswas.desktop/metadata.json \
-	usr/share/plasma/look-and-feel/com.boswas.desktop/contents/layouts/org.kde.plasma.desktop-layout.js \
-	usr/share/color-schemes/BoswasDark.colors \
+	usr/share/plasma/look-and-feel/com.boswas.horizon/metadata.json \
+	usr/share/plasma/look-and-feel/com.boswas.horizon/contents/layouts/org.kde.plasma.desktop-layout.js \
+	usr/share/color-schemes/BoswasHorizon.colors usr/share/plymouth/themes/boswas/boswas.plymouth \
+	usr/share/icons/Boswas/index.theme usr/share/icons/Boswas-Light/index.theme usr/bin/boswas-preset \
+	usr/share/plasma/plasmoids/com.boswas.launcher/metadata.json usr/bin/boswas-control-center \
 	usr/share/icons/hicolor/scalable/apps/boswas-logo.svg \
 	usr/share/boswas/branding/boswas-about-logo.svg usr/share/boswas/branding/login-background.png \
 	usr/share/boswas/branding/boswas-os-mark.svg usr/share/fonts/truetype/orbitron/Orbitron-SemiBold.ttf \
@@ -50,9 +52,16 @@ for f in \
 	usr/share/sddm/themes/breeze/theme.conf.user etc/issue.d/boswas.issue; do
 	check "branding/identity file /$f" test -s "$root/$f"
 done
-contains "default Plasma global theme is Boswas" "$root/usr/share/boswas/kde-settings/kdeglobals" "LookAndFeelPackage=com.boswas.desktop"
+contains "default Plasma global theme is Boswas Horizon" "$root/usr/share/boswas/kde-settings/kdeglobals" "LookAndFeelPackage=com.boswas.horizon"
 contains "About page shows Boswas OS" "$root/usr/share/boswas/kde-settings/kcm-about-distrorc" "Name=Boswas OS"
-contains "Debian identity preserved in /etc/os-release" "$root/etc/os-release" 'ID=debian'
+contains "os-release names Boswas OS" "$root/etc/os-release" 'NAME="Boswas OS"'
+contains "os-release keeps ID_LIKE=debian for Debian tooling" "$root/etc/os-release" 'ID_LIKE=debian'
+check "ten Boswas OS presets installed (Global Themes com.boswas.<preset>)" \
+	bash -c "[ \$(ls -d '$root'/usr/share/plasma/look-and-feel/com.boswas.* | grep -vc 'com.boswas.splash') -eq 10 ]"
+check_not "no Debian branding in the console banners and message of the day" \
+	grep -qi debian "$root/etc/issue" "$root/etc/issue.net" "$root/etc/motd"
+check "live session: the live user is Boswas OS Live (not Debian Live user)" \
+	grep -q 'LIVE_USER_FULLNAME="Boswas OS Live"' "$root/etc/live/config.conf.d/boswas.conf"
 
 # systemd units
 for u in nftables.service auditd.service apparmor.service sddm.service NetworkManager.service; do

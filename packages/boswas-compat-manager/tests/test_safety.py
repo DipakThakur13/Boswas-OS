@@ -222,7 +222,7 @@ class DataFilesTest(unittest.TestCase):
 
     def test_application_entry(self):
         entry = self.entries(PACKAGE / "data" / "com.boswas.CompatibilityManager.desktop")["Desktop Entry"]
-        self.assertEqual(entry["Name"], "Compatibility Manager")
+        self.assertEqual(entry["Name"], "Boswas Compatibility Manager")
         self.assertEqual(entry["GenericName"], "Windows Application Manager")
         self.assertEqual(entry["Exec"], "boswas-compat-manager")
         self.assertEqual(entry["Icon"], "boswas-compat-manager")

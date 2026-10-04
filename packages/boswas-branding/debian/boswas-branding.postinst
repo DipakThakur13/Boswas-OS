@@ -1,0 +1,23 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+	configure)
+		# Boot splash: select the Boswas OS Plymouth theme unless an administrator
+		# chose a theme of their own. (Debian's default, ceratopsian, belongs to
+		# desktop-base, which Boswas OS does not install.) The initramfs is
+		# rebuilt through the update-initramfs trigger (boswas-branding.triggers).
+		if command -v plymouth-set-default-theme >/dev/null 2>&1; then
+			current="$(plymouth-set-default-theme 2>/dev/null || true)"
+			case "$current" in
+				""|ceratopsian|emerald|homeworld|futureprototype|text|details|spinner|bgrt|boswas)
+					plymouth-set-default-theme boswas
+					;;
+			esac
+		fi
+		;;
+esac
+
+#DEBHELPER#
+
+exit 0

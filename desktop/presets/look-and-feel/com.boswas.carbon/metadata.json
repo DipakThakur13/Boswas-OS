@@ -1,0 +1,16 @@
+{
+    "KPackageStructure": "Plasma/LookAndFeel",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Boswas Group"
+            }
+        ],
+        "Category": "",
+        "Description": "Black surfaces, white text and a bright gold focus colour. High contrast (7:1 text) for engineering and security work.",
+        "Id": "com.boswas.carbon",
+        "License": "LicenseRef-Boswas-Internal",
+        "Name": "Boswas Carbon",
+        "Website": ""
+    }
+}

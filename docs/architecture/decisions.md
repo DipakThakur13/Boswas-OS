@@ -83,21 +83,55 @@ if a hard dependency ever needs an excluded package, the build fails instead
 of silently shipping it. The pins are build-time only; live-build removes
 them from the image.
 
-## ADR-0005 Debian identity is preserved
+## ADR-0005 Boswas OS is the user-facing identity; Debian stays the technical base
 
-**Decision.** `/etc/os-release` stays Debian's (`ID=debian`). Boswas identity
-lives in `/usr/lib/boswas/release`, `/usr/lib/boswas/image-info`,
-`/etc/issue.d/boswas.issue` and the KDE About page (`kcm-about-distrorc`).
-`GRUB_DISTRIBUTOR` is **not** changed.
+*Revised in 1.0~alpha3.* This decision first kept Debian's `/etc/os-release`
+(`ID=debian`) and showed Boswas only on Boswas surfaces. Boswas Group has
+since decided that users must experience the system as Boswas OS, with no
+unnecessary Debian branding, while the technical base stays intact.
+
+**Decision.** User-facing identity is Boswas OS; technical, legal and
+package-management identifiers stay Debian's.
+
+- **os-release:** `boswas-os` diverts base-files' `/usr/lib/os-release` and
+  ships `NAME="Boswas OS"`, `PRETTY_NAME="Boswas OS v1 Alpha"`, `ID=boswas`,
+  `ID_LIKE=debian`, `VERSION_CODENAME=trixie`, `LOGO=boswas-logo`. Live
+  images get the same content in their `/etc/os-release` copy (live-build
+  writes one at bootstrap; the `boswas-os` postinst refreshes it).
+- **Console:** `/etc/issue` and `/etc/issue.net` are base-files conffiles,
+  which Debian Policy forbids diverting. The `boswas-os` postinst replaces
+  their text, and `/etc/motd`'s (no package owns it), only while it is
+  Debian's unmodified default. The motd keeps its legal notice in Boswas
+  wording. The originals are kept in `/var/lib/boswas/os/` and restored on
+  removal. An administrator's own banner is never touched.
+- **Boot medium:** `.disk/info` names Boswas OS (binary hook); the boot menu,
+  boot splash, login, lock and About page show only Boswas OS.
+- **Live session:** the live user is "Boswas OS Live".
+- **Kept as Debian, on purpose:**
+  - `/etc/debian_version`, the package archive (`deb.debian.org`),
+    `ID_LIKE=debian` and every package name;
+  - `GRUB_DISTRIBUTOR="Debian"` on installed systems (pinned in
+    `/etc/default/grub.d/10-boswas.cfg`), because Debian's signed GRUB looks
+    for its configuration in `/EFI/debian`. Renaming the EFI directory would
+    break Secure Boot. The GRUB menu is hidden (Esc or Shift shows it), so
+    users do not normally see its "Debian GNU/Linux" entries;
+  - the Debian Installer's own text, which cannot be changed without
+    rebuilding it (its banner is Boswas OS);
+  - copyright files and licence notices (`/usr/share/doc/*/copyright`) and
+    technical details (`boswas-info` "Package base", About > Technical
+    details).
 
 **Why.**
 
-- Vendor software, scripts and Debian tooling check `ID=debian`.
-- Keeping it preserves Debian attribution, as the Debian derivative and
-  trademark guidance asks.
-- Changing `GRUB_DISTRIBUTOR` renames the EFI directory, but Debian's
-  *signed* GRUB looks for its configuration in `/EFI/debian`. Rebranding it
-  would break Secure Boot boots.
+- **Product identity:** users see one product, Boswas OS.
+- **Compatibility:** `ID_LIKE=debian` and the unchanged codename satisfy
+  tools that look for a Debian-like system; the package archive and
+  `debian_version` keep apt, unattended-upgrades and dpkg unchanged.
+- **Honesty and licences:** attribution stays where licences and
+  maintainers need it, without branding the user interface.
+
+**Revisit when** Boswas operates its own archive (M7): the codename and
+archive identity can then become Boswas-owned as well.
 
 ## ADR-0006 Security baseline as drop-ins, desktop-safe hardening
 

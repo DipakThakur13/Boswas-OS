@@ -1,0 +1,16 @@
+{
+    "KPackageStructure": "Plasma/LookAndFeel",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Boswas Group"
+            }
+        ],
+        "Category": "",
+        "Description": "The Boswas flagship: deep navy with the logo's gold as the accent and silver detail. Modern and premium; the default for new users.",
+        "Id": "com.boswas.horizon",
+        "License": "LicenseRef-Boswas-Internal",
+        "Name": "Boswas Horizon",
+        "Website": ""
+    }
+}

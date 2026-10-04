@@ -1,0 +1,23 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+	remove|abort-install|disappear)
+		dpkg-divert --package boswas-os --remove --rename --divert /usr/lib/os-release.debian /usr/lib/os-release
+		# Console banners: put Debian's text back where boswas-os replaced it.
+		# (Only if the file still holds what boswas-os wrote.)
+		for f in issue issue.net motd; do
+			state="/var/lib/boswas/os"
+			if [ -f "$state/$f.debian" ] && [ -f "$state/$f.boswas" ] && cmp -s "/etc/$f" "$state/$f.boswas"; then
+				cp "$state/$f.debian" "/etc/$f"
+			fi
+		done
+		;;
+	purge)
+		rm -rf /var/lib/boswas/os
+		;;
+esac
+
+#DEBHELPER#
+
+exit 0

@@ -1,0 +1,526 @@
+{
+    "schema": 1,
+    "default": "horizon",
+    "presets": [
+        {
+            "id": "horizon",
+            "label": "Horizon",
+            "name": "Boswas Horizon",
+            "description": "The Boswas flagship: deep navy with the logo's gold as the accent and silver detail. Modern and premium; the default for new users.",
+            "variant": "dark",
+            "icon_theme": "Boswas",
+            "plasma_style": "default",
+            "panel": {"style": "floating", "task_manager": "org.kde.plasma.icontasks"},
+            "palette": {
+                "window": "#111A2B", "window_alt": "#0D1524",
+                "view": "#0D1524", "view_alt": "#121C2E",
+                "button": "#1B2740", "button_alt": "#16213A",
+                "header": "#0B1220", "header_alt": "#111A2B", "header_inactive": "#0D1524",
+                "tooltip": "#0B1220",
+                "complementary": "#0A101D", "complementary_alt": "#0D1524",
+                "complementary_text": "#E8EEF6", "complementary_muted": "#A8B3C7",
+                "selection": "#D9B26E", "selection_alt": "#B5935C", "selection_text": "#0B1220",
+                "accent": "#D9B26E", "accent_hover": "#EBC786", "accent_text": "#EBC786",
+                "text": "#E8EEF6", "muted": "#A8B3C7",
+                "link": "#6CB6FF", "visited": "#B99AF2",
+                "positive": "#46D392", "neutral": "#F09646", "negative": "#F27076"
+            },
+            "terminal": {
+                "background": "#0D1524", "foreground": "#E8EEF6",
+                "colors": ["#1B2538", "#E86F74", "#5BCB8F", "#E0B970", "#5AA6F2", "#B394F0", "#5FB6E0", "#C8D1DF",
+                           "#46536B", "#FF8E92", "#84E0AE", "#FBD693", "#8CC2FF", "#CFB5FF", "#8DCDF0", "#F4F7FB"]
+            },
+            "wallpaper": {
+                "motif": "horizon",
+                "focus": [2860, 820],
+                "mark_height": 500,
+                "dark": {
+                    "base": ["#060A13", "#0B1221", "#131D31"],
+                    "glow": "#FBD693", "glow_opacity": 0.11,
+                    "ambient": "#3C485C", "ambient_opacity": 0.36,
+                    "ring": "#D4DDEC", "ring_opacity": 0.075,
+                    "accent": "#D9B26E", "accent_hi": "#FBD693",
+                    "mark": "colour", "mark_opacity": 0.15,
+                    "motif_colors": ["#0B1322", "#04070D"]
+                },
+                "light": {
+                    "base": ["#F7F8FB", "#ECEFF5", "#DCE2EC"],
+                    "glow": "#FBD693", "glow_opacity": 0.32,
+                    "ambient": "#AEB7C7", "ambient_opacity": 0.34,
+                    "ring": "#3C485C", "ring_opacity": 0.11,
+                    "accent": "#B5935C", "accent_hi": "#D9B26E",
+                    "mark": "colour", "mark_opacity": 0.24,
+                    "motif_colors": ["#E8ECF3", "#D2D9E5"]
+                }
+            }
+        },
+        {
+            "id": "midnight",
+            "label": "Midnight",
+            "name": "Boswas Midnight",
+            "description": "Near-black surfaces, softened text and a muted gold accent. Low glare for long development sessions and dim rooms.",
+            "variant": "dark",
+            "icon_theme": "Boswas",
+            "plasma_style": "default",
+            "panel": {"style": "floating", "task_manager": "org.kde.plasma.icontasks"},
+            "palette": {
+                "window": "#0B0E14", "window_alt": "#080A0F",
+                "view": "#07090D", "view_alt": "#0C0F15",
+                "button": "#171B24", "button_alt": "#12161E",
+                "header": "#06080B", "header_alt": "#0B0E14", "header_inactive": "#090B10",
+                "tooltip": "#0B0E14",
+                "complementary": "#05070A", "complementary_alt": "#080A0F",
+                "complementary_text": "#D3DAE4", "complementary_muted": "#8E98AA",
+                "selection": "#B39762", "selection_alt": "#8F7A50", "selection_text": "#0B0E14",
+                "accent": "#B39762", "accent_hover": "#C7AC79", "accent_text": "#C7AC79",
+                "text": "#D3DAE4", "muted": "#8E98AA",
+                "link": "#6FA6E0", "visited": "#A994DA",
+                "positive": "#5DBB86", "neutral": "#D98E4E", "negative": "#DB6B70"
+            },
+            "terminal": {
+                "background": "#07090D", "foreground": "#C9D1DC",
+                "colors": ["#151A23", "#D46A6F", "#6DBA8A", "#C7A66A", "#6B9BD6", "#A58BD8", "#6AA8CC", "#AEB7C4",
+                           "#3D4656", "#E88A8E", "#8CCFA5", "#DDBE86", "#8DB5E6", "#BFA8E6", "#8CBFDD", "#DCE2EA"]
+            },
+            "wallpaper": {
+                "motif": "midnight",
+                "focus": [2960, 1040],
+                "mark_height": 440,
+                "dark": {
+                    "base": ["#030407", "#06080D", "#0A0E15"],
+                    "glow": "#C2A26A", "glow_opacity": 0.07,
+                    "ambient": "#1C2433", "ambient_opacity": 0.40,
+                    "ring": "#AEB7C7", "ring_opacity": 0.07,
+                    "accent": "#B39762", "accent_hi": "#D2B47E",
+                    "mark": "#AEB7C7", "mark_opacity": 0.08,
+                    "motif_colors": ["#AEB7C7"]
+                },
+                "light": {
+                    "base": ["#E4E7EC", "#D7DBE2", "#C8CED8"],
+                    "glow": "#C2A26A", "glow_opacity": 0.14,
+                    "ambient": "#9AA3B2", "ambient_opacity": 0.30,
+                    "ring": "#2A3240", "ring_opacity": 0.09,
+                    "accent": "#8F7A50", "accent_hi": "#B39762",
+                    "mark": "#2A3240", "mark_opacity": 0.07,
+                    "motif_colors": ["#2A3240"]
+                }
+            }
+        },
+        {
+            "id": "aurora",
+            "label": "Aurora",
+            "name": "Boswas Aurora",
+            "description": "Boswas navy lit by flowing aurora light and a luminous ice-blue accent. Futuristic, with the gold kept in the mark.",
+            "variant": "dark",
+            "icon_theme": "Boswas",
+            "plasma_style": "default",
+            "panel": {"style": "floating", "task_manager": "org.kde.plasma.icontasks"},
+            "palette": {
+                "window": "#0F1830", "window_alt": "#0C1428",
+                "view": "#0B1226", "view_alt": "#101A33",
+                "button": "#1B2747", "button_alt": "#16213F",
+                "header": "#0A1124", "header_alt": "#0F1830", "header_inactive": "#0C1428",
+                "tooltip": "#0A1124",
+                "complementary": "#080E1E", "complementary_alt": "#0B1226",
+                "complementary_text": "#E6EEFA", "complementary_muted": "#A3B2CC",
+                "selection": "#7CC4FF", "selection_alt": "#5AA5E6", "selection_text": "#06101F",
+                "accent": "#7CC4FF", "accent_hover": "#A6D8FF", "accent_text": "#A6D8FF",
+                "text": "#E6EEFA", "muted": "#A3B2CC",
+                "link": "#9CB4FF", "visited": "#C7A8FF",
+                "positive": "#4CD495", "neutral": "#F2A04A", "negative": "#F46E7E"
+            },
+            "terminal": {
+                "background": "#0A1124", "foreground": "#E6EEFA",
+                "colors": ["#18223D", "#F0727E", "#52D394", "#F0C674", "#6FAEFF", "#B69CFF", "#6CC0F0", "#C6D2E6",
+                           "#43517A", "#FF959E", "#82E8B5", "#FFDC99", "#9CC8FF", "#D3C1FF", "#A0D8F8", "#F3F7FD"]
+            },
+            "wallpaper": {
+                "motif": "aurora",
+                "focus": [2760, 980],
+                "mark_height": 470,
+                "dark": {
+                    "base": ["#050A18", "#0A1330", "#0F1B40"],
+                    "glow": "#7CC4FF", "glow_opacity": 0.09,
+                    "ambient": "#2B3A66", "ambient_opacity": 0.40,
+                    "ring": "#C7DAF5", "ring_opacity": 0.07,
+                    "accent": "#7CC4FF", "accent_hi": "#C4E6FF",
+                    "mark": "colour", "mark_opacity": 0.150,
+                    "motif_colors": ["#7CC4FF", "#8E9BFF", "#B48CFF"]
+                },
+                "light": {
+                    "base": ["#F4F8FD", "#E6EEFA", "#D6E2F5"],
+                    "glow": "#7CC4FF", "glow_opacity": 0.24,
+                    "ambient": "#B9C8E8", "ambient_opacity": 0.40,
+                    "ring": "#203560", "ring_opacity": 0.10,
+                    "accent": "#3D8BD8", "accent_hi": "#7CC4FF",
+                    "mark": "colour", "mark_opacity": 0.22,
+                    "motif_colors": ["#8CCBFF", "#A3AEFF", "#C6A8FF"]
+                }
+            }
+        },
+        {
+            "id": "slate",
+            "label": "Slate",
+            "name": "Boswas Slate",
+            "description": "Calm slate grey-blue with a silver accent. Minimal and businesslike, for enterprise desktops.",
+            "variant": "dark",
+            "icon_theme": "Boswas",
+            "plasma_style": "default",
+            "panel": {"style": "floating", "task_manager": "org.kde.plasma.icontasks"},
+            "palette": {
+                "window": "#1E2530", "window_alt": "#1A2029",
+                "view": "#181E27", "view_alt": "#1D242E",
+                "button": "#2A323F", "button_alt": "#252C38",
+                "header": "#171C24", "header_alt": "#1E2530", "header_inactive": "#1A2029",
+                "tooltip": "#171C24",
+                "complementary": "#13171E", "complementary_alt": "#181E27",
+                "complementary_text": "#E9EDF3", "complementary_muted": "#A9B3C2",
+                "selection": "#B4BFD1", "selection_alt": "#919DB2", "selection_text": "#111821",
+                "accent": "#B4BFD1", "accent_hover": "#D4DDEC", "accent_text": "#D4DDEC",
+                "text": "#E9EDF3", "muted": "#A9B3C2",
+                "link": "#7FB3F0", "visited": "#BBA2EE",
+                "positive": "#55C98F", "neutral": "#EE9A4C", "negative": "#F07478"
+            },
+            "terminal": {
+                "background": "#181E27", "foreground": "#E9EDF3",
+                "colors": ["#232B37", "#E07A7E", "#6CC596", "#D9B776", "#78A9E6", "#B49BE0", "#74B4D6", "#C3CBD7",
+                           "#4D5869", "#F09A9D", "#93D9B3", "#EBCF98", "#9DC2F0", "#CCB8EC", "#9BCBE6", "#F3F5F8"]
+            },
+            "wallpaper": {
+                "motif": "slate",
+                "focus": [2980, 1160],
+                "mark_height": 430,
+                "dark": {
+                    "base": ["#151B24", "#1B222C", "#242D39"],
+                    "glow": "#D4DDEC", "glow_opacity": 0.05,
+                    "ambient": "#3C485C", "ambient_opacity": 0.32,
+                    "ring": "#D4DDEC", "ring_opacity": 0.07,
+                    "accent": "#B4BFD1", "accent_hi": "#E3E9F3",
+                    "mark": "#D4DDEC", "mark_opacity": 0.09,
+                    "motif_colors": ["#D4DDEC"]
+                },
+                "light": {
+                    "base": ["#F0F2F6", "#E4E8EE", "#D5DBE3"],
+                    "glow": "#FFFFFF", "glow_opacity": 0.50,
+                    "ambient": "#AEB7C7", "ambient_opacity": 0.30,
+                    "ring": "#3C485C", "ring_opacity": 0.10,
+                    "accent": "#6B778C", "accent_hi": "#3C485C",
+                    "mark": "#3C485C", "mark_opacity": 0.08,
+                    "motif_colors": ["#FFFFFF"]
+                }
+            }
+        },
+        {
+            "id": "carbon",
+            "label": "Carbon",
+            "name": "Boswas Carbon",
+            "description": "Black surfaces, white text and a bright gold focus colour. High contrast (7:1 text) for engineering and security work.",
+            "variant": "dark",
+            "icon_theme": "Boswas",
+            "plasma_style": "default",
+            "panel": {"style": "floating", "task_manager": "org.kde.plasma.icontasks"},
+            "palette": {
+                "window": "#0C0D10", "window_alt": "#131519",
+                "view": "#000000", "view_alt": "#0B0C0E",
+                "button": "#1D2026", "button_alt": "#171A1F",
+                "header": "#000000", "header_alt": "#0C0D10", "header_inactive": "#08090B",
+                "tooltip": "#000000",
+                "complementary": "#000000", "complementary_alt": "#0C0D10",
+                "complementary_text": "#FFFFFF", "complementary_muted": "#C9CFD8",
+                "selection": "#FFC844", "selection_alt": "#E0A92A", "selection_text": "#000000",
+                "accent": "#FFC844", "accent_hover": "#FFDD85", "accent_text": "#FFD565",
+                "text": "#FFFFFF", "muted": "#C9CFD8",
+                "link": "#74BEFF", "visited": "#D1AEFF",
+                "positive": "#45E296", "neutral": "#FF9548", "negative": "#FF7A84"
+            },
+            "terminal": {
+                "background": "#000000", "foreground": "#FFFFFF",
+                "colors": ["#1A1A1A", "#FF6670", "#3EE08F", "#FFC844", "#5AAEFF", "#D08CFF", "#4FCCF5", "#E0E0E0",
+                           "#7A7A7A", "#FF8A92", "#7CF5B6", "#FFDD85", "#8FC8FF", "#E2B3FF", "#8AE0FA", "#FFFFFF"]
+            },
+            "wallpaper": {
+                "motif": "carbon",
+                "focus": [2900, 1000],
+                "mark_height": 460,
+                "dark": {
+                    "base": ["#000000", "#030405", "#090A0D"],
+                    "glow": "#FFC844", "glow_opacity": 0.06,
+                    "ambient": "#1A1D22", "ambient_opacity": 0.50,
+                    "ring": "#FFFFFF", "ring_opacity": 0.10,
+                    "accent": "#FFC844", "accent_hi": "#FFE29A",
+                    "mark": "#FFFFFF", "mark_opacity": 0.10,
+                    "motif_colors": ["#FFFFFF"]
+                },
+                "light": {
+                    "base": ["#FFFFFF", "#F4F5F7", "#E8EAEE"],
+                    "glow": "#FFC844", "glow_opacity": 0.16,
+                    "ambient": "#C9CED6", "ambient_opacity": 0.30,
+                    "ring": "#000000", "ring_opacity": 0.12,
+                    "accent": "#A97A00", "accent_hi": "#E0A92A",
+                    "mark": "#000000", "mark_opacity": 0.08,
+                    "motif_colors": ["#000000"]
+                }
+            }
+        },
+        {
+            "id": "pearl",
+            "label": "Pearl",
+            "name": "Boswas Pearl",
+            "description": "A clean light interface in ivory and pearl, with gold highlights and navy text.",
+            "variant": "light",
+            "icon_theme": "Boswas-Light",
+            "plasma_style": "default",
+            "panel": {"style": "floating", "task_manager": "org.kde.plasma.icontasks"},
+            "palette": {
+                "window": "#F4F1EA", "window_alt": "#EBE6DB",
+                "view": "#FFFDF8", "view_alt": "#F8F5EE",
+                "button": "#FBF9F4", "button_alt": "#EEE7D7",
+                "header": "#E8E3D7", "header_alt": "#F4F1EA", "header_inactive": "#F1EDE5",
+                "tooltip": "#FFFDF8",
+                "complementary": "#111A2B", "complementary_alt": "#0B1220",
+                "complementary_text": "#E8EEF6", "complementary_muted": "#A8B3C7",
+                "selection": "#D2AC66", "selection_alt": "#E4C995", "selection_text": "#141C2B",
+                "accent": "#9A7431", "accent_hover": "#B8904A", "accent_text": "#7A5A22",
+                "text": "#141C2B", "muted": "#59606E",
+                "link": "#1F5DB5", "visited": "#6B3FAE",
+                "positive": "#14693B", "neutral": "#9E4D00", "negative": "#B32B38"
+            },
+            "terminal": {
+                "background": "#FFFDF8", "foreground": "#1B2333",
+                "colors": ["#1B2333", "#B4232F", "#1C7A45", "#8A6A2F", "#1F5FB8", "#7A3FB0", "#1B6A94", "#59616F",
+                           "#4A5466", "#C92F3C", "#228A52", "#9C7836", "#2F6FC8", "#8A4FC0", "#227AA6", "#2E3646"]
+            },
+            "wallpaper": {
+                "motif": "pearl",
+                "focus": [2860, 900],
+                "mark_height": 480,
+                "dark": {
+                    "base": ["#0B111D", "#111A2B", "#1A2436"],
+                    "glow": "#FBD693", "glow_opacity": 0.10,
+                    "ambient": "#3C485C", "ambient_opacity": 0.35,
+                    "ring": "#E8E2D4", "ring_opacity": 0.07,
+                    "accent": "#D9B26E", "accent_hi": "#FBD693",
+                    "mark": "colour", "mark_opacity": 0.140,
+                    "motif_colors": ["#E8E2D4", "#1E2A3E"]
+                },
+                "light": {
+                    "base": ["#FDFCF9", "#F6F2EA", "#EAE3D5"],
+                    "glow": "#FBD693", "glow_opacity": 0.30,
+                    "ambient": "#D4DDEC", "ambient_opacity": 0.45,
+                    "ring": "#5A6577", "ring_opacity": 0.12,
+                    "accent": "#B5935C", "accent_hi": "#D9B26E",
+                    "mark": "colour", "mark_opacity": 0.30,
+                    "motif_colors": ["#FFFFFF", "#E6DCC6"]
+                }
+            }
+        },
+        {
+            "id": "ocean",
+            "label": "Ocean",
+            "name": "Boswas Ocean",
+            "description": "Calm deep blues with an ocean-blue accent, for focused everyday productivity.",
+            "variant": "dark",
+            "icon_theme": "Boswas",
+            "plasma_style": "default",
+            "panel": {"style": "floating", "task_manager": "org.kde.plasma.icontasks"},
+            "palette": {
+                "window": "#0E1D33", "window_alt": "#0B182B",
+                "view": "#0A1628", "view_alt": "#0F1E35",
+                "button": "#183050", "button_alt": "#142945",
+                "header": "#091426", "header_alt": "#0E1D33", "header_inactive": "#0B182B",
+                "tooltip": "#091426",
+                "complementary": "#071121", "complementary_alt": "#0A1628",
+                "complementary_text": "#E5EEF8", "complementary_muted": "#A0B4CC",
+                "selection": "#57A8EA", "selection_alt": "#3F8FD4", "selection_text": "#04101E",
+                "accent": "#57A8EA", "accent_hover": "#82C0F2", "accent_text": "#82C0F2",
+                "text": "#E5EEF8", "muted": "#A0B4CC",
+                "link": "#8FCBFF", "visited": "#BBA6F2",
+                "positive": "#52CC86", "neutral": "#F0A04B", "negative": "#F2707A"
+            },
+            "terminal": {
+                "background": "#0A1628", "foreground": "#E5EEF8",
+                "colors": ["#142640", "#EE7078", "#56CC8A", "#E6C077", "#4FA3E8", "#A996EE", "#5CB8E6", "#C4D2E3",
+                           "#3E5675", "#FF9198", "#86E0AE", "#F5D699", "#84C2F5", "#C8B8F7", "#8DD0F2", "#F2F7FC"]
+            },
+            "wallpaper": {
+                "motif": "ocean",
+                "focus": [2920, 760],
+                "mark_height": 440,
+                "dark": {
+                    "base": ["#040C1A", "#0A1C36", "#0E2848"],
+                    "glow": "#57A8EA", "glow_opacity": 0.10,
+                    "ambient": "#123A66", "ambient_opacity": 0.40,
+                    "ring": "#BFD9F2", "ring_opacity": 0.07,
+                    "accent": "#57A8EA", "accent_hi": "#A9D6FA",
+                    "mark": "colour", "mark_opacity": 0.14,
+                    "motif_colors": ["#123A66", "#0D2D52", "#0A2142"]
+                },
+                "light": {
+                    "base": ["#F3F8FC", "#E3EEF8", "#CFE0F1"],
+                    "glow": "#57A8EA", "glow_opacity": 0.18,
+                    "ambient": "#9CC2E6", "ambient_opacity": 0.35,
+                    "ring": "#0E2848", "ring_opacity": 0.10,
+                    "accent": "#2F7FC4", "accent_hi": "#57A8EA",
+                    "mark": "colour", "mark_opacity": 0.22,
+                    "motif_colors": ["#D3E5F6", "#BFD7EF", "#A9C8E8"]
+                }
+            }
+        },
+        {
+            "id": "ember",
+            "label": "Ember",
+            "name": "Boswas Ember",
+            "description": "Warm dark surfaces with a strong copper accent. A creative workstation look.",
+            "variant": "dark",
+            "icon_theme": "Boswas",
+            "plasma_style": "default",
+            "panel": {"style": "floating", "task_manager": "org.kde.plasma.icontasks"},
+            "palette": {
+                "window": "#1A1719", "window_alt": "#151214",
+                "view": "#141113", "view_alt": "#1A1618",
+                "button": "#2A2427", "button_alt": "#241E21",
+                "header": "#120F11", "header_alt": "#1A1719", "header_inactive": "#151214",
+                "tooltip": "#120F11",
+                "complementary": "#0E0C0D", "complementary_alt": "#141113",
+                "complementary_text": "#F2EAE4", "complementary_muted": "#B9ACA5",
+                "selection": "#E28A5C", "selection_alt": "#C06E44", "selection_text": "#1A0D07",
+                "accent": "#E28A5C", "accent_hover": "#F0A67D", "accent_text": "#F0A67D",
+                "text": "#F2EAE4", "muted": "#B9ACA5",
+                "link": "#82B6EE", "visited": "#C9A6F0",
+                "positive": "#62CB8E", "neutral": "#E8C34E", "negative": "#F4646E"
+            },
+            "terminal": {
+                "background": "#141113", "foreground": "#F2EAE4",
+                "colors": ["#2A2326", "#F0656E", "#7CC88E", "#E9C24A", "#7EB0EC", "#D196D8", "#72B8E0", "#D2C6BF",
+                           "#574A4E", "#FF8A90", "#A0DDAE", "#F5D57A", "#A3C8F4", "#E3B5E8", "#9CCDEC", "#FBF6F2"]
+            },
+            "wallpaper": {
+                "motif": "ember",
+                "focus": [2860, 900],
+                "mark_height": 460,
+                "dark": {
+                    "base": ["#07080E", "#110E14", "#1F1214"],
+                    "glow": "#E28A5C", "glow_opacity": 0.14,
+                    "ambient": "#3A1F1A", "ambient_opacity": 0.50,
+                    "ring": "#F2DDD0", "ring_opacity": 0.07,
+                    "accent": "#E28A5C", "accent_hi": "#FFC9A3",
+                    "mark": "colour", "mark_opacity": 0.14,
+                    "motif_colors": ["#E28A5C", "#FF9F5A", "#C2452D"]
+                },
+                "light": {
+                    "base": ["#FCF8F4", "#F5ECE4", "#EAD9CC"],
+                    "glow": "#E28A5C", "glow_opacity": 0.20,
+                    "ambient": "#E7C3AA", "ambient_opacity": 0.40,
+                    "ring": "#4A2A1E", "ring_opacity": 0.10,
+                    "accent": "#B8602F", "accent_hi": "#E28A5C",
+                    "mark": "colour", "mark_opacity": 0.22,
+                    "motif_colors": ["#E28A5C", "#F2A65A", "#C2452D"]
+                }
+            }
+        },
+        {
+            "id": "nebula",
+            "label": "Nebula",
+            "name": "Boswas Nebula",
+            "description": "Deep indigo and violet with a luminous lavender accent. Futuristic, for research and AI work.",
+            "variant": "dark",
+            "icon_theme": "Boswas",
+            "plasma_style": "default",
+            "panel": {"style": "floating", "task_manager": "org.kde.plasma.icontasks"},
+            "palette": {
+                "window": "#16142E", "window_alt": "#121027",
+                "view": "#100E24", "view_alt": "#17152F",
+                "button": "#241F46", "button_alt": "#1E1A3C",
+                "header": "#0E0C20", "header_alt": "#16142E", "header_inactive": "#110F25",
+                "tooltip": "#0E0C20",
+                "complementary": "#0B0A1A", "complementary_alt": "#100E24",
+                "complementary_text": "#ECEAFA", "complementary_muted": "#AAA5CC",
+                "selection": "#A68CFF", "selection_alt": "#8A6DF0", "selection_text": "#120E26",
+                "accent": "#A68CFF", "accent_hover": "#C2B1FF", "accent_text": "#C2B1FF",
+                "text": "#ECEAFA", "muted": "#AAA5CC",
+                "link": "#82B8FF", "visited": "#E2A6F2",
+                "positive": "#55D093", "neutral": "#F2A04E", "negative": "#F46C88"
+            },
+            "terminal": {
+                "background": "#100E24", "foreground": "#ECEAFA",
+                "colors": ["#1F1C3D", "#F26B86", "#5ACF94", "#EBC273", "#7FA8FF", "#A58BFF", "#6CBDEC", "#C9C5E3",
+                           "#4B4675", "#FF92A8", "#8AE3B5", "#F7D79B", "#A6C2FF", "#C6B5FF", "#9AD2F4", "#F6F5FD"]
+            },
+            "wallpaper": {
+                "motif": "nebula",
+                "focus": [2780, 960],
+                "mark_height": 460,
+                "dark": {
+                    "base": ["#05040F", "#0D0A26", "#161040"],
+                    "glow": "#A68CFF", "glow_opacity": 0.11,
+                    "ambient": "#2A1F5C", "ambient_opacity": 0.45,
+                    "ring": "#D9D1FF", "ring_opacity": 0.07,
+                    "accent": "#A68CFF", "accent_hi": "#DCD0FF",
+                    "mark": "colour", "mark_opacity": 0.150,
+                    "motif_colors": ["#7B5CFF", "#4F6BFF", "#C45BD8", "#3A2A8C"]
+                },
+                "light": {
+                    "base": ["#F8F6FD", "#ECE8FA", "#DDD6F5"],
+                    "glow": "#A68CFF", "glow_opacity": 0.22,
+                    "ambient": "#C9BEF0", "ambient_opacity": 0.40,
+                    "ring": "#2A2060", "ring_opacity": 0.10,
+                    "accent": "#6E52D9", "accent_hi": "#A68CFF",
+                    "mark": "colour", "mark_opacity": 0.22,
+                    "motif_colors": ["#B9A6FF", "#A6B6FF", "#E2A6F0", "#CFC6F5"]
+                }
+            }
+        },
+        {
+            "id": "classic",
+            "label": "Classic",
+            "name": "Boswas Classic",
+            "description": "A familiar, conservative desktop: light neutral windows, a full-width panel with labelled taskbar buttons and a plain wallpaper. Lightweight.",
+            "variant": "light",
+            "icon_theme": "Boswas-Light",
+            "plasma_style": "default",
+            "panel": {"style": "full-width", "task_manager": "org.kde.plasma.taskmanager"},
+            "palette": {
+                "window": "#EEF0F3", "window_alt": "#E3E7EC",
+                "view": "#FFFFFF", "view_alt": "#F5F7F9",
+                "button": "#F8F9FB", "button_alt": "#D8E3F0",
+                "header": "#E1E5EB", "header_alt": "#EEF0F3", "header_inactive": "#EEF0F3",
+                "tooltip": "#F8F9FB",
+                "complementary": "#1E2633", "complementary_alt": "#161D28",
+                "complementary_text": "#EEF1F5", "complementary_muted": "#A9B3C2",
+                "selection": "#2F6EB5", "selection_alt": "#A9C6E8", "selection_text": "#FFFFFF",
+                "accent": "#2F6EB5", "accent_hover": "#4A88CC", "accent_text": "#245C9C",
+                "text": "#1D2533", "muted": "#586374",
+                "link": "#1F5DAE", "visited": "#6A42AE",
+                "positive": "#166A39", "neutral": "#984A00", "negative": "#BC2E3A"
+            },
+            "terminal": {
+                "background": "#1D2330", "foreground": "#E6EAF0",
+                "colors": ["#232A38", "#E5646B", "#5BC27E", "#E3B866", "#4D94DE", "#A47FD9", "#4FA8D6", "#C9CFD8",
+                           "#5A6475", "#F08A8F", "#86D9A1", "#F0CE8C", "#7EB3EC", "#C2A6EA", "#84C4E6", "#F5F7FA"]
+            },
+            "wallpaper": {
+                "motif": "classic",
+                "focus": [3000, 1160],
+                "mark_height": 380,
+                "dark": {
+                    "base": ["#132238", "#0E192B", "#09111E"],
+                    "glow": "#D4DDEC", "glow_opacity": 0.0,
+                    "ambient": "#3C485C", "ambient_opacity": 0.0,
+                    "ring": "#D4DDEC", "ring_opacity": 0.07,
+                    "accent": "#AEB7C7", "accent_hi": "#D4DDEC",
+                    "mark": "#D4DDEC", "mark_opacity": 0.09,
+                    "motif_colors": []
+                },
+                "light": {
+                    "base": ["#3D6FA3", "#2A5585", "#1B3D64"],
+                    "glow": "#FFFFFF", "glow_opacity": 0.0,
+                    "ambient": "#FFFFFF", "ambient_opacity": 0.0,
+                    "ring": "#FFFFFF", "ring_opacity": 0.10,
+                    "accent": "#D4DDEC", "accent_hi": "#FFFFFF",
+                    "mark": "#FFFFFF", "mark_opacity": 0.13,
+                    "motif_colors": []
+                }
+            }
+        }
+    ]
+}

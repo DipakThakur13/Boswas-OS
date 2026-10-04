@@ -43,7 +43,7 @@ def main(argv: list[str] | None = None) -> int:
 
     app = QApplication.instance() or QApplication(argv)
     app.setApplicationName("boswas-compat-manager")
-    app.setApplicationDisplayName("Compatibility Manager")
+    app.setApplicationDisplayName("Boswas Compatibility Manager")
     app.setApplicationVersion(__version__)
     app.setOrganizationName("Boswas")
     app.setDesktopFileName(DESKTOP_ID)

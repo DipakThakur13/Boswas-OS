@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Boswas Security Center
+GenericName=Security Status
+Comment=See how this device is protected
+Exec=boswas-control-center --page security
+Icon=boswas-security-center
+Terminal=false
+StartupNotify=true
+Categories=Settings;Security;Qt;
+Keywords=security;protection;firewall;AppArmor;encryption;Secure Boot;screen lock;sandbox;

@@ -1,0 +1,35 @@
+[Icon Theme]
+Name=Boswas
+Comment=Boswas OS icons for dark panels: brand tiles for applications and settings, Breeze Dark for everything else
+Inherits=breeze-dark,breeze,hicolor
+Example=boswas-logo
+
+# Default sizes, as in Breeze, so switching icon theme does not resize the desktop
+DesktopDefault=48
+DesktopSizes=16,22,32,48,64,128,256
+ToolbarDefault=22
+ToolbarSizes=16,22,32,48
+MainToolbarDefault=22
+MainToolbarSizes=16,22,32,48
+SmallDefault=16
+SmallSizes=16,22,32,48
+PanelDefault=48
+PanelSizes=16,22,32,48,64,128,256
+DialogDefault=32
+DialogSizes=16,22,32,48,64,128,256
+
+Directories=scalable/apps,scalable/mimetypes
+
+[scalable/apps]
+Size=256
+MinSize=16
+MaxSize=512
+Type=Scalable
+Context=Applications
+
+[scalable/mimetypes]
+Size=256
+MinSize=16
+MaxSize=512
+Type=Scalable
+Context=MimeTypes

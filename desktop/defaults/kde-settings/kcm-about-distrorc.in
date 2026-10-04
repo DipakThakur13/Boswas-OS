@@ -1,9 +1,9 @@
 # Boswas OS branding for System Settings > About this System (kinfocenter).
 # Placeholders are filled from config/boswas/release.conf at package build.
-# Website is intentionally not set: it falls back to the Debian home page
-# from /etc/os-release, keeping upstream attribution visible.
+# Website is not set (os-release has no HOME_URL), so no link is shown.
+# Live sessions get "Variant=Live session" appended at boot by the boswas
+# live-config component (config/boswas/live-config-boswas).
 [General]
 Name=@BOSWAS_NAME@
 Version=@BOSWAS_VERSION@
-Variant=Based on @BOSWAS_BASE_NAME@ @BOSWAS_BASE_VERSION@ "@BOSWAS_BASE_CODENAME@"
 LogoPath=/usr/share/boswas/branding/boswas-about-logo.svg

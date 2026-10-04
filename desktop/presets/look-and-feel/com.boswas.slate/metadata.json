@@ -1,0 +1,16 @@
+{
+    "KPackageStructure": "Plasma/LookAndFeel",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Boswas Group"
+            }
+        ],
+        "Category": "",
+        "Description": "Calm slate grey-blue with a silver accent. Minimal and businesslike, for enterprise desktops.",
+        "Id": "com.boswas.slate",
+        "License": "LicenseRef-Boswas-Internal",
+        "Name": "Boswas Slate",
+        "Website": ""
+    }
+}

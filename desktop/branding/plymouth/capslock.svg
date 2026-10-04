@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 26 26">
+  <!-- Caps Lock warning next to the passphrase field -->
+  <path d="M13 3 L23 13 H17 V18 H9 V13 H3 Z" fill="none" stroke="#F0964A" stroke-width="2.2" stroke-linejoin="round"/>
+  <rect x="9" y="20.5" width="8" height="2.5" rx="1" fill="#F0964A"/>
+</svg>

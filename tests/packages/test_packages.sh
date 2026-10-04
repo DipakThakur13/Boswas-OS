@@ -14,7 +14,8 @@ else
 	finish
 fi
 
-for p in boswas-os boswas-cli boswas-branding boswas-security boswas-compat boswas-device-agent boswas-compat-manager; do
+for p in boswas-os boswas-cli boswas-branding boswas-security boswas-compat boswas-device-agent boswas-compat-manager \
+	boswas-control-center; do
 	check "${p}_${BOSWAS_VERSION_ID} .deb produced" test -s "$debs/${p}_${BOSWAS_VERSION_ID}_all.deb"
 done
 server_deb="$debs/server/boswas-control-plane_${BOSWAS_VERSION_ID}_all.deb"
@@ -38,10 +39,38 @@ check_not "no setuid/setgid files" grep -qE '^-..[sS]|^-.....[sS]' <<<"$listing"
 # Dependencies wire the components together
 os_depends="$(dpkg-deb -f "$debs/boswas-os_${BOSWAS_VERSION_ID}_all.deb" Depends 2>/dev/null)"
 check "boswas-os depends on all Boswas device components" bash -c '
-	for p in boswas-branding boswas-security boswas-cli "boswas-compat " boswas-device-agent boswas-compat-manager; do
+	for p in boswas-branding boswas-security boswas-cli "boswas-compat " boswas-device-agent boswas-compat-manager \
+		boswas-control-center; do
 		grep -q -- "$p" <<<"$1" || exit 1
 	done' _ "$os_depends"
 check_not "boswas-os does not pull in the Control Plane" grep -q boswas-control-plane <<<"$os_depends"
+
+# Boswas OS identity (ADR-0005): diverted os-release and console banners, Debian's
+# EFI directory kept for Secure Boot, live-session integration.
+os_deb="$debs/boswas-os_${BOSWAS_VERSION_ID}_all.deb"
+os_x="$(mktemp -d)" os_ctl="$(mktemp -d)"
+dpkg-deb -x "$os_deb" "$os_x"
+dpkg-deb -e "$os_deb" "$os_ctl"
+check "identity: os-release names Boswas OS (ID=boswas, ID_LIKE=debian, VERSION_ID without '~')" \
+	bash -c "grep -qx 'NAME=\"Boswas OS\"' '$os_x/usr/lib/os-release' && grep -qx 'ID=boswas' '$os_x/usr/lib/os-release' &&
+		grep -qx 'ID_LIKE=debian' '$os_x/usr/lib/os-release' && grep -qE '^VERSION_ID=\"[a-z0-9._-]+\"$' '$os_x/usr/lib/os-release'"
+check_not "identity: console banners and message of the day do not name Debian" \
+	grep -qi debian "$os_x/usr/share/boswas/issue" "$os_x/usr/share/boswas/issue.net" "$os_x/usr/share/boswas/motd"
+check "identity: base-files' os-release is diverted on install and restored on removal" \
+	bash -c "grep -q -- '--add --rename --divert /usr/lib/os-release.debian /usr/lib/os-release' '$os_ctl/preinst' &&
+		grep -q -- '--remove --rename --divert /usr/lib/os-release.debian /usr/lib/os-release' '$os_ctl/postrm'"
+check_not "identity: no conffile is diverted (Debian Policy: dpkg does not handle it well)" \
+	bash -c "grep -E 'dpkg-divert' '$os_ctl/preinst' | grep -qE '/etc/'"
+check "identity: GRUB keeps Debian's distributor (EFI directory, Secure Boot) and hides its menu" \
+	bash -c "grep -qx 'GRUB_DISTRIBUTOR=\"Debian\"' '$os_x/etc/default/grub.d/10-boswas.cfg' &&
+		grep -qx 'GRUB_TIMEOUT_STYLE=hidden' '$os_x/etc/default/grub.d/10-boswas.cfg'"
+check "live session: live user name, Install Boswas OS entry and Live marker (live-config component)" \
+	bash -c "grep -q 'LIVE_USER_FULLNAME=\"Boswas OS Live\"' '$os_x/etc/live/config.conf.d/boswas.conf' &&
+		test -x '$os_x/usr/lib/live/config/9000-boswas' &&
+		grep -q 'Exec=boswas-control-center --page install' '$os_x/usr/lib/live/config/9000-boswas'"
+check_not "live session: the live-config component never starts an installer or a browser" \
+	grep -qE '^[^#]*(debian-installer|calamares|ubiquity|firefox|xdg-open|kioclient)' "$os_x/usr/lib/live/config/9000-boswas"
+rm -rf "$os_x" "$os_ctl"
 
 # WinCompat package
 compat_deb="$debs/boswas-compat_${BOSWAS_VERSION_ID}_all.deb"
@@ -120,6 +149,29 @@ check "branding: Orbitron brand typeface shipped (6 static weights, 0644) with i
 	bash -c "test \$(grep -cE '^-rw-r--r-- root/root .* \./usr/share/fonts/truetype/orbitron/Orbitron-(Regular|Medium|SemiBold|Bold|ExtraBold|Black)\.ttf$' <<<\"\$1\") -eq 6 &&
 		grep -q 'SIL OPEN FONT LICENSE Version 1.1' '$extract/usr/share/doc/boswas-branding/copyright' &&
 		grep -q 'Reserved Font Name: \"Orbitron\"' '$extract/usr/share/doc/boswas-branding/copyright'" _ "$listing"
+check "boot splash: Boswas OS Plymouth theme (two-step, passphrase dialog images, 24-frame spinner)" \
+	bash -c "grep -q 'ModuleName=two-step' '$extract/usr/share/plymouth/themes/boswas/boswas.plymouth' &&
+		for f in watermark lock entry bullet capslock throbber-0024; do test -s '$extract/usr/share/plymouth/themes/boswas/'\$f.png || exit 1; done"
+ctl="$(mktemp -d)"
+dpkg-deb -e "$debs/boswas-branding_${BOSWAS_VERSION_ID}_all.deb" "$ctl"
+check "boot splash: boswas-branding selects the theme and rebuilds the initramfs (trigger)" \
+	bash -c "grep -q 'plymouth-set-default-theme boswas' '$ctl/postinst' && grep -qx 'activate-noawait update-initramfs' '$ctl/triggers'"
+rm -rf "$ctl"
+check "desktop: Boswas Launcher (Kickoff under the Boswas name) and the Boswas session splash" \
+	bash -c "grep -q '\"X-Plasma-RootPath\": \"org.kde.plasma.kickoff\"' '$extract/usr/share/plasma/plasmoids/com.boswas.launcher/metadata.json' &&
+		grep -q 'org.kde.plasma.launchermenu' '$extract/usr/share/plasma/plasmoids/com.boswas.launcher/metadata.json' &&
+		test -s '$extract/usr/share/plasma/look-and-feel/com.boswas.splash/contents/splash/Splash.qml' &&
+		! grep -q '<image' '$extract/usr/share/plasma/look-and-feel/com.boswas.splash/contents/splash/images/lockup.svg'"
+check "desktop: KDE defaults select the Horizon preset, Boswas icons, splash and Konsole profile" \
+	bash -c "d='$extract/usr/share/boswas/kde-settings'; grep -qx 'LookAndFeelPackage=com.boswas.horizon' \$d/kdeglobals &&
+		grep -qx 'Theme=Boswas' \$d/kdeglobals && grep -qx 'Theme=com.boswas.splash' \$d/ksplashrc &&
+		grep -qx 'DefaultProfile=Boswas Horizon.profile' \$d/konsolerc"
+check "terminal: Boswas prompt and welcome (sources the user's ~/.bashrc first)" \
+	bash -c "grep -q '\\. \"\$HOME/.bashrc\"' '$extract/usr/share/boswas/terminal/bashrc' && test -x '$extract/usr/bin/boswas-welcome'"
+check "login screen: Breeze with the Boswas background and logo (self-contained)" \
+	bash -c "grep -qx 'showlogo=shown' '$extract/usr/share/sddm/themes/breeze/theme.conf.user' &&
+		test -s '$extract/usr/share/boswas/branding/boswas-login-logo.svg' &&
+		! grep -q '<image' '$extract/usr/share/boswas/branding/boswas-login-logo.svg'"
 check_not "branding: the retired teal accent and Boswas Group gear logo are gone" \
 	bash -c "grep -rqiE '#17C6C0|#2ED3CD|23,198,192' '$extract/usr/share/boswas' '$extract/usr/share/color-schemes' '$extract/usr/share/icons' ||
 		test -e '$extract/usr/share/boswas/branding/boswas-group-logo.svg'"

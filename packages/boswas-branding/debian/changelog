@@ -1,6 +1,10 @@
 boswas-branding (1.0~alpha3) trixie; urgency=medium
 
-  * Release 1.0~alpha3 (no changes).
+  * New Boswas OS brand: the "b" mark replaces the Boswas Group gear in the
+    launcher icon, About page, wallpaper, login and lock screens.
+  * Install Orbitron, the brand typeface (SIL OFL 1.1), and the mark as
+    /usr/share/boswas/branding/boswas-os-mark.svg.
+  * Boswas Dark colour scheme: the logo's gold replaces the teal accent.
 
  -- Boswas OS Platform Team <os-platform@boswas.invalid>  Sun, 04 Oct 2026 18:00:00 +0000
 

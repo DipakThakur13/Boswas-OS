@@ -1,0 +1,16 @@
+{
+    "KPackageStructure": "Plasma/LookAndFeel",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Boswas Group"
+            }
+        ],
+        "Category": "",
+        "Description": "Deep indigo and violet with a luminous lavender accent. Futuristic, for research and AI work.",
+        "Id": "com.boswas.nebula",
+        "License": "LicenseRef-Boswas-Internal",
+        "Name": "Boswas Nebula",
+        "Website": ""
+    }
+}

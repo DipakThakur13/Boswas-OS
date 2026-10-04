@@ -140,13 +140,51 @@ check "Control Plane service runs unprivileged (User=boswas-cp, no capabilities)
 # Brand: the Boswas OS mark, Orbitron, the logo's gold accent (desktop/branding/README.md).
 brand_src=(desktop installer config/live-build/config/bootloaders control-plane/dashboard
 	packages/boswas-compat-manager/data packages/boswas-compat-manager/boswas_manager)
-check_not "brand sources use the gold accent (no retired teal #17C6C0/#2ED3CD)" \
-	grep -rqiE '#17C6C0|#2ED3CD|23,198,192|46,211,205' "${brand_src[@]}"
+check_not "brand sources use the gold accent (no retired teal #17C6C0/#2ED3CD; docs and tests may name it)" \
+	bash -c 'grep -rliE "#17C6C0|#2ED3CD|23,198,192|46,211,205" "$@" | grep -v -e "/README.md$" -e "/tests/" | grep -q .' _ "${brand_src[@]}"
 check_not "brand sources no longer use the Boswas Group gear logo" \
 	grep -rqE 'boswas-symbol\.svg|boswas-group-logo\.svg' "${brand_src[@]}" packages/boswas-branding/debian
 check "brand mark and wordmarks are generated (traced mark, Orbitron outlines)" \
 	bash -c "grep -q 'trace_mark.py' desktop/branding/boswas-os-mark.svg && grep -q 'trace_mark.py' desktop/branding/boswas-os-mark-mono.svg &&
 		for w in boswas-os boswas os; do grep -q 'Orbitron SemiBold' desktop/branding/wordmark-\$w.svg || exit 1; done"
+check "user-facing Boswas sources do not brand the system as Debian (ADR-0005)" python3 -B -c '
+import glob, json, re, sys
+bad = []
+def visible_lines(path):
+    for n, line in enumerate(open(path, encoding="utf-8"), 1):
+        s = line.strip()
+        if s and not s.startswith(("#", "//", "/*", "*")):
+            yield n, s
+# Identity files, KDE defaults, live session, terminal: every non-comment line
+# (ID_LIKE=debian is the intended technical compatibility marker).
+for path in ["config/boswas/os-release.in", "config/boswas/issue.in", "config/boswas/issue.net.in",
+             "config/boswas/motd.in", "config/boswas/live-config.conf", "config/boswas/live-config-boswas",
+             "desktop/terminal/bashrc", "desktop/terminal/boswas-welcome",
+             "desktop/branding/splash/contents/splash/Splash.qml",
+             *glob.glob("desktop/defaults/kde-settings/*"), *glob.glob("desktop/defaults/sddm/*")]:
+    for n, s in visible_lines(path):
+        if "debian" in s.lower() and s != "ID_LIKE=debian":
+            bad.append(f"{path}:{n}: {s}")
+# Artwork: rendered text only (titles and comments are not shown).
+for path in glob.glob("desktop/**/*.svg", recursive=True) + glob.glob("installer/**/*.svg", recursive=True):
+    for m in re.finditer(r"<text[^>]*>([^<]*)", open(path, encoding="utf-8").read()):
+        if "debian" in m.group(1).lower():
+            bad.append(f"{path}: {m.group(1)}")
+# Names and descriptions users see in settings (Global Themes, wallpapers, applets).
+for path in glob.glob("desktop/**/metadata.json", recursive=True):
+    plugin = json.load(open(path, encoding="utf-8")).get("KPlugin", {})
+    for key, value in plugin.items():
+        if key.startswith(("Name", "Description")) and "debian" in str(value).lower():
+            bad.append(f"{path}: {key}={value}")
+if bad:
+    sys.exit("\n".join(bad))
+'
+check "live USB: the default boot entry is the live session; the installer is a separate entry" \
+	bash -c "grep -m1 '^menuentry' config/live-build/config/bootloaders/grub-pc/grub.cfg | grep -q 'Live session' &&
+		grep -q 'splash' config/live-build/auto/config && ! grep -qE 'auto=true|priority=critical' config/live-build/auto/config"
+check "Boswas Launcher reuses Kickoff (X-Plasma-RootPath) and provides the launcher menu (Meta key)" \
+	bash -c "grep -q '\"X-Plasma-RootPath\": \"org.kde.plasma.kickoff\"' desktop/launcher/metadata.json &&
+		grep -q 'org.kde.plasma.launchermenu' desktop/launcher/metadata.json"
 check "Orbitron is shipped with its SIL OFL 1.1 licence" \
 	bash -c "grep -q 'SIL OPEN FONT LICENSE Version 1.1' desktop/fonts/orbitron/OFL.txt &&
 		test \$(ls desktop/fonts/orbitron/static/Orbitron-*.ttf | wc -l) -eq 6"

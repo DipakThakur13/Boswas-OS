@@ -57,6 +57,27 @@ external SVG references.
 The package `boswas-branding` installs the mark as
 `/usr/share/boswas/branding/boswas-os-mark.svg`, for other components.
 
+## Boot, start-up and login
+
+| Source | What it becomes |
+|--------|-----------------|
+| `plymouth/` | The `boswas` Plymouth theme (two-step). It shows the lockup (`watermark.svg`), a 24-frame gold spinner (`throbber.svg`, rotated per frame at build time) and the disk-encryption passphrase dialog (`lock`, `entry`, `bullet`, `capslock`). It is used for boot, shutdown, reboot and the LUKS prompt. `boswas-branding` selects it unless an administrator chose another theme, and rebuilds the initramfs through a trigger |
+| `splash/` | `com.boswas.splash`, the session start-up splash (KSplash) between login and the desktop: the lockup and a spinner. It respects "animations off" |
+| `login-logo.svg` | The horizontal lockup shown by the login screen (SDDM Breeze, `showlogo=shown`), inlined to `/usr/share/boswas/branding/boswas-login-logo.svg` |
+| `boot-splash.svg` | The live and installation medium's boot menu (GRUB) |
+
+The live medium boots with `splash`, so a USB boot shows the Plymouth
+theme. Installed systems get `quiet splash` and a hidden GRUB menu from
+`/etc/default/grub.d/10-boswas.cfg` (boswas-os).
+
+## Desktop shell pieces
+
+| Source | What it becomes |
+|--------|-----------------|
+| `../launcher/metadata.json` | **Boswas Launcher** (`com.boswas.launcher`). It is KDE's maintained application launcher (Kickoff, through `X-Plasma-RootPath`) under the Boswas name and icon, with search, favourites, recent items, all applications and power actions. It answers the Meta key |
+| `../terminal/` | The Boswas terminal: `boswas-welcome`, a fast, files-only summary with version, kernel, architecture, live or installed session, and AppArmor and device agent state, plus the prompt (`bashrc`, used by the Boswas Konsole profiles; it sources `~/.bashrc` first). Turn the welcome off per user with `~/.config/boswas/no-welcome` |
+| `../defaults/` | System-wide KDE defaults (Horizon preset, Boswas icons, splash, Konsole profile, lock screen), the SDDM login screen and a Firefox policy (removes the "Debian packages" search engine) |
+
 ## Typography
 
 * **Brand lettering** (BOSWAS OS, BOSWAS, OS) is set in **Orbitron**, from

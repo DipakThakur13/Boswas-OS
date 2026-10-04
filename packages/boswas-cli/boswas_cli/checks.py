@@ -142,7 +142,8 @@ def apparmor() -> Check:
         # Debian's apparmor.service is skipped on live media
         # (ConditionPathExists=!/run/live/overlay/work); installed systems load profiles.
         return Check("apparmor", "security", title, WARN,
-                     "enabled in kernel; profiles not loaded in the live session (Debian skips them on live media)")
+                     "enabled in kernel; profiles are not loaded in the live session (they load once Boswas OS "
+                     "is installed)")
     return Check("apparmor", "security", title, FAIL, f"enabled in kernel but profiles not loaded (apparmor.service {state})")
 
 

@@ -1,0 +1,16 @@
+{
+    "KPackageStructure": "Plasma/LookAndFeel",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Boswas Group"
+            }
+        ],
+        "Category": "",
+        "Description": "A clean light interface in ivory and pearl, with gold highlights and navy text.",
+        "Id": "com.boswas.pearl",
+        "License": "LicenseRef-Boswas-Internal",
+        "Name": "Boswas Pearl",
+        "Website": ""
+    }
+}

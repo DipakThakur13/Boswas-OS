@@ -166,7 +166,7 @@ class Cli:
         lines = [_rows([
             ("Revision", doc.get("revision")),
             ("Collected", doc.get("collected_at")),
-            ("OS", f"{osd.get('name')} {osd.get('version')} ({osd.get('version_id')}), Debian "
+            ("OS", f"{osd.get('name')} {osd.get('version')} ({osd.get('version_id')}), package base "
                    f"{osd.get('debian_version')}"),
             ("Kernel", osd.get("kernel")),
             ("Architecture", osd.get("architecture")),

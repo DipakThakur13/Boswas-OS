@@ -1,0 +1,16 @@
+{
+    "KPackageStructure": "Plasma/LookAndFeel",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Boswas Group"
+            }
+        ],
+        "Category": "",
+        "Description": "Near-black surfaces, softened text and a muted gold accent. Low glare for long development sessions and dim rooms.",
+        "Id": "com.boswas.midnight",
+        "License": "LicenseRef-Boswas-Internal",
+        "Name": "Boswas Midnight",
+        "Website": ""
+    }
+}

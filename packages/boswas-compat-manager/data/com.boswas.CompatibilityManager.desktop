@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=Compatibility Manager
+Name=Boswas Compatibility Manager
 GenericName=Windows Application Manager
 Comment=Install, run and manage Windows applications in isolated Boswas sandboxes
 Exec=boswas-compat-manager

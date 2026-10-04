@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="28" height="34" viewBox="0 0 28 34">
+  <!-- Padlock shown next to the passphrase field -->
+  <path d="M7 15 V10 a7 7 0 0 1 14 0 V15" fill="none" stroke="#AEB7C7" stroke-width="3" stroke-linecap="round"/>
+  <rect x="2" y="14" width="24" height="18" rx="4" fill="#D9B26E"/>
+  <circle cx="14" cy="22" r="2.5" fill="#111A2B"/>
+  <rect x="12.8" y="22" width="2.4" height="5" rx="1.2" fill="#111A2B"/>
+</svg>

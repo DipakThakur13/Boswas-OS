@@ -1,0 +1,16 @@
+{
+    "KPackageStructure": "Plasma/LookAndFeel",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Boswas Group"
+            }
+        ],
+        "Category": "",
+        "Description": "A familiar, conservative desktop: light neutral windows, a full-width panel with labelled taskbar buttons and a plain wallpaper. Lightweight.",
+        "Id": "com.boswas.classic",
+        "License": "LicenseRef-Boswas-Internal",
+        "Name": "Boswas Classic",
+        "Website": ""
+    }
+}
