@@ -87,6 +87,8 @@ override_dh_auto_install:
 	# Terminal: prompt and welcome for the Boswas Konsole profiles
 	install -D -m 0644 $(DESK)/terminal/bashrc $(SHARE)/boswas/terminal/bashrc
 	install -D -m 0755 $(DESK)/terminal/boswas-welcome $(PKG)/usr/bin/boswas-welcome
+	install -D -m 0644 $(DESK)/terminal/boswas-welcome.1 $(SHARE)/man/man1/boswas-welcome.1
+	install -D -m 0644 $(DESK)/presets/man/boswas-preset.1 $(SHARE)/man/man1/boswas-preset.1
 	# KDE defaults (XDG config dir) and the session hook that enables it
 	install -D -m 0644 $(B)/kdeglobals $(KDEDEF)/kdeglobals
 	install -D -m 0644 $(DESK)/defaults/kde-settings/kscreenlockerrc $(KDEDEF)/kscreenlockerrc

@@ -17,9 +17,9 @@ ICON_THEMES = {"Boswas", "Boswas-Light"}   # produced by the Boswas icon theme p
 
 # Plasma 6.3 desktop scripting API used by the layouts (globals, objects' methods
 # and properties: see plasma-workspace shell/scripting), plus core JavaScript.
-PLASMA_API = {"loadTemplate", "desktopsForActivity", "currentActivity", "panels",
-              "addWidget", "remove", "widgets", "writeConfig", "indexOf", "push", "join", "floor"}
-PLASMA_PROPERTIES = {"knownWidgetTypes", "widgetIds", "id", "wallpaperPlugin", "currentConfigGroup",
+PLASMA_API = {"loadTemplate", "desktopsForActivity", "currentActivity", "panels", "widgetById",
+              "addWidget", "remove", "writeConfig", "indexOf", "push", "floor"}
+PLASMA_PROPERTIES = {"knownWidgetTypes", "widgetIds", "type", "wallpaperPlugin", "currentConfigGroup",
                      "floating", "lengthMode", "height", "length", "gridUnit"}
 
 
@@ -97,7 +97,9 @@ class LayoutTest(unittest.TestCase):
                 self.assertTrue(code.lstrip().startswith("var "))
                 self.assertIn('loadTemplate("org.kde.plasma.desktop.defaultPanel")', source)
                 self.assertIn('var BOSWAS_LAUNCHER = "com.boswas.launcher";', source)
-                self.assertIn('panel.widgets("org.kde.plasma.kickoff")', source)
+                self.assertIn("var haveBoswasLauncher = knownWidgetTypes.indexOf(BOSWAS_LAUNCHER) >= 0;", source)
+                self.assertIn('if (type == "org.kde.plasma.kickoff" && haveBoswasLauncher) {', source)
+                self.assertIn("return BOSWAS_LAUNCHER;", source)
                 self.assertIn('var LAUNCHER_ICON = "boswas-logo";', source)
                 self.assertEqual(js_array(source, "FAVORITES"), FAVORITES)
                 self.assertEqual(js_array(source, "SYSTEM_APPLICATIONS"), SYSTEM_APPLICATIONS)
@@ -105,7 +107,12 @@ class LayoutTest(unittest.TestCase):
                 self.assertIn('writeGeneral(widget, "favorites", FAVORITES)', source)
                 self.assertIn('writeGeneral(widget, "systemApplications", SYSTEM_APPLICATIONS)', source)
                 self.assertIn('writeGeneral(widget, "launchers", PINNED_LAUNCHERS)', source)
-                self.assertIn('panel.writeConfig("AppletOrder", order.join(";"))', source)
+                # Same position: the replaced widget and the ones after it are
+                # created again, in order (Plasma 6 panels append new widgets).
+                self.assertIn("widgets.push(panel.widgetById(ids[k]));", source)
+                self.assertIn("widgets[r].remove();", source)
+                self.assertIn("var widget = panel.addWidget(replacementType(types[s]));", source)
+                self.assertNotIn("AppletOrder", source)
 
     def test_panel_style(self):
         for p in support.presets():

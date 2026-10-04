@@ -48,9 +48,9 @@ external SVG references.
 | `boswas-mark.svg` | App/launcher icon (`boswas-logo` in the hicolor theme): the mark on a navy tile with a gold edge |
 | `boswas-about-logo.svg` | System Settings > About this System: the mark on a navy tile (the page prints the OS name) |
 | `boot-splash.svg` | Live/installer ISO boot menu (GRUB, 800x600) |
-| `../wallpapers/Boswas/*.svg` | Desktop wallpaper, login and lock screen |
+| `../presets/` | The ten presets: wallpapers (light, dark, lock), colour schemes (Horizon is the default: gold accent, dark text on gold selections), Global Themes, Konsole profiles ([presets README](../presets/README.md)) |
+| `../icons/` | The Boswas and Boswas Light icon themes ([icons README](../icons/README.md)) |
 | `../../installer/branding/installer-banner.svg` | Debian Installer banner |
-| `../themes/color-schemes/BoswasDark.colors` | KDE colour scheme (gold accent; dark text on gold selections) |
 | `../../config/live-build/config/bootloaders/grub-pc/live-theme/theme.txt` | Boot menu colours |
 | `../../packages/boswas-compat-manager/data/boswas-compat-manager.svg` | Compatibility Manager icon |
 

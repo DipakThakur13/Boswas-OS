@@ -1,0 +1,57 @@
+.TH BOSWAS-PRESET 1 "October 2026" "boswas-branding 1.0~alpha3" "Boswas OS"
+.SH NAME
+boswas-preset \- list and switch the Boswas OS desktop presets
+.SH SYNOPSIS
+.B boswas-preset
+.RB [ \-\-json ]
+.B list
+.br
+.B boswas-preset
+.RB [ \-\-json ]
+.B current
+.br
+.B boswas-preset
+.RB [ \-\-json ]
+.B apply
+.I PRESET
+.RB [ \-\-layout ]
+.SH DESCRIPTION
+Boswas OS ships ten presets of one design system: Horizon (the default),
+Midnight, Aurora, Slate, Carbon, Pearl, Ocean, Ember, Nebula and Classic.
+Each brings a Plasma Global Theme (colour scheme, Plasma style, icon theme,
+window decoration), light, dark and lock-screen wallpapers, a panel layout
+and a Konsole profile.
+.PP
+Boswas Control Center (Personalization) uses this command; the presets also
+appear in System Settings > Global Theme.
+.SH COMMANDS
+.TP
+.B list
+The presets with their identifier, name, description, light or dark variant
+and accent colour, and the current preset.
+.TP
+.B current
+The preset in use (the recorded choice, otherwise the active Global Theme).
+.TP
+.BI apply " PRESET"
+Apply a preset for the signed-in user: Global Theme, desktop wallpaper,
+lock-screen wallpaper and Konsole default profile. With
+.BR \-\-layout ,
+also replace the panels with the preset's layout (your own panel changes
+are lost). Runs as the desktop user; refused for root.
+.SH OPTIONS
+.TP
+.B \-\-json
+Machine-readable output.
+.SH EXIT STATUS
+0 success, 1 a step failed (the message names it), 2 unknown preset,
+3 usage error, 4 run as root.
+.SH FILES
+.TP
+.I /usr/share/boswas/presets/presets.json
+The preset definitions.
+.TP
+.I ~/.config/boswasrc
+The recorded choice ([Preset] Current).
+.SH SEE ALSO
+.BR boswas-control-center (1)

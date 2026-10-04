@@ -6,7 +6,7 @@
 // Theme settings: "Desktop and window layout"; `boswas-preset apply slate
 // --layout`). It starts from KDE's stock default panel (launcher, pager, task
 // manager, system tray, clock) so Plasma upgrades keep working, then:
-//   * replaces Kickoff with the Boswas Launcher at the same position (or
+//   * replaces Kickoff with the Boswas Launcher in the same position (or
 //     keeps Kickoff, with the same settings, if the Boswas Launcher is not
 //     installed),
 //   * pins the Boswas applications in the task manager,
@@ -30,74 +30,68 @@ for (var j = 0; j < desktopsArray.length; j++) {
     desktopsArray[j].wallpaperPlugin = "org.kde.image";
 }
 
+var haveBoswasLauncher = knownWidgetTypes.indexOf(BOSWAS_LAUNCHER) >= 0;
+
 function writeGeneral(widget, key, value) {
     widget.currentConfigGroup = ["General"];
     widget.writeConfig(key, value);
 }
 
-function configureLauncher(widget) {
-    writeGeneral(widget, "icon", LAUNCHER_ICON);
-    writeGeneral(widget, "favorites", FAVORITES);
-    writeGeneral(widget, "systemApplications", SYSTEM_APPLICATIONS);
-}
-
-function configureTasks(widget) {
-    writeGeneral(widget, "launchers", PINNED_LAUNCHERS);
-}
-
-// Replaces `widget` by a new widget of type `plugin` in the same slot of
-// `order` (the panel's widget ids, in panel order). Returns the widget that
-// ends up in the panel.
-function replaceWidget(panel, order, widget, plugin) {
-    var replacement = panel.addWidget(plugin);
-    if (!replacement) {
-        return widget;
+// The widget type that replaces a widget of the stock panel.
+function replacementType(type) {
+    if (type == "org.kde.plasma.kickoff" && haveBoswasLauncher) {
+        return BOSWAS_LAUNCHER;
     }
-    var index = order.indexOf(widget.id);
-    widget.remove();
-    if (index >= 0) {
-        order[index] = replacement.id;
-    } else {
-        order.push(replacement.id);
+    if (type == "org.kde.plasma.icontasks") {
+        return TASK_MANAGER;
     }
-    return replacement;
+    return type;
 }
 
-var haveBoswasLauncher = knownWidgetTypes.indexOf(BOSWAS_LAUNCHER) >= 0;
+// Configures a widget that takes the place of a stock widget of type `type`.
+function configure(widget, type) {
+    if (type == "org.kde.plasma.kickoff") {
+        writeGeneral(widget, "icon", LAUNCHER_ICON);
+        writeGeneral(widget, "favorites", FAVORITES);
+        writeGeneral(widget, "systemApplications", SYSTEM_APPLICATIONS);
+    } else if (type == "org.kde.plasma.icontasks") {
+        writeGeneral(widget, "launchers", PINNED_LAUNCHERS);
+    }
+}
+
 var allPanels = panels();
 for (var i = 0; i < allPanels.length; i++) {
     var panel = allPanels[i];
     var ids = panel.widgetIds;
-    var order = [];
+    var widgets = [];
     for (var k = 0; k < ids.length; k++) {
-        order.push(ids[k]);
+        widgets.push(panel.widgetById(ids[k]));
     }
-    var reordered = false;
 
-    var kickoffs = panel.widgets("org.kde.plasma.kickoff");
-    for (var m = 0; m < kickoffs.length; m++) {
-        var launcher = kickoffs[m];
-        if (haveBoswasLauncher) {
-            launcher = replaceWidget(panel, order, launcher, BOSWAS_LAUNCHER);
-            reordered = true;
+    // A Plasma 6 panel puts a new widget at its end. To put a replacement
+    // in the place of the widget it replaces, that widget and every widget
+    // after it are created again, in order. They are fresh from the
+    // template, so no setting is lost.
+    var first = widgets.length;
+    for (var m = 0; m < widgets.length; m++) {
+        if (replacementType(widgets[m].type) != widgets[m].type) {
+            first = m;
+            break;
         }
-        configureLauncher(launcher);
     }
-
-    var taskManagers = panel.widgets("org.kde.plasma.icontasks");
-    for (var n = 0; n < taskManagers.length; n++) {
-        var tasks = taskManagers[n];
-        if (TASK_MANAGER != "org.kde.plasma.icontasks") {
-            tasks = replaceWidget(panel, order, tasks, TASK_MANAGER);
-            reordered = true;
+    for (var n = 0; n < first; n++) {
+        configure(widgets[n], widgets[n].type);
+    }
+    var types = [];
+    for (var r = first; r < widgets.length; r++) {
+        types.push(widgets[r].type);
+        widgets[r].remove();
+    }
+    for (var s = 0; s < types.length; s++) {
+        var widget = panel.addWidget(replacementType(types[s]));
+        if (widget) {
+            configure(widget, types[s]);
         }
-        configureTasks(tasks);
-    }
-
-    if (reordered) {
-        // Read by the panel when it is created, after this script has run.
-        panel.currentConfigGroup = ["General"];
-        panel.writeConfig("AppletOrder", order.join(";"));
     }
 
     panel.floating = PANEL_FLOATING;

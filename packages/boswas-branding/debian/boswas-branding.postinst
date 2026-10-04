@@ -11,7 +11,10 @@ case "$1" in
 			current="$(plymouth-set-default-theme 2>/dev/null || true)"
 			case "$current" in
 				""|ceratopsian|emerald|homeworld|futureprototype|text|details|spinner|bgrt|boswas)
-					plymouth-set-default-theme boswas
+					# A splash problem must not leave the package unconfigured; the
+					# image build verifies the theme (0100-boswas-verify).
+					plymouth-set-default-theme boswas ||
+						echo "boswas-branding: warning: could not select the Boswas OS boot splash" >&2
 					;;
 			esac
 		fi

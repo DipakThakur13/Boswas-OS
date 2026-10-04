@@ -104,21 +104,26 @@ Every layout script starts from KDE's stock default panel
 (`loadTemplate("org.kde.plasma.desktop.defaultPanel")`: launcher, pager, task
 manager, system tray, clock, so Plasma upgrades keep working) and then:
 
-* replaces Kickoff with the Boswas Launcher in the same position
-  (`AppletOrder`), configured with `icon=boswas-logo`, the favourites
-  (Control Center, Dolphin, Konsole, Firefox ESR, Compatibility Manager,
-  KCalc) and the system applications (Control Center, Security Center, Info
-  Center). If the Boswas Launcher is not installed, Kickoff stays, with the
-  same settings;
+* replaces Kickoff with the Boswas Launcher in the same position,
+  configured with `icon=boswas-logo`, the favourites (Control Center,
+  Dolphin, Konsole, Firefox ESR, Compatibility Manager, KCalc) and the system
+  applications (Control Center, Security Center, Info Center). If the Boswas
+  Launcher is not installed, Kickoff stays, with the same settings;
 * pins Control Center, Dolphin, Konsole, Firefox ESR and Compatibility
   Manager in the task manager;
 * sets the panel style: floating with the icon-only task manager, or, for
   Classic, a full-width non-floating panel with the labelled task manager
   (`org.kde.plasma.taskmanager`).
 
+A Plasma 6 panel puts a new widget at its end (its view exists while the
+script runs, so a written `AppletOrder` would be overwritten). To put a
+replacement in the place of the widget it replaces, the script removes that
+widget and every widget after it and creates them again, in order; they are
+fresh from the template, so no setting is lost.
+
 It uses only the Plasma 6.3 desktop scripting API (`knownWidgetTypes`,
-`panel.widgets()`, `addWidget()`, `remove()`, `writeConfig()`,
-`panel.floating`, `panel.lengthMode`, `panel.height`).
+`panel.widgetIds`, `widgetById()`, `widget.type`, `addWidget()`, `remove()`,
+`writeConfig()`, `panel.floating`, `panel.lengthMode`, `panel.height`).
 
 ## Applying a preset
 
@@ -228,6 +233,9 @@ warning colours), the Global Themes (metadata, references to existing colour
 schemes, wallpapers, icon themes and `com.boswas.splash`, the layout
 scripts), the Konsole files, the wallpaper sources (inlining and rendering
 them), the absence of teal, and `boswas-preset` with a fake command runner.
+`test_layout_execution.py` also runs the layout scripts, with KDE's default
+panel template, against a mock of the Plasma scripting API; it needs the
+`py_mini_racer` module (V8) and is skipped without it.
 
 ## Installing
 
@@ -255,5 +263,5 @@ with `build/scripts/inline-svg.py`, renders every wallpaper at 3840x2160
 | `/usr/share/boswas/branding/login-background.png` | Horizon's lock screen (hard link) |
 | `/usr/lib/boswas/python/boswas_preset/`, `/usr/bin/boswas-preset` | the tool |
 
-Everything installed takes about 27 MB (150 files; the two hard-linked
+Everything installed takes about 27 MB (149 files; the hard-linked
 copies are stored once).

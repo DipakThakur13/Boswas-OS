@@ -165,6 +165,8 @@ check "boot splash: Boswas OS Plymouth theme (two-step, passphrase dialog images
 		for f in watermark lock entry bullet capslock throbber-0024; do test -s '$extract/usr/share/plymouth/themes/boswas/'\$f.png || exit 1; done"
 ctl="$(mktemp -d)"
 dpkg-deb -e "$debs/boswas-branding_${BOSWAS_VERSION_ID}_all.deb" "$ctl"
+check "boot splash: boswas-branding depends on plymouth-themes (the two-step module its theme uses)" \
+	bash -c "dpkg-deb -f '$debs/boswas-branding_${BOSWAS_VERSION_ID}_all.deb' Depends | grep -q plymouth-themes"
 check "boot splash: boswas-branding selects the theme and rebuilds the initramfs (trigger)" \
 	bash -c "grep -q 'plymouth-set-default-theme boswas' '$ctl/postinst' && grep -qx 'activate-noawait update-initramfs' '$ctl/triggers'"
 rm -rf "$ctl"

@@ -1,0 +1,28 @@
+.TH BOSWAS-WELCOME 1 "October 2026" "boswas-branding 1.0~alpha3" "Boswas OS"
+.SH NAME
+boswas-welcome \- the Boswas OS terminal welcome
+.SH SYNOPSIS
+.B boswas-welcome
+.SH DESCRIPTION
+Prints a short system summary: Boswas OS version, kernel, architecture,
+session (live or installed), AppArmor state and device agent state, and
+where to find more
+.RB ( "boswas status" ,
+.BR boswas-info ).
+It reads local files only, so terminals open instantly.
+.PP
+The Boswas Konsole profiles start bash with
+.IR /usr/share/boswas/terminal/bashrc ,
+which runs the user's
+.I ~/.bashrc
+first, then sets the Boswas prompt and runs
+.BR boswas-welcome .
+Colour is used only on a terminal and is turned off by
+.BR NO_COLOR .
+.SH FILES
+.TP
+.I ~/.config/boswas/no-welcome
+If it exists, Boswas terminals start without the welcome.
+.SH SEE ALSO
+.BR boswas (1),
+.BR boswas-preset (1)

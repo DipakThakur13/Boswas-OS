@@ -63,11 +63,11 @@ render() {
 	python3 "$here/tools/repack_png.py" "$stage/rendered.png" "$2"
 }
 
-# Second name for an installed file: a hard link (stored once in the
-# package), or a copy where links are not possible.
+# Second name for an installed file: a plain copy (Debian packages should
+# not contain hard links; lintian package-contains-hardlink).
 alias_file() {
 	mkdir -p "$(dirname "$2")"
-	ln -f "$1" "$2" 2>/dev/null || install -m 0644 "$1" "$2"
+	install -m 0644 "$1" "$2"
 }
 
 python3 -c '
