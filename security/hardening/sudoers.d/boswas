@@ -1,0 +1,17 @@
+# Boswas OS v1 sudo defaults (installed by boswas-security, mode 0440).
+#
+# This file grants NO privileges. Administrative access remains Debian's
+# explicit, auditable model: members of the "sudo" group (the account created
+# by the installer) may use sudo with their own password. There are no
+# NOPASSWD rules, no hidden accounts and no shared credentials.
+
+# Run commands in a pseudo-terminal so a backgrounded process cannot keep
+# reading from the user's terminal after sudo exits.
+Defaults	use_pty
+
+# Re-authenticate after 5 minutes; give up after 3 wrong passwords.
+Defaults	timestamp_timeout=5
+Defaults	passwd_tries=3
+
+# Every sudo invocation is also recorded in the systemd journal (via syslog)
+# and by auditd (identity/privilege watches).

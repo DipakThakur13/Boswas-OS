@@ -1,0 +1,91 @@
+.TH BOSWAS 1 "October 2026" "Boswas OS v1 Alpha" "Boswas OS"
+.SH NAME
+boswas, boswas-info, boswas-status \- Boswas OS status and administration tool
+.SH SYNOPSIS
+.B boswas
+.RB [ \-\-json ]
+.I command
+.RI [ action ]
+.br
+.B boswas-info
+.RB [ \-\-json ]
+.br
+.B boswas-status
+.RB [ \-\-json ]
+.SH DESCRIPTION
+.B boswas
+reports the identity, configuration and security posture of a Boswas OS
+device. All commands are read-only in v1 alpha and never print credentials,
+tokens or key material.
+.B boswas-info
+is equivalent to
+.BR "boswas info" ,
+and
+.B boswas-status
+to
+.BR "boswas status" .
+.SH COMMANDS
+.TP
+.B info
+OS name and version, image build, Debian base, kernel, desktop, boot mode,
+device identity and a compliance summary.
+.TP
+.B status
+Run all local posture checks (Secure Boot, TPM, disk encryption, firewall,
+AppArmor, audit, SSH server, root account, screen lock, USB policy, updates,
+agent, enrollment).
+.TP
+.B security status
+Security checks only.
+.TP
+.B device status
+Device identity from /etc/boswas/device.conf and a non-sensitive hardware
+summary.
+.TP
+.B policy status
+Device policy state.
+.TP
+.B update status
+Update channel and automatic security update state.
+.TP
+.B version
+Version of the boswas tool.
+.PP
+.B app list
+and
+.B winapp list
+are reserved for later phases and exit with status 69.
+.SH OPTIONS
+.TP
+.B \-\-json
+Emit a JSON document (schema "boswas-cli/1") instead of text. May be given
+before or after the command.
+.SH EXIT STATUS
+.TP
+.B 0
+Success; for status commands, no check failed.
+.TP
+.B 1
+At least one posture check failed.
+.TP
+.B 2
+Usage error.
+.TP
+.B 69
+Command not available in this release.
+.TP
+.B 70
+Internal error.
+.SH NOTES
+Compliance results are a local self-assessment against the Boswas OS v1
+alpha baseline. They are not remote attestation.
+.SH FILES
+.TP
+.I /usr/lib/boswas/release
+Boswas OS release identity.
+.TP
+.I /usr/lib/boswas/image-info
+Metadata of the image this device was installed from.
+.TP
+.I /etc/boswas/device.conf
+Device identity and enrollment state.

@@ -1,0 +1,65 @@
+#!/usr/bin/make -f
+# Renders the Boswas artwork from the SVG sources in desktop/ (repository root
+# is two levels up) and installs every file with an explicit mode.
+
+REPO   := $(abspath $(CURDIR)/../..)
+SUBST  := $(REPO)/build/scripts/subst-release.sh
+INLINE := python3 $(REPO)/build/scripts/inline-svg.py
+DESK   := $(REPO)/desktop
+B      := build
+PKG    := debian/boswas-branding
+SHARE  := $(PKG)/usr/share
+BRAND  := $(SHARE)/boswas/branding
+LNF    := $(SHARE)/plasma/look-and-feel/com.boswas.desktop
+WALL   := $(SHARE)/wallpapers/Boswas
+SIZES  := 3840x2160 2560x1440 1920x1080
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	mkdir -p $(B)
+	# Self-contained SVGs (Qt cannot follow <image> references)
+	$(INLINE) $(DESK)/branding/boswas-mark.svg $(B)/boswas-logo.svg
+	$(INLINE) $(DESK)/branding/boswas-about-logo.svg $(B)/boswas-about-logo.svg
+	$(INLINE) $(DESK)/branding/boswas-group-logo.svg $(B)/boswas-group-logo.svg
+	$(INLINE) $(DESK)/wallpapers/Boswas/wallpaper.svg $(B)/wallpaper.svg
+	$(INLINE) $(DESK)/wallpapers/Boswas/background.svg $(B)/background.svg
+	# Raster artwork
+	for size in $(SIZES); do \
+		rsvg-convert --width $${size%x*} --height $${size#*x} $(B)/wallpaper.svg -o $(B)/wallpaper-$$size.png || exit 1; \
+	done
+	rsvg-convert --width 480 --height 270 $(B)/wallpaper.svg -o $(B)/wallpaper-preview.png
+	rsvg-convert --width 3840 --height 2160 $(B)/background.svg -o $(B)/login-background.png
+	# KDE defaults
+	cat $(DESK)/defaults/kde-settings/kdeglobals.header $(DESK)/themes/color-schemes/BoswasDark.colors > $(B)/kdeglobals
+	$(SUBST) < $(DESK)/defaults/kde-settings/kcm-about-distrorc.in > $(B)/kcm-about-distrorc
+
+override_dh_auto_install:
+	install -D -m 0644 $(B)/boswas-logo.svg $(BRAND)/boswas-logo.svg
+	install -D -m 0644 $(B)/boswas-about-logo.svg $(BRAND)/boswas-about-logo.svg
+	install -D -m 0644 $(B)/boswas-group-logo.svg $(BRAND)/boswas-group-logo.svg
+	install -D -m 0644 $(B)/login-background.png $(BRAND)/login-background.png
+	install -D -m 0644 $(B)/boswas-logo.svg $(SHARE)/icons/hicolor/scalable/apps/boswas-logo.svg
+	# Wallpaper package
+	install -D -m 0644 $(DESK)/wallpapers/Boswas/metadata.json $(WALL)/metadata.json
+	for size in $(SIZES); do \
+		install -D -m 0644 $(B)/wallpaper-$$size.png $(WALL)/contents/images/$$size.png || exit 1; \
+	done
+	install -D -m 0644 $(B)/wallpaper-preview.png $(WALL)/contents/screenshot.png
+	# Plasma Global Theme and colour scheme
+	install -D -m 0644 $(DESK)/themes/look-and-feel/com.boswas.desktop/metadata.json $(LNF)/metadata.json
+	install -D -m 0644 $(DESK)/themes/look-and-feel/com.boswas.desktop/contents/defaults $(LNF)/contents/defaults
+	install -D -m 0644 $(DESK)/themes/look-and-feel/com.boswas.desktop/contents/layouts/org.kde.plasma.desktop-layout.js \
+		$(LNF)/contents/layouts/org.kde.plasma.desktop-layout.js
+	install -D -m 0644 $(B)/wallpaper-preview.png $(LNF)/contents/previews/preview.png
+	install -D -m 0644 $(DESK)/themes/color-schemes/BoswasDark.colors $(SHARE)/color-schemes/BoswasDark.colors
+	# KDE defaults (XDG config dir) and the session hook that enables it
+	install -D -m 0644 $(B)/kdeglobals $(SHARE)/boswas/kde-settings/kdeglobals
+	install -D -m 0644 $(DESK)/defaults/kde-settings/kscreenlockerrc $(SHARE)/boswas/kde-settings/kscreenlockerrc
+	install -D -m 0644 $(B)/kcm-about-distrorc $(SHARE)/boswas/kde-settings/kcm-about-distrorc
+	install -D -m 0644 $(DESK)/defaults/plasma-workspace-env/boswas-kde-settings.sh \
+		$(PKG)/etc/xdg/plasma-workspace/env/boswas-kde-settings.sh
+	# Login screen (SDDM, Breeze theme)
+	install -D -m 0644 $(DESK)/defaults/sddm/10-boswas.conf $(PKG)/etc/sddm.conf.d/10-boswas.conf
+	install -D -m 0644 $(DESK)/defaults/sddm/theme.conf.user $(SHARE)/sddm/themes/breeze/theme.conf.user

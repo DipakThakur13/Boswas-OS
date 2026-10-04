@@ -1,0 +1,13 @@
+#!/bin/sh
+set -e
+
+# Drop the nftables.service drop-in from systemd's view once it is removed.
+if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
+	if [ -d /run/systemd/system ]; then
+		systemctl --system daemon-reload >/dev/null || true
+	fi
+fi
+
+#DEBHELPER#
+
+exit 0

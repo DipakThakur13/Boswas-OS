@@ -1,0 +1,31 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = "configure" ]; then
+	# Enable the firewall on first installation only, so a later, explicit
+	# administrator decision to disable it is respected on upgrades.
+	if [ -z "$2" ]; then
+		deb-systemd-helper enable nftables.service >/dev/null || \
+			echo "boswas-security: warning: could not enable nftables.service" >&2
+	fi
+
+	# Apply the baseline immediately on a running system (no-op in image
+	# builds and chroots, where policy-rc.d / missing systemd prevent it).
+	if [ -d /run/systemd/system ]; then
+		systemctl --system daemon-reload >/dev/null || true
+		deb-systemd-invoke restart systemd-sysctl.service >/dev/null || true
+		deb-systemd-invoke try-restart systemd-journald.service >/dev/null || true
+		if deb-systemd-helper is-enabled nftables.service >/dev/null 2>&1; then
+			deb-systemd-invoke reload-or-restart nftables.service >/dev/null || \
+				echo "boswas-security: warning: could not load the Boswas firewall ruleset" >&2
+		fi
+		if command -v augenrules >/dev/null && deb-systemd-invoke is-active auditd.service >/dev/null 2>&1; then
+			augenrules --load >/dev/null || \
+				echo "boswas-security: warning: could not load Boswas audit rules" >&2
+		fi
+	fi
+fi
+
+#DEBHELPER#
+
+exit 0

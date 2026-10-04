@@ -1,0 +1,10 @@
+#!/usr/bin/python3 -IB
+"""Boswas OS command-line tool. See `boswas --help`."""
+
+import sys
+
+sys.path.insert(0, "/usr/lib/boswas/python")
+
+from boswas_cli.main import main  # noqa: E402
+
+sys.exit(main())

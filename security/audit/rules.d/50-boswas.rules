@@ -1,0 +1,36 @@
+## Boswas OS v1 baseline audit rules (installed by boswas-security into
+## /etc/audit/rules.d/, compiled by augenrules together with Debian's
+## audit.rules).
+##
+## Scope: changes to identity, privilege, security configuration, kernel
+## modules and system time.
+## Out of scope by design (privacy, docs/security/privacy.md): user command
+## lines, file contents, file reads in home directories, keystrokes.
+
+## Identity
+-w /etc/passwd -p wa -k boswas-identity
+-w /etc/group -p wa -k boswas-identity
+-w /etc/shadow -p wa -k boswas-identity
+-w /etc/gshadow -p wa -k boswas-identity
+
+## Privilege configuration
+-w /etc/sudoers -p wa -k boswas-privilege
+-w /etc/sudoers.d/ -p wa -k boswas-privilege
+-w /etc/polkit-1/ -p wa -k boswas-privilege
+
+## Security and Boswas configuration
+-w /etc/boswas/ -p wa -k boswas-config
+-w /etc/apparmor/ -p wa -k boswas-security-config
+-w /etc/apparmor.d/ -p wa -k boswas-security-config
+-w /etc/audit/ -p wa -k boswas-security-config
+-w /etc/ssh/sshd_config.d/ -p wa -k boswas-security-config
+-w /etc/apt/sources.list.d/ -p wa -k boswas-software-sources
+
+## Kernel module loading/unloading
+-a always,exit -F arch=b64 -S init_module,finit_module,delete_module -k boswas-kernel-modules
+-a always,exit -F arch=b32 -S init_module,finit_module,delete_module -k boswas-kernel-modules
+
+## Wall-clock changes (certificate validity and log integrity depend on time)
+-a always,exit -F arch=b64 -S settimeofday,clock_settime -k boswas-time-change
+-a always,exit -F arch=b32 -S settimeofday,clock_settime -k boswas-time-change
+-w /etc/localtime -p wa -k boswas-time-change

@@ -1,0 +1,11 @@
+# Boswas OS system-wide KDE defaults (installed by boswas-branding as
+# /usr/share/boswas/kde-settings/kdeglobals; generated from this header plus
+# desktop/themes/color-schemes/BoswasDark.colors). Users and /etc/xdg override.
+
+[KDE]
+LookAndFeelPackage=com.boswas.desktop
+widgetStyle=Breeze
+
+[Icons]
+Theme=breeze-dark
+

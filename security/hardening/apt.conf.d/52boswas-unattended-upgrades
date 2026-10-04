@@ -1,0 +1,13 @@
+// Boswas OS v1: restrict unattended-upgrades to Debian security updates.
+// Replaces (not extends) the origin list from 50unattended-upgrades.
+#clear Unattended-Upgrade::Origins-Pattern;
+Unattended-Upgrade::Origins-Pattern {
+	"origin=Debian,codename=${distro_codename}-security,label=Debian-Security";
+};
+
+// Never reboot an employee's machine automatically; the desktop notifies
+// instead. Do not remove packages automatically either.
+Unattended-Upgrade::Automatic-Reboot "false";
+Unattended-Upgrade::Remove-Unused-Dependencies "false";
+Unattended-Upgrade::Remove-New-Unused-Dependencies "false";
+Unattended-Upgrade::SyslogEnable "true";

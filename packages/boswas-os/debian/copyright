@@ -1,0 +1,17 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: boswas-os
+Upstream-Contact: Boswas OS Platform Team <os-platform@boswas.invalid>
+Source: Boswas OS source repository (Boswas Group internal)
+
+Files: *
+Copyright: 2026 Boswas Group
+License: LicenseRef-Boswas-Internal
+
+License: LicenseRef-Boswas-Internal
+ Copyright Boswas Group. All rights reserved. Internal use by Boswas Group on
+ company-managed devices. See LICENSES/LicenseRef-Boswas-Internal.txt in the
+ Boswas OS source repository.
+ .
+ This licence covers Boswas-authored files only. Debian packages installed
+ alongside Boswas OS keep their own licences, documented in
+ /usr/share/doc/<package>/copyright.

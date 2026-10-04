@@ -1,0 +1,22 @@
+Source: boswas-cli
+Section: admin
+Priority: optional
+Maintainer: Boswas OS Platform Team <os-platform@boswas.invalid>
+Build-Depends: debhelper-compat (= 13), python3:any
+Standards-Version: 4.7.2
+Rules-Requires-Root: no
+
+Package: boswas-cli
+Architecture: all
+Depends: python3 (>= 3.11), ${misc:Depends}
+Recommends: boswas-os
+Description: Boswas OS command-line tools
+ Read-only administration and status commands for Boswas OS:
+ .
+  boswas         - command framework (info, status, device/policy/update/
+                   security status)
+  boswas-info    - OS identity, build and device summary
+  boswas-status  - local posture checks against the Boswas security baseline
+ .
+ Every command supports --json for machine-readable output. The tools never
+ print credentials, tokens or key material.

@@ -1,0 +1,21 @@
+#!/usr/bin/make -f
+# Pure-Python, stdlib-only CLI installed into a private module directory
+# (/usr/lib/boswas/python) rather than the global Python path.
+
+PKG   := debian/boswas-cli
+PYDIR := $(PKG)/usr/lib/boswas/python/boswas_cli
+
+%:
+	dh $@
+
+override_dh_auto_test:
+ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+	python3 -B -m unittest discover -s tests -v
+endif
+
+override_dh_auto_install:
+	install -D -m 0755 bin/boswas $(PKG)/usr/bin/boswas
+	install -D -m 0755 bin/boswas-info $(PKG)/usr/bin/boswas-info
+	install -D -m 0755 bin/boswas-status $(PKG)/usr/bin/boswas-status
+	install -d -m 0755 $(PYDIR)
+	install -m 0644 boswas_cli/*.py $(PYDIR)/

@@ -1,0 +1,9 @@
+// Boswas OS v1: automatic security updates (installed by boswas-security).
+//
+// Policy-controlled: this file is the alpha policy. Devices refresh package
+// lists daily and apply updates from the Debian security archive only (see
+// 52boswas-unattended-upgrades). Everything else flows through the Boswas
+// promotion pipeline (docs/architecture/update-architecture.md).
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+APT::Periodic::AutocleanInterval "7";

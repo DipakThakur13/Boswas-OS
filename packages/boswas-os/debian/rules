@@ -1,0 +1,22 @@
+#!/usr/bin/make -f
+# Boswas-authored content lives in the monorepo; this package is built from
+# packages/boswas-os, so the repository root is two levels up. Every file is
+# installed with an explicit mode.
+
+REPO  := $(abspath $(CURDIR)/../..)
+SUBST := $(REPO)/build/scripts/subst-release.sh
+PKG   := debian/boswas-os
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	mkdir -p build
+	$(SUBST) < $(REPO)/config/boswas/update.conf.in > build/update.conf
+	$(SUBST) < $(REPO)/config/boswas/boswas.issue.in > build/boswas.issue
+
+override_dh_auto_install:
+	install -D -m 0644 $(REPO)/config/boswas/release.conf $(PKG)/usr/lib/boswas/release
+	install -D -m 0644 $(REPO)/config/boswas/device.conf $(PKG)/etc/boswas/device.conf
+	install -D -m 0644 build/update.conf $(PKG)/etc/boswas/update.conf
+	install -D -m 0644 build/boswas.issue $(PKG)/etc/issue.d/boswas.issue

@@ -1,0 +1,33 @@
+#!/usr/bin/make -f
+# Installs the security baseline from security/ (repository root is two
+# levels up). Every file is installed with an explicit mode.
+
+REPO := $(abspath $(CURDIR)/../..)
+SEC  := $(REPO)/security
+PKG  := debian/boswas-security
+
+%:
+	dh $@
+
+override_dh_auto_install:
+	# Firewall
+	install -D -m 0644 $(SEC)/firewall/nftables.conf $(PKG)/etc/boswas/firewall/nftables.conf
+	install -d -m 0755 $(PKG)/etc/boswas/firewall/input.d $(PKG)/etc/boswas/firewall/forward.d
+	install -D -m 0644 $(SEC)/firewall/nftables.service.d/boswas.conf \
+		$(PKG)/usr/lib/systemd/system/nftables.service.d/boswas.conf
+	# Kernel, privilege, authentication, remote access
+	install -D -m 0644 $(SEC)/hardening/sysctl.d/60-boswas-hardening.conf $(PKG)/usr/lib/sysctl.d/60-boswas-hardening.conf
+	install -D -m 0440 $(SEC)/hardening/sudoers.d/boswas $(PKG)/etc/sudoers.d/boswas
+	install -D -m 0644 $(SEC)/hardening/pwquality.conf.d/50-boswas.conf $(PKG)/etc/security/pwquality.conf.d/50-boswas.conf
+	install -D -m 0644 $(SEC)/hardening/sshd_config.d/50-boswas.conf $(PKG)/etc/ssh/sshd_config.d/50-boswas.conf
+	# Updates
+	install -D -m 0644 $(SEC)/hardening/apt.conf.d/21boswas-periodic $(PKG)/etc/apt/apt.conf.d/21boswas-periodic
+	install -D -m 0644 $(SEC)/hardening/apt.conf.d/52boswas-unattended-upgrades $(PKG)/etc/apt/apt.conf.d/52boswas-unattended-upgrades
+	# Audit and logging
+	install -D -m 0640 $(SEC)/audit/rules.d/50-boswas.rules $(PKG)/etc/audit/rules.d/50-boswas.rules
+	install -D -m 0644 $(SEC)/audit/journald.conf.d/50-boswas.conf $(PKG)/usr/lib/systemd/journald.conf.d/50-boswas.conf
+	# USB / removable media policy framework
+	install -D -m 0644 $(SEC)/usb-policy/policy.conf $(PKG)/etc/boswas/usb-policy/policy.conf
+
+override_dh_fixperms:
+	dh_fixperms -X etc/sudoers.d/boswas -X etc/audit/rules.d/50-boswas.rules

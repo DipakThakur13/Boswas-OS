@@ -1,0 +1,8 @@
+# Boswas update channel (/etc/boswas/update.conf).
+#
+# CHANNEL: dev | qa | stable  (docs/architecture/update-architecture.md)
+# REPOSITORY: Boswas APT repository base URL. Empty until the Boswas
+# repository and its signing key are provisioned; until then devices receive
+# Debian security updates only (see /etc/apt/apt.conf.d/52boswas-unattended-upgrades).
+CHANNEL="@BOSWAS_CHANNEL@"
+REPOSITORY=""

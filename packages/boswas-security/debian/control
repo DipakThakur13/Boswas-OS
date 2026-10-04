@@ -1,0 +1,26 @@
+Source: boswas-security
+Section: admin
+Priority: optional
+Maintainer: Boswas OS Platform Team <os-platform@boswas.invalid>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.7.2
+Rules-Requires-Root: no
+
+Package: boswas-security
+Architecture: all
+Depends: apparmor, auditd, libpam-pwquality, nftables, sudo, ${misc:Depends}
+Recommends: apparmor-utils, unattended-upgrades
+Description: Boswas OS security baseline
+ Configuration package implementing the Boswas OS v1 security baseline
+ with standard Debian mechanisms:
+ .
+  * nftables host firewall (inbound default deny), loaded through a
+    nftables.service drop-in; Debian's /etc/nftables.conf is not modified
+  * desktop-safe kernel hardening sysctls (user namespaces stay enabled for
+    Flatpak and browser sandboxes)
+  * auditd rules for identity, privilege and security configuration changes
+  * bounded persistent journal retention
+  * sudo defaults (no privileges granted) and password quality policy
+  * restrictive sshd policy for when SSH is explicitly provisioned
+  * unattended-upgrades restricted to the Debian security archive
+  * USB/removable-media policy framework (not enforced in v1 alpha)

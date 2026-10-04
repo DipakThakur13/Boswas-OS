@@ -1,0 +1,13 @@
+# Boswas OS screen lock policy (installed by boswas-branding as
+# /usr/share/boswas/kde-settings/kscreenlockerrc).
+#
+# [$i] marks a key immutable (KDE Kiosk): users cannot disable automatic
+# locking, lock-on-resume, or lengthen the idle timeout (minutes).
+
+[Daemon]
+Autolock[$i]=true
+LockOnResume[$i]=true
+Timeout[$i]=10
+
+[Greeter][Wallpaper][org.kde.image][General]
+Image=file:///usr/share/boswas/branding/login-background.png

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="800" height="75" viewBox="0 0 800 75">
+  <title>Boswas OS installer banner (Debian Installer, graphical frontend)</title>
+  <defs>
+    <linearGradient id="bar" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#0B1220"/>
+      <stop offset="1" stop-color="#14243A"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="75" fill="url(#bar)"/>
+  <rect y="72" width="800" height="3" fill="#17C6C0"/>
+  <image x="20" y="10" width="52" height="52" href="../../desktop/branding/boswas-symbol.svg" data-fill="#FFFFFF"/>
+  <image x="88" y="24" width="300" height="25" preserveAspectRatio="xMinYMid"
+         href="../../desktop/branding/wordmark-boswas-os.svg" data-fill="#E8EEF6"/>
+  <text x="312" y="46" font-family="Lato" font-size="22" font-weight="400" fill="#2ED3CD">Installer</text>
+</svg>

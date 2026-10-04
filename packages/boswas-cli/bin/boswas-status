@@ -1,0 +1,3 @@
+#!/bin/sh
+# Boswas OS local posture checks. Equivalent to `boswas status`.
+exec /usr/bin/boswas status "$@"
