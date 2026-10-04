@@ -8,6 +8,7 @@ are documented in docs/security/baseline.md.
 
 from __future__ import annotations
 
+import json
 import os
 import time
 from dataclasses import asdict, dataclass
@@ -287,17 +288,29 @@ def package_lists_age_days() -> float | None:
     return None
 
 
+def _agent_status() -> dict:
+    text = system.read_text("/var/lib/boswas/agent/status.json")
+    try:
+        doc = json.loads(text) if text else {}
+    except ValueError:
+        return {}
+    return doc if isinstance(doc, dict) else {}
+
+
 def agent() -> Check:
     if system.sysroot_path("/usr/lib/systemd/system/boswas-device-agent.service").exists():
-        state = system.unit_active("boswas-device-agent.service")
-        return Check("agent", "management", "Boswas agent", INFO, f"boswas-device-agent.service {state}", scored=False)
-    return Check("agent", "management", "Boswas agent", INFO,
-                 "not installed (the device agent arrives in Milestone 2)", scored=False)
+        detail = f"boswas-device-agent.service {system.unit_active('boswas-device-agent.service')}"
+        status = _agent_status()
+        if status.get("state"):
+            detail += f"; device {status['state']}, Control Plane {status.get('connection', 'unknown')}"
+        return Check("agent", "management", "Boswas agent", INFO, detail, scored=False)
+    return Check("agent", "management", "Boswas agent", INFO, "boswas-device-agent not installed", scored=False)
 
 
 def enrollment() -> Check:
-    conf = system.load_env("/etc/boswas/device.conf")
-    state = conf.get("ENROLLMENT_STATE") or "unenrolled"
+    state = _agent_status().get("enrollment")
+    if not isinstance(state, str):
+        state = system.load_env("/etc/boswas/device.conf").get("ENROLLMENT_STATE") or "unenrolled"
     return Check("enrollment", "management", "Enrollment", INFO, state, scored=False)
 
 

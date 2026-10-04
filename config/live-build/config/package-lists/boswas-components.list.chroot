@@ -2,9 +2,13 @@
 #
 # Built from packages/ by build/scripts/build-packages.sh and injected into the
 # build through config/packages.chroot/. boswas-os depends on the others.
+# (The Control Plane, control-plane/, is a server package and is not part of
+# the device image.)
 
 boswas-os
 boswas-cli
 boswas-branding
 boswas-security
 boswas-compat
+boswas-device-agent
+boswas-compat-manager

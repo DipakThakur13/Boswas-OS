@@ -1,0 +1,57 @@
+.TH BOSWAS-COMPAT-MANAGER 1 "October 2026" "boswas-compat-manager 1.0~alpha3" "Boswas OS"
+.SH NAME
+boswas-compat-manager \- manage Windows applications on Boswas OS
+.SH SYNOPSIS
+.B boswas-compat-manager
+.RB [ \-\-install
+.IR file ]
+.br
+.B boswas-compat-manager
+.B \-\-version
+.SH DESCRIPTION
+.B boswas-compat-manager
+is the Boswas OS Compatibility Manager, the desktop application for Windows
+applications. It installs, starts, stops, repairs, updates and removes
+Windows applications, shows their logs and the permissions they have, and
+shows the health of the compatibility runtime and of device management.
+.PP
+The Compatibility Manager runs as the desktop user and never as root. It
+does not run Windows software or any other program itself: every operation
+is a request to the user's Boswas session service, which applies the
+compatibility catalog, the device policy, the per\-application sandbox and
+the AppArmor confinement exactly as
+.BR boswas\-winapp (1)
+does. Permissions are shown read\-only; they come from the Boswas
+compatibility catalog and the device policy and cannot be changed in the
+Compatibility Manager.
+.PP
+Boswas OS runs x86_64 (64\-bit) Windows applications only. A 32\-bit
+installer is refused with the message
+.RI \(lq "This application requires 32-bit Windows compatibility, which is not supported by Boswas OS." \(rq
+.SH OPTIONS
+.TP
+.BI \-\-install " file"
+Open the install page and check
+.I file
+(a Windows program or Windows Installer package). Nothing is installed
+before the check result is shown and the installation is confirmed. The
+file manager action \(lqInstall with Boswas Compatibility Manager\(rq uses
+this option.
+.TP
+.B \-\-version
+Print the version and exit.
+.TP
+.B \-\-help
+Print a short usage summary and exit.
+.SH FILES
+.TP
+.I $XDG_RUNTIME_DIR/boswas/session.sock
+The user's Boswas session service, used for every application operation.
+.TP
+.I /run/boswas\-agent/agent.sock
+The Boswas device agent, used read\-only for the device, Control Plane and
+policy status.
+.SH EXIT STATUS
+0 when the window was closed normally; 4 when started as root.
+.SH SEE ALSO
+.BR boswas\-winapp (1)

@@ -1,0 +1,33 @@
+#!/usr/bin/make -f
+# Boswas device agent. The unit tests import boswas_compat from the sibling
+# package directory of the staged monorepo. Every file is installed with an
+# explicit mode.
+
+PKG    := debian/boswas-device-agent
+PYDIR  := $(PKG)/usr/lib/boswas/python/boswas_agent
+LIBDIR := $(PKG)/usr/lib/boswas/agent
+
+%:
+	dh $@
+
+override_dh_auto_test:
+ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+	python3 -B -m unittest discover -s tests -v
+endif
+
+override_dh_auto_install:
+	# Python modules (shared private module directory, like boswas-cli)
+	install -d -m 0755 $(PYDIR)
+	install -m 0644 boswas_agent/*.py $(PYDIR)/
+	# Programs
+	install -D -m 0755 bin/boswas-device $(PKG)/usr/bin/boswas-device
+	install -D -m 0755 bin/boswas-device-agent $(LIBDIR)/boswas-device-agent
+	install -D -m 0755 bin/boswas-session-agent $(LIBDIR)/boswas-session-agent
+	install -D -m 0755 bin/agent-update $(LIBDIR)/agent-update
+	# Message schemas shared with the Control Plane
+	install -d -m 0755 $(PKG)/usr/share/boswas/agent/schemas
+	install -m 0644 schemas/*.schema.json $(PKG)/usr/share/boswas/agent/schemas/
+	# systemd units: the system service, the update template, the user service
+	install -D -m 0644 systemd/boswas-device-agent.service $(PKG)/usr/lib/systemd/system/boswas-device-agent.service
+	install -D -m 0644 systemd/boswas-agent-update@.service $(PKG)/usr/lib/systemd/system/boswas-agent-update@.service
+	install -D -m 0644 systemd/boswas-session-agent.service $(PKG)/usr/lib/systemd/user/boswas-session-agent.service

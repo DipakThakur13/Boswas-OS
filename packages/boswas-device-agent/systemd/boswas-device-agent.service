@@ -1,0 +1,48 @@
+[Unit]
+Description=Boswas device agent
+Documentation=man:boswas-device(1)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/boswas/agent/boswas-device-agent
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=10s
+# /run/boswas-agent/agent.sock (local management API; access is decided per
+# operation from the caller's kernel credentials).
+RuntimeDirectory=boswas-agent
+RuntimeDirectoryMode=0755
+# /var/lib/boswas/agent (identity, state, credentials) and
+# /var/lib/boswas/compat (the managed WinCompat policy and catalog layer).
+StateDirectory=boswas/agent boswas/compat
+StateDirectoryMode=0755
+UMask=0022
+
+# Sandboxing. The agent reads users' WinCompat records for the inventory
+# (read-only, CAP_DAC_READ_SEARCH) and writes only its state directories.
+CapabilityBoundingSet=CAP_DAC_READ_SEARCH
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

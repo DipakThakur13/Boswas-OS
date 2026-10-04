@@ -1,7 +1,9 @@
 # Boswas command-line tools
 
 `boswas`, `boswas-info` and `boswas-status` are installed by `boswas-cli`;
-`boswas-winapp` by `boswas-compat` (see below). The `boswas` commands are
+`boswas-winapp` by `boswas-compat`; `boswas-device` by `boswas-device-agent`
+(see below). The Control Plane's `boswas-cp` runs on the server
+([control-plane.md](../device-management/control-plane.md)). The `boswas` commands are
 **read-only**,
 work offline, and never print credentials, tokens or key material.
 
@@ -20,8 +22,8 @@ boswas-status [--json]     # = boswas status
 | `boswas info` | OS name, version, build ID, channel, Debian base and codename, architecture, kernel, desktop, hostname, boot mode and Secure Boot state, live or installed, device ID, enrollment, compliance summary |
 | `boswas status` | All posture checks with PASS/WARN/FAIL/INFO/UNKNOWN |
 | `boswas security status` | Security checks only |
-| `boswas device status` | `/etc/boswas/device.conf` identifiers (device ID, tenant, enrollment, control plane, policy version, profile, certificate reference) plus a non-sensitive hardware summary (no serial numbers) |
-| `boswas policy status` | Policy state (unmanaged until the policy engine, Milestone 4) |
+| `boswas device status` | Device ID, enrollment, Control Plane and policy version (from the device agent; `/etc/boswas/device.conf` as fallback), profile and certificate reference, the agent's device state and connection, and a non-sensitive hardware summary (no serial numbers) |
+| `boswas policy status` | Policy state: the version of the signed Control Plane policy applied by the device agent, or unmanaged |
 | `boswas update status` | Update channel, repository, automatic security updates, package list age |
 | `boswas version` | CLI version |
 | `boswas app list` | Reserved for the Boswas Store (Milestone 6). Exits 69 |
@@ -134,38 +136,52 @@ sandboxes; the design is in
 [docs/compatibility/README.md](../compatibility/README.md).
 
 ```
+boswas-winapp [--json] inspect INSTALLER [--id ID] [--name NAME] [--portable]
 boswas-winapp [--json] install INSTALLER [--id ID] [--name NAME] [--portable] [--interactive]
                                          [--timeout S] [--verbose] [-- INSTALLER-ARGS]
+boswas-winapp [--json] upgrade APPLICATION INSTALLER [--interactive] [--timeout S] [--verbose] [-- ARGS]
 boswas-winapp [--json] remove APPLICATION
 boswas-winapp [--json] list [--all-users]
 boswas-winapp [--json] launch APPLICATION [--exe PROGRAM] [--timeout S] [--quiet] [-- ARGS]
+boswas-winapp [--json] stop APPLICATION
 boswas-winapp [--json] status APPLICATION
 boswas-winapp [--json] repair APPLICATION [--timeout S]
-boswas-winapp [--json] logs APPLICATION [--install | --repair] [--lines N]
+boswas-winapp [--json] logs APPLICATION [--install | --repair | --launch | --clear] [--lines N]
 boswas-winapp [--json] catalog
+boswas-winapp [--json] runtime
 boswas-winapp [--json] manifest validate FILE...
 ```
 
 | Command | Does |
 |---------|------|
+| `inspect` | What `install` would decide (type, architecture, catalog match, sandbox, policy) without creating or running anything. Exit 0: accepted, 4: refused |
 | `install` | Verifies the installer, matches the catalog (SHA-256 or `--id`), applies policy, creates the prefix, runs the installer in the sandbox, creates a desktop launcher |
+| `upgrade` | Runs a newer installer in the existing prefix (catalogued applications: only the pinned installer) |
 | `remove` | Deletes the application, its prefix and its launcher (refused while it runs) |
-| `list` | The user's applications with their effective status. `--all-users` (root only) is the device inventory: IDs, versions, statuses |
+| `list` | The user's applications with their effective status and normalised state (`app_state`). `--all-users` (root only) is the device inventory: IDs, versions, statuses, architectures and running applications |
 | `launch` | Starts the application in its sandbox; output is shown and logged |
+| `stop` | Ends a running application's sandbox and all its Windows processes (a launch ended this way exits 0 and reports `"stopped": true`) |
+| `runtime` | Wine, architectures (x86_64 only), bubblewrap, AppArmor profile mode, policy in effect; exit 1 if unhealthy |
 | `status` | State, catalog status, policy decision, sandbox grants, last launch, AppArmor confinement |
 | `repair` | Recreates missing state, updates the prefix, re-applies Boswas defaults and the launcher, checks the program still exists |
-| `logs` | The latest launch, install or repair log |
+| `logs` | The latest launch, install or repair log; `--clear` deletes the application's logs |
 | `catalog` | Effective manifests per layer, ignored manifests, effective policy |
 | `manifest validate` | Validates manifest files (administrators, CI) |
 
-**Root.** `install`, `launch`, `repair` and `remove` refuse to run as root
-(exit 4). Windows software always runs as the user who uses it.
+**Root.** `install`, `upgrade`, `launch`, `stop`, `repair` and `remove`
+refuse to run as root (exit 4). Windows software always runs as the user who
+uses it.
+
+**32-bit.** 32-bit installers are refused (exit 4, reason `architecture`)
+with "This application requires 32-bit Windows compatibility, which is not
+supported by Boswas OS." Boswas OS v1 runs 64-bit Windows applications only.
 
 **JSON.** Every document carries `"schema": "boswas-winapp/1"`, `"command"`
 and `"generated_at"`. Errors in JSON mode carry
 `{"error": {"reason": ..., "message": ...}}`. Reasons include `root`,
 `blocked`, `unlisted-denied`, `status-not-allowed`, `installer-mismatch`,
 `architecture`, `dependencies`, `winetricks`, `already-installed`,
+`policy-blocked`, `policy-not-allowed`, `up-to-date`, `stop-unverified`,
 `confinement`, `sandbox` and `not-found`.
 
 **Exit codes.**
@@ -209,10 +225,42 @@ PROBE connect 127.0.0.1:47011 ALLOWED
 
 (The progress lines go to stderr.)
 
+## boswas-device (device agent)
+
+Installed by `boswas-device-agent`. Details:
+[docs/device-management/README.md](../device-management/README.md).
+
+```
+boswas-device [--json] status
+boswas-device [--json] identity [reset --yes]
+boswas-device [--json] config validate [--file FILE] | config show
+boswas-device [--json] inventory [--refresh]
+boswas-device [--json] policy | commands [--limit N] | events [--limit N]
+boswas-device [--json] enroll [--token-file FILE]      # token from the file or standard input, never argv
+boswas-device [--json] unenroll --yes | sync | maintenance on|off
+```
+
+| Command | Shows or does |
+|---------|---------------|
+| `status` | Device state, agent version, Control Plane connection, last contact and error, applied policy, pending messages. Works without the service (last published status) |
+| `identity` | Device ID, creation, source (generated or provisioned), ephemeral or persistent, certificate fingerprint |
+| `config validate` | Checks `/etc/boswas/device.conf` (or `--file`); exit 1 on errors |
+| `inventory` | Exactly what would be reported; `--refresh` collects now (root) |
+| `policy` | Applied signed policy and the effective WinCompat policy |
+| `commands`, `events` | Remote commands and their outcomes; the device event log |
+| `enroll`, `unenroll`, `sync`, `maintenance`, `identity reset` | Root only |
+
+Exit codes: 0 success; 1 failed or invalid configuration; 2 usage; 4 refused
+(root required or not permitted); 5 the agent service is not running; 70
+internal error. JSON documents carry `"schema": "boswas-device/1"`.
+
 ## Logging
 
 The `boswas` CLI does not write logs. `boswas-winapp` keeps per-application
 logs in `~/.local/share/boswas/wine/<id>/logs/`, with the last 10 of each
-kind kept and each capped at 8 MiB. The journal identifiers `boswas-device`,
-`boswas-security` and `boswas-update` are reserved for the services that
-arrive in later milestones.
+kind kept and each capped at 8 MiB. The device agent logs to the journal
+(`journalctl -u boswas-device-agent`), and its event log is
+`/var/lib/boswas/agent/events.jsonl`. The session agent logs to the user's
+journal (`journalctl --user -u boswas-session-agent`). The journal
+identifiers `boswas-security` and `boswas-update` are reserved for later
+services.

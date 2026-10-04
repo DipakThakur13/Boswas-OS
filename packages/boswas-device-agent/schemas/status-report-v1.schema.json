@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.boswas.invalid/device/heartbeat-v1.schema.json",
-  "title": "Device heartbeat (API v1)",
-  "description": "POST /api/v1/devices/{id}/heartbeat. Status only: no file contents, keystrokes, screenshots, browsing data, passwords or keys. Closed field list (privacy review required to extend).",
+  "$id": "https://schemas.boswas.invalid/device/status-report-v1.schema.json",
+  "title": "Device status report (API v1)",
+  "description": "POST /api/v1/devices/{id}/status, only with TELEMETRY_POLICY=security. Posture check results by ID, OS versions and uptime. Closed field list (privacy review required to extend).",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -19,7 +19,7 @@
   ],
   "properties": {
     "schema": {
-      "const": "boswas-heartbeat/1"
+      "const": "boswas-status-report/1"
     },
     "device_id": {
       "type": "string",

@@ -1,0 +1,18 @@
+[Unit]
+Description=Boswas session agent (Compatibility Manager and remote application commands)
+Documentation=man:boswas-device(1)
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/boswas/agent/boswas-session-agent
+Restart=on-failure
+RestartSec=5s
+# Windows applications started from here keep running if this service is
+# restarted (for example on upgrade); they end with the user's session.
+KillMode=process
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=graphical-session.target

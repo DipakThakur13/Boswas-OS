@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.boswas.invalid/device/heartbeat-v2.schema.json",
+  "title": "Device heartbeat (API v2 message)",
+  "description": "POST /api/v1/devices/{id}/heartbeat. Liveness only: device ID, agent version, state, policy version, inventory revision. No OS, hardware, user or content data.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "device_id",
+    "agent_version",
+    "state",
+    "policy_version",
+    "inventory_revision",
+    "pending_results",
+    "sent_at"
+  ],
+  "properties": {
+    "schema": {
+      "const": "boswas-heartbeat/2"
+    },
+    "device_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "agent_version": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "state": {
+      "enum": [
+        "INITIALIZING",
+        "READY",
+        "DEGRADED",
+        "OFFLINE",
+        "UPDATING",
+        "ERROR",
+        "MAINTENANCE"
+      ]
+    },
+    "policy_version": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "inventory_revision": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1
+    },
+    "pending_results": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "sent_at": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    }
+  }
+}

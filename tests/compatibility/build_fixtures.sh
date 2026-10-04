@@ -4,6 +4,8 @@
 #   $TESTWORK/fixtures/boswas-testapp.exe           the test application
 #   $TESTWORK/fixtures/boswas-testapp-blocked.exe   byte-different variant, blocked by a manifest
 #   $TESTWORK/fixtures/boswas-testapp-unlisted.exe  byte-different variant, in no manifest
+#   $TESTWORK/fixtures/boswas-testapp-x86.exe       the same program marked as a 32-bit (i386) PE file:
+#                                                   refused before anything runs (64-bit only)
 #   $TESTWORK/fixtures/manifests/*.json             manifests pinned to the built hashes
 #   $TESTWORK/fixtures.iso                          all of the above, for the QEMU boot test
 #
@@ -34,6 +36,21 @@ else
 fi
 check "test application is a PE32+ x86-64 console program" \
 	bash -c "file -b '$out/boswas-testapp.exe' | grep -q '^PE32+ executable.*(console), x86-64'"
+# A 32-bit-marked copy: only the PE machine field changes (0x8664 -> 0x014c).
+# Boswas OS must refuse it from the header alone; it is never executed.
+if python3 - "$out/boswas-testapp-unlisted.exe" "$out/boswas-testapp-x86.exe" <<'PYEOF'
+import struct, sys
+data = bytearray(open(sys.argv[1], "rb").read())
+pe = struct.unpack_from("<I", data, 0x3C)[0]
+assert data[pe:pe + 4] == b"PE\0\0" and struct.unpack_from("<H", data, pe + 4)[0] == 0x8664
+struct.pack_into("<H", data, pe + 4, 0x014C)
+open(sys.argv[2], "wb").write(bytes(data))
+PYEOF
+then
+	pass "32-bit (i386) variant of the test application prepared (refusal tests)"
+else
+	fail "32-bit variant of the test application"
+fi
 main_sha="$(sha256sum "$out/boswas-testapp.exe" | cut -d' ' -f1)"
 blocked_sha="$(sha256sum "$out/boswas-testapp-blocked.exe" | cut -d' ' -f1)"
 unlisted_sha="$(sha256sum "$out/boswas-testapp-unlisted.exe" | cut -d' ' -f1)"

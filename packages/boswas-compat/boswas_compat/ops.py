@@ -1,11 +1,15 @@
-"""boswas-winapp operations: install, remove, list, launch, status, repair, logs.
+"""boswas-winapp operations: install, inspect, upgrade, remove, list, launch,
+stop, status, repair, logs, runtime.
 
 Rules every operation follows:
-  * Windows software never runs as root (install, launch and repair refuse).
+  * Windows software never runs as root (install, upgrade, launch and repair
+    refuse).
   * Windows code only ever runs inside the application's sandbox, through the
     AppArmor-attached runner.
   * What an application may access is recomputed from the catalog and the
     policy at every start, never read from state the application can change.
+  * Boswas OS runs x86_64 (64-bit) Windows applications only; 32-bit
+    software is refused before anything else is decided.
 """
 
 from __future__ import annotations
@@ -13,18 +17,20 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import signal
 import stat
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO
 
-from . import envfile, paths, sandbox
+from . import UNSUPPORTED_32BIT_MESSAGE, envfile, paths, sandbox
 from .catalog import Catalog
 from .desktop import remove_entry, write_entry
-from .errors import NotFound, Refused, Unavailable, UsageError, WinAppError
-from .executor import Executor, RunResult, sanitize
-from .installer import InstallerInfo, copy_and_hash, inspect, load_installer_types
+from .errors import Busy, NotFound, Refused, Unavailable, UsageError, WinAppError
+from .executor import KILL_GRACE_SECONDS, Executor, RunResult, sanitize
+from .installer import InstallerInfo, copy_and_hash, hash_file, inspect, load_installer_types
 from .manifest import Manifest, valid_id, windows_path_problem
 from .policy import Grants, Policy, manifest_grants
 from .store import AppStore, list_all_users, utc_now
@@ -32,6 +38,13 @@ from .store import AppStore, list_all_users, utc_now
 ENFORCED_LABEL = f"{paths.APPARMOR_PROFILE} (enforce)"
 UNINSTALLER_RE = re.compile(r"^(unins\d*|uninst(all)?.*|.*uninstall.*)\.exe$", re.IGNORECASE)
 MAX_SNAPSHOT_ENTRIES = 200_000
+STOP_WAIT_SECONDS = KILL_GRACE_SECONDS + 5
+
+# Normalised application states (also the device agent's AppState values).
+APP_STATES = ("INSTALLING", "INSTALLED", "RUNNING", "STOPPED", "ERROR", "REPAIR_REQUIRED", "BLOCKED",
+              "UNSUPPORTED")
+# Whether this runtime can run an application at all (catalog "compatibility").
+SUPPORT_CODES = ("SUPPORTED", "UNSUPPORTED_ARCHITECTURE", "UNSUPPORTED_RUNTIME", "MISSING_DEPENDENCIES")
 
 
 # --- context ---------------------------------------------------------------------
@@ -76,13 +89,18 @@ class Context:
             self.out.flush()
 
 
-def _bwrap_has_disable_userns() -> bool:
+def _bwrap_version() -> tuple[int, int] | None:
     try:
         out = subprocess.run([paths.BWRAP, "--version"], capture_output=True, text=True, timeout=10).stdout
     except (OSError, subprocess.SubprocessError):
-        return False
+        return None
     m = re.search(r"(\d+)\.(\d+)", out)
-    return bool(m) and (int(m.group(1)), int(m.group(2))) >= (0, 8)
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+def _bwrap_has_disable_userns() -> bool:
+    version = _bwrap_version()
+    return version is not None and version >= (0, 8)
 
 
 def require_user() -> None:
@@ -109,6 +127,23 @@ def wine_version(ctx: Context) -> str | None:
     except (OSError, subprocess.SubprocessError):
         return None
     return out.splitlines()[0] if out else None
+
+
+# --- architecture ------------------------------------------------------------------
+
+def architecture_problem(ctx: Context, machine: str | None, what: str) -> str | None:
+    """Why a Windows architecture cannot run here (None: it can, or it is unknown).
+
+    32-bit software always gets the product's fixed sentence: Boswas OS v1 is
+    64-bit only by decision, so no hint at a 32-bit runtime is ever given.
+    """
+    if machine is None or machine in ctx.runtime.architectures:
+        return None
+    supported = ", ".join(ctx.runtime.architectures)
+    if machine == "x86":
+        return (f"{UNSUPPORTED_32BIT_MESSAGE} ({what} is an x86 (32-bit) Windows program; Boswas OS runs "
+                f"{supported} (64-bit) Windows applications only.)")
+    return f"{what} is a {machine} Windows program; Boswas OS runs {supported} (64-bit) Windows applications only."
 
 
 # --- paths inside drive_c ------------------------------------------------------------
@@ -240,10 +275,44 @@ class Effective:
     grants: Grants
     allowed: bool
     reason: str | None
+    compatibility: str = "SUPPORTED"
+
+    @property
+    def supported(self) -> bool:
+        return self.compatibility == "SUPPORTED"
 
     def to_dict(self) -> dict:
         return {"status": self.status, "manifest_source": self.source, "allowed": self.allowed,
-                "reason": self.reason, "sandbox": self.grants.to_dict()}
+                "reason": self.reason, "supported": self.supported, "compatibility": self.compatibility,
+                "sandbox": self.grants.to_dict()}
+
+
+def manifest_support(ctx: Context, manifest: Manifest) -> tuple[str, str | None, str | None]:
+    """(support code, refusal reason, message) of a manifest on this runtime."""
+    problem = architecture_problem(ctx, manifest.architecture, manifest.id)
+    if problem:
+        return "UNSUPPORTED_ARCHITECTURE", "architecture", problem
+    if manifest.wine_version.split(".")[0] != ctx.runtime.wine_major:
+        return ("UNSUPPORTED_RUNTIME", "wine-version",
+                f"{manifest.id} requires Wine {manifest.wine_version}; this runtime is Wine {ctx.runtime.wine_major}")
+    if manifest.dependencies:
+        return ("MISSING_DEPENDENCIES", "dependencies",
+                f"{manifest.id} needs runtime components ({', '.join(manifest.dependencies)}) that "
+                "Boswas does not provide yet")
+    if manifest.winetricks:
+        denied = [v for v in manifest.winetricks if v not in ctx.policy.winetricks_allowed]
+        if denied:
+            return ("MISSING_DEPENDENCIES", "winetricks",
+                    f"{manifest.id} requests winetricks verbs not allowed by policy: {', '.join(denied)}")
+        return ("MISSING_DEPENDENCIES", "winetricks",
+                f"{manifest.id} requests winetricks verbs; winetricks is not part of this release")
+    return "SUPPORTED", None, None
+
+
+def check_manifest_runtime(ctx: Context, manifest: Manifest) -> None:
+    code, reason, message = manifest_support(ctx, manifest)
+    if code != "SUPPORTED":
+        raise Refused(message or code, reason=reason)
 
 
 def effective(ctx: Context, app_id: str, installed_source: str, installer_sha256: str | None) -> Effective:
@@ -261,8 +330,18 @@ def effective(ctx: Context, app_id: str, installed_source: str, installer_sha256
     if blocked:
         return Effective(manifest, "blocked", blocked[0].layer, Grants(), False,
                          "the installer is blocked by the Boswas compatibility catalog")
+    status = manifest.status if manifest is not None else "unknown"
+    source = manifest.layer if manifest is not None else "unlisted"
+    grants = manifest_grants(manifest) if manifest is not None else ctx.policy.unlisted_grants()
+    if manifest is not None:
+        code, _reason, message = manifest_support(ctx, manifest)
+        if code != "SUPPORTED":
+            return Effective(manifest, status, source, grants, False, message, compatibility=code)
+    try:
+        ctx.policy.check_application(app_id)
+    except Refused as exc:
+        return Effective(manifest, status, source, grants, False, str(exc))
     if manifest is None:
-        grants = ctx.policy.unlisted_grants()
         allowed, reason = ctx.policy.unlisted_apps, None
         if not allowed:
             reason = "policy does not allow unlisted applications (UNLISTED_APPS=deny)"
@@ -274,38 +353,20 @@ def effective(ctx: Context, app_id: str, installed_source: str, installer_sha256
         allowed, reason = True, None
     except Refused as exc:
         allowed, reason = False, str(exc)
-    return Effective(manifest, manifest.status, manifest.layer, manifest_grants(manifest), allowed, reason)
-
-
-def check_manifest_runtime(ctx: Context, manifest: Manifest) -> None:
-    if manifest.architecture not in ctx.runtime.architectures:
-        raise Refused(f"{manifest.id} is a {manifest.architecture} application; this Wine runtime runs "
-                      f"{', '.join(ctx.runtime.architectures)} only", reason="architecture")
-    if manifest.wine_version.split(".")[0] != ctx.runtime.wine_major:
-        raise Refused(f"{manifest.id} requires Wine {manifest.wine_version}; this runtime is Wine "
-                      f"{ctx.runtime.wine_major}", reason="wine-version")
-    if manifest.dependencies:
-        raise Refused(f"{manifest.id} needs runtime components ({', '.join(manifest.dependencies)}) that "
-                      "Boswas does not provide yet", reason="dependencies")
-    if manifest.winetricks:
-        denied = [v for v in manifest.winetricks if v not in ctx.policy.winetricks_allowed]
-        if denied:
-            raise Refused(f"{manifest.id} requests winetricks verbs not allowed by policy: {', '.join(denied)}",
-                          reason="winetricks")
-        raise Refused(f"{manifest.id} requests winetricks verbs; winetricks is not part of this release",
-                      reason="winetricks")
+    return Effective(manifest, manifest.status, manifest.layer, grants, allowed, reason)
 
 
 # --- running Windows code ------------------------------------------------------------------
 
 def run_in_sandbox(ctx: Context, app_id: str, appdir: Path, grants: Grants, command: list[str], log: Path, *,
                    title: str, cwd: str | None = None, env: dict | None = None, mirror: TextIO | None = None,
-                   timeout: float | None = None) -> RunResult:
+                   timeout: float | None = None, stoppable: bool = False) -> RunResult:
     argv = sandbox.build_command(app_id=app_id, appdir=appdir, session=ctx.session, grants=grants,
                                  runtime=ctx.runtime, command=command, cwd=cwd, extra_env=env,
                                  disable_userns=ctx.disable_userns,
                                  require_apparmor=ctx.policy.require_apparmor)
-    result = ctx.executor.run(argv, log, mirror=mirror, timeout=timeout, title=title)
+    kwargs = {"stoppable": True} if stoppable else {}
+    result = ctx.executor.run(argv, log, mirror=mirror, timeout=timeout, title=title, **kwargs)
     if result.refused:
         raise Unavailable(f"Windows code was not started: {result.refused} (see {log})", reason="confinement")
     if result.confinement is None:
@@ -331,13 +392,72 @@ def _create_prefix(ctx: Context, app_id: str, appdir: Path, grants: Grants, log:
         raise WinAppError(f"applying the Boswas prefix defaults failed (see {log})", reason="prefix-failed")
 
 
-# --- install ---------------------------------------------------------------------------------
+# --- install plan (install, inspect, upgrade) --------------------------------------------
 
 def derive_id(file_name: str) -> str:
     stem = file_name.rsplit(".", 1)[0].lower()
     slug = re.sub(r"[^a-z0-9]+", "-", stem).strip("-")[:80] or "app"
     return f"local.{slug}"
 
+
+@dataclass
+class InstallPlan:
+    app_id: str
+    name: str
+    version: str
+    status: str
+    source: str
+    grants: Grants
+    kind: str
+    manifest: Manifest | None = None
+
+
+def plan_install(ctx: Context, sha256: str, info: InstallerInfo, file_name: str, *, app_id: str | None = None,
+                 name: str | None = None, portable: bool = False) -> InstallPlan:
+    """Decide how a verified installer would be installed, or refuse it.
+
+    Order: architecture, catalog (blocked, pin), device policy. Nothing is
+    created or run here.
+    """
+    problem = architecture_problem(ctx, info.machine, file_name)
+    if problem:
+        raise Refused(problem, reason="architecture")
+    matches = ctx.catalog.by_installer_sha256(sha256)
+    if any(m.status == "blocked" for m in matches):
+        raise Refused(f"this installer (sha256 {sha256[:16]}...) is blocked by the Boswas compatibility catalog",
+                      reason="blocked")
+    manifest = None
+    if app_id:
+        manifest = ctx.catalog.get(app_id)
+        if manifest and manifest.installer.sha256 and manifest.installer.sha256 != sha256:
+            raise Refused(f"the installer does not match the {app_id} manifest (SHA-256 differs)",
+                          reason="installer-mismatch")
+    elif len(matches) == 1:
+        manifest = matches[0]
+    elif len(matches) > 1:
+        raise UsageError("several catalog manifests pin this installer; choose one with --id "
+                         f"({', '.join(m.id for m in matches)})")
+
+    if manifest is not None:
+        ctx.policy.check_status(manifest.status, manifest.id)
+        check_manifest_runtime(ctx, manifest)
+        plan = InstallPlan(manifest.id, manifest.name, manifest.version, manifest.status, manifest.layer,
+                           manifest_grants(manifest), manifest.installer.type or ("portable" if portable else info.kind),
+                           manifest)
+    else:
+        ctx.policy.check_unlisted()
+        plan = InstallPlan(app_id or derive_id(file_name), name or file_name.rsplit(".", 1)[0], "unknown",
+                           "unknown", "unlisted", ctx.policy.unlisted_grants(), "portable" if portable else info.kind)
+    ctx.policy.check_application(plan.app_id)
+    if plan.kind in ("portable", "exe") and info.kind != "exe":
+        raise Refused(f"{file_name} is not a Windows program, but the {plan.kind} installer type expects one",
+                      reason="bad-installer")
+    if plan.kind == "msi" and info.kind != "msi":
+        raise Refused(f"{file_name} is not a Windows Installer package", reason="bad-installer")
+    return plan
+
+
+# --- install ---------------------------------------------------------------------------------
 
 def install(ctx: Context, installer_path: str, *, app_id: str | None = None, name: str | None = None,
             portable: bool = False, interactive: bool = False, installer_args: list[str] | None = None,
@@ -356,55 +476,45 @@ def install(ctx: Context, installer_path: str, *, app_id: str | None = None, nam
         ctx.say(f"verifying {src.name}")
         sha256, size = copy_and_hash(src, staged, ctx.policy.max_installer_bytes)
         info = inspect(staged)
-
-        # Catalog: a blocked installer is refused whatever ID is requested.
-        matches = ctx.catalog.by_installer_sha256(sha256)
-        if any(m.status == "blocked" for m in matches):
-            raise Refused(f"this installer (sha256 {sha256[:16]}...) is blocked by the Boswas compatibility catalog",
-                          reason="blocked")
-        manifest = None
-        if app_id:
-            manifest = ctx.catalog.get(app_id)
-            if manifest and manifest.installer.sha256 and manifest.installer.sha256 != sha256:
-                raise Refused(f"the installer does not match the {app_id} manifest (SHA-256 differs)",
-                              reason="installer-mismatch")
-        elif len(matches) == 1:
-            manifest = matches[0]
-        elif len(matches) > 1:
-            raise UsageError("several catalog manifests pin this installer; choose one with --id "
-                             f"({', '.join(m.id for m in matches)})")
-
-        if manifest is not None:
-            ctx.policy.check_status(manifest.status, manifest.id)
-            check_manifest_runtime(ctx, manifest)
-            app_id, app_name, version, status, source = (manifest.id, manifest.name, manifest.version,
-                                                          manifest.status, manifest.layer)
-            grants = manifest_grants(manifest)
-            kind = manifest.installer.type or ("portable" if portable else info.kind)
-        else:
-            ctx.policy.check_unlisted()
-            app_id = app_id or derive_id(src.name)
-            app_name = name or src.name.rsplit(".", 1)[0]
-            version, status, source = "unknown", "unknown", "unlisted"
-            grants = ctx.policy.unlisted_grants()
-            kind = "portable" if portable else info.kind
-        if kind in ("portable", "exe") and info.kind != "exe":
-            raise Refused(f"{src.name} is not a Windows program, but the {kind} installer type expects one",
-                          reason="bad-installer")
-        if kind == "msi" and info.kind != "msi":
-            raise Refused(f"{src.name} is not a Windows Installer package", reason="bad-installer")
-        if info.kind == "exe" and info.machine not in ctx.runtime.architectures:
-            raise Refused(f"{src.name} is a {info.machine} Windows program; this runtime runs "
-                          f"{', '.join(ctx.runtime.architectures)} programs only (no 32-bit Wine in this "
-                          "release; see docs/compatibility/README.md)", reason="architecture")
-
-        appdir = ctx.store.create(app_id)
-        with ctx.store.lock(app_id):
-            return _install_into(ctx, appdir, staged, src, sha256, size, info, manifest, app_id, app_name,
-                                 version, status, source, grants, kind, interactive, installer_args, timeout,
-                                 verbose)
+        plan = plan_install(ctx, sha256, info, src.name, app_id=app_id, name=name, portable=portable)
+        appdir = ctx.store.create(plan.app_id)
+        with ctx.store.lock(plan.app_id):
+            return _install_into(ctx, appdir, staged, src, sha256, size, info, plan, interactive, installer_args,
+                                 timeout, verbose)
     finally:
         ctx.store.discard_staging(staging)
+
+
+def inspect_installer(ctx: Context, installer_path: str, *, app_id: str | None = None, name: str | None = None,
+                      portable: bool = False) -> dict:
+    """What `install` would decide for an installer, without creating or running anything."""
+    if app_id is not None and not valid_id(app_id):
+        raise UsageError(f"invalid application ID {app_id!r}: use a lower-case reverse-DNS name, e.g. local.my-app")
+    src = Path(installer_path)
+    if not src.is_file():
+        raise NotFound(f"installer not found: {installer_path}")
+    sha256, size = hash_file(src, ctx.policy.max_installer_bytes)
+    info = inspect(src)
+    problem = architecture_problem(ctx, info.machine, src.name)
+    result = {
+        "installer": {"file": src.name, "sha256": sha256, "size": size, **info.to_dict()},
+        "architecture": {"detected": info.machine, "supported": None if info.machine is None else problem is None,
+                         "runtime": list(ctx.runtime.architectures), "message": problem},
+        "application": None, "sandbox": None,
+    }
+    try:
+        plan = plan_install(ctx, sha256, info, src.name, app_id=app_id, name=name, portable=portable)
+    except (Refused, UsageError) as exc:
+        result["decision"] = {"allowed": False, "reason": exc.reason, "message": str(exc)}
+        return result
+    installed = ctx.store.exists(plan.app_id)
+    result["application"] = {"id": plan.app_id, "name": plan.name, "version": plan.version, "status": plan.status,
+                             "manifest_source": plan.source, "kind": plan.kind, "already_installed": installed}
+    result["sandbox"] = plan.grants.to_dict()
+    result["decision"] = ({"allowed": False, "reason": "already-installed",
+                           "message": f"{plan.app_id} is already installed (remove, repair or upgrade it)"}
+                          if installed else {"allowed": True, "reason": None, "message": None})
+    return result
 
 
 def _installer_arguments(kind: str, info: InstallerInfo, manifest: Manifest | None, interactive: bool,
@@ -420,15 +530,65 @@ def _installer_arguments(kind: str, info: InstallerInfo, manifest: Manifest | No
     return list(info.framework_silent_args)
 
 
-def _install_into(ctx, appdir, staged, src, sha256, size, info, manifest, app_id, app_name, version, status,
-                  source, grants, kind, interactive, installer_args, timeout, verbose) -> dict:
+def _run_installer(ctx: Context, app_id: str, appdir: Path, staged: Path, src: Path, info: InstallerInfo,
+                   plan: InstallPlan, interactive: bool, installer_args: list[str] | None, timeout: float | None,
+                   mirror: TextIO | None, log: Path) -> list[str] | None:
+    """Run the verified installer copy in the sandbox (or copy a portable
+    program into the prefix). Returns the launch path of a portable program."""
     file_name = re.sub(r"[^A-Za-z0-9._ -]+", "_", src.name)[:120] or "installer"
+    target = appdir / "sandbox" / "installer" / file_name
+    os.replace(staged, target)
+    loader = ctx.runtime.loader
+    if plan.kind == "portable":
+        # Never write through symbolic links the prefix may contain.
+        drive_c = _safe_drive_c(appdir)
+        if drive_c is None:
+            raise WinAppError("the prefix has an unexpected layout", reason="prefix-failed")
+        dest_dir = drive_c
+        for part in ("Program Files", app_id):
+            dest_dir = dest_dir / part
+            if not dest_dir.exists() and not dest_dir.is_symlink():
+                dest_dir.mkdir(mode=0o755)
+            if not _real_dir(dest_dir):
+                raise WinAppError(f"unexpected file at {dest_dir}", reason="prefix-failed")
+        dest = dest_dir / file_name
+        if dest.is_symlink() or (dest.exists() and not stat.S_ISREG(dest.lstat().st_mode)):
+            raise WinAppError(f"unexpected file at {dest}", reason="prefix-failed")
+        dest.unlink(missing_ok=True)
+        fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o755)
+        with os.fdopen(fd, "wb") as dst, open(target, "rb") as src_fh:
+            shutil.copyfileobj(src_fh, dst)
+        ctx.say("portable application copied into the prefix")
+        return ["Program Files", app_id, file_name]
+    view_installer = f"{paths.view_dir(app_id)}/installer/{file_name}"
+    args = _installer_arguments(plan.kind, info, plan.manifest, interactive, installer_args)
+    if plan.kind == "msi":
+        command = [loader, "msiexec", "/i", "Z:" + view_installer.replace("/", "\\"), *args]
+    else:
+        command = [loader, view_installer, *args]
+    ctx.say(f"running the installer in its sandbox{' (' + ' '.join(args) + ')' if args else ''}")
+    env = dict(plan.manifest.environment) if plan.manifest else {}
+    result = run_in_sandbox(ctx, app_id, appdir, plan.grants, command, log, title="installer", env=env,
+                            mirror=mirror, timeout=timeout)
+    if result.timed_out:
+        raise WinAppError(f"the installer did not finish within {timeout:.0f} s (see {log})", reason="timeout")
+    if result.exit_code != 0:
+        raise WinAppError(f"the installer exited with code {result.exit_code} (see {log})",
+                          reason="installer-failed")
+    return None
+
+
+def _install_into(ctx, appdir, staged, src, sha256, size, info, plan, interactive, installer_args, timeout,
+                  verbose) -> dict:
+    app_id = plan.app_id
+    manifest = plan.manifest
     record = {
-        "id": app_id, "name": app_name, "version": version,
+        "id": app_id, "name": plan.name, "version": plan.version,
         "publisher": manifest.publisher if manifest else None,
-        "status": status, "state": "installing",
-        "manifest": {"source": source, "digest": manifest.digest if manifest else None},
-        "installer": {"file": src.name, "sha256": sha256, "size": size, "kind": kind, **info.to_dict()},
+        "status": plan.status, "state": "installing",
+        "architecture": info.machine,
+        "manifest": {"source": plan.source, "digest": manifest.digest if manifest else None},
+        "installer": {"file": src.name, "sha256": sha256, "size": size, "kind": plan.kind, **info.to_dict()},
         "installed_at": utc_now(),
         "runtime": {"wine": wine_version(ctx), "winearch": ctx.runtime.winearch},
         "launch": None, "launch_candidates": [],
@@ -436,50 +596,11 @@ def _install_into(ctx, appdir, staged, src, sha256, size, info, manifest, app_id
     ctx.store.write_record(app_id, record)
     log = ctx.store.new_log(app_id, "install")
     mirror = ctx.out if verbose else None
-    env = dict(manifest.environment) if manifest else {}
     try:
-        installer_dir = appdir / "sandbox" / "installer"
-        target = installer_dir / file_name
-        os.replace(staged, target)
-        _create_prefix(ctx, app_id, appdir, grants, log)
+        _create_prefix(ctx, app_id, appdir, plan.grants, log)
         before = exe_snapshot(appdir)
-        loader = ctx.runtime.loader
-        if kind == "portable":
-            # Only Wine's own wineboot has run in this fresh prefix; still never
-            # write through symbolic links.
-            drive_c = _safe_drive_c(appdir)
-            if drive_c is None:
-                raise WinAppError("the new prefix has an unexpected layout", reason="prefix-failed")
-            dest_dir = drive_c
-            for part in ("Program Files", app_id):
-                dest_dir = dest_dir / part
-                if not dest_dir.exists() and not dest_dir.is_symlink():
-                    dest_dir.mkdir(mode=0o755)
-                if not _real_dir(dest_dir):
-                    raise WinAppError(f"unexpected file at {dest_dir}", reason="prefix-failed")
-            fd = os.open(dest_dir / file_name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
-                         0o755)
-            with os.fdopen(fd, "wb") as dst, open(target, "rb") as src_fh:
-                shutil.copyfileobj(src_fh, dst)
-            launch_parts: list[str] | None = ["Program Files", app_id, file_name]
-            ctx.say("portable application copied into the prefix")
-        else:
-            view_installer = f"{paths.view_dir(app_id)}/installer/{file_name}"
-            args = _installer_arguments(kind, info, manifest, interactive, installer_args)
-            if kind == "msi":
-                command = [loader, "msiexec", "/i", "Z:" + view_installer.replace("/", "\\"), *args]
-            else:
-                command = [loader, view_installer, *args]
-            ctx.say(f"running the installer in its sandbox{' (' + ' '.join(args) + ')' if args else ''}")
-            result = run_in_sandbox(ctx, app_id, appdir, grants, command, log, title="installer", env=env,
-                                    mirror=mirror, timeout=timeout)
-            if result.timed_out:
-                raise WinAppError(f"the installer did not finish within {timeout:.0f} s (see {log})",
-                                  reason="timeout")
-            if result.exit_code != 0:
-                raise WinAppError(f"the installer exited with code {result.exit_code} (see {log})",
-                                  reason="installer-failed")
-            launch_parts = None
+        launch_parts = _run_installer(ctx, app_id, appdir, staged, src, info, plan, interactive, installer_args,
+                                      timeout, mirror, log)
         after = exe_snapshot(appdir)
         if manifest is not None:
             launch_parts = find_launch_target(appdir, manifest.launch)
@@ -504,13 +625,13 @@ def _install_into(ctx, appdir, staged, src, sha256, size, info, manifest, app_id
 
     launcher = None
     if record["launch"]:
-        launcher = str(write_entry(ctx.home, app_id, app_name, status))
+        launcher = str(write_entry(ctx.home, app_id, plan.name, plan.status))
         ctx.say(f"installed {app_id}; start it with: boswas-winapp launch {app_id}")
     else:
         ctx.say(f"installed {app_id}, but its program is ambiguous; start it with "
                 f"'boswas-winapp launch {app_id} --exe <program>' (candidates: "
                 f"{', '.join(record['launch_candidates']) or 'none found'})")
-    return {"application": _public(record), "sandbox": grants.to_dict(), "log": str(log),
+    return {"application": _public(record), "sandbox": plan.grants.to_dict(), "log": str(log),
             "desktop_entry": launcher}
 
 
@@ -550,6 +671,90 @@ def _public(record: dict) -> dict:
     return out
 
 
+def _architecture(record: dict) -> str | None:
+    value = record.get("architecture") or (record.get("installer") or {}).get("machine")
+    return value if isinstance(value, str) else None
+
+
+# --- upgrade (a newer installer into the existing prefix) ----------------------------------------
+
+def upgrade(ctx: Context, app_id: str, installer_path: str, *, interactive: bool = False,
+            installer_args: list[str] | None = None, timeout: float | None = None, verbose: bool = False) -> dict:
+    """Run a newer installer of an installed application in its existing
+    prefix, keeping the application's data. Catalogued applications accept
+    only the installer their manifest pins; the usual architecture, catalog
+    and policy checks apply."""
+    require_user()
+    check_runtime(ctx)
+    record, appdir = _load(ctx, app_id)
+    if record.get("state") != "installed":
+        raise Refused(f"{app_id} is not completely installed (state: {record.get('state')}); repair or reinstall it",
+                      reason="not-installed")
+    src = Path(installer_path)
+    if not src.is_file():
+        raise NotFound(f"installer not found: {installer_path}")
+    staging = ctx.store.new_staging()
+    try:
+        staged = staging / "installer"
+        ctx.say(f"verifying {src.name}")
+        sha256, size = copy_and_hash(src, staged, ctx.policy.max_installer_bytes)
+        info = inspect(staged)
+        if sha256 == (record.get("installer") or {}).get("sha256"):
+            raise Refused(f"this installer is the one {app_id} was installed from; nothing to upgrade",
+                          reason="up-to-date")
+        plan = plan_install(ctx, sha256, info, src.name, app_id=app_id, name=record.get("name"))
+        if plan.app_id != app_id:
+            raise Refused(f"this installer belongs to {plan.app_id}, not {app_id}", reason="installer-mismatch")
+        if not _prefix_initialised(appdir):
+            raise Refused(f"the prefix of {app_id} is damaged; run 'boswas-winapp repair {app_id}' first",
+                          reason="repair-required")
+        with ctx.store.lock(app_id):
+            log = ctx.store.new_log(app_id, "install")
+            previous = {"version": record.get("version"), "sha256": (record.get("installer") or {}).get("sha256")}
+            mirror = ctx.out if verbose else None
+            try:
+                before = exe_snapshot(appdir)
+                launch_parts = _run_installer(ctx, app_id, appdir, staged, src, info, plan, interactive,
+                                              installer_args, timeout, mirror, log)
+                after = exe_snapshot(appdir)
+                if plan.manifest is not None:
+                    launch_parts = find_launch_target(appdir, plan.manifest.launch)
+                    if launch_parts is None:
+                        raise WinAppError(f"the installer finished, but the manifest's program "
+                                          f"{plan.manifest.launch!r} does not exist in the prefix (see {log})",
+                                          reason="launch-missing")
+                elif launch_parts is None:
+                    current = record.get("launch")
+                    launch_parts = _resolve_ci(_safe_drive_c(appdir), _windows_parts(current)) if current else None
+                    if launch_parts is None:
+                        candidates = _candidates(before, after)
+                        launch_parts = candidates[0].split("/") if len(candidates) == 1 else None
+                record.update({
+                    "name": plan.name, "version": plan.version, "status": plan.status, "architecture": info.machine,
+                    "publisher": plan.manifest.publisher if plan.manifest else record.get("publisher"),
+                    "manifest": {"source": plan.source, "digest": plan.manifest.digest if plan.manifest else None},
+                    "installer": {"file": src.name, "sha256": sha256, "size": size, "kind": plan.kind,
+                                  **info.to_dict()},
+                    "launch": _to_windows(launch_parts) if launch_parts else None,
+                    "upgraded_at": utc_now(), "previous": previous, "state": "installed",
+                })
+                record.pop("error", None)
+            except BaseException as exc:
+                record["state"] = "failed"
+                detail = str(exc) if isinstance(exc, WinAppError) else f"{type(exc).__name__}: {exc}"
+                record["error"] = f"upgrade failed: {detail}"
+                raise
+            finally:
+                _clear_installer_dir(appdir)
+                ctx.store.write_record(app_id, record)
+    finally:
+        ctx.store.discard_staging(staging)
+    if record.get("launch"):
+        write_entry(ctx.home, app_id, plan.name, plan.status)
+    ctx.say(f"upgraded {app_id} from {previous['version']} to {plan.version}")
+    return {"application": _public(record), "previous": previous, "sandbox": plan.grants.to_dict(), "log": str(log)}
+
+
 # --- other operations ---------------------------------------------------------------------------
 
 def _load(ctx: Context, app_id: str) -> tuple[dict, Path]:
@@ -567,6 +772,43 @@ def _effective_for(ctx: Context, record: dict) -> Effective:
                      (record.get("installer") or {}).get("sha256"))
 
 
+def _health(appdir: Path, record: dict) -> dict:
+    launch = record.get("launch")
+    program = None
+    if launch:
+        program = _resolve_ci(_safe_drive_c(appdir), _windows_parts(launch)) is not None
+    return {"prefix": _prefix_initialised(appdir), "program": program}
+
+
+def app_state(record: dict, eff: Effective, health: dict, running: bool, run: dict | None) -> tuple[str, str | None]:
+    """Normalised state (APP_STATES) of an installed application and why."""
+    if not eff.supported:
+        return "UNSUPPORTED", eff.reason
+    state = record.get("state")
+    if running and (run or {}).get("operation") == "launch":
+        return "RUNNING", None
+    if state == "installing":
+        return "INSTALLING", None
+    if state != "installed":
+        return "ERROR", record.get("error") or f"installation state: {state}"
+    if not eff.allowed:
+        return "BLOCKED", eff.reason
+    if not health["prefix"]:
+        return "REPAIR_REQUIRED", "the Wine prefix is missing or damaged"
+    if health["program"] is False:
+        return "REPAIR_REQUIRED", f"the program {record.get('launch')} is missing"
+    if (record.get("last_launch") or {}).get("stopped"):
+        return "STOPPED", None
+    return "INSTALLED", None
+
+
+def _last_launch_summary(record: dict) -> dict | None:
+    last = record.get("last_launch")
+    if not isinstance(last, dict):
+        return None
+    return {k: last.get(k) for k in ("at", "exit_code", "stopped", "timed_out", "confinement")}
+
+
 def list_apps(ctx: Context, all_users: bool = False) -> dict:
     if all_users:
         users = list_all_users()
@@ -577,17 +819,23 @@ def list_apps(ctx: Context, all_users: bool = False) -> dict:
                 if app.get("id") and valid_id(app["id"]):
                     eff = effective(ctx, app["id"], app.get("manifest_source") or "unlisted",
                                     app.get("installer_sha256"))
-                    app.update(status=eff.status, allowed=eff.allowed)
+                    app.update(status=eff.status, allowed=eff.allowed, compatibility=eff.compatibility)
         return {"users": users}
     apps = []
     for app_id in ctx.store.list_ids():
         record = ctx.store.read_record(app_id)
         if not record or record.get("id") != app_id:
-            apps.append({"id": app_id, "state": "damaged"})
+            apps.append({"id": app_id, "state": "damaged", "app_state": "ERROR",
+                         "state_reason": "no valid installation record"})
             continue
         eff = _effective_for(ctx, record)
+        appdir = ctx.store.app_dir(app_id)
+        running = ctx.store.is_locked(app_id)
+        state, why = app_state(record, eff, _health(appdir, record), running, ctx.store.read_run(app_id))
         item = _public(record)
-        item.update(status=eff.status, allowed=eff.allowed, running=ctx.store.is_locked(app_id))
+        item.update(status=eff.status, allowed=eff.allowed, running=running, app_state=state, state_reason=why,
+                    architecture=_architecture(record), supported=eff.supported, compatibility=eff.compatibility,
+                    last_launch=_last_launch_summary(record))
         apps.append(item)
     return {"applications": apps}
 
@@ -595,13 +843,19 @@ def list_apps(ctx: Context, all_users: bool = False) -> dict:
 def status(ctx: Context, app_id: str) -> dict:
     record, appdir = _load(ctx, app_id)
     eff = _effective_for(ctx, record)
+    running = ctx.store.is_locked(app_id)
+    health = _health(appdir, record)
+    state, why = app_state(record, eff, health, running, ctx.store.read_run(app_id))
     return {
-        "application": {**_public(record), "status": eff.status},
+        "application": {**_public(record), "status": eff.status, "architecture": _architecture(record),
+                        "app_state": state, "state_reason": why},
         "installer": record.get("installer"),
         "runtime": record.get("runtime"),
-        "policy": {"allowed": eff.allowed, "reason": eff.reason},
+        "policy": {"allowed": eff.allowed, "reason": eff.reason, "supported": eff.supported,
+                   "compatibility": eff.compatibility},
         "sandbox": eff.grants.to_dict(),
-        "running": ctx.store.is_locked(app_id),
+        "running": running,
+        "health": health,
         "last_launch": record.get("last_launch"),
         "paths": {"data": str(appdir), "prefix": str(appdir / "sandbox" / "prefix"),
                   "sandbox_view": paths.view_dir(app_id), "logs": str(appdir / "logs")},
@@ -636,7 +890,8 @@ def launch(ctx: Context, app_id: str, args: list[str], *, exe: str | None = None
         raise Refused(f"{app_id} is not completely installed (state: {record.get('state')})", reason="not-installed")
     eff = _effective_for(ctx, record)
     if not eff.allowed:
-        raise Refused(f"{app_id} may not be started: {eff.reason}", reason="policy")
+        reason = "architecture" if eff.compatibility == "UNSUPPORTED_ARCHITECTURE" else "policy"
+        raise Refused(f"{app_id} may not be started: {eff.reason}", reason=reason)
     if eff.manifest is not None:
         check_manifest_runtime(ctx, eff.manifest)
     parts = _launch_target(appdir, record, exe)
@@ -645,14 +900,50 @@ def launch(ctx: Context, app_id: str, args: list[str], *, exe: str | None = None
     command = [ctx.runtime.loader, winpath, *(eff.manifest.arguments if eff.manifest else ()), *args]
     env = dict(eff.manifest.environment) if eff.manifest else {}
     with ctx.store.lock(app_id):
-        log = ctx.store.new_log(app_id, "launch")
-        result = run_in_sandbox(ctx, app_id, appdir, eff.grants, command, log, title=f"launch {winpath}",
-                                cwd=cwd, env=env, mirror=mirror, timeout=timeout)
-        record["last_launch"] = {"at": utc_now(), "program": winpath, "exit_code": result.exit_code,
-                                 "confinement": result.confinement, "timed_out": result.timed_out,
-                                 "log": str(log)}
-        ctx.store.write_record(app_id, record)
+        ctx.store.write_run(app_id, {"operation": "launch", "pid": os.getpid(), "started_at": utc_now(),
+                                     "program": winpath})
+        try:
+            log = ctx.store.new_log(app_id, "launch")
+            result = run_in_sandbox(ctx, app_id, appdir, eff.grants, command, log, title=f"launch {winpath}",
+                                    cwd=cwd, env=env, mirror=mirror, timeout=timeout, stoppable=True)
+            record["last_launch"] = {"at": utc_now(), "program": winpath, "exit_code": result.exit_code,
+                                     "confinement": result.confinement, "timed_out": result.timed_out,
+                                     "stopped": result.stopped, "log": str(log)}
+            ctx.store.write_record(app_id, record)
+        finally:
+            ctx.store.clear_run(app_id)
     return {"application": app_id, "program": winpath, "sandbox": eff.grants.to_dict(), **result.to_dict()}
+
+
+def stop(ctx: Context, app_id: str, *, wait: float = STOP_WAIT_SECONDS) -> dict:
+    """Stop a running application: its launcher ends the sandbox and every
+    Windows process in it (like "End task"; unsaved work is lost)."""
+    require_user()
+    _load(ctx, app_id)
+    if not ctx.store.is_locked(app_id):
+        return {"application": app_id, "was_running": False, "stopped": False}
+    run = ctx.store.read_run(app_id) or {}
+    pid = run.get("pid")
+    if run.get("operation") != "launch" or not isinstance(pid, int) or isinstance(pid, bool) or pid <= 1:
+        raise Busy(f"{app_id} is busy with another boswas-winapp operation (install, upgrade, repair or remove) "
+                   "and cannot be stopped")
+    # The process named in run.json must be the one holding the lock, and ours.
+    if ctx.store.lock_holder(app_id) != pid:
+        raise Refused(f"the running instance of {app_id} could not be identified safely; nothing was stopped",
+                      reason="stop-unverified")
+    try:
+        if os.stat(f"/proc/{pid}").st_uid != os.getuid():
+            raise Refused(f"the running instance of {app_id} belongs to another user", reason="stop-unverified")
+        os.kill(pid, signal.SIGTERM)
+    except (FileNotFoundError, ProcessLookupError):
+        pass                                     # it has just exited
+    deadline = time.monotonic() + wait
+    while ctx.store.is_locked(app_id) and time.monotonic() < deadline:
+        time.sleep(0.2)
+    if ctx.store.is_locked(app_id):
+        raise WinAppError(f"{app_id} did not stop within {wait:.0f} s", reason="stop-timeout")
+    ctx.say(f"stopped {app_id}")
+    return {"application": app_id, "was_running": True, "stopped": True}
 
 
 def remove(ctx: Context, app_id: str) -> dict:
@@ -735,7 +1026,69 @@ def logs(ctx: Context, app_id: str, *, kind: str | None = None, lines: int = 200
     return {"application": app_id, "log": str(latest), "available": [p.name for p in files], "lines": tail}
 
 
+def clear_logs(ctx: Context, app_id: str) -> dict:
+    """Delete an application's logs (refused while it runs or another operation holds it)."""
+    require_user()
+    _load(ctx, app_id)
+    with ctx.store.lock(app_id):
+        removed = ctx.store.clear_logs(app_id)
+    ctx.say(f"removed {removed} log file(s) of {app_id}")
+    return {"application": app_id, "removed": removed}
+
+
 def catalog_list(ctx: Context) -> dict:
-    return {"manifests": [m.summary() for m in ctx.catalog.all()], "problems": ctx.catalog.problems,
+    manifests = []
+    for m in ctx.catalog.all():
+        code, _reason, message = manifest_support(ctx, m)
+        manifests.append({**m.summary(), "supported": code == "SUPPORTED", "compatibility": code,
+                          "support_message": message})
+    return {"manifests": manifests, "problems": ctx.catalog.problems,
             "layers": [{"name": n, "path": str(p)} for n, p in ctx.catalog.layers],
             "policy": ctx.policy.to_dict()}
+
+
+# --- runtime facts ------------------------------------------------------------------------------
+
+def _apparmor_profile_mode() -> str:
+    """Mode of the boswas-winapp profile: enforce, complain, not-loaded, unavailable or unknown."""
+    enabled = paths.system_path("/sys/module/apparmor/parameters/enabled")
+    try:
+        if enabled.read_text().strip() != "Y":
+            return "unavailable"
+    except OSError:
+        return "unavailable"
+    try:
+        text = paths.system_path("/sys/kernel/security/apparmor/profiles").read_text()
+    except PermissionError:
+        return "unknown"                         # only root may read the profile list
+    except OSError:
+        return "unknown"
+    for line in text.splitlines():
+        name, _, mode = line.rpartition(" ")
+        if name == paths.APPARMOR_PROFILE:
+            return mode.strip("()") or "unknown"
+    return "not-loaded"
+
+
+def runtime_info(ctx: Context) -> dict:
+    """Health of the Windows compatibility runtime (read-only; any user)."""
+    def available(path: str) -> bool:
+        return os.access(paths.system_path(path), os.X_OK)
+
+    wine_ok, server_ok = available(ctx.runtime.loader), available(ctx.runtime.server)
+    bwrap_ok, runner_ok = available(paths.BWRAP), available(paths.RUNNER)
+    bwrap = _bwrap_version() if bwrap_ok else None
+    profile = _apparmor_profile_mode()
+    confinement_ok = (not ctx.policy.require_apparmor) or profile in ("enforce", "unknown")
+    return {
+        "wine": {"available": wine_ok and server_ok, "version": wine_version(ctx) if wine_ok else None,
+                 "major": ctx.runtime.wine_major, "loader": ctx.runtime.loader, "server": ctx.runtime.server},
+        "architectures": list(ctx.runtime.architectures),
+        "winearch": ctx.runtime.winearch,
+        "bubblewrap": {"available": bwrap_ok, "version": ".".join(map(str, bwrap)) if bwrap else None,
+                       "disable_userns": bool(bwrap and bwrap >= (0, 8))},
+        "runner": {"available": runner_ok, "path": paths.RUNNER},
+        "apparmor": {"profile": paths.APPARMOR_PROFILE, "mode": profile, "required": ctx.policy.require_apparmor},
+        "policy": {"source": ctx.policy.source, "managed": ctx.policy.managed, "problems": list(ctx.policy.problems)},
+        "healthy": wine_ok and server_ok and bwrap_ok and runner_ok and confinement_ok,
+    }

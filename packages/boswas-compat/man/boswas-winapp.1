@@ -1,4 +1,4 @@
-.TH BOSWAS-WINAPP 1 "October 2026" "boswas-compat 1.0~alpha2" "Boswas OS"
+.TH BOSWAS-WINAPP 1 "October 2026" "boswas-compat 1.0~alpha3" "Boswas OS"
 .SH NAME
 boswas-winapp \- install and run Windows applications in isolated sandboxes
 .SH SYNOPSIS
@@ -35,8 +35,27 @@ shows the installer's own dialogs.
 .B \-\-portable
 copies a self-contained program instead of running it.
 .TP
+.BI "inspect " INSTALLER " [\-\-id " ID "] [\-\-name " NAME "] [\-\-portable]"
+Check an installer without installing anything: file type, Windows
+architecture, catalog match, sandbox and the policy decision. Exits 0 if the
+installer would be accepted and 4 if it would be refused. Nothing is run.
+.TP
+.BI "upgrade " "APPLICATION INSTALLER" " [\-\-interactive] [\-\-timeout " S "] [\-\-verbose] [\-\- " ARGS ]
+Run a newer installer of an installed application in its existing prefix,
+keeping its data. A catalogued application accepts only the installer its
+manifest pins.
+.TP
 .BI "remove " APPLICATION
 Remove the application, its prefix and its desktop entry.
+.TP
+.BI "stop " APPLICATION
+Stop a running application: its sandbox and every Windows process in it end
+(like "End task"; unsaved work is lost).
+.TP
+.B runtime
+Show the Windows compatibility runtime: Wine, the supported architectures
+(x86_64 only), bubblewrap, the AppArmor profile mode and the policy in effect.
+Exits 1 if it is not healthy.
 .TP
 .B list \fR[\fB\-\-all\-users\fR]
 List installed applications. With
@@ -54,8 +73,10 @@ AppArmor confinement of the last launch.
 Update the prefix, re-apply the Boswas prefix defaults and the desktop entry,
 and verify the program still exists.
 .TP
-.BI "logs " APPLICATION " [\-\-install | \-\-repair] [\-\-lines " N ]
-Show the latest launch (or install, or repair) log.
+.BI "logs " APPLICATION " [\-\-install | \-\-repair | \-\-launch | \-\-clear] [\-\-lines " N ]
+Show the latest launch log (or, if there is none, the latest log of any
+kind), the latest install, repair or launch log, or delete the
+application's logs.
 .TP
 .B catalog
 List the compatibility catalog and the effective policy.
@@ -72,6 +93,13 @@ inside the sandbox.
 .TP
 .I /etc/boswas/compat/policy.conf
 Device policy (root).
+.TP
+.I /var/lib/boswas/compat/policy.conf
+Managed device policy, written by the Boswas device agent from a verified,
+signed Control Plane policy; used instead of the local policy when present.
+.TP
+.I /var/lib/boswas/compat/manifests/
+Managed compatibility catalog (Control Plane).
 .TP
 .IR /usr/share/boswas/compat/manifests/ ", " /etc/boswas/compat/manifests/
 System and local compatibility catalogs.

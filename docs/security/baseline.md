@@ -24,6 +24,7 @@ Results are a **local self-assessment**, not remote attestation.
 | Logging | Persistent journal, 1 GB / 90 days maximum | (none) | (none) |
 | Removable media | Policy file and reporting only (`MODE=allow`) | `usb-policy` | INFO, not enforced |
 | Windows applications | `boswas-winapp`: one prefix per application, never as root, bubblewrap sandbox (no home, D-Bus, other prefixes; network and devices only when granted), `boswas-winapp` AppArmor profile enforced or nothing runs, catalog statuses incl. `blocked`, fail-closed policy ([details](../compatibility/README.md#security-model)) | `winapp-confinement` (as root) | WARN if the profile is not enforcing on an installed system |
+| Device management | `boswas-device-agent.service` sandboxed (ProtectSystem=strict, one capability, no new privileges, system-call filter). Control Plane traffic over mutual TLS with a pinned CA. Only typed commands, no remote shell (ADR-0019). Policies Ed25519-signed and verified before use; they can never disable AppArmor (ADR-0020). Local API authorised by kernel peer credentials. Privacy allowlists on every message. Standalone without a Control Plane ([details](../device-management/README.md)) | `agent`, `enrollment` (informational) | (none) |
 | Service minimisation | Network-listening and unmanaged-install software pinned out of the image: KDE Connect, Discover/PackageKit, cups-browsed, openssh-server, fingerprint PAM | test suite | (none) |
 
 Compliance states:
@@ -69,9 +70,12 @@ installed system never inherits the live user.
 - **Secure Boot:** not enforced as a policy; the device only reports its state.
 - **TPM:** not yet used to protect LUKS or device keys.
 - **Release artifacts:** not yet signed.
-- **systemd units:** Boswas units are not sandboxed yet (no Boswas services
-  exist yet; the device agent arrives in Milestone 2).
-- **Windows applications:** 64-bit only. Running `/usr/bin/wine` directly is
-  not mediated (it runs with the user's normal rights). X11 applications can
+- **systemd units:** the device agent and the Control Plane are sandboxed;
+  the per-user session agent only sets NoNewPrivileges (bubblewrap, which it
+  starts through boswas-winapp, needs user namespaces).
+- **Device credentials:** the device key is a root-only file, not yet
+  TPM-backed. Device certificates last 365 days; renewal means re-enrollment.
+- **Windows applications:** 64-bit only (by decision, ADR-0014).
+- **Direct Wine use:** running `/usr/bin/wine` directly is not mediated (it runs with the user's normal rights). X11 applications can
   observe other X11 clients on the same display (limited to Xwayland under
   Plasma Wayland).

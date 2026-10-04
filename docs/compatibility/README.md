@@ -13,19 +13,28 @@ Implemented by the `boswas-compat` package (Milestone 1). Sources:
 ## At a glance
 
 ```sh
+boswas-winapp inspect ~/Downloads/setup.exe     # check it: type, architecture, catalog, policy (runs nothing)
 boswas-winapp install ~/Downloads/setup.exe     # verify, match the catalog, install in a new prefix
-boswas-winapp list                              # installed applications
+boswas-winapp list                              # installed applications and their state
 boswas-winapp launch com.example.app            # start it in its sandbox
+boswas-winapp stop com.example.app              # end it (all its Windows processes)
 boswas-winapp status com.example.app            # state, sandbox, policy decision, confinement
 boswas-winapp repair com.example.app            # update the prefix, recreate missing pieces
-boswas-winapp logs com.example.app              # latest launch log (--install, --repair)
+boswas-winapp upgrade com.example.app new.exe   # newer installer into the existing prefix
+boswas-winapp logs com.example.app              # latest log (--install, --repair, --launch, --clear)
 boswas-winapp remove com.example.app            # delete it and its prefix
 boswas-winapp catalog                           # compatibility catalog and effective policy
+boswas-winapp runtime                           # Wine, bubblewrap, AppArmor, policy: healthy?
 boswas-winapp manifest validate FILE...         # check manifests (administrators, CI)
 ```
 
 Every command accepts `--json`. `boswas winapp ...` runs the same tool.
 Command reference and exit codes: [docs/administration/cli.md](../administration/cli.md).
+
+The graphical front end is the **Boswas Compatibility Manager**
+([below](#compatibility-manager)); remote management goes through the
+device agent ([device-management](../device-management/README.md)). Both use
+`boswas-winapp` underneath, so every rule on this page applies to them.
 
 ## Runtime
 
@@ -42,24 +51,28 @@ Command reference and exit codes: [docs/administration/cli.md](../administration
 - **No DXVK / VKD3D-Proton:** they are not part of this release. Direct3D
   goes through Wine's own WineD3D.
 
-### 32-bit applications
+### 64-bit Windows applications only
 
-Debian's `wine64` without `wine32` runs **64-bit Windows programs only**: the
-image has no WoW64 support (`i386-windows` contains only `zlib1.dll`).
-`boswas-winapp` reads the PE header of every installer and refuses 32-bit
-programs with a clear message (exit 4) instead of failing obscurely.
+**Boswas OS v1 runs x86_64 (64-bit) Windows applications only.** This is a
+deliberate, final product decision (ADR-0014), not a missing feature. There
+is no `wine32`, no i386 multiarch, no WoW64 and no fallback.
 
-Many installers, including NSIS and Inno Setup stubs, are 32-bit even when
-they install 64-bit software, so this is the most significant compatibility
-limit today. Options, still to decide (see
-[roadmap](../architecture/roadmap.md)):
+32-bit software is refused before anything is created or run, always with:
 
-- **A.** Enable i386 multiarch and install `wine32`: about 300 MB more and
-  a second copy of the library attack surface.
-- **B.** A WoW64-mode Wine build packaged by Boswas.
+> This application requires 32-bit Windows compatibility, which is not supported by Boswas OS.
 
-When a 32-bit runtime exists, adding `x86` to `ARCHITECTURES` in
-`runtime.conf` is the only change `boswas-winapp` needs.
+| Where | How 32-bit software is detected |
+|-------|---------------------------------|
+| `boswas-winapp install`, `inspect`, `upgrade` | PE header of .exe files (machine field), Template property of .msi packages (`Intel;…` means 32-bit). Exit 4, reason `architecture` |
+| Catalog manifests | `"architecture": "x86"` is accepted to describe an application, but marks it unsupported: it is never installable or launchable |
+| Compatibility Manager | Shows the sentence above and "32-bit Windows applications are not supported by this version of Boswas OS." |
+| Device agent | Refuses a 32-bit catalog entry before downloading anything |
+| Control Plane | Marks it `UNSUPPORTED_ARCHITECTURE`; it can never become an install command. An x86_64 manifest for a 32-bit installer is refused |
+
+Guard rails fail the image build if `wine32` or a foreign dpkg architecture
+appears. Many installers, including NSIS and Inno Setup stubs, are 32-bit
+even when they install 64-bit software. Applications are validated for the
+catalog with 64-bit installers only.
 
 ## Per-application prefixes
 
@@ -157,7 +170,7 @@ validator in `boswas_compat/manifest.py`.
 |-------|-------|
 | `id` | Lower-case reverse-DNS name with at least one dot. Must equal the file name (`<id>.json`) |
 | `runtime.wineVersion` | Major version must match the runtime (10) |
-| `architecture` | `x86_64`; `x86` is refused until a 32-bit runtime exists |
+| `architecture` | `x86_64`. `x86` describes a 32-bit application, which is never installed or started (64-bit only) |
 | `launch` | `C:\dir\app.exe`, `dir/app.exe` (relative to `C:\`) or a unique file name. Never another drive, UNC or `..` |
 | `status` | `unknown`, `untested`, `experimental`, `tested`, `approved`, `blocked` |
 | `installer.sha256` | **Required** for `tested` and `approved`: validated status always refers to one exact installer |
@@ -189,7 +202,7 @@ The catalog has three layers. The highest precedence wins, but `blocked` in
 
 | Layer | Path | Source |
 |-------|------|--------|
-| managed | `/var/lib/boswas/compat/manifests/` | Control Plane, signed (reserved for Milestone 2 and 4) |
+| managed | `/var/lib/boswas/compat/manifests/` | Control Plane catalog, written by the device agent (validated first) |
 | local | `/etc/boswas/compat/manifests/` | Device administrator |
 | system | `/usr/share/boswas/compat/manifests/` | `boswas-compat` (from `compatibility/manifests/catalog/`) |
 
@@ -197,8 +210,30 @@ The catalog has three layers. The highest precedence wins, but `blocked` in
   they are never partially applied.
 - **Shipped catalog:** empty until Boswas validates its first business
   applications (`compatibility/manifests/catalog/README.md`).
-- **Control Plane:** later stores manifests in its `compatibility_manifests`
-  table (Milestone 3) and distributes them as signed documents (Milestone 4).
+- **Control Plane:** its catalog entries reach a device with each install or
+  update command. The agent writes them to the managed layer and removes them
+  when the device is unenrolled.
+
+## Application states
+
+`list` and `status` report a normalised state (`app_state`), used by the
+Compatibility Manager, the device agent's inventory and the Control Plane:
+
+| State | Meaning |
+|-------|---------|
+| `INSTALLING` | An installation is running |
+| `INSTALLED` | Installed and idle |
+| `RUNNING` | Its program is running |
+| `STOPPED` | Its last run was ended with `stop` |
+| `ERROR` | The installation or an upgrade failed (see the record's error) |
+| `REPAIR_REQUIRED` | The prefix is damaged or the program is missing |
+| `BLOCKED` | The catalog or the device policy no longer allows it |
+| `UNSUPPORTED` | This runtime cannot run it (32-bit, another Wine version, missing components) |
+
+`stop` ends the application's sandbox and every Windows process in it, like
+"End task": unsaved work is lost. Only the process that holds the
+application's lock and is named in its `run.json` is signalled, and only if
+it belongs to the user.
 
 ## Security model
 
@@ -260,7 +295,7 @@ local additions go in `/etc/apparmor.d/local/boswas-winapp`.
 | `network` grant | Applications that need the network | The host network namespace: interface addresses, including MAC addresses, and abstract unix sockets (for example X11's) are visible |
 | `ptrace` and `/proc/<pid>/mem` within the profile | wineserver implements Read/WriteProcessMemory | Same-profile peers only |
 | Read-only system information: `/proc/<pid>/net/*`, CPU topology, the sandbox root and `/dev` listings, public CA certificates | Wine's network-adapter APIs, CPU detection, path lookups on `Z:\`, TLS certificate validation | Reads only. Inside the sandbox they show its own network namespace, minimal `/dev` and empty root |
-| Running `/usr/bin/wine` directly is not mediated | Debian's wine is a normal user program | Users cannot gain privileges through it. Restricting direct use is a policy-engine decision (Milestone 4) |
+| Running `/usr/bin/wine` directly is not mediated | Debian's wine is a normal user program | Users cannot gain privileges through it. Restricting direct use remains open (roadmap) |
 
 ### Rules that always hold
 
@@ -324,6 +359,8 @@ tests:
 | `REQUIRE_APPARMOR` | `yes` | Refuse to run Windows code unless confined |
 | `MAX_INSTALLER_MB` | `4096` | Installer size limit |
 | `WINETRICKS_ALLOWED` | (empty) | winetricks verbs manifests may use |
+| `BLOCKED_APPLICATIONS` | (empty) | Application IDs that may not be installed or started |
+| `ALLOWED_APPLICATIONS` | (empty) | Empty: no allow list. Otherwise only these IDs; `none` allows nothing |
 
 A missing file or an invalid value always results in the **more
 restrictive** setting:
@@ -332,7 +369,17 @@ restrictive** setting:
   and `tested` statuses are allowed;
 - an invalid value never loosens anything.
 
-The Boswas policy engine will manage this file (Milestone 4).
+**Managed devices.** On a device enrolled with a Control Plane, the device
+agent writes `/var/lib/boswas/compat/policy.conf` from the verified, signed
+device policy (ADR-0020):
+
+- boswas-compat uses it instead of the local file;
+- a managed file that is not a regular, root-owned file without group or
+  world write access is ignored in favour of the restrictive defaults;
+- a signed policy cannot switch off `REQUIRE_APPARMOR`;
+- unenrolling removes the file.
+
+`boswas-winapp catalog` and `runtime` show which policy is in effect.
 
 ## "Run with Boswas" (graphical flow)
 
@@ -349,14 +396,65 @@ Terminal window: boswas-winapp install --pause <file>
 Desktop launcher "boswas-winapp launch <id>" in the application menu
 ```
 
-- **Shipped in M1:** the handler and the launcher.
-- **Planned (Boswas Compatibility Manager):** a KDE front end with a
-  progress view, prefix selection for multi-program suites, and a grant
-  summary before installation. It calls the same `boswas-winapp --json`
-  interface; no logic moves into the GUI.
+- **Default handler:** "Run with Boswas" stays the default for Windows
+  executables. The Compatibility Manager adds a Dolphin action, "Install
+  with Boswas Compatibility Manager".
 - **Debian default:** Wine's own `wine.desktop` association is not
   installed. Windows programs therefore never open in an unconfined default
   prefix by double-click; the image test checks this.
+
+## Compatibility Manager
+
+`boswas-compat-manager` (package `boswas-compat-manager`, application menu:
+**Compatibility Manager**) is the graphical front end (ADR-0021).
+
+**Pages:**
+
+- **Dashboard:**
+  - counts of installed, running and attention-needing applications;
+  - Wine, AppArmor and bubblewrap health;
+  - device agent, Control Plane and policy status;
+  - recent activity, including actions requested remotely by
+    administrators.
+- **Applications:**
+  - tabs All, Installed, Running, Updates, Blocked, Repair Required,
+    Unsupported;
+  - per application: name, version, publisher, architecture, state,
+    catalog status and last launch;
+  - actions Launch, Stop, Repair, Update, Remove, Logs, Details.
+- **Install:**
+  - choose an .exe or .msi;
+  - the installer is checked first (`inspect`: type, architecture, catalog
+    status, the sandbox it would get, the policy decision);
+  - 32-bit installers get the sentence above and nothing else;
+  - the installation runs with live progress.
+- **Details:**
+  - overview (executable, architecture, prefix shown as
+    `~/.local/share/boswas/wine/<id>`, dates, state, policy, manifest
+    source);
+  - permissions, **display-only**: files, network, display, audio, GPU,
+    removable devices (never), AppArmor;
+  - logs (latest, launch, install, repair) with Copy, Save and Clear.
+- **Remove:** confirms what is deleted (the application, its prefix and
+  everything in its C: drive, its launcher) and what is kept (files in
+  granted folders).
+- **System Status:**
+  - Wine, AppArmor, bubblewrap;
+  - Device Agent, Control Plane;
+  - disk space, system architecture;
+  - Windows applications: x86_64 / 64-bit only;
+  - Boswas OS version, policy.
+
+**How it works:**
+
+- It runs as the user and talks only to the user's session agent (all
+  application operations, which run `boswas-winapp`) and to the device
+  agent's read-only status operations.
+- It never starts a process, never touches prefixes, manifests, AppArmor
+  or bubblewrap, and cannot change permissions. A test fails if its code
+  contains any of these.
+- It keeps working without a Control Plane, and shows a clear notice if the
+  session agent is not running.
 
 ## Licensing
 
@@ -370,7 +468,7 @@ Desktop launcher "boswas-winapp launch <id>" in the application menu
 
 | Suite | What it proves |
 |-------|----------------|
-| `packages/boswas-compat/tests` (64 unit tests) | Manifest rules and schema sync, catalog layering, policy fail-closed behaviour, installer inspection, sandbox argument construction, refusals (root, blocked, unlisted, mismatch, 32-bit, dependencies), launch, repair, remove, CLI exit codes, output sanitising, and regression tests for the security review (symlinks planted by the application, control characters in file names, repair of disallowed apps, GPU sysfs exposure, runner policy agreement) |
+| `packages/boswas-compat/tests` (91 unit tests; inspect, stop, upgrade, MSI architecture, states, policy lists and the managed layer since 1.0~alpha3) | Manifest rules and schema sync, catalog layering, policy fail-closed behaviour, installer inspection, sandbox argument construction, refusals (root, blocked, unlisted, mismatch, 32-bit, dependencies), launch, repair, remove, CLI exit codes, output sanitising, and regression tests for the security review (symlinks planted by the application, control characters in file names, repair of disallowed apps, GPU sysfs exposure, runner policy agreement) |
 | `tests/static/test_sources.sh` | Manifests validate. Runtime facts, profile and code agree. The profile keeps its denials and has no exec transitions |
 | `tests/packages/test_packages.sh` | Package contents and modes, conffiles, dh_apparmor postinst, profile compiles |
 | `tests/compatibility/test_wine.sh` | Image: package, profile compiles with the image's parser, policy, root refusal, desktop handler |

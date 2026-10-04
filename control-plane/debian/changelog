@@ -1,0 +1,9 @@
+boswas-control-plane (1.0~alpha3) trixie; urgency=medium
+
+  * Initial release: Boswas Control Plane.
+    - Device registry, enrollment, heartbeat, inventory and status reports.
+    - Typed command system with lifecycle, expiry and idempotency.
+    - Signed device policies, application catalog and installer artifacts.
+    - Hash-chained audit trail, operator API tokens and roles, dashboard.
+
+ -- Boswas OS Platform Team <os-platform@boswas.invalid>  Sun, 04 Oct 2026 12:00:00 +0000

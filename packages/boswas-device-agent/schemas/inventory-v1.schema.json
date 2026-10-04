@@ -1,0 +1,320 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.boswas.invalid/device/inventory-v1.schema.json",
+  "title": "Device inventory",
+  "description": "PUT /api/v1/devices/{id}/inventory (INVENTORY_POLICY minimal or standard). Allowlisted facts only: no serial numbers, MAC addresses, machine-id, user names, files or application data. hardware and storage are sent with the standard policy only.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "device_id",
+    "revision",
+    "collected_at",
+    "policy",
+    "os",
+    "packages",
+    "windows_applications",
+    "windows_inventory_available",
+    "compatibility"
+  ],
+  "properties": {
+    "schema": {
+      "const": "boswas-inventory/1"
+    },
+    "device_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "collected_at": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "policy": {
+      "enum": [
+        "minimal",
+        "standard"
+      ]
+    },
+    "os": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version",
+        "version_id",
+        "build_id",
+        "debian_version",
+        "kernel",
+        "architecture"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "version_id": {
+          "type": "string"
+        },
+        "build_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "debian_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kernel": {
+          "type": "string"
+        },
+        "architecture": {
+          "type": "string"
+        }
+      }
+    },
+    "packages": {
+      "type": "array",
+      "maxItems": 11,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "version"
+        ],
+        "properties": {
+          "name": {
+            "enum": [
+              "boswas-os",
+              "boswas-cli",
+              "boswas-branding",
+              "boswas-security",
+              "boswas-compat",
+              "boswas-device-agent",
+              "boswas-compat-manager",
+              "wine",
+              "wine64",
+              "bubblewrap",
+              "apparmor"
+            ]
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "windows_applications": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "status",
+          "architecture",
+          "compatibility",
+          "app_state",
+          "installations",
+          "running"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$"
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "architecture": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "compatibility": {
+            "type": "string"
+          },
+          "app_state": {
+            "enum": [
+              "INSTALLING",
+              "INSTALLED",
+              "RUNNING",
+              "STOPPED",
+              "ERROR",
+              "REPAIR_REQUIRED",
+              "BLOCKED",
+              "UNSUPPORTED"
+            ]
+          },
+          "installations": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "running": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "windows_inventory_available": {
+      "type": "boolean"
+    },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "available",
+        "wine_version",
+        "architectures",
+        "bubblewrap",
+        "apparmor",
+        "policy_managed",
+        "healthy"
+      ],
+      "properties": {
+        "available": {
+          "type": "boolean"
+        },
+        "wine_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "architectures": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "x86_64",
+              "x86"
+            ]
+          }
+        },
+        "bubblewrap": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "apparmor": {
+          "type": "string"
+        },
+        "policy_managed": {
+          "type": "boolean"
+        },
+        "healthy": {
+          "type": "boolean"
+        }
+      }
+    },
+    "hardware": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cpu_model",
+        "cpu_count",
+        "memory_gib",
+        "vendor",
+        "model",
+        "firmware_version",
+        "boot_mode",
+        "tpm_version"
+      ],
+      "properties": {
+        "cpu_model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cpu_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "memory_gib": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "vendor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "firmware_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "boot_mode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tpm_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "storage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "root_total_gib",
+        "root_free_gib"
+      ],
+      "properties": {
+        "root_total_gib": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "root_free_gib": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}

@@ -111,8 +111,14 @@ def cmd_security_status(args) -> int:
 def cmd_device_status(args) -> int:
     device = identity.device_config()
     hardware = identity.hardware_summary()
+    agent = identity.agent_status()
+    agent_rows = [("Device state", agent["state"] or "unknown"),
+                  ("Connection", agent["connection"] or "unknown"),
+                  ("Agent", f"{agent['agent_version'] or 'unknown'} (status of {agent['updated_at'] or 'unknown'})")] \
+        if agent else [("Agent", "not running yet")]
     text = "Boswas device\n" + _rows([
         ("Device ID", device["device_id"] or "not assigned"),
+        *agent_rows,
         ("Tenant ID", device["tenant_id"] or "not assigned"),
         ("Enrollment", device["enrollment_state"] or "unenrolled"),
         ("Control plane", device["control_plane_url"] or "not configured"),
@@ -127,25 +133,27 @@ def cmd_device_status(args) -> int:
         ("Boot mode", hardware["boot_mode"]),
         ("TPM", f"{hardware['tpm_version']}.x" if hardware["tpm_version"] else "not detected"),
     ])
-    _emit(args, "device-status", {"device": device, "hardware": hardware}, text)
+    _emit(args, "device-status", {"device": device, "hardware": hardware, "agent": agent}, text)
     return EXIT_OK
 
 
 def cmd_policy_status(args) -> int:
     device = identity.device_config()
     state = "managed" if device["policy_version"] else "unmanaged"
+    agent = system.package_version("boswas-device-agent")
     payload = {
         "policy": {
             "state": state,
             "policy_version": device["policy_version"],
-            "engine": None,
-            "note": "No policy engine yet; the local baseline is delivered by boswas-security (the policy engine arrives in Milestone 4).",
+            "engine": "boswas-device-agent" if agent else None,
+            "note": ("Signed Control Plane policies are verified and applied by the device agent (boswas-device "
+                     "policy); without enrollment the local WinCompat policy and the boswas-security baseline apply."),
         }
     }
     text = "Boswas policy\n" + _rows([
         ("State", state),
-        ("Policy version", device["policy_version"] or "none"),
-        ("Engine", "not installed (Milestone 4)"),
+        ("Policy version", device["policy_version"] or "none (local policy)"),
+        ("Engine", f"boswas-device-agent {agent}" if agent else "boswas-device-agent not installed"),
         ("Local baseline", "boswas-security " + (system.package_version("boswas-security") or "not installed")),
     ])
     _emit(args, "policy-status", payload, text)

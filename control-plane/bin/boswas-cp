@@ -1,0 +1,12 @@
+#!/usr/bin/python3 -IB
+"""Boswas Control Plane administration and server. See `boswas-cp --help` and boswas-cp(1)."""
+
+import os
+import sys
+
+os.environ.pop("BOSWAS_SYSROOT", None)
+sys.path.insert(0, "/usr/lib/boswas-control-plane/python")
+
+from boswas_cp.cli import main  # noqa: E402
+
+sys.exit(main())

@@ -1,6 +1,6 @@
 """Boswas OS command-line tools (boswas, boswas-info, boswas-status)."""
 
-__version__ = "1.0~alpha2"
+__version__ = "1.0~alpha3"
 
 # Stable identifier for the JSON documents emitted with --json. Bump the major
 # number on any backwards-incompatible change to field names or meaning.

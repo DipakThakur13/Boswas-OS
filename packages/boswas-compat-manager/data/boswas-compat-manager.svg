@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <title>Boswas Compatibility Manager</title>
+  <rect x="4" y="4" width="120" height="120" rx="26" fill="#0B1F33"/>
+  <g fill="none" stroke="#2ED3CD" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="18" y="24" width="76" height="58" rx="8"/>
+    <path d="M18 41H94"/>
+    <path d="M30 56H60M30 67H50"/>
+  </g>
+  <g fill="#2ED3CD">
+    <circle cx="29" cy="32.5" r="2.6"/>
+    <circle cx="38" cy="32.5" r="2.6"/>
+    <circle cx="47" cy="32.5" r="2.6"/>
+  </g>
+  <g transform="translate(88 88)">
+    <circle r="30" fill="#0B1F33"/>
+    <g fill="#2ED3CD">
+      <rect x="-5.5" y="-26" width="11" height="13" rx="2.5"/>
+      <rect x="-5.5" y="-26" width="11" height="13" rx="2.5" transform="rotate(45)"/>
+      <rect x="-5.5" y="-26" width="11" height="13" rx="2.5" transform="rotate(90)"/>
+      <rect x="-5.5" y="-26" width="11" height="13" rx="2.5" transform="rotate(135)"/>
+      <rect x="-5.5" y="-26" width="11" height="13" rx="2.5" transform="rotate(180)"/>
+      <rect x="-5.5" y="-26" width="11" height="13" rx="2.5" transform="rotate(225)"/>
+      <rect x="-5.5" y="-26" width="11" height="13" rx="2.5" transform="rotate(270)"/>
+      <rect x="-5.5" y="-26" width="11" height="13" rx="2.5" transform="rotate(315)"/>
+      <circle r="18"/>
+    </g>
+    <circle r="7.5" fill="#0B1F33"/>
+  </g>
+</svg>

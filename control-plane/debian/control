@@ -1,0 +1,29 @@
+Source: boswas-control-plane
+Section: admin
+Priority: optional
+Maintainer: Boswas OS Platform Team <os-platform@boswas.invalid>
+Build-Depends: debhelper-compat (= 13), dh-sequence-installsysusers, openssl, python3:any
+Standards-Version: 4.7.2
+Rules-Requires-Root: no
+
+Package: boswas-control-plane
+Architecture: all
+Depends: openssl,
+         python3 (>= 3.11),
+         systemd,
+         ${misc:Depends}
+Description: Boswas OS Control Plane (device management server)
+ The management server for Boswas OS devices, for a dedicated server (it is
+ not installed on devices):
+ .
+  * device registry: enrollment with one-time tokens and a device CA, mutual
+    TLS, heartbeats, inventory, posture and connection state
+  * typed management commands (install, update, remove, launch, stop,
+    repair Windows applications; refresh inventory; apply policy; update the
+    agent) with a full lifecycle, expiry and idempotency; no remote shell
+  * signed, versioned device policies (Ed25519)
+  * an application catalog of 64-bit Windows applications with stored
+    installers; 32-bit entries are marked unsupported and never installed
+  * a hash-chained audit trail and a web dashboard
+ .
+ Python standard library with SQLite storage.

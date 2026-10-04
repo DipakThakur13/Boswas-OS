@@ -14,7 +14,7 @@ wrap the same scripts.
 
 | Host | How it builds | Requirements |
 |------|---------------|--------------|
-| Debian 13 (trixie) | Natively (`./build.sh` as root, or `sudo ./build.sh`) | `apt install live-build debootstrap xorriso squashfs-tools mtools dosfstools grub-efi-amd64-bin grub-pc-bin dpkg-dev debhelper dh-apparmor build-essential librsvg2-bin fonts-lato python3 rsync git`; for `test.sh` also `lintian apparmor gcc-mingw-w64-x86-64-win32 qemu-system-x86 ovmf`; 25 GB free |
+| Debian 13 (trixie) | Natively (`./build.sh` as root, or `sudo ./build.sh`) | `apt install live-build debootstrap xorriso squashfs-tools mtools dosfstools grub-efi-amd64-bin grub-pc-bin dpkg-dev debhelper dh-apparmor build-essential librsvg2-bin fonts-lato python3 openssl rsync git`; for `test.sh` also `lintian apparmor gcc-mingw-w64-x86-64-win32 qemu-system-x86 ovmf python3-pyside6.qtwidgets qt6-qpa-plugins`; 25 GB free |
 | Anything else (Windows + Docker Desktop/WSL2, macOS, other Linux) | Automatically inside `build/container/Containerfile` (`debian:trixie`) | Docker or Podman; the container runs `--privileged` because live-build mounts `/proc`, `/sys` and `/dev` in its chroot |
 
 On Windows, run the scripts from Git Bash or WSL. `./build.sh` detects that
@@ -28,8 +28,11 @@ Force a mode with `--container` or `--native`.
 
 1. **Preflight.** Checks the host (Debian 13, root), the required tools and
    the free disk space.
-2. **Packages.** Builds the five Boswas packages with `dpkg-buildpackage`;
-   the CLI and WinCompat unit tests run during the build.
+2. **Packages.** Builds the seven Boswas device packages with
+   `dpkg-buildpackage`, and the Control Plane server package into
+   `server/` (never part of the image). The unit tests of the CLI,
+   WinCompat, the device agent, the Compatibility Manager and the Control
+   Plane run during the build.
 3. **Metadata.** Writes `/usr/lib/boswas/image-info`: build ID, date, git
    commit, dirty flag, configuration hash, live-build version.
 4. **Staging.** Assembles the live-build tree in an isolated work directory
@@ -62,6 +65,11 @@ inside the image and **fails the build** if:
 - `boswas info` does not run
 - `boswas-winapp` does not run, or the `boswas-winapp` AppArmor profile does
   not compile against Debian's kernel feature set
+- the device agent is not enabled, `boswas-device` cannot validate the
+  shipped `device.conf`, the session agent is not enabled for user sessions,
+  or the Compatibility Manager does not import
+- `wine32`, a foreign dpkg architecture (i386 multiarch) or the Control
+  Plane appears in the image
 
 ### Where state lives
 
@@ -119,17 +127,29 @@ exactly which versions were used.
 
 `./test.sh` runs these stages in order and writes one report:
 
-1. static checks
-2. Boswas packages (lintian, contents, CLI unit tests)
-3. unit tests (WinCompat, device agent)
+1. static checks, including 64-bit-only, no shell execution, no Boswas ID
+   implementation and service hardening
+2. Boswas packages (lintian, contents, packaging checks for the agent, the
+   Compatibility Manager and the Control Plane, CLI unit tests)
+3. unit tests: WinCompat, device agent, Compatibility Manager (Qt
+   offscreen) and Control Plane, including the real agent against the real
+   Control Plane over mutual TLS
 4. WinCompat test fixtures: compiles the Windows test application from
    `tests/compatibility/fixtures/` with MinGW-w64, writes manifests pinned to
    its hash, and packs them into a fixtures ISO
 5. package manifest resolution
 6. image tests: artifacts, extraction, ISO contents, packages, security,
-   compatibility
+   compatibility, device management (no identity baked in, enabled units,
+   64-bit only)
 7. **WinCompat runtime** (`tests/compatibility/test_winapp_runtime.sh`)
-8. QEMU boot test
+8. **Device management runtime** (`tests/device/test_device_runtime.sh`):
+   in the image, the device agent, a user's session agent, the
+   Compatibility Manager window (offscreen) and a Control Plane started from
+   the sources. It covers local and remote install, launch, stop, repair and
+   remove with real Wine, policies, offline operation and the audit trail
+9. QEMU boot test, including the device agent, the session agent, the
+   Compatibility Manager on Plasma and a Control Plane round trip under the
+   real kernel's AppArmor
 
 A stage that exits non-zero without recording a failure, such as a crashed
 test script, is itself recorded as a FAIL. Tests that never ran can therefore

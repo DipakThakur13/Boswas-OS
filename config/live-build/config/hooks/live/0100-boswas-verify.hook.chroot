@@ -14,6 +14,7 @@ installed() {
 }
 
 for pkg in boswas-os boswas-cli boswas-branding boswas-security boswas-compat \
+	boswas-device-agent boswas-compat-manager \
 	plasma-workspace sddm kwin-wayland firefox-esr \
 	apparmor auditd nftables libpam-pwquality \
 	cryptsetup cryptsetup-initramfs lvm2 \
@@ -21,11 +22,14 @@ for pkg in boswas-os boswas-cli boswas-branding boswas-security boswas-compat \
 	installed "$pkg" || fail "required package missing: $pkg"
 done
 
-for pkg in openssh-server kdeconnect plasma-discover packagekit libpam-fprintd cups-browsed plasma-welcome; do
+for pkg in openssh-server kdeconnect plasma-discover packagekit libpam-fprintd cups-browsed plasma-welcome \
+	boswas-control-plane wine32; do
 	installed "$pkg" && fail "excluded package present: $pkg"
 done
+# 64-bit only (ADR-0014): no i386 multiarch for a 32-bit Wine.
+[ -z "$(dpkg --print-foreign-architectures)" ] || fail "foreign dpkg architectures enabled: $(dpkg --print-foreign-architectures)"
 
-for unit in nftables.service auditd.service apparmor.service; do
+for unit in nftables.service auditd.service apparmor.service boswas-device-agent.service; do
 	state="$(systemctl is-enabled "$unit" 2>/dev/null || true)"
 	[ "$state" = "enabled" ] || fail "$unit is not enabled (state: ${state:-unknown})"
 done
@@ -41,5 +45,13 @@ boswas --json info >/dev/null || fail "boswas CLI does not run"
 boswas-winapp --json catalog >/dev/null || fail "boswas-winapp does not run"
 apparmor_parser -Q -K -T --features-file /usr/share/apparmor-features/features \
 	/etc/apparmor.d/boswas-winapp >/dev/null || fail "AppArmor profile boswas-winapp does not compile"
+
+# Device management: the agent's tools run, the session agent is enabled for
+# every user, the Compatibility Manager imports its Qt bindings.
+boswas-device --json config validate >/dev/null || fail "boswas-device config validate fails on the shipped device.conf"
+[ -e /etc/systemd/user/graphical-session.target.wants/boswas-session-agent.service ] \
+	|| fail "boswas-session-agent.service is not enabled for user sessions"
+python3 -IB -c 'import sys; sys.path.insert(0, "/usr/lib/boswas/python"); import boswas_manager.app' \
+	|| fail "the Compatibility Manager does not import"
 
 echo "I: boswas-verify: image matches the Boswas OS manifest"

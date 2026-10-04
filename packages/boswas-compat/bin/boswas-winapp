@@ -1,7 +1,14 @@
 #!/usr/bin/python3 -IB
 """Boswas WinCompat: Windows applications in isolated sandboxes. See `boswas-winapp --help`."""
 
+import os
 import sys
+
+# Unit-test hooks (fake system root, fake home) are never honoured by the
+# installed command: a user must not be able to point it at a policy file or
+# catalog of their own choosing.
+for _hook in ("BOSWAS_SYSROOT", "BOSWAS_WINAPP_HOME"):
+    os.environ.pop(_hook, None)
 
 sys.path.insert(0, "/usr/lib/boswas/python")
 

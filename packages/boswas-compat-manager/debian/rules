@@ -1,0 +1,29 @@
+#!/usr/bin/make -f
+# Boswas Compatibility Manager: a PySide6 front end over the session agent.
+# Python modules go to the private module directory shared with the device
+# agent (/usr/lib/boswas/python). Every file is installed with an explicit
+# mode. The tests import boswas_agent.localapi from the sibling package
+# (../boswas-device-agent) of the monorepo checkout.
+
+PKG   := debian/boswas-compat-manager
+PYDIR := $(PKG)/usr/lib/boswas/python/boswas_manager
+
+%:
+	dh $@
+
+override_dh_auto_test:
+ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+	QT_QPA_PLATFORM=offscreen python3 -B -m unittest discover -s tests -v
+endif
+
+override_dh_auto_install:
+	install -D -m 0755 bin/boswas-compat-manager $(PKG)/usr/bin/boswas-compat-manager
+	install -d -m 0755 $(PYDIR) $(PYDIR)/ui
+	install -m 0644 boswas_manager/*.py $(PYDIR)/
+	install -m 0644 boswas_manager/ui/*.py $(PYDIR)/ui/
+	install -D -m 0644 data/com.boswas.CompatibilityManager.desktop \
+		$(PKG)/usr/share/applications/com.boswas.CompatibilityManager.desktop
+	install -D -m 0644 data/boswas-compat-manager-install.desktop \
+		$(PKG)/usr/share/kio/servicemenus/boswas-compat-manager-install.desktop
+	install -D -m 0644 data/boswas-compat-manager.svg \
+		$(PKG)/usr/share/icons/hicolor/scalable/apps/boswas-compat-manager.svg

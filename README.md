@@ -5,20 +5,25 @@ system, built on **Debian 13 "trixie"** with **KDE Plasma**. It is an
 internal platform for Boswas Group employees and company-owned hardware, not
 a public Linux distribution.
 
-> **Status: v1 alpha (1.0~alpha2). Not production-ready.**
-> This release is a bootable foundation plus Milestone 1 of the enterprise
-> platform:
+> **Status: v1 alpha (1.0~alpha3). Not production-ready.**
+> This release contains:
 > - Debian 13 base, KDE Plasma desktop and Boswas branding
 > - security baseline and encrypted installer
 > - `boswas` status tools
 > - **WinCompat:** Windows applications in isolated, AppArmor-confined Wine
->   sandboxes (`boswas-winapp`); 64-bit Windows programs only
-> - device agent interfaces (no service, nothing contacts a backend)
+>   sandboxes (`boswas-winapp`); **x86_64 / 64-bit Windows applications only**
+>   (32-bit is intentionally not supported)
+> - **Compatibility Manager:** the graphical application manager
+> - **Device agent:** persistent identity, state, inventory, a local
+>   management API; standalone unless a Control Plane is configured
+> - **Boswas Control Plane** (a separate server package): device registry,
+>   typed remote management (no remote shell), signed policies, the
+>   application catalog, the audit trail and a web dashboard
 > - reproducible, script-driven builds
 >
-> Device agent, Control Plane, policy engine, fleet, Store, updates, hardware
-> certification and signed releases follow in Milestones 2–9; Boswas ID is
-> deferred (see `docs/architecture/roadmap.md`).
+> The Store, update infrastructure, hardware certification and signed
+> releases follow in later milestones; Boswas ID is deferred (see
+> `docs/architecture/roadmap.md`).
 
 Debian remains upstream. This repository contains only Boswas-specific
 packaging, configuration, artwork, scripts, tests and documentation; every
@@ -52,6 +57,7 @@ build/output/
   Boswas-OS-v1-alpha-amd64.iso            bootable live + installer ISO (BIOS and UEFI, Secure Boot)
   Boswas-OS-v1-alpha-amd64.sha256         checksum (sha256sum -c)
   Boswas-OS-v1-alpha-amd64.manifest.txt   build facts + full package list
+  boswas-control-plane_<version>_all.deb  the Control Plane server package (not part of the ISO)
 build/manifest/<build-id>.json            machine-readable build record
 build/logs/                               build and test logs
 ```
@@ -89,6 +95,8 @@ boswas-status               # posture checks (firewall, AppArmor, encryption, ..
 boswas --json device status # machine-readable output
 boswas-winapp install ~/Downloads/setup.exe   # Windows application, own sandbox
 boswas-winapp list
+boswas-compat-manager       # the same, graphically ("Compatibility Manager")
+boswas-device status        # device agent: state, identity, Control Plane connection
 ```
 
 ## What is in v1 alpha
@@ -102,7 +110,8 @@ boswas-winapp list
 | Installer | Debian Installer (live mode), Boswas banner, policy: full-disk encryption, root locked, host `boswas-device` |
 | Security | nftables (inbound deny), AppArmor, auditd rules, sudo/pwquality policy, kernel hardening, no SSH server, security-only automatic updates, enforced screen lock |
 | Tools | `boswas`, `boswas-info`, `boswas-status` (read-only, `--json`) |
-| Compatibility | Wine 10 (64-bit). `boswas-winapp`: one prefix per application, bubblewrap sandbox, `boswas-winapp` AppArmor profile, compatibility manifests and catalog, policy, "Run with Boswas". Flatpak without a remote |
+| Compatibility | Wine 10, **x86_64 / 64-bit Windows applications only**. `boswas-winapp`: one prefix per application, bubblewrap sandbox, `boswas-winapp` AppArmor profile, compatibility manifests and catalog, policy, "Run with Boswas". Compatibility Manager (PySide6). Flatpak without a remote |
+| Device management | `boswas-device-agent` (sandboxed service, per-user session agent, `boswas-device`), mutual TLS to the Boswas Control Plane (`control-plane/`, server package): enrollment, heartbeat, inventory, typed commands, signed policies, catalog, audit, dashboard |
 
 ## Documentation
 
@@ -121,7 +130,8 @@ boswas-winapp list
 | Hardware Compatibility List | [docs/deployment/hardware-compatibility.md](docs/deployment/hardware-compatibility.md) |
 | CLI reference | [docs/administration/cli.md](docs/administration/cli.md) |
 | Windows compatibility | [docs/compatibility/README.md](docs/compatibility/README.md) |
-| Device management (agent foundations) | [docs/device-management/README.md](docs/device-management/README.md) |
+| Device agent | [docs/device-management/README.md](docs/device-management/README.md) |
+| Control Plane | [docs/device-management/control-plane.md](docs/device-management/control-plane.md) |
 
 ## Licensing and attribution
 

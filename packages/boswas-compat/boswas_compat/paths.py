@@ -21,6 +21,9 @@ APPARMOR_PROFILE = "boswas-winapp"
 BWRAP = "/usr/bin/bwrap"
 
 POLICY_FILE = "/etc/boswas/compat/policy.conf"
+# Written only by the Boswas device agent from a verified, signed Control
+# Plane policy. When present it replaces POLICY_FILE (the device is managed).
+MANAGED_POLICY_FILE = "/var/lib/boswas/compat/policy.conf"
 RUNTIME_FILE = "/usr/share/boswas/compat/runtime.conf"
 INSTALLERS_FILE = "/usr/share/boswas/compat/installers.json"
 PREFIX_DEFAULTS = "/usr/share/boswas/compat/prefix-defaults.reg"
@@ -59,3 +62,13 @@ def user_home(uid: int | None = None) -> Path:
 
 def view_dir(app_id: str) -> str:
     return f"{VIEW_ROOT}/{app_id}"
+
+
+def test_root_active() -> bool:
+    """True when a unit test points the system paths at a fake root.
+
+    The installed commands remove BOSWAS_SYSROOT and BOSWAS_WINAPP_HOME from
+    their environment before importing this package, so on a device this is
+    always False.
+    """
+    return "BOSWAS_SYSROOT" in os.environ

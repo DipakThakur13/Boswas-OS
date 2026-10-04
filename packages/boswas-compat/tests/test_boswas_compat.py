@@ -76,9 +76,9 @@ class FakeExecutor:
             i = argv.index("--bind", i + 1)
         return Path(argv[i + 1])
 
-    def run(self, argv, log_path, *, mirror=None, timeout=None, title=""):
+    def run(self, argv, log_path, *, mirror=None, timeout=None, title="", stoppable=False):
         command = argv[argv.index("--") + 2:]
-        self.calls.append({"argv": argv, "command": command, "title": title})
+        self.calls.append({"argv": argv, "command": command, "title": title, "stoppable": stoppable})
         sb = self.host_sandbox(argv)
         drive_c = sb / "prefix" / "drive_c"
         code = 0

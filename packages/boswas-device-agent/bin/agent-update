@@ -1,0 +1,22 @@
+#!/bin/sh
+# Boswas device agent update (boswas-agent-update@<version>.service).
+#
+# Started only by the device agent for an UPDATE_AGENT command, when the
+# device allows it (UPDATE_POLICY="managed" in /etc/boswas/device.conf and
+# agent_updates=managed in the signed device policy). Installs exactly the
+# named version of boswas-device-agent from the APT sources configured on the
+# device, whose signatures APT verifies; nothing is downloaded from anywhere
+# else and no other program is run.
+set -eu
+
+version="${1:-}"
+case "$version" in
+	"" | -* | *[!A-Za-z0-9.~+:-]*)
+		echo "boswas-agent-update: invalid version" >&2
+		exit 2
+		;;
+esac
+
+export DEBIAN_FRONTEND=noninteractive LC_ALL=C
+apt-get update -q || echo "boswas-agent-update: package lists could not be refreshed" >&2
+exec apt-get install -y -q --only-upgrade -o Dpkg::Options::=--force-confold "boswas-device-agent=$version"

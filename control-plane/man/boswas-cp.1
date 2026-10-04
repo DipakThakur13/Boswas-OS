@@ -1,0 +1,99 @@
+.TH BOSWAS-CP 1 "October 2026" "boswas-control-plane 1.0~alpha3" "Boswas OS"
+.SH NAME
+boswas-cp \- set up, run and administer the Boswas Control Plane
+.SH SYNOPSIS
+.B boswas-cp
+.RB [ \-\-config " \fIFILE\fR]"
+.RB [ \-\-json ]
+.I command
+.RI [ options ]
+.SH DESCRIPTION
+The Boswas Control Plane manages Boswas OS devices: device registry and
+enrollment, heartbeats and inventory, typed management commands, signed
+device policies, the catalog of 64-bit Windows applications, and an audit
+trail. Devices authenticate with certificates (mutual TLS); operators with
+API tokens over the HTTPS API and the web dashboard.
+.PP
+There is no remote shell: commands are typed operations (install, update,
+remove, launch, stop and repair an application; refresh the inventory; apply
+the policy; update the agent). 32-bit Windows applications are marked
+unsupported and are never installed.
+.PP
+Administration commands work directly on the data directory; run them as the
+service user
+.B boswas-cp
+(or root) on the Control Plane host. Secrets (operator and enrollment tokens)
+are printed once and stored only as hashes.
+.SH COMMANDS
+.TP
+.BI "init \-\-public\-url " URL " \-\-server\-name " NAME " " \fR[...] " [\-\-admin " NAME ]
+Create the server and device CAs, the TLS server certificate (for the given
+DNS names and IP addresses), the Ed25519 policy key, the database, the
+default policy and the first administrator, whose API token is printed.
+.TP
+.B serve
+Run the HTTPS API, the dashboard and the background sweeper (systemd unit
+.BR boswas-control-plane.service ).
+The device port
+.RB ( LISTEN_PORT ,
+8443) asks for a client certificate and serves enrollment and the device
+API; the operator port
+.RB ( OPERATOR_LISTEN_PORT ,
+9443) never asks for one and serves the dashboard and the operator API.
+An endpoint requested on the other port is refused with
+.BR WRONG_PORT .
+.TP
+.BR "operator add " \fINAME\fR " \-\-role viewer" | operator | admin
+Create an operator and print its API token. Also
+.B operator list
+and
+.BI "operator disable " NAME .
+.TP
+.BR "token create " [ \-\-profile " \fIP\fR] [" \-\-policy " \fINAME\fR] [" \-\-ttl\-hours " \fIN\fR] [" \-\-max\-uses " \fIN\fR] [" \-\-allow\-ephemeral "] [" \-\-device " \fIDEVICE_ID\fR]
+Create a one-time device enrollment token.
+With
+.BR \-\-device ,
+only that device can use it; this is required to re-enroll a device that is
+already enrolled (for example after a reinstallation that kept its ID).
+.TP
+.BI "artifact add " FILE
+Store a Windows installer (.exe or .msi) for catalog applications.
+.TP
+.BI "catalog add " MANIFEST.json " \fR[\fB\-\-installer \fIFILE\fR]"
+Add or replace a catalog application (compatibility manifest format v1; the
+manifest must pin its installer's SHA-256). Also
+.BR "catalog list" .
+.TP
+.BI "policy publish " POLICY.json
+Publish a new, signed version of a device policy
+.RB ( name ", " description ", " compat ", " agent ", " updates ).
+Also
+.BR "policy list" .
+.TP
+.BR "device list" " | " "device retire " \fIDEVICE_ID\fR
+List devices or retire one (its certificate stops working).
+.TP
+.BR "events list" " | " "events verify"
+Show the audit trail or check its hash chain.
+.TP
+.B ca\-certificate
+Print the CA certificate devices pin
+.RB ( CONTROL_PLANE_CA
+in
+.IR /etc/boswas/device.conf ).
+.TP
+.B sweep
+Mark silent devices offline and expire undelivered commands once.
+.SH FILES
+.TP
+.I /etc/boswas\-control\-plane/control\-plane.conf
+Configuration (no secrets): device port
+.RB ( LISTEN_ADDRESS ", " LISTEN_PORT ", " PUBLIC_URL ),
+operator port
+.RB ( OPERATOR_LISTEN_ADDRESS ", " OPERATOR_LISTEN_PORT ;
+an empty port disables it), data and dashboard directories, limits.
+.TP
+.I /var/lib/boswas\-control\-plane/
+Database, CAs, server and policy keys, stored installers (0700).
+.SH SEE ALSO
+.BR boswas-device (1)
