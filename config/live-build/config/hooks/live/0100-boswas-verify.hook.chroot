@@ -73,6 +73,17 @@ for initrd in /boot/initrd.img-*; do
 		|| fail "$initrd does not contain the Boswas OS Plymouth theme"
 done
 
+# Boswas Control Center (settings hub, Security/Software/Update Centers) imports
+# its Qt bindings; the icon themes and the ten presets are installed.
+installed boswas-control-center || fail "required package missing: boswas-control-center"
+python3 -IB -c 'import sys; sys.path.insert(0, "/usr/lib/boswas/python"); import boswas_control_center.app' \
+	|| fail "Boswas Control Center does not import"
+for theme in Boswas Boswas-Light; do
+	[ -f "/usr/share/icons/$theme/index.theme" ] || fail "icon theme $theme missing"
+done
+[ "$(boswas-preset --json list | python3 -c 'import json, sys; print(len(json.load(sys.stdin)["presets"]))')" = 10 ] \
+	|| fail "boswas-preset does not list the ten Boswas OS presets"
+
 # Desktop: Boswas Launcher and the session splash are installed packages.
 [ -f /usr/share/plasma/plasmoids/com.boswas.launcher/metadata.json ] || fail "Boswas Launcher applet missing"
 [ -f /usr/share/plasma/look-and-feel/com.boswas.splash/contents/splash/Splash.qml ] || fail "Boswas splash missing"

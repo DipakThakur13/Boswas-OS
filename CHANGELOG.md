@@ -2,9 +2,40 @@
 
 All notable changes to Boswas OS. Versions follow `config/boswas/release.conf`.
 
-## [1.0~alpha3] - 2026-10-04 (Device Agent, Compatibility Manager, Control Plane)
+## [1.0~alpha3] - 2026-10-04 (Device Agent, Compatibility Manager, Control Plane, Boswas OS experience)
 
 ### Added
+- **The Boswas OS experience** ([docs/experience/README.md](docs/experience/README.md)):
+  - **Identity (ADR-0005 revised):** the system presents itself as Boswas
+    OS. `os-release` (`ID=boswas`, `ID_LIKE=debian`), console banners and
+    motd, boot medium name, About page and live user all say Boswas OS.
+    The remaining Debian references and why they stay:
+    [docs/experience/debian-references.md](docs/experience/debian-references.md).
+  - **Boot:** the Boswas OS Plymouth theme for boot, shutdown and the
+    disk-encryption passphrase; a hidden GRUB menu on installed systems,
+    keeping Debian's EFI directory for Secure Boot.
+  - **Login and session:** a Boswas login screen logo and background, and
+    the Boswas session start-up splash.
+  - **Ten presets** (Horizon, the default, Midnight, Aurora, Slate,
+    Carbon, Pearl, Ocean, Ember, Nebula, Classic). Each brings a Global
+    Theme, colour scheme, light, dark and lock wallpapers, panel layout,
+    icon treatment and Konsole profile; switch with `boswas-preset` or in
+    Control Center ([desktop/presets](desktop/presets/README.md)).
+  - **Icons:** the Boswas and Boswas Light icon themes, 61 designs for
+    system settings, applications, Boswas applications and Windows
+    compatibility ([desktop/icons](desktop/icons/README.md)).
+  - **Desktop:** Boswas Launcher (KDE's launcher under the Boswas name)
+    and a Boswas panel layout.
+  - **Boswas Control Center** (new package `boswas-control-center`): the
+    settings hub with the Boswas Security Center, Software Center, Update
+    Center, About Boswas OS and, in live sessions, Install Boswas OS.
+  - **Terminal:** the Boswas welcome and prompt.
+  - **Live USB:** the live desktop starts directly, and installation is
+    only by explicit choice (application menu, Control Center or boot
+    menu). The new release-blocker boot test (scenario `usb`) checks this
+    on a UEFI/Secure Boot USB boot, including that the internal disk is
+    unchanged. An opt-in installed-system test is available
+    (`./test.sh --install-test`).
 - **`boswas-device-agent` package**
   ([docs/device-management/README.md](docs/device-management/README.md)):
   - **Identity:** a persistent, random device identity

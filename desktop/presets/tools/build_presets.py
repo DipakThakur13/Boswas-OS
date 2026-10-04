@@ -862,7 +862,8 @@ def motif_pearl(svg: Svg, v: dict, ctx: dict, layer: str) -> None:
 
 
 def motif_ocean(svg: Svg, v: dict, ctx: dict, layer: str) -> None:
-    """A shaft of light (the blade) above calm, layered swells."""
+    """A shaft of light (the blade) above calm, layered swells that catch the
+    light along their crests."""
     fx, fy = ctx["focus"]
     if layer == "back":
         if not ctx["lock"]:
@@ -870,25 +871,31 @@ def motif_ocean(svg: Svg, v: dict, ctx: dict, layer: str) -> None:
         return
     shift = 70 if ctx["lock"] else 0
     swells = [
-        (1560, 150, v["motif_colors"][0], 0.55),
-        (1720, 120, v["motif_colors"][1], 0.75),
-        (1880, 90, v["motif_colors"][2], 0.92),
+        (1560, 150, v["motif_colors"][0], 0.60),
+        (1720, 120, v["motif_colors"][1], 0.80),
+        (1880, 90, v["motif_colors"][2], 0.95),
     ]
+    glow = svg.blur(18)
     for i, (base, amp, color, opacity) in enumerate(swells):
         base += shift
         phase = (0, 900, 420)[i]
         top_y = base - amp
-        d = (f"M0 {num(base + amp * 0.3)}"
-             f"C{num(700 + phase * 0.2)} {num(base - amp)} {num(1500 + phase * 0.3)} {num(base - amp)} "
-             f"{num(2200 + phase * 0.2)} {num(base)}"
-             f"S{num(3300 + phase * 0.1)} {num(base + amp * 0.6)} {W} {num(base - amp * 0.5)}"
-             f"V{H}H0Z")
-        fill = svg.linear([(0, color, opacity), (1, color, opacity * 0.85)], 0, top_y, 0, H)
-        svg.add(f'<path d="{d}" fill="{fill}"/>')
-        crest = svg.linear([(0, v["accent"], 0), (0.45, v["accent_hi"], 0.32 - 0.06 * i), (1, v["accent"], 0)],
-                           0, 0, W, 0)
-        crest_d = d.split("V")[0]
-        svg.add(f'<path d="{crest_d}" fill="none" stroke="{crest}" stroke-width="3"/>')
+        crest_d = (f"M0 {num(base + amp * 0.3)}"
+                   f"C{num(700 + phase * 0.2)} {num(base - amp)} {num(1500 + phase * 0.3)} {num(base - amp)} "
+                   f"{num(2200 + phase * 0.2)} {num(base)}"
+                   f"S{num(3300 + phase * 0.1)} {num(base + amp * 0.6)} {W} {num(base - amp * 0.5)}")
+        lit = mix(color, v["accent"], 0.22)
+        fill = svg.linear([(0, lit, opacity), (0.35, color, opacity), (1, color, opacity * 0.9)],
+                          0, top_y, 0, top_y + 600)
+        svg.add(f'<path d="{crest_d}V{H}H0Z" fill="{fill}"/>')
+        crest = svg.linear([(0, v["accent"], 0), (0.5, v["accent_hi"], 1), (1, v["accent"], 0)],
+                           fx - 2600, 0, fx + 1400, 0)
+        svg.add(f'<path d="{crest_d}" fill="none" stroke="{crest}" stroke-width="26" '
+                f'stroke-opacity="{num(0.16 - 0.03 * i)}" filter="{glow}"/>')
+        svg.add(f'<path d="{crest_d}" fill="none" stroke="{crest}" stroke-width="3" '
+                f'stroke-opacity="{num(0.42 - 0.08 * i)}"/>')
+    # The light of the focus, reflected on the water.
+    _cloud(svg, fx, 1900 + shift, 700, 170, v["accent_hi"], 0.14)
 
 
 EMBER_FLOW = "M-200 2150C900 2050 1500 1650 2300 1450S3500 950 4200 650"
@@ -904,7 +911,7 @@ def motif_ember(svg: Svg, v: dict, ctx: dict, layer: str) -> None:
     _cloud(svg, 3300, 2250, 2300, 1500, flame, 0.30)
     _cloud(svg, 3600, 1900, 1200, 900, deep, 0.25)
     soft = svg.blur(60)
-    _ribbon(svg, EMBER_FLOW, 260, 0.38, (deep, copper, flame), soft)
+    _ribbon(svg, EMBER_FLOW, 260, 0.38 if not ctx["light"] else 0.24, (deep, copper, flame), soft)
     if not ctx["lock"]:
         _ribbon(svg, "M-200 1900C800 1880 1500 1500 2400 1250S3500 700 4200 380", 120, 0.22,
                 (deep, flame, copper), soft)

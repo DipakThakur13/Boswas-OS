@@ -136,6 +136,17 @@ check "Control Plane: dashboard and protocol modules shipped in its own module d
 	bash -c "grep -q '\./usr/share/boswas-control-plane/dashboard/app.js$' <<<\"\$1\" && grep -q '\./usr/lib/boswas-control-plane/python/boswas_agent/commands.py$' <<<\"\$1\" && ! grep -q '\./usr/lib/boswas/python/' <<<\"\$(dpkg-deb -c '$server_deb')\"" _ "$listing"
 rm -rf "$ctl"
 
+# Boswas Control Center (settings hub; Security, Software and Update Centers)
+cc_deb="$debs/boswas-control-center_${BOSWAS_VERSION_ID}_all.deb"
+check "Control Center: command and its four desktop entries shipped (no Install entry: live sessions only)" \
+	bash -c "grep -qE '^-rwxr-xr-x root/root .* \./usr/bin/boswas-control-center$' <<<\"\$1\" &&
+		for e in ControlCenter SecurityCenter SoftwareCenter UpdateCenter; do
+			grep -q \"\\./usr/share/applications/com.boswas.\$e.desktop$\" <<<\"\$1\" || exit 1; done &&
+		! grep -q 'InstallBoswasOS' <<<\"\$1\"" _ "$listing"
+check "Control Center depends on PySide6, KDE's module launcher, the CLI, the device agent and the branding (presets)" \
+	bash -c "d=\$(dpkg-deb -f '$cc_deb' Depends); for p in python3-pyside6.qtwidgets libkf6kcmutils-bin boswas-cli boswas-device-agent boswas-branding; do
+		grep -q \"\$p\" <<<\"\$d\" || exit 1; done"
+
 # Package contents never carry key material
 extract="$(mktemp -d)"
 for d in "$debs"/*.deb "$server_deb"; do dpkg-deb -x "$d" "$extract"; done

@@ -7,7 +7,12 @@ a public Linux distribution.
 
 > **Status: v1 alpha (1.0~alpha3). Not production-ready.**
 > This release contains:
-> - Debian 13 base, KDE Plasma desktop and Boswas branding
+> - the Boswas OS experience: Boswas OS identity, boot splash, login,
+>   ten presets, Boswas icons, Boswas Launcher, Boswas Control Center (with
+>   the Security, Software and Update Centers) and a branded terminal, on
+>   KDE Plasma and a Debian 13 base
+> - a Live USB that boots straight to a usable desktop; installation only
+>   by explicit choice
 > - security baseline and encrypted installer
 > - `boswas` status tools
 > - **WinCompat:** Windows applications in isolated, AppArmor-confined Wine
@@ -104,9 +109,9 @@ boswas-device status        # device agent: state, identity, Control Plane conne
 | Area | Implementation |
 |------|----------------|
 | Base | Debian 13.x trixie, amd64, Linux 6.12, systemd |
-| Desktop | KDE Plasma 6.3 (Wayland), Boswas global theme, Boswas Dark colours, wallpaper, login and lock screens, About page |
+| Desktop | KDE Plasma 6.3 (Wayland) with the Boswas OS experience: ten presets (Global Themes, colour schemes, wallpapers, Konsole profiles), Boswas icon themes, Boswas Launcher, Boswas splash, login and lock screens, Boswas Control Center ([docs/experience](docs/experience/README.md)) |
 | Branding | Built from the official Boswas Group logo and lettering ([desktop/branding](desktop/branding/README.md)) |
-| Boot | GRUB for BIOS and UEFI; Debian-signed shim/GRUB/kernel for Secure Boot; branded boot menu |
+| Boot | GRUB for BIOS and UEFI; Debian-signed shim/GRUB/kernel for Secure Boot; Boswas boot menu and Plymouth boot, shutdown and passphrase splash |
 | Installer | Debian Installer (live mode), Boswas banner, policy: full-disk encryption, root locked, host `boswas-device` |
 | Security | nftables (inbound deny), AppArmor, auditd rules, sudo/pwquality policy, kernel hardening, no SSH server, security-only automatic updates, enforced screen lock |
 | Tools | `boswas`, `boswas-info`, `boswas-status` (read-only, `--json`) |
@@ -130,13 +135,17 @@ boswas-device status        # device agent: state, identity, Control Plane conne
 | Hardware Compatibility List | [docs/deployment/hardware-compatibility.md](docs/deployment/hardware-compatibility.md) |
 | CLI reference | [docs/administration/cli.md](docs/administration/cli.md) |
 | Windows compatibility | [docs/compatibility/README.md](docs/compatibility/README.md) |
+| The Boswas OS experience | [docs/experience/README.md](docs/experience/README.md) |
+| Debian references audit | [docs/experience/debian-references.md](docs/experience/debian-references.md) |
+| Live USB checklist | [docs/experience/live-usb-checklist.md](docs/experience/live-usb-checklist.md) |
 | Device agent | [docs/device-management/README.md](docs/device-management/README.md) |
 | Control Plane | [docs/device-management/control-plane.md](docs/device-management/control-plane.md) |
 
 ## Licensing and attribution
 
 Boswas OS is based on Debian. Debian components keep their own licences
-(`/usr/share/doc/*/copyright` on every device), and Debian's identity stays
-intact (`/etc/os-release`). Boswas-authored files: see
+(`/usr/share/doc/*/copyright` on every device). The system presents itself
+as Boswas OS (`ID=boswas`), while `ID_LIKE=debian`, `/etc/debian_version`
+and the package archive keep Debian tooling working (ADR-0005). Boswas-authored files: see
 [LICENSES/](LICENSES/README.md). Security reports: [SECURITY.md](SECURITY.md).
 Contributing: [CONTRIBUTING.md](CONTRIBUTING.md).

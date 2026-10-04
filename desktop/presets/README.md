@@ -191,10 +191,10 @@ preset list comes from `/usr/share/boswas/presets/presets.json`
 The login screen (SDDM) is system-wide and does not follow a user's preset.
 Its background is `/usr/share/boswas/branding/login-background.png`, the
 Horizon lock screen artwork. An administrator who wants the login screen to
-match a preset can use System Settings > Colours & Themes > Login Screen
-(SDDM) > Apply Plasma Settings, which copies their colours, fonts, cursor
-and wallpaper to the login screen. The lock screen is per user and follows
-the preset.
+match a preset can apply it, then use System Settings > Colors & Themes >
+Login Screen (SDDM) > Apply Plasma Settings, which copies their Plasma
+settings (colours, fonts, cursor theme) to the login screen. The lock screen
+is per user and follows the preset.
 
 ## Files
 
@@ -219,7 +219,7 @@ the preset.
 python3 desktop/presets/tools/build_presets.py          # regenerate after editing presets.json
 python3 desktop/presets/tools/build_presets.py --check  # exit 1 if generated files are stale
 cd desktop/presets && python3 -B -m unittest discover -s tests -v
-BOSWAS_PRESETS_FULL_INSTALL=1 python3 -B -m unittest tests.test_install   # also a full install
+BOSWAS_PRESETS_FULL_INSTALL=1 python3 -B -m unittest discover -s tests -p test_install.py   # full install
 ```
 
 The tests check `presets.json`, that the generated files are up to date, the

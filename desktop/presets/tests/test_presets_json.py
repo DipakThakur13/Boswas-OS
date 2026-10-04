@@ -112,6 +112,18 @@ class PresetsJsonTest(unittest.TestCase):
                     self.assertFalse(160 <= hue <= 190 and saturation > 0.35, value)
 
 
+class ReadmeTest(unittest.TestCase):
+    def test_token_table_matches_presets_json(self):
+        readme = (support.PRESETS_DIR / "README.md").read_text(encoding="utf-8")
+        for p in support.presets():
+            c, t = p["palette"], p["terminal"]
+            row = (f"| **{p['label']}** (`{p['id']}`) | {p['variant']} | `{c['window']}` | `{c['view']}` | "
+                   f"`{c['header']}` | `{c['selection']}` / `{c['selection_text']}` | `{c['accent']}` | "
+                   f"`{c['text']}` / `{c['muted']}` | `{c['neutral']}` | `{t['background']}` / `{t['foreground']}` |")
+            with self.subTest(preset=p["id"]):
+                self.assertIn(row, readme)
+
+
 class NoTealTest(unittest.TestCase):
     def test_no_teal_anywhere_in_the_presets(self):
         for path in sorted(support.PRESETS_DIR.rglob("*")):

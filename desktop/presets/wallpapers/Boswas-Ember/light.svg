@@ -23,7 +23,7 @@
   <rect width="3840" height="2160" fill="url(#w-rad3)"/>
   <rect width="3840" height="2160" fill="url(#w-rad4)"/>
   <rect width="3840" height="2160" fill="url(#w-rad5)"/>
-  <path d="M-200 2150C900 2050 1500 1650 2300 1450S3500 950 4200 650" fill="none" stroke="url(#w-lin7)" stroke-width="260" stroke-opacity="0.38" stroke-linecap="round" filter="url(#w-blur6)"/>
+  <path d="M-200 2150C900 2050 1500 1650 2300 1450S3500 950 4200 650" fill="none" stroke="url(#w-lin7)" stroke-width="260" stroke-opacity="0.24" stroke-linecap="round" filter="url(#w-blur6)"/>
   <path d="M-200 1900C800 1880 1500 1500 2400 1250S3500 700 4200 380" fill="none" stroke="url(#w-lin8)" stroke-width="120" stroke-opacity="0.22" stroke-linecap="round" filter="url(#w-blur6)"/>
   <path d="M-200 2124C900 2024 1500 1624 2300 1424S3500 924 4200 624" fill="none" stroke="url(#w-lin9)" stroke-width="2"/>
   <path d="M-200 2154C900 2054 1500 1654 2300 1454S3500 954 4200 654" fill="none" stroke="url(#w-lin9)" stroke-width="2"/>
