@@ -11,7 +11,7 @@ build: ## Build the ISO (container mode automatically on non-Debian-13 hosts)
 
 iso: build ## Alias for build
 
-packages: ## Build only the Boswas .deb packages into build/output/debs
+packages: ## Build and check only the Boswas .deb packages (static + lintian + unit tests)
 	./test.sh --packages-only
 
 test: ## Run all tests that the environment supports (incl. QEMU boot test)

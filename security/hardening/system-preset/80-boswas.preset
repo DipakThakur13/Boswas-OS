@@ -1,0 +1,20 @@
+# Boswas OS service enable policy (installed by boswas-security into
+# /usr/lib/systemd/system-preset/). The first matching line wins; Debian's own
+# presets come later (90-*). Administrators can override in
+# /etc/systemd/system-preset/.
+#
+# Debian 13 enables a newly installed service through `systemctl preset`, so
+# this file is what makes these decisions stick:
+
+# Host firewall: Debian ships nftables.service disabled; Boswas enables it.
+enable nftables.service
+
+# Security services Debian already enables, stated as Boswas policy.
+enable apparmor.service
+enable auditd.service
+
+# Inbound remote access stays off unless a device is explicitly provisioned:
+# a fresh installation of openssh-server is NOT enabled automatically; the
+# provisioning step must enable it deliberately.
+disable ssh.service
+disable ssh.socket

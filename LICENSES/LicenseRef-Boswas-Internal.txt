@@ -1,0 +1,25 @@
+Boswas Group Internal License (LicenseRef-Boswas-Internal)
+
+Copyright (c) 2026 Boswas Group. All rights reserved.
+
+This license applies only to the files authored by or for Boswas Group in the
+Boswas OS source repository and to the boswas-* packages built from them. It
+does not apply to Debian or other third-party components, which remain under
+their own licenses.
+
+Permission is granted to Boswas Group, its subsidiaries, and their employees
+and contractors to use, copy, modify and run this software solely for the
+purpose of building, operating and supporting Boswas OS on devices owned or
+managed by Boswas Group.
+
+Redistribution outside Boswas Group, in source or binary form, requires prior
+written permission from Boswas Group.
+
+The Boswas Group name, logo and lettering are trademarks of Boswas Group and
+may only be used in accordance with Boswas Group brand guidelines.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+
+[Placeholder text pending review by Boswas Group Legal.]

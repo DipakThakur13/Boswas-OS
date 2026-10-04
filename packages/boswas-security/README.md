@@ -6,6 +6,7 @@ file owned by another Debian package; every setting is a drop-in.
 | Area | File on the device | Mechanism |
 |------|--------------------|-----------|
 | Firewall ruleset | `/etc/boswas/firewall/nftables.conf` | loaded by `nftables.service` through `/usr/lib/systemd/system/nftables.service.d/boswas.conf` |
+| Service enable policy | `/usr/lib/systemd/system-preset/80-boswas.preset` | enables nftables; fresh openssh-server installs stay disabled; override in `/etc/systemd/system-preset/` |
 | Local firewall additions | `/etc/boswas/firewall/{input,forward}.d/*.nft` | included by the ruleset |
 | Kernel hardening | `/usr/lib/sysctl.d/60-boswas-hardening.conf` | systemd-sysctl; override in `/etc/sysctl.d/` |
 | sudo defaults | `/etc/sudoers.d/boswas` | grants no privileges |

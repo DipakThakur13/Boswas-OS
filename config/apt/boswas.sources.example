@@ -1,0 +1,15 @@
+# EXAMPLE ONLY - not installed, not active.
+#
+# How Boswas OS devices will consume the Boswas APT repository once it exists
+# (docs/architecture/update-architecture.md). The channel component follows
+# CHANNEL in /etc/boswas/update.conf (dev | qa | stable).
+#
+# The keyring will be shipped by a future boswas-archive-keyring package and
+# contains ONLY the public repository signing key. Private signing keys are
+# never stored in this repository.
+#
+# Types: deb
+# URIs: https://repo.boswas.invalid/boswas-os
+# Suites: trixie
+# Components: stable
+# Signed-By: /usr/share/keyrings/boswas-archive-keyring.pgp

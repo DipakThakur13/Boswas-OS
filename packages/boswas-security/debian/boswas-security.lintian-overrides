@@ -1,3 +1,10 @@
 # Same mode as Debian's own /etc/audit/rules.d/audit.rules (auditd package):
 # audit rules are only readable by root.
 boswas-security: non-standard-file-perm 0640 != 0644 [etc/audit/rules.d/50-boswas.rules]
+
+# postinst applies the Boswas systemd preset to nftables.service on first
+# installation. The unit belongs to the nftables package, which installs it
+# disabled; deb-systemd-helper intentionally never enables such a unit, and
+# `systemctl preset` is the systemd-native downstream mechanism for exactly
+# this (it also works offline in image-build chroots).
+boswas-security: maintainer-script-calls-systemctl [postinst:*]

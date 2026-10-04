@@ -4,8 +4,13 @@ set -e
 if [ "$1" = "configure" ]; then
 	# Enable the firewall on first installation only, so a later, explicit
 	# administrator decision to disable it is respected on upgrades.
-	if [ -z "$2" ]; then
-		deb-systemd-helper enable nftables.service >/dev/null || \
+	# nftables.service is installed disabled by Debian, and deb-systemd-helper
+	# deliberately never overrides that; applying the Boswas preset
+	# (/usr/lib/systemd/system-preset/80-boswas.preset) is the systemd-native
+	# way for a downstream to change the enable policy. Works offline in
+	# image-build chroots.
+	if [ -z "$2" ] && command -v systemctl >/dev/null; then
+		systemctl --system --preset-mode=enable-only preset nftables.service >/dev/null 2>&1 || \
 			echo "boswas-security: warning: could not enable nftables.service" >&2
 	fi
 
