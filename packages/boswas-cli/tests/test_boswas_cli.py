@@ -210,6 +210,16 @@ class CommandTests(CliTestCase):
             self.assertEqual(doc["os"]["base"]["codename"], "trixie")
             self.assertEqual(doc["os"]["architecture"], "amd64")
 
+    def test_package_base_is_debian_while_the_system_is_boswas_os(self):
+        # boswas-os names the system Boswas OS in os-release; the package base
+        # (technical detail) still comes from the release file and debian_version.
+        self.fs.write("/etc/os-release", 'NAME="Boswas OS"\nID=boswas\nID_LIKE=debian\nVERSION_CODENAME=trixie\n')
+        code, out, _ = self.run_cli("--json", "info")
+        base = json.loads(out)["os"]["base"]
+        self.assertEqual((base["name"], base["version"], base["codename"]), ("Debian", "13.7", "trixie"))
+        code, out, _ = self.run_cli("info")
+        self.assertIn("Package base: Debian 13.7 (trixie)", " ".join(out.split()))
+
     def test_status_exit_code_reflects_failures(self):
         self.installed_luks2_on_lvm()
         self.fs.write("/sys/module/apparmor/parameters/enabled", "Y\n")

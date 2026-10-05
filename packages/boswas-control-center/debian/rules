@@ -1,0 +1,27 @@
+#!/usr/bin/make -f
+# Boswas Control Center: a PySide6 settings hub. Python modules go to the
+# private module directory shared with the other Boswas packages
+# (/usr/lib/boswas/python). Every file is installed with an explicit mode.
+# The tests import boswas_agent.localapi from the sibling package
+# (../boswas-device-agent) of the monorepo checkout; the widget tests skip
+# themselves when PySide6 is not installed.
+
+PKG   := debian/boswas-control-center
+PYDIR := $(PKG)/usr/lib/boswas/python/boswas_control_center
+APPS  := $(PKG)/usr/share/applications
+
+%:
+	dh $@
+
+override_dh_auto_test:
+ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+	QT_QPA_PLATFORM=offscreen python3 -B -m unittest discover -s tests -v
+endif
+
+override_dh_auto_install:
+	install -D -m 0755 bin/boswas-control-center $(PKG)/usr/bin/boswas-control-center
+	install -d -m 0755 $(PYDIR) $(PYDIR)/ui $(APPS)
+	install -m 0644 boswas_control_center/*.py $(PYDIR)/
+	install -m 0644 boswas_control_center/ui/*.py $(PYDIR)/ui/
+	install -m 0644 data/com.boswas.ControlCenter.desktop data/com.boswas.SecurityCenter.desktop \
+		data/com.boswas.SoftwareCenter.desktop data/com.boswas.UpdateCenter.desktop $(APPS)/

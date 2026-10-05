@@ -26,11 +26,16 @@ created by the milestone that implements them.
 │   │                                       exclusion pins, boot menu, hooks
 │   └── apt/                                Boswas repository template (disabled)
 ├── desktop/
-│   ├── branding/                           official Boswas Group artwork (source/),
-│   │                                       traced vector assets, icons, boot splash
-│   ├── wallpapers/Boswas/                  wallpaper and login background (SVG)
-│   ├── themes/                             Plasma global theme, Boswas Dark colours
-│   └── defaults/                           KDE, SDDM and Plasma session defaults
+│   ├── branding/                           Boswas OS logo (source/), traced mark,
+│   │                                       Orbitron wordmarks, boot menu, Plymouth,
+│   │                                       session splash, login logo, tools
+│   ├── fonts/orbitron/                     brand typeface (SIL OFL 1.1)
+│   ├── presets/                            the ten presets (Global Themes, colour
+│   │                                       schemes, wallpapers, Konsole), boswas-preset
+│   ├── icons/                              Boswas and Boswas Light icon themes
+│   ├── launcher/                           Boswas Launcher applet
+│   ├── terminal/                           Boswas prompt and welcome
+│   └── defaults/                           KDE, SDDM, Firefox and session defaults
 ├── installer/
 │   ├── configuration/preseed.cfg           Debian Installer policy (encrypted install)
 │   └── branding/                           installer banner

@@ -1,0 +1,16 @@
+{
+    "KPackageStructure": "Plasma/LookAndFeel",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Boswas Group"
+            }
+        ],
+        "Category": "",
+        "Description": "Boswas navy lit by flowing aurora light and a luminous ice-blue accent. Futuristic, with the gold kept in the mark.",
+        "Id": "com.boswas.aurora",
+        "License": "LicenseRef-Boswas-Internal",
+        "Name": "Boswas Aurora",
+        "Website": ""
+    }
+}

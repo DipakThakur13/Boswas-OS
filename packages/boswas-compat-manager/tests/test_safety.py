@@ -222,7 +222,7 @@ class DataFilesTest(unittest.TestCase):
 
     def test_application_entry(self):
         entry = self.entries(PACKAGE / "data" / "com.boswas.CompatibilityManager.desktop")["Desktop Entry"]
-        self.assertEqual(entry["Name"], "Compatibility Manager")
+        self.assertEqual(entry["Name"], "Boswas Compatibility Manager")
         self.assertEqual(entry["GenericName"], "Windows Application Manager")
         self.assertEqual(entry["Exec"], "boswas-compat-manager")
         self.assertEqual(entry["Icon"], "boswas-compat-manager")
@@ -241,8 +241,8 @@ class DataFilesTest(unittest.TestCase):
 
     def test_icon_is_self_contained(self):
         svg = (PACKAGE / "data" / "boswas-compat-manager.svg").read_text(encoding="utf-8")
-        self.assertIn("#2ED3CD", svg)
-        self.assertIn("#0B1F33", svg)
+        self.assertIn("#EBC786", svg)                     # brand gold (desktop/branding/README.md)
+        self.assertIn("#080C16", svg)                     # brand navy
         self.assertNotIn("href", svg)
         self.assertNotIn("<script", svg)
 

@@ -1,0 +1,18 @@
+#!/bin/sh
+# Boswas OS identity: divert base-files' os-release so the system presents
+# itself as Boswas OS. Debian's original is kept next to it
+# (/usr/lib/os-release.debian) and is restored when boswas-os is removed.
+# /etc/debian_version, the package archive and ID_LIKE=debian keep Debian
+# tooling working. (The console banners are conffiles, which must not be
+# diverted; boswas-os.postinst handles them.)
+set -e
+
+case "$1" in
+	install|upgrade)
+		dpkg-divert --package boswas-os --add --rename --divert /usr/lib/os-release.debian /usr/lib/os-release
+		;;
+esac
+
+#DEBHELPER#
+
+exit 0

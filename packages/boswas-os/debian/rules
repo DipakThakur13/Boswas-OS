@@ -14,9 +14,24 @@ override_dh_auto_build:
 	mkdir -p build
 	$(SUBST) < $(REPO)/config/boswas/update.conf.in > build/update.conf
 	$(SUBST) < $(REPO)/config/boswas/boswas.issue.in > build/boswas.issue
+	# os-release VERSION_ID may only use [a-z0-9._-]: 1.0~alpha3 -> 1.0-alpha3
+	$(SUBST) < $(REPO)/config/boswas/os-release.in | sed '/^VERSION_ID=/s/~/-/g' > build/os-release
+	$(SUBST) < $(REPO)/config/boswas/issue.in > build/issue
+	$(SUBST) < $(REPO)/config/boswas/issue.net.in > build/issue.net
+	$(SUBST) < $(REPO)/config/boswas/motd.in > build/motd
 
 override_dh_auto_install:
 	install -D -m 0644 $(REPO)/config/boswas/release.conf $(PKG)/usr/lib/boswas/release
 	install -D -m 0644 $(REPO)/config/boswas/device.conf $(PKG)/etc/boswas/device.conf
 	install -D -m 0644 build/update.conf $(PKG)/etc/boswas/update.conf
 	install -D -m 0644 build/boswas.issue $(PKG)/etc/issue.d/boswas.issue
+	# Boswas OS identity: os-release (base-files' original is diverted, see
+	# boswas-os.preinst); banners and motd are applied by boswas-os.postinst
+	install -D -m 0644 build/os-release $(PKG)/usr/lib/os-release
+	install -D -m 0644 build/issue $(PKG)/usr/share/boswas/issue
+	install -D -m 0644 build/issue.net $(PKG)/usr/share/boswas/issue.net
+	install -D -m 0644 build/motd $(PKG)/usr/share/boswas/motd
+	install -D -m 0644 $(REPO)/config/boswas/grub-boswas.cfg $(PKG)/etc/default/grub.d/10-boswas.cfg
+	# Live session only (live-config is not installed on installed systems)
+	install -D -m 0644 $(REPO)/config/boswas/live-config.conf $(PKG)/etc/live/config.conf.d/boswas.conf
+	install -D -m 0755 $(REPO)/config/boswas/live-config-boswas $(PKG)/usr/lib/live/config/9000-boswas

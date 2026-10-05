@@ -1,0 +1,12 @@
+{
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Boswas Group"
+            }
+        ],
+        "Id": "Boswas-Aurora",
+        "License": "LicenseRef-Boswas-Internal",
+        "Name": "Boswas Aurora"
+    }
+}

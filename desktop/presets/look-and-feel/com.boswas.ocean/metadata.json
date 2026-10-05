@@ -1,0 +1,16 @@
+{
+    "KPackageStructure": "Plasma/LookAndFeel",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Boswas Group"
+            }
+        ],
+        "Category": "",
+        "Description": "Calm deep blues with an ocean-blue accent, for focused everyday productivity.",
+        "Id": "com.boswas.ocean",
+        "License": "LicenseRef-Boswas-Internal",
+        "Name": "Boswas Ocean",
+        "Website": ""
+    }
+}

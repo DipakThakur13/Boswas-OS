@@ -1,0 +1,7 @@
+{
+  "policies": {
+    "SearchEngines": {
+      "Remove": ["Debian packages"]
+    }
+  }
+}

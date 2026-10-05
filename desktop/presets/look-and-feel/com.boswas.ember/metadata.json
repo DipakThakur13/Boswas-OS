@@ -1,0 +1,16 @@
+{
+    "KPackageStructure": "Plasma/LookAndFeel",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Boswas Group"
+            }
+        ],
+        "Category": "",
+        "Description": "Warm dark surfaces with a strong copper accent. A creative workstation look.",
+        "Id": "com.boswas.ember",
+        "License": "LicenseRef-Boswas-Internal",
+        "Name": "Boswas Ember",
+        "Website": ""
+    }
+}

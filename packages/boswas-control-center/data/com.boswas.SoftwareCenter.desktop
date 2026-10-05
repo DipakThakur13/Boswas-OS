@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Boswas Software Center
+GenericName=Installed Applications
+Comment=Find and open the applications installed on this device
+Exec=boswas-control-center --page applications
+Icon=boswas-software-center
+Terminal=false
+StartupNotify=true
+Categories=System;Qt;
+Keywords=applications;apps;software;programs;Windows applications;default applications;autostart;

@@ -1,0 +1,28 @@
+# Boswas OS terminal start-up (Konsole "Boswas" profiles run
+# bash --rcfile /usr/share/boswas/terminal/bashrc). The user's own ~/.bashrc
+# runs first and keeps working; this adds the Boswas prompt and welcome.
+
+if [ -f "$HOME/.bashrc" ]; then
+	. "$HOME/.bashrc"
+fi
+
+case "$-" in
+	*i*) ;;
+	*) return 0 2>/dev/null || exit 0 ;;
+esac
+
+# Prompt: user@host in Boswas gold, directory in silver; the exit status of a
+# failed command is shown in orange (text, not only colour).
+__boswas_status() {
+	local rc=$?
+	[ "$rc" -eq 0 ] || printf '[%s] ' "$rc"
+}
+if [ -z "${NO_COLOR:-}" ]; then
+	PS1='\[\e[38;2;240;150;74m\]$(__boswas_status)\[\e[0m\]\[\e[1;38;2;227;191;126m\]\u@\h\[\e[0m\] \[\e[38;2;174;183;199m\]\w\[\e[0m\] \$ '
+else
+	PS1='$(__boswas_status)\u@\h \w \$ '
+fi
+
+if [ ! -e "${XDG_CONFIG_HOME:-$HOME/.config}/boswas/no-welcome" ] && command -v boswas-welcome >/dev/null 2>&1; then
+	boswas-welcome
+fi

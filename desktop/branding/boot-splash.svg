@@ -1,25 +1,25 @@
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="800" height="600" viewBox="0 0 800 600">
   <title>Boswas OS boot menu background (live/installer ISO)</title>
-  <!-- @BOSWAS_VERSION@, @BOSWAS_BASE_VERSION@ and @BOSWAS_BASE_CODENAME@ are
-       substituted from config/boswas/release.conf by build/scripts/render-branding.sh -->
+  <!-- @BOSWAS_VERSION@ is substituted from config/boswas/release.conf by
+       build/scripts/render-branding.sh -->
   <defs>
     <linearGradient id="base" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#090F1B"/>
-      <stop offset="1" stop-color="#112338"/>
+      <stop offset="1" stop-color="#111A2B"/>
     </linearGradient>
-    <radialGradient id="glow" cx="400" cy="110" r="420" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#17C6C0" stop-opacity="0.22"/>
-      <stop offset="1" stop-color="#17C6C0" stop-opacity="0"/>
+    <radialGradient id="glow" cx="400" cy="96" r="380" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FBD693" stop-opacity="0.07"/>
+      <stop offset="1" stop-color="#FBD693" stop-opacity="0"/>
     </radialGradient>
   </defs>
   <rect width="800" height="600" fill="url(#base)"/>
   <rect width="800" height="600" fill="url(#glow)"/>
 
-  <image x="355" y="36" width="90" height="90" href="boswas-symbol.svg" data-fill="#FFFFFF"/>
-  <image x="250" y="140" width="300" height="38" href="wordmark-boswas-os.svg" data-fill="#E8EEF6"/>
-  <text x="400" y="206" text-anchor="middle" font-family="Lato" font-size="15" letter-spacing="1" fill="#A8B3C7">@BOSWAS_VERSION@  ·  Debian @BOSWAS_BASE_VERSION@ "@BOSWAS_BASE_CODENAME@" base</text>
-  <rect x="370" y="224" width="60" height="3" rx="1.5" fill="#17C6C0"/>
+  <image x="358" y="28" width="84" height="104" href="boswas-os-mark.svg"/>
+  <image x="270" y="150" width="260" height="23" href="wordmark-boswas-os.svg" data-fill="#E8EEF6"/>
+  <text x="400" y="206" text-anchor="middle" font-family="Lato" font-size="15" letter-spacing="1" fill="#A8B3C7">@BOSWAS_VERSION@  ·  Live and installation medium</text>
+  <rect x="370" y="224" width="60" height="3" rx="1.5" fill="#D9B26E"/>
 
   <!-- Menu area (GRUB draws the boot menu from y = 50%) -->
-  <rect x="100" y="282" width="600" height="250" rx="10" fill="#0A1322" fill-opacity="0.65" stroke="#2ED3CD" stroke-opacity="0.18"/>
+  <rect x="100" y="282" width="600" height="250" rx="10" fill="#0A1322" fill-opacity="0.65" stroke="#EBC786" stroke-opacity="0.16"/>
 </svg>

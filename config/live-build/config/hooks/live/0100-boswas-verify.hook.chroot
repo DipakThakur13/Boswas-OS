@@ -54,4 +54,38 @@ boswas-device --json config validate >/dev/null || fail "boswas-device config va
 python3 -IB -c 'import sys; sys.path.insert(0, "/usr/lib/boswas/python"); import boswas_manager.app' \
 	|| fail "the Compatibility Manager does not import"
 
+# Boswas OS identity (ADR-0005, ADR-0008): os-release and console banners name
+# Boswas OS (base-files' originals diverted); ID_LIKE keeps Debian tooling working.
+for f in /usr/lib/os-release /etc/os-release; do
+	grep -qx 'NAME="Boswas OS"' "$f" || fail "$f does not name Boswas OS"
+	grep -qx 'ID=boswas' "$f" && grep -qx 'ID_LIKE=debian' "$f" || fail "$f lacks ID=boswas / ID_LIKE=debian"
+done
+grep -qi debian /etc/issue /etc/issue.net && fail "/etc/issue or /etc/issue.net still names Debian"
+grep -q 'Boswas OS' /etc/motd || fail "/etc/motd is not the Boswas OS notice"
+grep -qx 'GRUB_DISTRIBUTOR="Debian"' /etc/default/grub.d/10-boswas.cfg \
+	|| fail "GRUB distributor must stay Debian (EFI directory for Secure Boot)"
+
+# Boot splash: the Boswas OS Plymouth theme is the default and is in the initramfs.
+installed plymouth || fail "required package missing: plymouth"
+[ "$(plymouth-set-default-theme)" = "boswas" ] || fail "the default Plymouth theme is not boswas"
+for initrd in /boot/initrd.img-*; do
+	lsinitramfs "$initrd" | grep -q 'usr/share/plymouth/themes/boswas/watermark.png' \
+		|| fail "$initrd does not contain the Boswas OS Plymouth theme"
+done
+
+# Boswas Control Center (settings hub, Security/Software/Update Centers) imports
+# its Qt bindings; the icon themes and the ten presets are installed.
+installed boswas-control-center || fail "required package missing: boswas-control-center"
+python3 -IB -c 'import sys; sys.path.insert(0, "/usr/lib/boswas/python"); import boswas_control_center.app' \
+	|| fail "Boswas Control Center does not import"
+for theme in Boswas Boswas-Light; do
+	[ -f "/usr/share/icons/$theme/index.theme" ] || fail "icon theme $theme missing"
+done
+[ "$(boswas-preset --json list | python3 -c 'import json, sys; print(len(json.load(sys.stdin)["presets"]))')" = 10 ] \
+	|| fail "boswas-preset does not list the ten Boswas OS presets"
+
+# Desktop: Boswas Launcher and the session splash are installed packages.
+[ -f /usr/share/plasma/plasmoids/com.boswas.launcher/metadata.json ] || fail "Boswas Launcher applet missing"
+[ -f /usr/share/plasma/look-and-feel/com.boswas.splash/contents/splash/Splash.qml ] || fail "Boswas splash missing"
+
 echo "I: boswas-verify: image matches the Boswas OS manifest"

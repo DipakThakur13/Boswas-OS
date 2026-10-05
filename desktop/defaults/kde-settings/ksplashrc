@@ -1,0 +1,5 @@
+# Boswas OS session start-up splash (installed by boswas-branding as
+# /usr/share/boswas/kde-settings/ksplashrc).
+[KSplash]
+Engine=KSplashQML
+Theme=com.boswas.splash

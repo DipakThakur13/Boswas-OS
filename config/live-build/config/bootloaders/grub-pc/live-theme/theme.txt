@@ -17,7 +17,7 @@ terminal-font: "Unifont Regular 16"
 	item_font = "Unifont Regular 16"
 	item_color = "#8A97B0"
 	selected_item_font = "Unifont Regular 16"
-	selected_item_color = "#2ED3CD"
+	selected_item_color = "#EBC786"
 	item_height = 20
 	item_padding = 4
 	item_spacing = 6
@@ -35,9 +35,9 @@ terminal-font: "Unifont Regular 16"
 	height = 16
 	font = "Unifont Regular 16"
 	text_color = "#E8EEF6"
-	fg_color = "#17C6C0"
+	fg_color = "#D9B26E"
 	bg_color = "#14243A"
-	border_color = "#2ED3CD"
+	border_color = "#EBC786"
 	text = "@TIMEOUT_NOTIFICATION_LONG@"
 }
 

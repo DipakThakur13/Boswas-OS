@@ -51,10 +51,12 @@ def os_identity() -> dict:
             "git_commit": image.get("BOSWAS_GIT_COMMIT"),
             "live_build": image.get("BOSWAS_LIVE_BUILD_VERSION"),
         },
+        # The package base (technical): os-release names the system Boswas OS,
+        # so the base comes from the Boswas release file and /etc/debian_version.
         "base": {
-            "name": os_release.get("NAME", "Debian GNU/Linux"),
-            "version": debian_version or os_release.get("VERSION_ID", "unknown"),
-            "codename": os_release.get("VERSION_CODENAME", release.get("BOSWAS_BASE_CODENAME", "unknown")),
+            "name": release.get("BOSWAS_BASE_NAME", "Debian"),
+            "version": debian_version or release.get("BOSWAS_BASE_VERSION", "unknown"),
+            "codename": release.get("BOSWAS_BASE_CODENAME") or os_release.get("VERSION_CODENAME", "unknown"),
         },
         "architecture": architecture(),
         "kernel": os.uname().release,

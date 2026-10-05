@@ -9,5 +9,7 @@ Autolock[$i]=true
 LockOnResume[$i]=true
 Timeout[$i]=10
 
+# Lock screen wallpaper of the default preset (Boswas Horizon); boswas-preset
+# writes the user's own choice.
 [Greeter][Wallpaper][org.kde.image][General]
-Image=file:///usr/share/boswas/branding/login-background.png
+Image=file:///usr/share/boswas/presets/lock/horizon.png

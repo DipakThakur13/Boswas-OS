@@ -1,0 +1,59 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+	configure)
+		# Live images: live-build replaces the /etc/os-release symlink with a copy
+		# of Debian's file plus IMAGE_ID/BUILD_ID (bootstrap_debootstrap). Refresh
+		# that copy from the Boswas OS identity, keeping live-build's two fields.
+		# Installed from scratch, /etc/os-release is base-files' symlink to
+		# ../usr/lib/os-release and needs nothing.
+		if [ -f /etc/os-release ] && [ ! -L /etc/os-release ]; then
+			extra="$(grep -E '^(IMAGE_ID|BUILD_ID)=' /etc/os-release || true)"
+			{
+				cat /usr/lib/os-release
+				[ -z "$extra" ] || printf '%s\n' "$extra"
+			} > /etc/os-release.boswas-new
+			chmod 0644 /etc/os-release.boswas-new
+			mv /etc/os-release.boswas-new /etc/os-release
+		fi
+
+		# Console banners: /etc/issue and /etc/issue.net are base-files conffiles,
+		# which must not be diverted. Replace Debian's default text (and only
+		# that: an administrator's own banner stays), keeping the original for
+		# postrm. base-files changes these files only between Debian major
+		# releases, so upgrades within the release keep the Boswas text silently.
+		state=/var/lib/boswas/os
+		mkdir -p "$state"
+		for f in issue issue.net; do
+			if [ -f "/etc/$f" ] && grep -q '^Debian GNU/Linux' "/etc/$f" && [ "$(wc -l < "/etc/$f")" -le 3 ]; then
+				cp "/etc/$f" "$state/$f.debian"
+				cp "/usr/share/boswas/$f" "/etc/$f"
+				chmod 0644 "/etc/$f"
+				cp "/usr/share/boswas/$f" "$state/$f.boswas"
+			elif cmp -s "/etc/$f" "$state/$f.boswas" 2>/dev/null; then
+				# Upgrade of boswas-os: refresh our own text (version changes).
+				cp "/usr/share/boswas/$f" "/etc/$f"
+				cp "/usr/share/boswas/$f" "$state/$f.boswas"
+			fi
+		done
+
+		# /etc/motd belongs to no package (base-files writes it once). Replace it
+		# only while it is still Debian's unmodified default; never an
+		# administrator's own message of the day.
+		if [ -f /etc/motd ] && grep -q '^Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY' /etc/motd &&
+			[ "$(wc -l < /etc/motd)" -le 8 ]; then
+			cp /etc/motd "$state/motd.debian"
+			cp /usr/share/boswas/motd /etc/motd
+			chmod 0644 /etc/motd
+			cp /usr/share/boswas/motd "$state/motd.boswas"
+		elif cmp -s /etc/motd "$state/motd.boswas" 2>/dev/null; then
+			cp /usr/share/boswas/motd /etc/motd
+			cp /usr/share/boswas/motd "$state/motd.boswas"
+		fi
+		;;
+esac
+
+#DEBHELPER#
+
+exit 0

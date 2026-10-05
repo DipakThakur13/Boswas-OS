@@ -1,0 +1,14 @@
+{
+    "KPackageStructure": "Plasma/LookAndFeel",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Boswas Group"
+            }
+        ],
+        "Description": "Boswas OS session start-up splash",
+        "Id": "com.boswas.splash",
+        "License": "LicenseRef-Boswas-Internal",
+        "Name": "Boswas OS"
+    }
+}

@@ -1,0 +1,6 @@
+boswas-control-center (1.0~alpha3) trixie; urgency=medium
+
+  * Initial release: Boswas Control Center, with the Boswas Security Center,
+    Software Center and Update Center pages.
+
+ -- Boswas OS Platform Team <os-platform@boswas.invalid>  Sun, 04 Oct 2026 18:00:00 +0000

@@ -33,16 +33,20 @@ tests and documentation), and the `boswas-*` packages built from it:
 
 - **Licence:** `LicenseRef-Boswas-Internal`, see
   [LicenseRef-Boswas-Internal.txt](LicenseRef-Boswas-Internal.txt).
-- **Boswas Group logo and lettering** (`desktop/branding/source/`, and the
-  assets traced from them): trademarks and property of Boswas Group.
+- **Boswas OS logo** (`desktop/branding/source/boswas-os-logo.png`, and the
+  mark traced from it) and the **Boswas Group logo** (also in
+  `desktop/branding/source/`, no longer used in artwork): trademarks and
+  property of Boswas Group.
 
 ## Third-party material used at build time
 
 | Material | Licence | Use |
 |----------|---------|-----|
+| Orbitron typeface (`desktop/fonts/orbitron/`, © 2018 The Orbitron Project Authors) | SIL Open Font License 1.1, Reserved Font Name "Orbitron" | Brand typeface: outlined into the wordmarks; installed unmodified by `boswas-branding` (static weights) with the licence in its copyright file |
 | Lato typeface (Debian `fonts-lato`) | SIL Open Font License 1.1 | Rendered into raster artwork (secondary text); installed as a Debian package |
 | live-build, debootstrap, Debian Installer, GRUB, shim | Their Debian licences | Unmodified build tooling and boot components |
-| potrace | GPL-2.0-or-later | One-time tracing tool for the brand artwork (not shipped) |
+| potrace | GPL-2.0-or-later | One-time tracing tool for the Boswas OS mark (not shipped) |
+| fontTools (Debian `python3-fonttools`) | MIT | One-time tool that outlines the Orbitron wordmarks (not shipped) |
 
 > The choice of `LicenseRef-Boswas-Internal` for Boswas-authored files is a
 > placeholder pending confirmation by Boswas Group Legal. Choosing an open

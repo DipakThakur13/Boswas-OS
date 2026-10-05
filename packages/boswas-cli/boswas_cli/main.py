@@ -72,8 +72,7 @@ def cmd_info(args) -> int:
         ("Version", f"{ident['version']} ({ident['version_id']})"),
         ("Build", build["id"] or "unknown"),
         ("Channel", ident["channel"]),
-        ("Base", f"Debian {ident['base']['version']}"),
-        ("Codename", ident["base"]["codename"]),
+        ("Package base", f"{ident['base']['name']} {ident['base']['version']} ({ident['base']['codename']})"),
         ("Architecture", ident["architecture"]),
         ("Kernel", ident["kernel"]),
         ("Desktop", ident["desktop"]),
@@ -177,7 +176,7 @@ def cmd_update_status(args) -> int:
     }
     text = "Boswas updates\n" + _rows([
         ("Channel", ident["channel"]),
-        ("Repository", update_conf.get("REPOSITORY") or "Debian upstream (Boswas repository not yet provisioned)"),
+        ("Repository", update_conf.get("REPOSITORY") or "upstream package archive (Boswas repository not yet provisioned)"),
         ("Status", f"{check.status} - {check.detail}"),
     ])
     _emit(args, "update-status", payload, text)

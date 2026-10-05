@@ -34,7 +34,8 @@ kcalc
 plasma-systemmonitor
 firefox-esr
 
-# Fonts (Lato is the Boswas brand typeface; Liberation is metric-compatible
+# Fonts (Lato: secondary text in Boswas artwork; the brand typeface Orbitron ships in
+# boswas-branding. Liberation is metric-compatible
 # with common Windows fonts for documents and Wine applications)
 fonts-lato
 fonts-liberation2

@@ -2,23 +2,33 @@ Source: boswas-branding
 Section: misc
 Priority: optional
 Maintainer: Boswas OS Platform Team <os-platform@boswas.invalid>
-Build-Depends: debhelper-compat (= 13), fonts-lato, librsvg2-bin, python3:any
+Build-Depends: debhelper-compat (= 13), fonts-lato, librsvg2-bin, netpbm, python3:any
 Standards-Version: 4.7.2
 Rules-Requires-Root: no
 
 Package: boswas-branding
 Architecture: all
-Depends: ${misc:Depends}
-Recommends: breeze-icon-theme, fonts-lato, plasma-workspace, sddm-theme-breeze
+Depends: libkf6config-bin,
+         plymouth,
+         plymouth-themes,
+         python3,
+         ${misc:Depends}
+Recommends: breeze-icon-theme, fonts-lato, konsole, plasma-workspace, sddm-theme-breeze
 Description: Boswas OS visual identity for KDE Plasma
- Boswas Group branding for the Boswas OS desktop, built from the official
- Boswas Group logo and lettering:
+ The Boswas OS visual identity, built from the Boswas OS logo (the gold and
+ silver "b" mark), the brand typeface and one design system:
  .
-  * "Boswas" Plasma Global Theme (look-and-feel) and default desktop layout
-  * "Boswas Dark" colour scheme
-  * Boswas wallpaper, login (SDDM) and lock screen backgrounds
-  * Boswas launcher icon and System Settings "About this System" branding
-  * screen lock policy (automatic lock after 10 minutes, enforced)
+  * Orbitron, the brand typeface (SIL Open Font License 1.1)
+  * ten Boswas OS presets (Horizon, the default, Midnight, Aurora, Slate,
+    Carbon, Pearl, Ocean, Ember, Nebula, Classic): Plasma Global Themes,
+    colour schemes, light/dark/lock wallpapers and Konsole profiles, and
+    boswas-preset to switch between them
+  * the Boswas and Boswas Light icon themes
+  * Boswas Launcher, the session start-up splash, the Plymouth boot,
+    shutdown and passphrase splash, and the login and lock screen art
+  * the Boswas terminal prompt and welcome (boswas-welcome)
+  * System Settings "About this System" branding and the screen lock policy
+    (automatic lock after 10 minutes, enforced)
  .
  Defaults are delivered through an XDG configuration directory
  (/usr/share/boswas/kde-settings), so /etc/xdg and per-user settings keep

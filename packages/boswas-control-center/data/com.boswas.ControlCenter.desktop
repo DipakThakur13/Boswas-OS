@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Boswas Control Center
+GenericName=System Settings
+Comment=Settings, security, updates and information for this device
+Exec=boswas-control-center
+Icon=boswas-control-center
+Terminal=false
+StartupNotify=true
+Categories=Settings;System;Qt;
+Keywords=settings;preferences;configuration;control panel;system;personalization;theme;network;display;sound;power;security;updates;about;

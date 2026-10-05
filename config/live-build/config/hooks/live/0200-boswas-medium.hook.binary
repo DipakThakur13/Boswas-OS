@@ -1,0 +1,11 @@
+#!/bin/sh
+# Boswas OS: name the boot medium. live-build writes .disk/info with the
+# Debian release name; the Debian Installer and apt-cdrom show it to users.
+# Runs in binary/ after lb binary_disk and before lb binary_checksums, so the
+# checksums cover the result. The build date is kept from live-build.
+set -e
+
+. ../chroot/usr/lib/boswas/release
+date="$(sed -n 's/.* Binary //p' .disk/info)"
+printf '%s %s (%s) - %s LIVE/INSTALL Binary %s\n' \
+	"${BOSWAS_NAME}" "${BOSWAS_VERSION}" "${BOSWAS_VERSION_ID}" "${BOSWAS_ARCH}" "${date}" > .disk/info

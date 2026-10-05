@@ -47,7 +47,7 @@ lb config noauto \
 	--iso-publisher "Boswas Group" \
 	--iso-preparer "Boswas OS build system; live-build @LB_VERSION@" \
 	--iso-volume "${BOSWAS_ISO_VOLUME}" \
-	--bootappend-live "boot=live components quiet hostname=boswas-device username=boswas" \
+	--bootappend-live "boot=live components quiet splash hostname=boswas-device username=boswas" \
 	--memtest none \
 	--win32-loader false \
 	--checksums sha256 \
