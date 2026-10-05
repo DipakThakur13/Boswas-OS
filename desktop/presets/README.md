@@ -255,13 +255,13 @@ with `build/scripts/inline-svg.py`, renders every wallpaper at 3840x2160
 | `/usr/share/color-schemes/Boswas<Label>.colors` | `color-schemes/` |
 | `/usr/share/plasma/look-and-feel/com.boswas.<id>/` | `look-and-feel/`, plus `contents/previews/preview.png` (600x338) and `fullscreenpreview.jpg` (1920x1080) |
 | `/usr/share/wallpapers/Boswas-<Label>/` | `metadata.json`, `contents/images/3840x2160.png` (light), `contents/images_dark/3840x2160.png` (dark), `contents/screenshot.png` |
-| `/usr/share/wallpapers/Boswas/` | Horizon's images (hard links) |
+| `/usr/share/wallpapers/Boswas/` | Horizon's images (copies) |
 | `/usr/share/konsole/` | `konsole/` |
 | `/usr/share/boswas/presets/lock/<id>.png` | `lock.svg`, 3840x2160 |
 | `/usr/share/boswas/presets/previews/<id>.png` | `previews/<id>.svg`, 480x270 |
 | `/usr/share/boswas/presets/presets.json` | `presets.json` |
-| `/usr/share/boswas/branding/login-background.png` | Horizon's lock screen (hard link) |
+| `/usr/share/boswas/branding/login-background.png` | Horizon's lock screen (copy) |
 | `/usr/lib/boswas/python/boswas_preset/`, `/usr/bin/boswas-preset` | the tool |
 
-Everything installed takes about 27 MB (149 files; the hard-linked
-copies are stored once).
+Everything installed takes about 29 MB (149 files; the second names are
+plain copies, because Debian packages should not contain hard links).

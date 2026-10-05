@@ -7,6 +7,8 @@
 #   ./test.sh --packages-only  only static checks and the Boswas packages
 #   ./test.sh --iso PATH       test a specific ISO
 #                              (default: build/output/Boswas-OS-<tag>-amd64.iso)
+#   ./test.sh --install-test   also install the ISO onto a virtual disk and boot
+#                              the installed system (slow: 1-2 h without KVM)
 #
 # Like build.sh, runs inside the boswas-os-builder container unless the host
 # is Debian 13 and the script runs as root.
@@ -15,7 +17,8 @@
 # mutual TLS), WinCompat fixtures, manifest (network), artifacts, image
 # extraction, ISO contents, image packages, security, compatibility, device
 # management (image), WinCompat runtime, device management runtime, boot
-# (QEMU, incl. WinCompat and device management under AppArmor).
+# (QEMU: serial, UEFI Secure Boot, Live USB release blocker; WinCompat and
+# device management under AppArmor).
 # Report: build/logs/test-report-<timestamp>.txt; screenshots and serial logs
 # of the boot test: build/logs/boot-test/.
 set -Eeuo pipefail
@@ -32,7 +35,7 @@ while [ $# -gt 0 ]; do
 		--boot-only) stages_mode="boot-only" ;;
 		--packages-only) stages_mode="packages-only" ;;
 		--iso) iso="${2:?--iso needs a path}"; shift ;;
-		-h|--help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+		-h|--help) sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
 		*) die "unknown option: $1" ;;
 	esac
 	shift
@@ -89,7 +92,7 @@ has_iso=false
 if [ "$stages_mode" != "boot-only" ]; then
 	run_stage "static checks" bash "$t/static/test_sources.sh"
 	run_stage "Boswas packages" bash "$t/packages/test_packages.sh"
-	run_stage "unit tests (WinCompat, device agent, Compatibility Manager, Control Plane)" bash "$t/unit/test_units.sh"
+	run_stage "unit tests (WinCompat, device agent, Compatibility Manager, Control Center, Control Plane, presets, icons)" bash "$t/unit/test_units.sh"
 fi
 if [ "$stages_mode" = "all" ] || [ "$stages_mode" = "no-boot" ] || [ "$stages_mode" = "boot-only" ]; then
 	$has_iso && run_stage "WinCompat test fixtures" bash "$t/compatibility/build_fixtures.sh"

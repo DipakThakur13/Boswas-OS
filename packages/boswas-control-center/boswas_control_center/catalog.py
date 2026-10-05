@@ -135,7 +135,7 @@ PAGES = (
              ("preferences-system-power-management", "battery"), (POWER,),
              keywords=("battery", "energy", "sleep", "suspend")),
     PageInfo("storage", "Storage", "Storage", "How much space is used on this device.",
-             ("drive-harddisk", "media-floppy"), (FILES, PARTITIONS), "Tools", ("disk", "space", "files")),
+             ("boswas-storage", "drive-harddisk", "media-floppy"), (FILES, PARTITIONS), "Tools", ("disk", "space", "files")),
     PageInfo("applications", "Applications", "Boswas Software Center",
              "The applications installed on this device, in one place. Search for an application and open it.",
              ("boswas-software-center", "applications-other", "view-app-grid"), (DEFAULT_APPS, AUTOSTART),
@@ -164,10 +164,10 @@ PAGES = (
              ("preferences-system", "computer"), (REGION, CLOCK, NOTIFICATIONS, INFO_CENTER),
              keywords=("language", "time", "date", "notifications", "device")),
     PageInfo("about", "About Boswas OS", "About Boswas OS", "Version and hardware information about this device.",
-             ("help-about", "dialog-information"), keywords=("version", "hardware", "licence")),
+             ("boswas-logo", "help-about", "dialog-information"), keywords=("version", "hardware", "licence")),
     PageInfo("install", "Install Boswas OS", "Install Boswas OS",
              "You are using Boswas OS as a live session from the boot medium.",
-             ("system-software-install", "drive-harddisk"), live_only=True, keywords=("installer",)),
+             ("boswas-install", "system-software-install", "drive-harddisk"), live_only=True, keywords=("installer",)),
 )
 PAGE_KEYS = tuple(page.key for page in PAGES)
 BY_KEY = {page.key: page for page in PAGES}

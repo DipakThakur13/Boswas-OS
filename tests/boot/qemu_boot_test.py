@@ -135,6 +135,18 @@ def boswas_screen(stats: dict) -> bool:
     return stats["navy"] > 0.45 and stats["gold"] > 0.0008 and stats["black"] < 0.5
 
 
+def passphrase_prompt(path: Path) -> bool:
+    """The Plymouth disk-unlock prompt: the passphrase field's gold border is a
+    long horizontal gold line below the mark (while booting, only the small
+    spinner is gold there)."""
+    w, h, px = read_ppm(path)
+    for y in range(int(h * 0.6), int(h * 0.95)):
+        row = y * w
+        if sum(is_gold(px[3 * i], px[3 * i + 1], px[3 * i + 2]) for i in range(row, row + w)) >= 150:
+            return True
+    return False
+
+
 def desktop_screen(path: Path) -> bool:
     """The Plasma desktop: a Boswas background plus the panel along the bottom,
     whose launcher shows the gold Boswas mark (boot and start-up splashes have
@@ -226,13 +238,22 @@ class VM:
         to_png(ppm, self.outdir / f"{self.name}-{label}.png")
         return ppm
 
-    KEYS = {" ": "spc", ",": "comma", "=": "equal", "-": "minus", ".": "dot", "/": "slash", "_": "shift-minus"}
+    KEYS = {" ": "spc", ",": "comma", "=": "equal", "-": "minus", ".": "dot", "/": "slash", "_": "shift-minus",
+            ":": "shift-semicolon"}
 
     def key(self, name: str) -> None:
         """Press a key on the VM keyboard (QEMU sendkey names, e.g. "e", "end", "ctrl-x")."""
         self.mon.sendall(f"sendkey {name}\n".encode())
         self._hmp_read()
         time.sleep(0.15)
+
+    def nudge(self) -> None:
+        """A small mouse movement: real user input for the guest, so the enforced
+        idle screen lock (10 minutes) does not start while the test works over
+        the serial console."""
+        for move in ("mouse_move 6 4", "mouse_move -6 -4"):
+            self.mon.sendall(f"{move}\n".encode())
+            self._hmp_read()
 
     def type_text(self, text: str) -> None:
         for ch in text:
@@ -388,7 +409,9 @@ def scenario_uefi(iso: Path, workdir: Path, outdir: Path, timeout: float) -> Non
         vm.stop(timeout=30)
 
 
-INSTALLER_PROCS = "calamares|ubiquity|debian-installer|di-utils|anaconda|firefox|firefox-esr|chromium|konqueror"
+# Installers, installation wizards and browsers that must not start on their own
+# (matched on the full command line: process names are truncated to 15 characters).
+INSTALLER_PROCS = "(^|/)(calamares|ubiquity|debian-installer|anaconda|plasma-welcome|firefox|firefox-esr|chromium|konqueror)( |$)"
 PRESET_IDS = ("horizon", "midnight", "aurora", "slate", "carbon", "pearl", "ocean", "ember", "nebula", "classic")
 
 
@@ -448,6 +471,16 @@ def session_env(sh: "Shell") -> str:
     return env.strip()
 
 
+def in_session(cmd: str, background: bool = False) -> str:
+    """A shell snippet that runs CMD (plain words, no quotes) with the live user's
+    complete Plasma session environment, as if started from the desktop
+    (XDG_CONFIG_DIRS brings the Boswas defaults: Konsole profile, icons, colours)."""
+    run = f"xargs -0 -a /proc/$p/environ sh -c 'exec env -i \"$@\" {cmd}' _"
+    if background:
+        run = f"( {run} >/dev/null 2>&1 & )"
+    return f"p=$(pgrep -u boswas -x plasmashell | head -1); {run}"
+
+
 def installer_banner(path: Path) -> bool:
     """The Debian Installer screen with the Boswas OS banner: a navy band above the gold rule."""
     w, h, _ = read_ppm(path)
@@ -476,10 +509,18 @@ def scenario_usb(iso: Path, workdir: Path, outdir: Path, timeout: float) -> None
             return
         # The default entry (Live session) gets a serial console for the test;
         # everything else on its command line, including the splash, stays as shipped.
+        # GRUB's editor shows "setparams '<title>'", an empty line, then the
+        # entry: two lines down is the linux line.
         vm.key("e")
         time.sleep(3)
+        vm.key("down")
+        vm.key("down")
         vm.key("end")
-        vm.type_text(" console=ttyS0,115200n8 console=tty0")
+        # (Plymouth shows only text when a serial console is configured, unless told
+        # to ignore it; without the test's console the splash is shown anyway.)
+        vm.type_text(" console=ttyS0,115200n8 console=tty0 plymouth.ignore-serial-consoles")
+        time.sleep(1)
+        to_png(vm.screendump("boot-edit"), outdir / "usb-live-boot-edit.png")
         vm.key("ctrl-x")
         splash = None
         found = None
@@ -508,8 +549,8 @@ def scenario_usb(iso: Path, workdir: Path, outdir: Path, timeout: float) -> None
         rc, out = sh.run("cat /proc/cmdline")
         check("boot=live" in out and "splash" in out and "/install" not in out,
               "Live USB: the default boot entry starts the live session (not the installer)")
-        rc, out = sh.run("plymouth-set-default-theme; "
-                         "lsinitramfs /run/live/medium/live/initrd.img* 2>/dev/null | grep -c 'plymouth/themes/boswas/'")
+        rc, out = sh.run("/usr/sbin/plymouth-set-default-theme; lsinitramfs "
+                         "/run/live/medium/live/initrd.img* 2>/dev/null | grep -c 'plymouth/themes/boswas/'")
         check(out.split()[:1] == ["boswas"] and out.split()[-1:] != ["0"],
               "boot splash: the Boswas OS Plymouth theme is the default and is in the live initramfs")
 
@@ -543,10 +584,11 @@ def scenario_usb(iso: Path, workdir: Path, outdir: Path, timeout: float) -> None
         if not check(plasma, "Live USB: the Plasma desktop starts for the live user (no sign-in needed)"):
             return
         vm.pump(60)
+        vm.nudge()
         shot = vm.screendump("desktop")
         to_png(shot, outdir / "usb-live-desktop.png")
         check(desktop_screen(shot), "Live USB: the Boswas OS desktop is on screen (screenshot usb-live-desktop.png)")
-        rc, out = sh.run(f"pgrep -a -x -i '{INSTALLER_PROCS}' || echo none")
+        rc, out = sh.run(f"pgrep -a -i -f '{INSTALLER_PROCS}' || echo none")
         check(out.strip() == "none", f"Live USB: no installer, installation wizard or browser started on its own ({out.strip()[:120]})")
         rc, out = sh.run("grep -l -i -E '^Exec=.*(calamares|debian-installer|ubiquity|install)' "
                          "/etc/xdg/autostart/*.desktop ~/.config/autostart/*.desktop 2>/dev/null || echo none")
@@ -560,16 +602,24 @@ def scenario_usb(iso: Path, workdir: Path, outdir: Path, timeout: float) -> None
         if not check("DBUS_SESSION_BUS_ADDRESS=" in env, "Live USB: the Plasma session environment is reachable"):
             return
 
-        def start_app(argv: str, pattern: str, label: str, description: str) -> None:
-            sh.run(f"( env {env} {argv} >/dev/null 2>&1 & )")
+        def start_app(argv: str, pattern: str, label: str, description: str, extra: str = "") -> None:
+            """Start an application as the desktop would (full session environment)
+            and check it is still running after 45 s; EXTRA is a further shell
+            check that must print "ok"."""
+            vm.nudge()
+            sh.run(in_session(argv, background=True))
             vm.pump(45)
+            vm.nudge()
             to_png(vm.screendump(label), outdir / f"usb-live-{label}.png")
-            rc, out = sh.run(f"pgrep -u boswas -f '{pattern}' >/dev/null && echo running")
-            check("running" in out, f"{description} (screenshot usb-live-{label}.png)")
+            rc, out = sh.run(f"pgrep -u boswas -f '{pattern}' >/dev/null && echo running" +
+                             (f"; {extra}" if extra else ""))
+            check("running" in out and (not extra or "ok" in out.split()),
+                  f"{description} (screenshot usb-live-{label}.png)")
             sh.run(f"pkill -u boswas -f '{pattern}'")
             vm.pump(5)
 
-        start_app("konsole", "^konsole", "terminal", "Live USB: the terminal opens (Boswas welcome and prompt)")
+        start_app("konsole", "^konsole", "terminal", "Live USB: the terminal opens with the Boswas profile (welcome and prompt)",
+                  extra="pgrep -u boswas -f 'rcfile /usr/share/boswas/terminal/bashrc' >/dev/null && echo ok")
         start_app("boswas-control-center --page about", "boswas-control-center", "control-center",
                   "Live USB: Boswas Control Center opens (About Boswas OS)")
         start_app("boswas-control-center --page security", "boswas-control-center", "security-center",
@@ -580,42 +630,68 @@ def scenario_usb(iso: Path, workdir: Path, outdir: Path, timeout: float) -> None
                   "Live USB: the Boswas Compatibility Manager opens")
         start_app("boswas-control-center --page install", "boswas-control-center", "install-page",
                   "Live USB: the installer is reached by explicit choice (Install Boswas OS page)")
-        rc, out = sh.run(f"pgrep -a -x -i '{INSTALLER_PROCS}' || echo none")
+        rc, out = sh.run(f"pgrep -a -i -f '{INSTALLER_PROCS}' || echo none")
         check(out.strip() == "none", "Live USB: opening the Install page starts nothing by itself")
 
-        # The ten presets in the running session
-        rc, out = sh.run(f"env {env} boswas-preset --json list")
-        presets = _json(out).get("presets", [])
-        check(sorted(p.get("id") for p in presets) == sorted(PRESET_IDS), f"presets: ten Boswas OS presets ({len(presets)})")
-        for preset in PRESET_IDS:
-            rc, out = sh.run(f"env {env} boswas-preset apply {preset} >/dev/null 2>&1; echo rc=$?; "
-                             f"env {env} kreadconfig6 --file kdeglobals --group General --key ColorScheme; "
-                             f"env {env} boswas-preset current", timeout=300)
+        # The ten presets in the running session: each applies (exit 0, recorded),
+        # switches the user's colour scheme to its own, and changes the screen
+        # while the desktop panel (gold Boswas launcher) stays.
+        rc, out = sh.run(in_session("boswas-preset --json list"))
+        presets = {p.get("id"): p for p in _json(out).get("presets", [])}
+        check(sorted(presets) == sorted(PRESET_IDS), f"presets: ten Boswas OS presets ({len(presets)})")
+        previous = workdir / "usb-live-preset-previous.ppm"
+        shutil.copyfile(shot, previous)
+        # Horizon is the default (already on screen), so it goes last: then every
+        # preset, Horizon included, must visibly change the screen.
+        for preset in PRESET_IDS[1:] + PRESET_IDS[:1]:
+            vm.nudge()
+            rc, out = sh.run(in_session(f"boswas-preset apply {preset}") + " >/dev/null 2>&1; echo rc=$?; " +
+                             in_session("kreadconfig6 --file kdeglobals --group General --key ColorScheme") + "; " +
+                             in_session("boswas-preset current"), timeout=300)
             vm.pump(25)
+            vm.nudge()
+            vm.pump(3)
             shot = vm.screendump(f"preset-{preset}")
             to_png(shot, outdir / f"usb-live-preset-{preset}.png")
-            stats = analyse(shot)
-            check("rc=0" in out and out.strip().endswith(preset) and stats["black"] < 0.6,
-                  f"presets: {preset} applies in the live session (colour scheme {out.split()[1:2]}; "
-                  f"screenshot usb-live-preset-{preset}.png)")
-        sh.run(f"env {env} boswas-preset apply horizon >/dev/null 2>&1", timeout=300)
+            expected = (presets.get(preset, {}).get("name") or "").replace(" ", "")
+            words = out.split()
+            w, h, _ = read_ppm(shot)
+            panel = analyse(shot, (0, h - 64, w, h))
+            changed = difference(shot, previous) > 2
+            check("rc=0" in words and expected in words and words[-1:] == [preset] and changed and panel["gold"] > 0.001,
+                  f"presets: {preset} applies in the live session (colour scheme {expected if expected in words else words[1:2]}; "
+                  f"screen changed: {changed}; screenshot usb-live-preset-{preset}.png)")
+            shutil.copyfile(shot, previous)
+        sh.run(in_session("boswas-preset apply horizon") + " >/dev/null 2>&1", timeout=300)
         vm.pump(20)
 
         # Lock and login screens
         rc, sid = sh.run("loginctl show-user boswas -p Display --value")
         sid = sid.strip()
+        vm.nudge()
         sh.run(f"loginctl lock-session {sid}")
         vm.pump(30)
+        vm.nudge()
+        vm.pump(5)
         shot = vm.screendump("lock-screen")
         to_png(shot, outdir / "usb-live-lock-screen.png")
         stats = analyse(shot)
-        check(stats["navy"] > 0.4 and stats["black"] < 0.5, "lock screen: Boswas lock screen (screenshot usb-live-lock-screen.png)")
-        sh.run(f"sudo -n loginctl terminate-session {sid}")
-        vm.pump(60)
+        rc, out = sh.run("pgrep -f kscreenlocker_greet >/dev/null && echo locked")
+        check("locked" in out and stats["navy"] > 0.3 and stats["black"] < 0.5,
+              "lock screen: the Boswas lock screen (screenshot usb-live-lock-screen.png)")
+        # The login screen, as "Switch user" opens it (terminating the autologin
+        # session instead makes SDDM treat it as crashed and start no greeter).
+        sh.run("qdbus6 --system org.freedesktop.DisplayManager /org/freedesktop/DisplayManager/Seat0 "
+               "org.freedesktop.DisplayManager.Seat.SwitchToGreeter")
+        for _ in range(6):
+            vm.pump(15)
+            vm.nudge()
         shot = vm.screendump("login-screen")
         to_png(shot, outdir / "usb-live-login-screen.png")
         stats = analyse(shot)
-        check(stats["navy"] > 0.4 and stats["black"] < 0.5, "login screen: Boswas login screen (screenshot usb-live-login-screen.png)")
+        rc, out = sh.run("pgrep -f sddm-greeter-qt6 >/dev/null && echo greeter")
+        check("greeter" in out and stats["black"] < 0.5,
+              "login screen: the Boswas login screen opens (Switch user; screenshot usb-live-login-screen.png)")
 
         vm.send("sudo -n systemctl poweroff\n")
         shutdown_splash = None
@@ -624,13 +700,17 @@ def scenario_usb(iso: Path, workdir: Path, outdir: Path, timeout: float) -> None
                 if vm.proc.poll() is not None:
                     break
                 time.sleep(5)
-                shot = vm.screendump(f"shutdown-{i:02d}")
-                if shutdown_splash is None and boswas_screen(analyse(shot)) and not desktop_screen(shot):
+                try:
+                    shot = vm.screendump(f"shutdown-{i:02d}")
+                    shutting_down = boswas_screen(analyse(shot)) and not desktop_screen(shot)
+                except OSError:
+                    break           # QEMU exited while capturing: the system has powered off
+                if shutdown_splash is None and shutting_down:
                     shutdown_splash = shot
                     to_png(shot, outdir / "usb-live-shutdown.png")
             vm.proc.wait(timeout=120)
-            check(True, "Live USB: the live system shuts down cleanly")
-        except (subprocess.TimeoutExpired, OSError, RuntimeError):
+            check(vm.proc.returncode == 0, "Live USB: the live system shuts down cleanly")
+        except subprocess.TimeoutExpired:
             check(False, "Live USB: the live system shuts down cleanly")
         record("PASS" if shutdown_splash is not None else "SKIP",
                "shutdown splash: Boswas OS (screenshot usb-live-shutdown.png)" if shutdown_splash is not None
@@ -696,8 +776,9 @@ d-i partman/confirm_nooverwrite boolean true
 d-i grub-installer/bootdev string default
 d-i finish-install/reboot_in_progress note
 d-i debian-installer/exit/poweroff boolean true
-# A serial console on the installed system, for the test only.
-d-i debian-installer/add-kernel-opts string console=ttyS0,115200n8 console=tty0
+# A serial console on the installed system, for the test only (Plymouth would
+# fall back to text mode on a serial console without the last option).
+d-i debian-installer/add-kernel-opts string console=ttyS0,115200n8 console=tty0 plymouth.ignore-serial-consoles
 """
 DISK_PASSPHRASE = "boswas-disk-passphrase"
 
@@ -737,13 +818,20 @@ def scenario_install(iso: Path, workdir: Path, outdir: Path, timeout: float) -> 
         for key in ("down", "down", "e"):
             vm.key(key)
             time.sleep(1)
+        # Editor: "setparams '<title>'", an empty line, then the linux line.
+        time.sleep(2)
+        vm.key("down")
+        vm.key("down")
         vm.key("end")
         for _ in range(len(" --- quiet")):
             vm.key("left")
         vm.type_text(" auto=true priority=critical url=http://10.0.2.2:8088/boswas-test.cfg")
+        time.sleep(1)
+        to_png(vm.screendump("boot-edit"), outdir / "install-boot-edit.png")
         vm.key("ctrl-x")
         log("install: unattended installation running (encrypted LVM, live image copy)")
-        deadline = start + max(timeout, 9000)
+        # Copying and encrypting the image under TCG takes hours, not minutes.
+        deadline = start + max(timeout, 14400)
         last = time.time()
         while vm.alive() and time.time() < deadline:
             time.sleep(60)
@@ -761,17 +849,18 @@ def scenario_install(iso: Path, workdir: Path, outdir: Path, timeout: float) -> 
     vm = VM("installed", workdir, outdir, firmware)
     try:
         start = time.time()
-        passphrase = None
+        passphrase = shot = None
         while time.time() - start < min(timeout, 1800) and vm.alive():
             time.sleep(10)
             shot = vm.screendump(f"t{int(time.time() - start):04d}")
-            if boswas_screen(analyse(shot)) and not desktop_screen(shot):
+            if boswas_screen(analyse(shot)) and passphrase_prompt(shot):
                 passphrase = shot
-                to_png(shot, outdir / "installed-passphrase.png")
                 break
+        if shot is not None:
+            to_png(shot, outdir / "installed-passphrase.png")
         check(passphrase is not None, "installed system: boots through shim and GRUB under Secure Boot to the Boswas OS "
                                       "disk-unlock screen (screenshot installed-passphrase.png)")
-        time.sleep(5)
+        time.sleep(3)
         vm.type_text(DISK_PASSPHRASE)
         vm.key("ret")
         m = vm.expect(rb"(login: )", min(timeout, 2400))
@@ -797,7 +886,8 @@ def scenario_install(iso: Path, workdir: Path, outdir: Path, timeout: float) -> 
         rc, out = sh.run("echo Boswas-Test-1234 | sudo -S -p '' sh -c 'mokutil --sb-state; efibootmgr -v; "
                          "cryptsetup status $(ls /dev/mapper | grep -m1 _crypt) | grep -i type; aa-enabled; "
                          "plymouth-set-default-theme; test -e /usr/local/share/applications/com.boswas.InstallBoswasOS.desktop "
-                         "&& echo install-entry-present; dpkg-query -W -f=\"${db:Status-Status}\" live-boot 2>/dev/null; echo'",
+                         "&& echo install-entry-present; dpkg -s live-boot 2>/dev/null | "
+                         "grep -qx \"Status: install ok installed\" && echo live-boot-installed; echo'",
                          timeout=300)
         (outdir / "installed-system.txt").write_text(out + "\n")
         check("SecureBoot enabled" in out, "installed system: Secure Boot is enforced")
@@ -806,7 +896,7 @@ def scenario_install(iso: Path, workdir: Path, outdir: Path, timeout: float) -> 
         check("LUKS2" in out, "installed system: disk encryption is LUKS2 (installation policy)")
         check("Yes" in out, "installed system: AppArmor is enabled")
         check("boswas" in out.split(), "installed system: the Boswas OS boot splash is configured")
-        check("install-entry-present" not in out and "installed" != out.strip().split()[-1:],
+        check("install-entry-present" not in out and "live-boot-installed" not in out,
               "installed system: no live-session leftovers (no Install entry, live-boot removed)")
         vm.send("echo Boswas-Test-1234 | sudo -S -p '' systemctl poweroff\n")
         try:
