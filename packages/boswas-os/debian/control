@@ -15,6 +15,8 @@ Depends: boswas-branding (>= 1.0~alpha1),
          boswas-control-center (>= 1.0~alpha3),
          boswas-device-agent (>= 1.0~alpha3),
          boswas-security (>= 1.0~alpha1),
+         boswas-sysops (>= 1.0~alpha3),
+         boswas-android (>= 1.0~alpha3),
          ${misc:Depends}
 Description: Boswas OS release identity and core configuration
  Boswas OS is the Boswas Group company-managed desktop operating system.

@@ -1,11 +1,18 @@
 # Boswas OS v1 - application compatibility and isolation
 #
-# Wine 10.0 (Debian 13), 64-bit only in v1 alpha. wine32 requires i386
-# multiarch and is a Phase 6 decision (docs/compatibility/README.md).
-# Flatpak is installed without any remote configured: no store is reachable
-# until Boswas policy adds an approved remote (Phase 5).
+# Wine 10.0 (Debian 13). 64-bit and 32-bit Windows applications (ADR-0022):
+# Debian 13's wine64 contains only 64-bit Windows modules (no new-style
+# WoW64), so 32-bit programs need wine32 from the i386 architecture. The
+# ":i386" suffix makes live-build enable i386 as a dpkg foreign architecture
+# (multiarch) before installing: 32-bit libraries next to the amd64 system,
+# which stays a 64-bit operating system (amd64 kernel, amd64 userland).
+# Flatpak is installed without any remote configured: an approved remote is
+# enabled only by an administrator (boswas-sysops flatpak-remote-enable).
+# libfuse2t64: FUSE 2 library for AppImages built with the older runtime.
 
 wine
 wine64
+wine32:i386
 flatpak
 bubblewrap
+libfuse2t64

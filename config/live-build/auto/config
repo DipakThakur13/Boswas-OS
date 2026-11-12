@@ -33,7 +33,7 @@ lb config noauto \
 	--apt-recommends true \
 	--apt-source-archives false \
 	--firmware-chroot false \
-	--firmware-binary false \
+	--firmware-binary true \
 	--cache true \
 	--cache-packages true \
 	--cache-stages bootstrap \

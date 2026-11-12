@@ -1,0 +1,10 @@
+#!/usr/bin/python3 -IB
+"""Boswas OS privileged helper. Started only as `pkexec /usr/libexec/boswas/sysops <operation>`; see boswas-sysops(8)."""
+
+import sys
+
+sys.path.insert(0, "/usr/lib/boswas/python")
+
+from boswas_sysops.cli import main  # noqa: E402
+
+sys.exit(main())

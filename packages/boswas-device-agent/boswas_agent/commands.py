@@ -214,21 +214,26 @@ def validate_payload(ctype: CommandType, payload: object) -> list[str]:
     return problems
 
 
-def architecture_refusal(ctype: CommandType, payload: dict) -> str | None:
-    """Why an install/update payload targets an unsupported Windows architecture.
+def architecture_refusal(ctype: CommandType, payload: dict,
+                         architectures: tuple[str, ...] = ("x86_64",)) -> str | None:
+    """Why an install/update payload targets a Windows architecture this device cannot run.
 
-    Boswas OS runs x86_64 applications only; a 32-bit catalog entry must
-    never lead to a download or an installation attempt.
+    ``architectures`` are what the local WinCompat runtime executes
+    (boswas_compat.ops.load_runtime(): x86_64, and x86 while wine32:i386 is
+    installed). A refused catalog entry never leads to a download or an
+    installation attempt; boswas-winapp checks the installer's own PE header
+    again before anything runs.
     """
     if ctype not in (CommandType.INSTALL_APPLICATION, CommandType.UPDATE_APPLICATION):
         return None
     arch = (payload.get("manifest") or {}).get("architecture")
-    if arch == "x86_64":
+    if arch in architectures:
         return None
     from boswas_compat import UNSUPPORTED_32BIT_MESSAGE
     if arch == "x86":
         return UNSUPPORTED_32BIT_MESSAGE
-    return f"unsupported Windows architecture {str(arch)[:16]!r}; Boswas OS runs x86_64 applications only"
+    return (f"unsupported Windows architecture {str(arch)[:16]!r}; this device runs "
+            f"{', '.join(architectures) or 'no'} Windows applications")
 
 
 # --- commands ------------------------------------------------------------------------

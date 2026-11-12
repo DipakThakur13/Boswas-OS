@@ -25,9 +25,12 @@ does. Permissions are shown read\-only; they come from the Boswas
 compatibility catalog and the device policy and cannot be changed in the
 Compatibility Manager.
 .PP
-Boswas OS runs x86_64 (64\-bit) Windows applications only. A 32\-bit
-installer is refused with the message
-.RI \(lq "This application requires 32-bit Windows compatibility, which is not supported by Boswas OS." \(rq
+Boswas OS runs x86_64 (64\-bit) and x86 (32\-bit) Windows applications; the
+architecture is read from the program's header, never its name. 32\-bit
+programs need the 32\-bit Wine runtime (package wine32:i386, installed with
+Boswas OS). Where an administrator removed it, a 32\-bit installer is refused
+with the message
+.RI \(lq "This application requires 32-bit Windows compatibility, which is not installed on this system." \(rq
 .SH OPTIONS
 .TP
 .BI \-\-install " file"

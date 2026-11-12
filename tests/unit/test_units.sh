@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Python unit tests of the Boswas components: boswas-compat, the device agent,
 # the Compatibility Manager and Boswas Control Center (Qt tests run offscreen
-# when PySide6 is installed), the Control Plane (including the end-to-end
+# when PySide6 is installed), the privileged helper (boswas-sysops), the
+# Android runtime manager (boswas-android), the Control Plane (including the end-to-end
 # agent <-> Control Plane tests over mutual TLS), the presets (boswas-preset,
 # generated themes) and the icon themes. These also run during the package
 # builds (dh_auto_test); repeating them here gives one report line each with
@@ -11,7 +12,8 @@ set -uo pipefail
 
 export QT_QPA_PLATFORM=offscreen
 for dir in packages/boswas-compat packages/boswas-device-agent packages/boswas-compat-manager \
-	packages/boswas-control-center control-plane desktop/presets desktop/icons; do
+	packages/boswas-control-center packages/boswas-sysops packages/boswas-android control-plane \
+	desktop/presets desktop/icons; do
 	name="$(basename "$dir")"
 	out="$(cd "$BOSWAS_REPO_ROOT/$dir" && python3 -B -m unittest discover -s tests 2>&1)"
 	count="$(grep -oE '^Ran [0-9]+ tests?' <<<"$out" | grep -oE '[0-9]+')"

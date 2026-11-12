@@ -20,13 +20,27 @@ from datetime import datetime, timezone, tzinfo
 
 # --- fixed texts ------------------------------------------------------------------------------
 
-# Boswas OS runs 64-bit Windows applications only (product decision, ADR-0014).
-# These are fixed product texts: no workaround is ever offered next to them.
+# Boswas OS runs 64-bit and 32-bit Windows applications (ADR-0022); 32-bit
+# programs need Debian's wine32:i386. These texts appear only when that
+# runtime is missing on a device (an administrator removed it); they must
+# match boswas_compat.UNSUPPORTED_32BIT_MESSAGE.
 UNSUPPORTED_32BIT_MESSAGE = ("This application requires 32-bit Windows compatibility, "
-                             "which is not supported by Boswas OS.")
-UNSUPPORTED_32BIT_DETAIL = "32-bit Windows applications are not supported by this version of Boswas OS."
-SUPPORTED_ARCHITECTURE = "x86_64 / 64-bit Windows applications"
-WINDOWS_APPLICATIONS = "x86_64 / 64-bit only"
+                             "which is not installed on this system.")
+UNSUPPORTED_32BIT_DETAIL = ("The 32-bit Windows runtime (package wine32:i386) is not installed on this device. "
+                            "An administrator can install it; 64-bit Windows applications are not affected.")
+SUPPORTED_ARCHITECTURE = "x86_64 (64-bit) and x86 (32-bit) Windows applications"
+WINDOWS_APPLICATIONS = "x86_64 (64-bit) and x86 (32-bit)"
+ARCHITECTURE_TEXT = {"x86_64": "x86_64 (64-bit)", "x86": "x86 (32-bit)"}
+
+
+def windows_applications_text(architectures: object) -> str:
+    """What the device's Windows runtime executes, from session system.status windows_architectures."""
+    if not isinstance(architectures, list) or not architectures:
+        return WINDOWS_APPLICATIONS
+    names = [ARCHITECTURE_TEXT.get(a, one_line(a, 20)) for a in architectures if isinstance(a, str)]
+    if "x86" not in architectures:
+        return " and ".join(names) + " only (32-bit runtime not installed)"
+    return " and ".join(names)
 
 PERMISSIONS_NOTICE = ("Permissions come from the Boswas compatibility catalog and device policy. "
                       "They cannot be changed here.")
@@ -552,7 +566,8 @@ def system_rows(system: object, agent: object) -> list[StatusRow]:
         disk_row,
         StatusRow("architecture", "System architecture", one_line(os_doc.get("architecture"), 20) or "Unknown",
                   "neutral"),
-        StatusRow("windows", "Windows applications", WINDOWS_APPLICATIONS, "neutral"),
+        StatusRow("windows", "Windows applications", windows_applications_text(_dict(system).get("windows_architectures")),
+                  "neutral"),
         StatusRow("os_version", "Boswas OS version", version or "Unknown", "neutral"),
         policy_row(system, agent),
     ]
@@ -857,7 +872,7 @@ REFUSAL_TITLES = {
     "policy-blocked": "This application is blocked on this device",
     "policy-not-allowed": "This application is not allowed on this device",
     "installer-mismatch": "This installer does not match the catalog",
-    "architecture": "This installer is not for 64-bit Windows",
+    "architecture": "This installer is for a Windows architecture Boswas OS does not run",
     "bad-installer": "This is not a Windows installer",
     "up-to-date": "This version is already installed",
 }
@@ -873,7 +888,7 @@ REFUSAL_HINTS = {
     "policy-not-allowed": "Your administrator allows only selected applications on this device.",
     "installer-mismatch": "The catalog expects a different installer file for this application. Download it again "
                           "from the publisher.",
-    "architecture": f"Boswas OS runs {SUPPORTED_ARCHITECTURE} only.",
+    "architecture": f"Boswas OS runs {SUPPORTED_ARCHITECTURE}.",
     "up-to-date": "The application was installed from this installer; there is nothing to update.",
 }
 

@@ -32,6 +32,12 @@ override_dh_auto_install:
 	install -D -m 0644 build/issue.net $(PKG)/usr/share/boswas/issue.net
 	install -D -m 0644 build/motd $(PKG)/usr/share/boswas/motd
 	install -D -m 0644 $(REPO)/config/boswas/grub-boswas.cfg $(PKG)/etc/default/grub.d/10-boswas.cfg
+	# Installation: the last step run by the installer (preseed late_command),
+	# the signature-verified Debian sources it writes, and the firmware the
+	# installer and the image must provide (checked at build time)
+	install -D -m 0755 $(REPO)/config/boswas/finish-install $(PKG)/usr/lib/boswas/installer/finish-install
+	install -D -m 0644 $(REPO)/config/boswas/debian.sources $(PKG)/usr/share/boswas/apt/debian.sources
+	install -D -m 0644 $(REPO)/config/boswas/firmware-required.list $(PKG)/usr/share/boswas/firmware/required.list
 	# Live session only (live-config is not installed on installed systems)
 	install -D -m 0644 $(REPO)/config/boswas/live-config.conf $(PKG)/etc/live/config.conf.d/boswas.conf
 	install -D -m 0755 $(REPO)/config/boswas/live-config-boswas $(PKG)/usr/lib/live/config/9000-boswas

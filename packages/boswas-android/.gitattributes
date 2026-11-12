@@ -1,0 +1,2 @@
+# The Waydroid repository keyring is a binary OpenPGP file: never convert it.
+*.gpg       binary

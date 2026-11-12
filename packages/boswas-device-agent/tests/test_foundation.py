@@ -280,11 +280,19 @@ class CommandTests(unittest.TestCase):
             with self.assertRaises(InvalidCommand):
                 self.parse(command("INSTALL_APPLICATION", payload))
 
-    def test_32_bit_catalog_entries_are_refused(self):
+    def test_32_bit_catalog_entries_follow_the_local_runtime(self):
         payload = install_payload(manifest=manifest(architecture="x86"))
         cmd = self.parse(command("INSTALL_APPLICATION", payload))
+        # wine32:i386 installed: 32-bit entries are allowed.
+        self.assertIsNone(commands.architecture_refusal(cmd.type, cmd.payload, ("x86_64", "x86")))
+        # wine32 missing (and the conservative default): refused with the product message.
+        self.assertEqual(commands.architecture_refusal(cmd.type, cmd.payload, ("x86_64",)), UNSUPPORTED_32BIT_MESSAGE)
         self.assertEqual(commands.architecture_refusal(cmd.type, cmd.payload), UNSUPPORTED_32BIT_MESSAGE)
         self.assertIsNone(commands.architecture_refusal(cmd.type, install_payload()))
+        arm = self.parse(command("INSTALL_APPLICATION", install_payload(manifest=manifest(architecture="x86_64"))))
+        arm.payload["manifest"]["architecture"] = "arm64"
+        self.assertIn("this device runs x86_64, x86", commands.architecture_refusal(arm.type, arm.payload,
+                                                                                    ("x86_64", "x86")))
 
     def test_status_transitions(self):
         S = commands.CommandStatus

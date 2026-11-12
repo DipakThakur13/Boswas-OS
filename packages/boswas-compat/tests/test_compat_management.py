@@ -99,15 +99,48 @@ def msi_bytes(template: str | None = "x64;1033", *, loop: bool = False, stream_n
 
 
 class ArchitectureTests(CompatTestCase):
-    def test_32_bit_refusal_uses_the_product_message_before_anything_else(self):
+    def test_runtime_runs_64_and_32_bit_programs(self):
+        runtime = self.ctx().runtime
+        self.assertEqual(runtime.architectures, ("x86_64", "x86"))
+        self.assertEqual(runtime.unavailable, ())
+        self.assertEqual(ops.supported_text(runtime), "x86_64 (64-bit) and x86 (32-bit)")
+        info = ops.runtime_info(self.ctx())
+        self.assertEqual((info["architectures"], info["unavailable_architectures"]), (["x86_64", "x86"], []))
+        self.assertEqual(info["loader32"], {"path": "/usr/lib/wine/wine", "available": True})
+
+    def test_32_bit_program_installs_in_its_own_sandbox_with_the_same_loader(self):
+        result = ops.install(self.ctx(), str(self.installer_file("setup32.exe", pe_bytes(machine=0x14C, subsystem=2))),
+                             app_id="local.setup32")
+        self.assertEqual(result["application"]["state"], "installed")
+        record = store.AppStore(self.home).read_record("local.setup32")
+        self.assertEqual(record["architecture"], "x86")
+        # One loader for both: wine64 hands 32-bit programs to the 32-bit loader
+        # (WINELOADER without "64"), inside the same win64 prefix and sandbox.
+        installer_call = next(c for c in self.executor.calls if c["title"] == "installer")
+        self.assertEqual(installer_call["command"][0], "/usr/lib/wine/wine64")
+        self.assertEqual(ops.list_apps(self.ctx())["applications"][0]["supported"], True)
+
+    def test_32_bit_refusal_when_wine32_is_missing_names_the_reason(self):
+        self.remove_wine32()
+        self.assertEqual(self.ctx().runtime.architectures, ("x86_64",))
         self.set_policy(UNLISTED_APPS="deny")          # architecture is decided first
         with self.assertRaises(Refused) as cm:
             ops.install(self.ctx(), str(self.installer_file("setup32.exe", pe_bytes(machine=0x14C))))
         self.assertEqual(cm.exception.reason, "architecture")
         self.assertIn(UNSUPPORTED_32BIT_MESSAGE, str(cm.exception))
-        for hint in ("wine32", "i386", "WoW64", "multiarch"):
-            self.assertNotIn(hint.lower(), str(cm.exception).lower())
+        self.assertIn("wine32:i386", str(cm.exception))
         self.assertEqual(self.executor.calls, [])
+        info = ops.runtime_info(self.ctx())
+        self.assertEqual(info["unavailable_architectures"][0]["architecture"], "x86")
+        self.assertFalse(info["loader32"]["available"])
+
+    def test_other_architectures_name_what_runs_here(self):
+        with self.assertRaises(Refused) as cm:
+            ops.install(self.ctx(), str(self.installer_file("arm.exe", pe_bytes(machine=0xAA64))))
+        self.assertEqual(cm.exception.reason, "architecture")
+        self.assertIn("arm64 Windows program", str(cm.exception))
+        self.assertIn("x86_64 (64-bit) and x86 (32-bit)", str(cm.exception))
+        self.assertNotIn(UNSUPPORTED_32BIT_MESSAGE, str(cm.exception))
 
     def test_msi_platform_is_read_from_the_summary_information(self):
         for template, machine in (("x64;1033", "x86_64"), ("Intel;1033", "x86"), (";1033", "x86"),
@@ -121,20 +154,34 @@ class ArchitectureTests(CompatTestCase):
                      installer.OLE_MAGIC + b"\0" * 100, msi_bytes()[:700]):
             self.assertIsNone(installer.inspect(self.installer_file("bad.msi", data)).machine)
 
-    def test_32_bit_msi_is_refused_and_64_bit_msi_installs(self):
+    def test_32_and_64_bit_msi_install(self):
+        for name, template, app_id, arch in (("x86.msi", "Intel;1033", "local.msi32", "x86"),
+                                             ("x64.msi", "x64;1033", "local.msi-app", "x86_64")):
+            result = ops.install(self.ctx(), str(self.installer_file(name, msi_bytes(template))), app_id=app_id)
+            self.assertEqual(result["application"]["state"], "installed")
+            self.assertEqual(store.AppStore(self.home).read_record(app_id)["architecture"], arch)
+        installer_call = next(c for c in self.executor.calls if c["title"] == "installer")
+        self.assertEqual(installer_call["command"][1], "msiexec")
+
+    def test_32_bit_msi_is_refused_when_wine32_is_missing(self):
+        self.remove_wine32()
         with self.assertRaises(Refused) as cm:
             ops.install(self.ctx(), str(self.installer_file("x86.msi", msi_bytes("Intel;1033"))))
         self.assertIn(UNSUPPORTED_32BIT_MESSAGE, str(cm.exception))
-        result = ops.install(self.ctx(), str(self.installer_file("x64.msi", msi_bytes("x64;1033"))),
-                             app_id="local.msi-app")
-        self.assertEqual(result["application"]["state"], "installed")
-        installer_call = next(c for c in self.executor.calls if c["title"] == "installer")
-        self.assertEqual(installer_call["command"][1], "msiexec")
-        record = store.AppStore(self.home).read_record("local.msi-app")
-        self.assertEqual(record["architecture"], "x86_64")
+        self.assertEqual(self.executor.calls, [])
 
-    def test_32_bit_catalog_entry_is_unsupported_and_never_installed(self):
-        exe = self.installer_file()
+    def test_32_bit_catalog_entry_is_supported_while_wine32_is_installed(self):
+        exe = self.installer_file("setup32.exe", pe_bytes(machine=0x14C, extra=b"Nullsoft Install System v3"))
+        sha = hashlib.sha256(exe.read_bytes()).hexdigest()
+        self.add_manifest(architecture="x86", installer={"sha256": sha}, launch="Program Files/Fake App/fake.exe")
+        entry = ops.catalog_list(self.ctx())["manifests"][0]
+        self.assertEqual((entry["supported"], entry["compatibility"]), (True, "SUPPORTED"))
+        result = ops.install(self.ctx(), str(exe), app_id="com.example.app")
+        self.assertEqual(result["application"]["state"], "installed")
+
+    def test_32_bit_catalog_entry_is_unsupported_and_never_installed_without_wine32(self):
+        self.remove_wine32()
+        exe = self.installer_file("setup32.exe", pe_bytes(machine=0x14C, extra=b"Nullsoft Install System v3"))
         sha = hashlib.sha256(exe.read_bytes()).hexdigest()
         self.add_manifest(architecture="x86", installer={"sha256": sha})
         entry = ops.catalog_list(self.ctx())["manifests"][0]
@@ -150,6 +197,7 @@ class ArchitectureTests(CompatTestCase):
         sha = hashlib.sha256(exe.read_bytes()).hexdigest()
         self.add_manifest(installer={"sha256": sha}, launch="Program Files/Fake App/fake.exe")
         ops.install(self.ctx(), str(exe))
+        self.remove_wine32()
         self.add_manifest(installer={"sha256": sha}, launch="Program Files/Fake App/fake.exe", architecture="x86")
         app = ops.list_apps(self.ctx())["applications"][0]
         self.assertEqual((app["app_state"], app["supported"], app["compatibility"]),
@@ -170,7 +218,15 @@ class InspectTests(CompatTestCase):
         self.assertEqual(self.executor.calls, [])
         self.assertFalse((self.home / ".local/share/boswas/wine").exists())
 
+    def test_inspect_reports_the_detected_architecture(self):
+        r = ops.inspect_installer(self.ctx(), str(self.installer_file("x86.exe", pe_bytes(machine=0x14C))))
+        self.assertTrue(r["decision"]["allowed"])
+        self.assertEqual((r["installer"]["machine"], r["installer"]["format"]), ("x86", "PE32"))
+        self.assertEqual(r["architecture"]["detected"], "x86")
+        self.assertIs(r["architecture"]["supported"], True)
+
     def test_inspect_reports_refusals(self):
+        self.remove_wine32()
         r = ops.inspect_installer(self.ctx(), str(self.installer_file("x86.exe", pe_bytes(machine=0x14C))))
         self.assertEqual((r["decision"]["allowed"], r["decision"]["reason"]), (False, "architecture"))
         self.assertIn(UNSUPPORTED_32BIT_MESSAGE, r["decision"]["message"])
@@ -187,6 +243,7 @@ class InspectTests(CompatTestCase):
         self.assertEqual((r["decision"]["allowed"], r["decision"]["reason"]), (False, "already-installed"))
 
     def test_cli_inspect_exit_codes(self):
+        self.remove_wine32()
         out = io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()), \
                 mock.patch.object(ops.Context, "create", lambda out=None: self.ctx(out)):
@@ -300,7 +357,7 @@ class UpgradeTests(CompatTestCase):
             ops.upgrade(self.ctx(), "com.example.app", str(self.v2))     # not the pinned installer
         self.assertEqual(cm.exception.reason, "installer-mismatch")
         with self.assertRaises(Refused) as cm:
-            ops.upgrade(self.ctx(), "com.example.app", str(self.installer_file("x86.exe", pe_bytes(machine=0x14C))))
+            ops.upgrade(self.ctx(), "com.example.app", str(self.installer_file("arm.exe", pe_bytes(machine=0xAA64))))
         self.assertEqual(cm.exception.reason, "architecture")
 
     def test_failed_upgrade_is_an_error_that_repair_can_clear(self):
@@ -423,7 +480,7 @@ class RuntimeAndCommandTests(CompatTestCase):
     def test_runtime_health(self):
         r = ops.runtime_info(self.ctx())
         self.assertTrue(r["wine"]["available"])
-        self.assertEqual(r["architectures"], ["x86_64"])
+        self.assertEqual(r["architectures"], ["x86_64", "x86"])
         self.assertEqual(r["apparmor"]["mode"], "unavailable")     # no AppArmor in the fake root
         self.assertFalse(r["healthy"])                             # required by policy, not available
         self.set_policy(REQUIRE_APPARMOR="no")

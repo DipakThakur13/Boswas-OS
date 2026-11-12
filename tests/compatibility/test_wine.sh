@@ -19,6 +19,16 @@ esac
 check "wine command resolves to the Debian wine-stable launcher" \
 	bash -c "[ \"\$(chroot '$root' readlink -f /usr/bin/wine)\" = /usr/bin/wine-stable ] && test -x '$root/usr/bin/wine-stable'"
 check "Wine 64-bit loader present" test -x "$root/usr/lib/wine/wine64"
+check "32-bit Wine runtime installed (wine32:i386)" \
+	bash -c "[ \"\$(dpkg-query --admindir='$root/var/lib/dpkg' -W -f='\${Architecture} \${Version}' wine32 2>/dev/null)\" = \"i386 $version\" ]"
+check "Wine 32-bit loader present (i386 ELF)" bash -c "test -x '$root/usr/lib/wine/wine' && file -bL '$root/usr/lib/wine/wine' | grep -qE 'ELF 32-bit.*Intel (80386|i386)'"
+check "32-bit Windows modules present (libwine:i386)" test -s "$root/usr/lib/i386-linux-gnu/wine/i386-windows/kernel32.dll"
+runtime="$(chroot "$root" /usr/bin/boswas-winapp --json runtime 2>/dev/null)"
+check "boswas-winapp reports x86_64 and x86 as available architectures" python3 -c '
+import json, sys
+d = json.loads(sys.argv[1])
+assert d["architectures"] == ["x86_64", "x86"], d["architectures"]
+assert d["unavailable_architectures"] == [] and d["loader32"]["available"] is True' "$runtime"
 
 check "Flatpak installed" pkg_installed "$root" flatpak
 check "bubblewrap installed" pkg_installed "$root" bubblewrap

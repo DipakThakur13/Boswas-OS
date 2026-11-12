@@ -8,8 +8,10 @@ Rules every operation follows:
     AppArmor-attached runner.
   * What an application may access is recomputed from the catalog and the
     policy at every start, never read from state the application can change.
-  * Boswas OS runs x86_64 (64-bit) Windows applications only; 32-bit
-    software is refused before anything else is decided.
+  * Boswas OS runs x86_64 (64-bit) and x86 (32-bit) Windows applications;
+    the architecture is read from the program's PE header (never its name)
+    and checked against what this runtime can execute before anything else
+    is decided (x86 needs Debian's wine32:i386).
 """
 
 from __future__ import annotations
@@ -25,7 +27,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO
 
-from . import UNSUPPORTED_32BIT_MESSAGE, envfile, paths, sandbox
+from . import ARCHITECTURE_NAMES, UNSUPPORTED_32BIT_MESSAGE, envfile, paths, sandbox
 from .catalog import Catalog
 from .desktop import remove_entry, write_entry
 from .errors import Busy, NotFound, Refused, Unavailable, UsageError, WinAppError
@@ -52,11 +54,23 @@ SUPPORT_CODES = ("SUPPORTED", "UNSUPPORTED_ARCHITECTURE", "UNSUPPORTED_RUNTIME",
 def load_runtime() -> sandbox.Runtime:
     values = envfile.load(paths.system_path(paths.RUNTIME_FILE))
     default = sandbox.Runtime()
+    loader32 = values.get("WINE_LOADER32", default.loader32)
+    declared = tuple(dict.fromkeys(values.get("ARCHITECTURES", " ".join(default.architectures)).split()))
+    effective, unavailable = [], []
+    for arch in declared:
+        # 32-bit programs need the 32-bit loader (wine32:i386); without it the
+        # architecture is reported as unavailable instead of failing in Wine.
+        if arch == "x86" and not os.access(paths.system_path(loader32), os.X_OK):
+            unavailable.append((arch, f"the 32-bit Wine loader {loader32} (package wine32:i386) is not installed"))
+            continue
+        effective.append(arch)
     return sandbox.Runtime(
         loader=values.get("WINE_LOADER", default.loader),
         server=values.get("WINE_SERVER", default.server),
+        loader32=loader32,
         wine_major=values.get("WINE_MAJOR", default.wine_major),
-        architectures=tuple(values.get("ARCHITECTURES", " ".join(default.architectures)).split()),
+        architectures=tuple(effective),
+        unavailable=tuple(unavailable),
         winearch=values.get("WINEARCH", default.winearch),
         winedebug=values.get("WINEDEBUG", default.winedebug),
         dll_overrides=values.get("DLL_OVERRIDES", default.dll_overrides),
@@ -131,19 +145,28 @@ def wine_version(ctx: Context) -> str | None:
 
 # --- architecture ------------------------------------------------------------------
 
+def supported_text(runtime: sandbox.Runtime) -> str:
+    """'x86_64 (64-bit) and x86 (32-bit)' for the architectures this runtime can execute."""
+    names = [ARCHITECTURE_NAMES.get(a, a) for a in runtime.architectures]
+    if not names:
+        return "no"
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+
+
 def architecture_problem(ctx: Context, machine: str | None, what: str) -> str | None:
     """Why a Windows architecture cannot run here (None: it can, or it is unknown).
 
-    32-bit software always gets the product's fixed sentence: Boswas OS v1 is
-    64-bit only by decision, so no hint at a 32-bit runtime is ever given.
+    32-bit software that cannot run because wine32 is missing gets the
+    product's fixed sentence plus the reason; other architectures (arm64,
+    unknown machine types) name what this runtime runs instead.
     """
     if machine is None or machine in ctx.runtime.architectures:
         return None
-    supported = ", ".join(ctx.runtime.architectures)
     if machine == "x86":
-        return (f"{UNSUPPORTED_32BIT_MESSAGE} ({what} is an x86 (32-bit) Windows program; Boswas OS runs "
-                f"{supported} (64-bit) Windows applications only.)")
-    return f"{what} is a {machine} Windows program; Boswas OS runs {supported} (64-bit) Windows applications only."
+        reason = dict(ctx.runtime.unavailable).get("x86", "this runtime does not run 32-bit Windows programs")
+        return f"{UNSUPPORTED_32BIT_MESSAGE} ({what} is an x86 (32-bit) Windows program; {reason}.)"
+    return (f"{what} is a {machine} Windows program; Boswas OS runs {supported_text(ctx.runtime)} "
+            f"Windows applications.")
 
 
 # --- paths inside drive_c ------------------------------------------------------------
@@ -1084,6 +1107,8 @@ def runtime_info(ctx: Context) -> dict:
         "wine": {"available": wine_ok and server_ok, "version": wine_version(ctx) if wine_ok else None,
                  "major": ctx.runtime.wine_major, "loader": ctx.runtime.loader, "server": ctx.runtime.server},
         "architectures": list(ctx.runtime.architectures),
+        "unavailable_architectures": [{"architecture": a, "reason": r} for a, r in ctx.runtime.unavailable],
+        "loader32": {"path": ctx.runtime.loader32, "available": available(ctx.runtime.loader32)},
         "winearch": ctx.runtime.winearch,
         "bubblewrap": {"available": bwrap_ok, "version": ".".join(map(str, bwrap)) if bwrap else None,
                        "disable_userns": bool(bwrap and bwrap >= (0, 8))},

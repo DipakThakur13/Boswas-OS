@@ -1,0 +1,11 @@
+boswas-sysops (1.0~alpha3) trixie; urgency=medium
+
+  * Initial release: the Boswas OS privileged helper
+    (/usr/libexec/boswas/sysops), started through pkexec with one polkit
+    action per operation: APT refresh, upgrade, install, remove and local
+    .deb installation, package cache and journal cleanup, the firmware
+    report, approved Flatpak remotes and the Android runtime (Waydroid).
+  * JSON Lines progress and results, cancellation while nothing has been
+    changed, lock detection, protected and excluded packages.
+
+ -- Boswas OS Platform Team <os-platform@boswas.invalid>  Thu, 12 Nov 2026 12:00:00 +0000

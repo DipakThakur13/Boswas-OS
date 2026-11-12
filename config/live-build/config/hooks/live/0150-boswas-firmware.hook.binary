@@ -1,0 +1,67 @@
+#!/bin/sh
+# Boswas OS: the installer's firmware pool must hold the required firmware.
+#
+# With --firmware-binary true, live-build puts every Debian firmware package
+# into binary/firmware/ (symlinks into binary/pool/), with the index
+# firmware/Contents-firmware ("/usr/lib/firmware/<file> <package file>
+# <component>") and firmware/dep11/*.patterns. Debian Installer's hw-detect
+# (check-missing-firmware) looks a missing file up in that index, unpacks the
+# package and reloads the driver, before any network exists; the packages it
+# used are installed on the target system (pre-pkgsel.d/50install-firmware).
+#
+# This hook changes nothing. It fails the build when the pool is missing, when
+# the index names a package file that is not on the medium, or when a file of
+# /usr/share/boswas/firmware/required.list (config/boswas/firmware-required.list)
+# cannot be loaded from the medium. Runs in binary/ (cwd).
+set -e
+
+fail() {
+	echo "E: boswas-firmware: $*" >&2
+	exit 1
+}
+
+index=firmware/Contents-firmware
+required=../chroot/usr/share/boswas/firmware/required.list
+
+[ -d firmware ] || fail "no firmware/ directory on the medium: the installer cannot load firmware (needs lb config --firmware-binary true)"
+[ -s "$index" ] || fail "$index is missing or empty: hw-detect cannot find firmware packages on the medium"
+[ -s "$required" ] || fail "$required is missing (installed by boswas-os)"
+
+# Every package file the index names exists (symlinks resolve) and is a .deb.
+debs="$(awk '{ print $2 }' "$index" | sort -u)"
+[ -n "$debs" ] || fail "$index names no package files"
+for deb in $debs; do
+	[ -f "firmware/$deb" ] || fail "$index names firmware/$deb, which is not on the medium"
+done
+count="$(printf '%s\n' "$debs" | wc -l)"
+
+# Every required pattern matches a file of the index whose package contains it.
+set -f
+patterns="$(sed -e 's/#.*//' -e 's/[[:space:]]*$//' -e '/^$/d' "$required")"
+missing=""
+for pattern in $patterns; do
+	found=""
+	while read -r path deb component; do
+		file="${path#/usr/lib/firmware/}"
+		file="${file#/lib/firmware/}"
+		case "$file" in
+		$pattern)
+			# dpkg-deb -c: perms owner size date time path [-> target]
+			if dpkg-deb -c "firmware/$deb" | awk '{ print $6 }' | grep -qxF -e "./usr/lib/firmware/$file" -e "./lib/firmware/$file"; then
+				found="$file ($deb, $component)"
+				break
+			fi
+			;;
+		esac
+	done < "$index"
+	if [ -n "$found" ]; then
+		echo "I: boswas-firmware: $pattern -> $found"
+	else
+		missing="$missing $pattern"
+	fi
+done
+set +f
+[ -z "$missing" ] || fail "required firmware not loadable by the installer from the medium:$missing"
+
+size="$(du -shL firmware | cut -f1)"
+echo "I: boswas-firmware: installer firmware pool OK ($count packages, $size; all required firmware present)"

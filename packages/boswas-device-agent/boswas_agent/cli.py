@@ -173,7 +173,8 @@ class Cli:
             ("CPU", f"{hw.get('cpu_model')} ({hw.get('cpu_count')} threads)" if hw else None),
             ("Memory", f"{hw.get('memory_gib')} GiB" if hw.get("memory_gib") else None),
             ("Windows runtime", f"Wine {(doc.get('compatibility') or {}).get('wine_version')}, "
-                                f"{', '.join((doc.get('compatibility') or {}).get('architectures') or [])} only"),
+                                f"{', '.join((doc.get('compatibility') or {}).get('architectures') or []) or 'no'} "
+                                "Windows applications"),
         ])]
         if apps:
             lines.append("\nWindows applications:")

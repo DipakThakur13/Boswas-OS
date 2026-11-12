@@ -62,13 +62,21 @@ This page must be updated whenever a list changes.
 
 | Package | Why |
 |---------|-----|
-| wine, wine64 | Windows application compatibility (x86_64 / 64-bit only, Wine 10), run only through `boswas-winapp` sandboxes |
-| flatpak, bubblewrap | Application sandboxing. bubblewrap isolates every Windows application (boswas-compat); Flatpak has no remote configured until policy allows |
+| wine, wine64 | Windows application compatibility (Wine 10, 64-bit programs), run only through `boswas-winapp` sandboxes |
+| wine32:i386 | 32-bit Windows programs (ADR-0022). Debian 13's wine64 has no 32-bit Windows modules; `:i386` makes live-build enable i386 as the only foreign dpkg architecture (about 1 GB installed with its i386 libraries). The system stays amd64 |
+| libfuse2t64 | FUSE 2 library for AppImages built with the older AppImage runtime (fuse3 is already installed) |
+| flatpak, bubblewrap | Application sandboxing. bubblewrap isolates every Windows application (boswas-compat); Flatpak has no remote configured until an administrator enables an approved one (`boswas-sysops flatpak-remote-enable`) |
 
 ## Hardware (`boswas-hardware.list.chroot`)
 
 The selected redistributable firmware is listed in
-`docs/deployment/hardware-compatibility.md`.
+`docs/deployment/hardware-compatibility.md`. firmware-cirrus (laptop
+speaker amplifiers), firmware-bnx2/bnx2x (Broadcom NetXtreme II),
+firmware-libertas and firmware-zd1211 (older Wi-Fi) were added with the
+installer firmware work (ADR-0023). Independently, the **installer medium**
+carries every Debian firmware package in `/firmware` (`lb config
+--firmware-binary true`), so the installer can load firmware before any
+network exists; `config/boswas/firmware-required.list` is the build gate.
 
 ## Boswas (`boswas-components.list.chroot`)
 
@@ -81,10 +89,14 @@ The selected redistributable firmware is listed in
 | boswas-compat | WinCompat: `boswas-winapp`, Wine AppArmor profile, compatibility catalog and policy. Depends on `wine`, `wine64`, `bubblewrap`, `apparmor` (all already in the manifest) |
 | boswas-device-agent | Device agent service, per-user session agent, `boswas-device`. Depends on `boswas-compat`, `openssl` (device key, policy signatures) and `systemd` |
 | boswas-compat-manager | Compatibility Manager GUI. Depends on PySide6 (`python3-pyside6.qtcore`, `qtgui`, `qtwidgets`, Debian's LGPL Qt bindings, about 30 MB with their Qt libraries) and `boswas-device-agent` |
+| boswas-sysops | The only privileged helper (ADR-0024): fixed operations started with pkexec, one polkit action each. Depends on `apt`, `pkexec`, `polkitd` |
+| boswas-android | Android runtime manager and APK inspection (ADR-0025). The Android runtime (Waydroid) itself is **not** in the image: it is installed on request after installation |
 
-`wine32`, i386 multiarch and the Control Plane (`boswas-control-plane`, a
-server package) are deliberately not part of the image; the verify hook fails
-the build if they appear (64-bit only, ADR-0014).
+The Control Plane (`boswas-control-plane`, a server package), the Android
+runtime (`waydroid`, `lxc`, `python3-gbinder`) and any Google Play / Google
+Mobile Services component are deliberately not part of the image; the
+verify hook fails the build if they appear. The only foreign dpkg
+architecture is i386, for wine32 (ADR-0022).
 
 ## Deliberately excluded
 

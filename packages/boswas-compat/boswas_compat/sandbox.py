@@ -53,8 +53,13 @@ class Runtime:
 
     loader: str = "/usr/lib/wine/wine64"
     server: str = "/usr/lib/wine/wineserver64"
+    loader32: str = "/usr/lib/wine/wine"           # wine32:i386; started by the 64-bit loader
     wine_major: str = "10"
+    # Effective architectures: what runtime.conf declares, minus "x86" while
+    # the 32-bit loader is missing (ops.load_runtime).
     architectures: tuple[str, ...] = ("x86_64",)
+    # Declared architectures that are not usable here, with the reason.
+    unavailable: tuple[tuple[str, str], ...] = ()
     winearch: str = "win64"
     winedebug: str = "-all"
     dll_overrides: str = "mscoree,mshtml=;winemenubuilder.exe=d"

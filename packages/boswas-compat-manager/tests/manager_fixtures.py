@@ -21,7 +21,7 @@ for path in (PACKAGE.parent / "boswas-compat", PACKAGE.parent / "boswas-device-a
 
 from boswas_manager.backend import BackendRefused, BackendUnavailable  # noqa: E402
 
-THIRTY_TWO_BIT = ("This application requires 32-bit Windows compatibility, which is not supported by Boswas OS.")
+THIRTY_TWO_BIT = ("This application requires 32-bit Windows compatibility, which is not installed on this system.")
 
 
 def app(app_id: str, name: str, app_state: str, **extra) -> dict:
@@ -70,7 +70,7 @@ MANIFESTS = [
 
 SYSTEM = {
     "os": {"name": "Boswas OS", "version": "1.0~alpha3", "version_id": "1.0", "architecture": "x86_64"},
-    "windows_architectures": ["x86_64"],
+    "windows_architectures": ["x86_64", "x86"],
     "runtime": {
         "wine": {"available": True, "version": "wine-10.0", "major": "10"},
         "architectures": ["x86_64"], "winearch": "win64",
@@ -134,8 +134,9 @@ INSPECT_64 = {
     "decision": {"allowed": True, "reason": None, "message": None},
 }
 
-_32BIT_DETAIL = (f"{THIRTY_TWO_BIT} (setup32.exe is an x86 (32-bit) Windows program; Boswas OS runs x86_64 (64-bit) "
-                 "Windows applications only.)")
+# boswas-winapp's refusal on a device where wine32:i386 was removed.
+_32BIT_DETAIL = (f"{THIRTY_TWO_BIT} (setup32.exe is an x86 (32-bit) Windows program; the 32-bit Wine loader "
+                 "/usr/lib/wine/wine (package wine32:i386) is not installed.)")
 INSPECT_32 = {
     "installer": {"file": "setup32.exe", "sha256": "ef" * 32, "size": 800_000, "kind": "exe", "machine": "x86",
                   "subsystem": "windows", "framework": None},

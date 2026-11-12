@@ -1,0 +1,81 @@
+# Boswas OS: firmware that must be available both to the installer and in
+# the live/installed system.
+#
+# One shell-style pattern per line (fnmatch: *, ?, [...]), relative to
+# /usr/lib/firmware; a trailing "# image-only" comment marks firmware the
+# installer itself cannot load (see the audio section). Every pattern must
+# match at least one file:
+#   * on the installer medium: listed in /firmware/Contents-firmware, with the
+#     package file present in /firmware and actually containing the file
+#     (checked by config/live-build/config/hooks/live/0150-boswas-firmware.hook.binary
+#     at build time and by tests/build/test_iso_contents.sh), so Debian
+#     Installer's hw-detect can load it before any network exists;
+#   * in the image: present under /usr/lib/firmware (checked by
+#     0100-boswas-verify.hook.chroot and tests/packages/test_image_packages.sh).
+#
+# Installed as /usr/share/boswas/firmware/required.list by boswas-os.
+# Paths verified against the Debian 13 Contents indices (2026-11-12).
+# The list is a release gate for common hardware, not a hardware support
+# claim: tested hardware is listed in docs/deployment/hardware-compatibility.md.
+
+# Wired Ethernet needed before the network exists (installer).
+# Realtek RTL8125B (2.5 GbE; reported installer prompt), RTL8125A,
+# RTL8126A (5 GbE), RTL8168g/h (most desktop boards), RTL8153 (USB adapters)
+rtl_nic/rtl8125b-2.fw
+rtl_nic/rtl8125a-3.fw
+rtl_nic/rtl8126a-2.fw
+rtl_nic/rtl8168g-3.fw
+rtl_nic/rtl8168h-2.fw
+rtl_nic/rtl8153a-*.fw
+# Broadcom NetXtreme (tg3, bnx2, bnx2x): workstations and older servers
+tigon/tg3.bin
+bnx2/bnx2-mips-09-*.fw
+bnx2x/bnx2x-e2-*.fw
+# Intel E100 and E800 (ice) NICs
+e100/d101m_ucode.bin
+intel/ice/ddp/ice.pkg
+
+# Wi-Fi
+# Intel AX200 (cc), AX210/AX211 (ty, so), 8265
+iwlwifi-cc-a0-*.ucode
+iwlwifi-ty-a0-gf-a0-*.ucode
+iwlwifi-so-a0-gf-a0-*.ucode
+iwlwifi-8265-*.ucode
+# Realtek rtw88 / rtw89
+rtw88/rtw8822c_fw.bin
+rtw89/rtw8852b_fw*.bin
+# MediaTek MT7921 / MT7922
+mediatek/WIFI_RAM_CODE_MT7961_1.bin
+mediatek/WIFI_RAM_CODE_MT7922_1.bin
+# Qualcomm Atheros QCA6174 (ath10k), WCN6855 (ath11k)
+ath10k/QCA6174/hw3.0/firmware-6.bin
+ath11k/WCN6855/hw2.0/amss.bin
+# Broadcom FullMAC PCIe
+brcm/brcmfmac4350-pcie.bin
+
+# Bluetooth
+intel/ibt-0040-0041.*
+intel/ibt-20-1-3.*
+rtl_bt/rtl8761bu_fw.bin
+rtl_bt/rtl8852bu_fw.bin
+mediatek/BT_RAM_CODE_MT7961_1_2_hdr.bin
+qca/rampatch_usb_00000302.bin
+
+# Graphics (display engine / GPU firmware: without it, no accelerated desktop)
+i915/kbl_dmc_ver1_04.bin
+i915/tgl_dmc_ver2_08.bin
+i915/adlp_dmc.bin
+amdgpu/polaris10_mc.bin
+amdgpu/renoir_dmcub.bin
+amdgpu/dcn_3_1_5_dmcub.bin
+nvidia/ga102/gsp/booter_load-*.bin
+
+# Audio: Intel SOF DSP (most current laptops), Cirrus Logic CS35L41 amplifiers.
+# "image-only": required in the image and present in the medium's index, but
+# the installer cannot load it: firmware-sof-signed's preinst calls
+# dpkg-maintscript-helper, which Debian Installer does not have, so hw-detect
+# discards the package (found by tests/installer/test_installer_firmware.sh).
+# The installer does not need audio; the installed system has the package.
+intel/sof/sof-tgl.ri            # image-only
+intel/sof-ipc4/mtl/sof-mtl.ri   # image-only
+cirrus/cs35l41-dsp1-spk-prot-*.bin

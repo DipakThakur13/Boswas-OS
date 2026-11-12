@@ -48,7 +48,9 @@ if PYSIDE:
 
     qInstallMessageHandler(_quiet_offscreen)
 
-FORBIDDEN_WORDS = ("wine32", "i386", "wow64", "multiarch")
+# 32-bit refusals (wine32 missing) name the package for an administrator but never
+# tell the user to run commands or to weaken the sandbox.
+FORBIDDEN_WORDS = ("sudo", "apt install", "apt-get", "add-architecture", "disable", "unconfined", "winetricks")
 
 
 @unittest.skipUnless(PYSIDE, "PySide6 is not installed")
@@ -103,7 +105,7 @@ class MainWindowTest(UiTestCase):
         self.assertEqual(w.dashboard.status_text("policy"), "Managed: 2026.10.1")
         self.assertTrue(any(t.endswith("requested by your administrator") for t in w.dashboard.activity_texts()))
         self.assertTrue(w.session_banner.isHidden())
-        self.assertEqual(w.system_page.value("windows"), "x86_64 / 64-bit only")
+        self.assertEqual(w.system_page.value("windows"), "x86_64 (64-bit) and x86 (32-bit)")
         self.assertEqual(w.system_page.value("apparmor"), "Enforced")
         self.assertEqual(w.system_page.value("agent"), "Running (Ready)")
 
@@ -229,9 +231,10 @@ class InstallTest(UiTestCase):
         self.assertEqual(w.current_page(), "install")
         self.assertEqual(page.current_page(), "refused_32bit")
         self.assertEqual(page.r32_title.text(), "This application requires 32-bit Windows compatibility, which is "
-                                                "not supported by Boswas OS.")
+                                                "not installed on this system.")
         self.assertEqual(page.r32_detail.text(),
-                         "32-bit Windows applications are not supported by this version of Boswas OS.")
+                         "The 32-bit Windows runtime (package wine32:i386) is not installed on this device. "
+                         "An administrator can install it; 64-bit Windows applications are not affected.")
         self.assertEqual(self.backend.called("inspect"), [(("/home/u/Downloads/setup32.exe", None, None), {})])
         page.start_install()
         self.settle(w)

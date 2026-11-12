@@ -2,10 +2,13 @@
 
 Least privilege: only commands.py may start a process, always from an
 argument list whose program is in the fixed allowlist, never through a
-shell; nothing evaluates code; nothing talks to a package manager or starts
-Wine; the device agent and session agent are used read-only. The desktop
-entries are valid and there is no Install Boswas OS entry (the image
-generates it in live sessions only). No teal anywhere in the data or code.
+shell; nothing evaluates code; nothing starts Wine; the device agent and
+session agent are used read-only. Privileged work goes only through
+`pkexec /usr/libexec/boswas/sysops <operation>` with an operation of a fixed
+set and validated arguments; apt-get only ever simulates; only userfiles.py
+writes or deletes files. The desktop entries are valid and there is no
+Install Boswas OS entry (the image generates it in live sessions only). No
+teal anywhere in the data or code.
 
 Run: python3 -B -m unittest discover -s tests
 """
@@ -24,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import cc_fixtures  # noqa: E402,F401  (import paths)
 
-from boswas_control_center import backend, catalog, commands  # noqa: E402
+from boswas_control_center import backend, catalog, commands, jobs  # noqa: E402
 
 PACKAGE = Path(__file__).resolve().parents[1]
 CODE = sorted((PACKAGE / "boswas_control_center").rglob("*.py"))
@@ -32,7 +35,9 @@ SCRIPTS = [PACKAGE / "bin" / "boswas-control-center"]
 ALL = CODE + SCRIPTS
 DATA = sorted((PACKAGE / "data").iterdir())
 SHIPPED = ALL + DATA + [PACKAGE / "man" / "boswas-control-center.1"]
-PURE = ("__init__.py", "app.py", "backend.py", "catalog.py", "commands.py", "errors.py", "probes.py", "viewmodel.py")
+PURE = ("__init__.py", "app.py", "backend.py", "catalog.py", "commands.py", "errors.py", "probes.py", "viewmodel.py",
+        "jobs.py", "software.py", "android.py", "hardware.py", "sysinfo.py", "filetypes.py", "userfiles.py",
+        "overview.py")
 
 EXPECTED_EXECUTABLES = {
     "boswas": "/usr/bin/boswas", "boswas-preset": "/usr/bin/boswas-preset",
@@ -40,7 +45,14 @@ EXPECTED_EXECUTABLES = {
     "kstart": "/usr/bin/kstart", "kioclient": "/usr/bin/kioclient", "dolphin": "/usr/bin/dolphin",
     "partitionmanager": "/usr/bin/partitionmanager", "kinfocenter": "/usr/bin/kinfocenter",
     "plasmashell": "/usr/bin/plasmashell", "apt-config": "/usr/bin/apt-config", "systemctl": "/usr/bin/systemctl",
+    "boswas-android": "/usr/bin/boswas-android", "apt-get": "/usr/bin/apt-get", "apt-cache": "/usr/bin/apt-cache",
+    "flatpak": "/usr/bin/flatpak", "nmcli": "/usr/bin/nmcli", "lsblk": "/usr/bin/lsblk", "pkexec": "/usr/bin/pkexec",
 }
+EXPECTED_SYSOPS = {"apt-refresh", "apt-upgrade", "apt-install", "apt-remove", "apt-install-local", "apt-clean",
+                   "journal-vacuum", "firmware-report", "flatpak-remote-enable", "flatpak-remote-disable"}
+# Changing files is allowed only in userfiles.py (AppImages, their menu entries, the thumbnail cache).
+FILE_CHANGING_OS = {"remove", "unlink", "rename", "replace", "makedirs", "mkdir", "chmod"}
+FILE_WRITER = "boswas_control_center/userfiles.py"
 FORBIDDEN_MODULES = {"multiprocessing", "pty", "pexpect", "webbrowser", "ctypes", "pickle", "shelve", "marshal",
                      "importlib", "runpy", "code", "codeop", "commands", "popen2", "asyncio"}
 FORBIDDEN_OS = {"system", "popen", "fork", "forkpty", "execv", "execve", "execl", "execle", "execlp", "execlpe",
@@ -53,8 +65,8 @@ FORBIDDEN_OS = {"system", "popen", "fork", "forkpty", "execv", "execve", "execl"
 FORBIDDEN_NAMES = {"QProcess", "QDesktopServices", "QLibrary", "QPluginLoader", "Popen", "check_output",
                    "getoutput", "getstatusoutput"}
 FORBIDDEN_BUILTINS = {"eval", "exec", "compile", "__import__", "breakpoint"}
-FORBIDDEN_TEXT = ("os.system", "os.popen", "shell=True", "QProcess", "startDetached", "apt-get", "apt install",
-                  "aptdaemon", "packagekit", "pkcon", "dpkg -i", "pkexec", "sudo ", "boswas-winapp launch",
+FORBIDDEN_TEXT = ("os.system", "os.popen", "shell=True", "QProcess", "startDetached", "apt install",
+                  "aptdaemon", "packagekit", "pkcon", "dpkg -i", "sudo ", "boswas-winapp launch",
                   "boswas-winapp install", "/usr/bin/boswas-winapp", "wine64",
                   "wineserver", "winecfg", "msiexec", "calamares", "debian-installer")
 WINE_COMMAND = re.compile(r"^(?:/\S*/)?wine(?:64|server|boot|cfg|-preloader)?(?:\s|$)")
@@ -96,7 +108,9 @@ class ProcessTest(unittest.TestCase):
                                                  "getoutput", "getstatusoutput"},
                                      f"{rel(path)}:{node.lineno} uses .{node.attr}")
                     if isinstance(node.value, ast.Name) and node.value.id == "os":
-                        self.assertNotIn(node.attr, FORBIDDEN_OS, f"{rel(path)}:{node.lineno} uses os.{node.attr}")
+                        allowed = FILE_CHANGING_OS if rel(path) == FILE_WRITER else set()
+                        self.assertNotIn(node.attr, FORBIDDEN_OS - allowed,
+                                         f"{rel(path)}:{node.lineno} uses os.{node.attr}")
                 if isinstance(node, ast.Import) or (isinstance(node, ast.ImportFrom) and node.level == 0):
                     modules = [a.name for a in node.names] if isinstance(node, ast.Import) else [node.module or ""]
                     for module in modules:
@@ -107,7 +121,7 @@ class ProcessTest(unittest.TestCase):
         parsed = ast.parse(source)
         calls = [n for n in ast.walk(parsed) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
                  and isinstance(n.func.value, ast.Name) and n.func.value.id == "subprocess"]
-        self.assertEqual(sorted(c.func.attr for c in calls), ["Popen", "run"])
+        self.assertEqual(sorted(c.func.attr for c in calls), ["Popen", "Popen", "run"])
         for call in calls:
             self.assertIsInstance(call.args[0], ast.Name)
             self.assertEqual(call.args[0].id, "command")
@@ -118,7 +132,7 @@ class ProcessTest(unittest.TestCase):
         self.assertIn("timeout", {k.arg for k in run.keywords})
         functions = {n.name: ast.get_source_segment(source, n) for n in ast.walk(parsed)
                      if isinstance(n, ast.FunctionDef)}
-        for name in ("run", "start"):
+        for name in ("run", "start", "stream"):
             self.assertIn("_check(command)", functions[name])
         self.assertIn("command[0] not in ALLOWED_PATHS", functions["_check"])
 
@@ -148,6 +162,114 @@ class ProcessTest(unittest.TestCase):
             text = path.read_text(encoding="utf-8")
             for token in FORBIDDEN_TEXT:
                 self.assertNotIn(token, text, f"{rel(path)} contains {token!r}")
+
+    def test_only_userfiles_writes_files(self):
+        for path in CODE:
+            if rel(path) == FILE_WRITER:
+                continue
+            for node in ast.walk(tree(path)):
+                if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == "shutil":
+                    self.assertEqual(node.attr, "which", f"{rel(path)}:{node.lineno} uses shutil.{node.attr}")
+                if isinstance(node, ast.Attribute) and node.attr in ("write_text", "write_bytes", "unlink", "rmdir",
+                                                                     "mkdir", "chmod", "rename", "touch"):
+                    self.fail(f"{rel(path)}:{node.lineno} changes files (.{node.attr})")
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "open":
+                    modes = [a.value for a in node.args[1:2] if isinstance(a, ast.Constant)]
+                    modes += [k.value.value for k in node.keywords if k.arg == "mode" and
+                              isinstance(k.value, ast.Constant)]
+                    self.assertTrue(all(m in ("r", "rb") for m in modes), f"{rel(path)}:{node.lineno} opens for writing")
+
+    def test_pkexec_only_through_the_sysops_builder(self):
+        for path in ALL:
+            if rel(path) != "boswas_control_center/commands.py":
+                self.assertNotIn("pkexec", path.read_text(encoding="utf-8"), rel(path))
+        self.assertEqual(commands.SYSOPS, "/usr/libexec/boswas/sysops")
+        self.assertEqual(commands.SYSOPS_OPERATIONS, frozenset(EXPECTED_SYSOPS))
+        with self.assertRaises(ValueError):
+            commands.argv("pkexec", commands.SYSOPS, "apt-refresh")
+        self.assertEqual(commands.sysops_argv("apt-install", "vlc"),
+                         ["/usr/bin/pkexec", "/usr/libexec/boswas/sysops", "apt-install", "vlc"])
+        for bad in (("shell",), ("apt-install",), ("apt-install", "vlc; rm -rf /"), ("apt-install", "-y"),
+                    ("apt-install", "vlc", "vlc"), ("apt-refresh", "--now"), ("apt-install-local", "relative.deb"),
+                    ("apt-install-local", "/tmp/../etc/x.deb"), ("flatpak-remote-enable", "../x"),
+                    ("apt-install", *[f"p{i}" for i in range(51)]), ("android-init",)):
+            with self.assertRaises(ValueError, msg=bad):
+                commands.sysops_argv(*bad)
+        runner = commands.CommandRunner({})
+        for command in (["/usr/bin/pkexec", "/bin/sh"], ["/usr/bin/pkexec", commands.SYSOPS, "anything"],
+                        ["/usr/bin/pkexec", commands.SYSOPS, "apt-install", "--allow-unauthenticated"]):
+            with self.assertRaises(ValueError):
+                commands._check(command)
+        with self.assertRaises(ValueError):
+            runner.run(commands.sysops_argv("apt-refresh"), 5)
+        with self.assertRaises(ValueError):
+            runner.start(commands.sysops_argv("apt-refresh"))
+
+    def test_apt_get_only_simulates_and_apt_cache_only_reads(self):
+        for path in ALL:
+            if rel(path) not in ("boswas_control_center/commands.py", "boswas_control_center/backend.py",
+                                 "boswas_control_center/software.py"):
+                self.assertNotIn("apt-get", path.read_text(encoding="utf-8"), rel(path))
+        for node in ast.walk(tree(PACKAGE / "boswas_control_center" / "backend.py")):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "argv" and \
+                    isinstance(node.args[0], ast.Constant) and node.args[0].value == "apt-get":
+                self.assertEqual(node.args[1].value, "-s")
+        for bad in (("apt-get", "install", "vlc"), ("apt-get", "upgrade"), ("apt-cache", "gencaches"),
+                    ("flatpak", "install", "flathub", "org.x.Y"), ("flatpak", "remote-add", "x", "y"),
+                    ("flatpak", "run", "org.x.Y"), ("nmcli", "connection", "show", "--show-secrets"),
+                    ("nmcli", "radio", "all", "off"), ("boswas-android", "status")):
+            with self.assertRaises(ValueError, msg=bad):
+                commands.argv(*bad)
+        with self.assertRaises(ValueError):
+            commands._check(["/usr/bin/apt-get", "install", "vlc"])
+
+    def test_operations_named_by_the_ui_are_allowed(self):
+        """Every JobSpec in the code names an allowed operation (checked from the source, not at run time)."""
+        found = 0
+        for path in CODE:
+            for node in ast.walk(tree(path)):
+                if not (isinstance(node, ast.Call) and getattr(node.func, "attr", getattr(node.func, "id", "")) ==
+                        "JobSpec"):
+                    continue
+                kind = ast.unparse(node.args[0])
+                words = node.args[1]
+                if not isinstance(words, ast.Tuple):
+                    continue
+                first = [e.value for e in words.elts if isinstance(e, ast.Constant)]
+                found += 1
+                if kind == "jobs.SYSOPS":
+                    self.assertIn(first[0], EXPECTED_SYSOPS, f"{rel(path)}:{node.lineno}")
+                else:
+                    self.assertEqual(kind, "jobs.ANDROID", f"{rel(path)}:{node.lineno}")
+                    self.assertTrue(tuple(first[:2]) in commands.ANDROID_COMMANDS or
+                                    tuple(first[:1]) in commands.ANDROID_COMMANDS, f"{rel(path)}:{node.lineno}")
+        self.assertGreaterEqual(found, 10)
+        self.assertEqual(jobs.SYSOPS, "sysops")
+        # The Android page starts its operations through AndroidPage._start(words, title).
+        android_found = 0
+        for node in ast.walk(tree(PACKAGE / "boswas_control_center" / "ui" / "android_page.py")):
+            if isinstance(node, ast.Call) and getattr(node.func, "attr", "") == "_start" and node.args and                     isinstance(node.args[0], ast.Tuple):
+                elements = node.args[0].elts
+                words = tuple(e.value for e in elements if isinstance(e, ast.Constant))
+                android_found += 1
+                if len(words) < len(elements):           # ("service", verb): verb comes from a fixed table
+                    self.assertTrue(any(c[:len(words)] == words for c in commands.ANDROID_COMMANDS),
+                                    f"android_page.py:{node.lineno} {words}")
+                else:
+                    self.assertTrue(words[:2] in commands.ANDROID_COMMANDS or words[:1] in commands.ANDROID_COMMANDS,
+                                    f"android_page.py:{node.lineno} {words}")
+        self.assertGreaterEqual(android_found, 4)
+
+    def test_android_commands(self):
+        self.assertEqual(commands.android_argv("status"), ["/usr/bin/boswas-android", "--json", "status"])
+        self.assertEqual(commands.android_argv("runtime", "remove", "--purge-data"),
+                         ["/usr/bin/boswas-android", "--json", "runtime", "remove", "--purge-data"])
+        self.assertEqual(commands.android_argv("apk", "install", "/home/a/x.apk")[-1], "/home/a/x.apk")
+        for bad in (("shell",), ("apk", "install", "x.apk"), ("apk", "install", "/a/../b.apk"),
+                    ("app", "launch", "not a package"), ("runtime", "init", "--gapps"), ("status", "--all"),
+                    ("google-play", "install"), ("runtime", "remove", "--force")):
+            with self.assertRaises(ValueError, msg=bad):
+                commands.android_argv(*bad)
 
     def test_no_wine_commands(self):
         for path in ALL:

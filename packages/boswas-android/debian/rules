@@ -1,0 +1,23 @@
+#!/usr/bin/make -f
+# Boswas OS Android runtime manager. Python modules go to the private module
+# directory shared with the other Boswas packages (/usr/lib/boswas/python);
+# shipped runtime facts and the Waydroid repository keyring go to
+# /usr/share/boswas. Every file is installed with an explicit mode.
+
+PKG   := debian/boswas-android
+PYDIR := $(PKG)/usr/lib/boswas/python/boswas_android
+
+%:
+	dh $@
+
+override_dh_auto_test:
+ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+	python3 -B -m unittest discover -s tests -v
+endif
+
+override_dh_auto_install:
+	install -D -m 0755 bin/boswas-android $(PKG)/usr/bin/boswas-android
+	install -d -m 0755 $(PYDIR)
+	install -m 0644 boswas_android/*.py $(PYDIR)/
+	install -D -m 0644 data/runtime.conf $(PKG)/usr/share/boswas/android/runtime.conf
+	install -D -m 0644 data/waydroid.gpg $(PKG)/usr/share/boswas/keyrings/waydroid.gpg

@@ -72,4 +72,36 @@ for u in nftables.service auditd.service apparmor.service NetworkManager.service
 done
 check "Boswas nftables drop-in installed" test -s "$root/usr/lib/systemd/system/nftables.service.d/boswas.conf"
 
+# Firmware in the live/installed system (the installer medium: tests/build and tests/installer)
+missing_fw=""
+for pattern in $(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$BOSWAS_REPO_ROOT/config/boswas/firmware-required.list"); do
+	compgen -G "$root/usr/lib/firmware/$pattern" >/dev/null || missing_fw="$missing_fw $pattern"
+done
+[ -z "$missing_fw" ] && pass "every required firmware file is in the image (/usr/lib/firmware)" \
+	|| fail "required firmware missing from the image:$missing_fw"
+check "firmware index maps rtl_nic/rtl8125b-2.fw to firmware-realtek (/usr/share/boswas/firmware/index.tsv)" \
+	grep -qx "$(printf 'rtl_nic/rtl8125b-2.fw\tfirmware-realtek')" "$root/usr/share/boswas/firmware/index.tsv"
+# Installation: the installer's last step (writes signed sources offline) and its template
+check "installer finish step present and executable (/usr/lib/boswas/installer/finish-install)" \
+	test -x "$root/usr/lib/boswas/installer/finish-install"
+check "signed Debian sources template present (Signed-By the Debian archive keyring, security updates)" \
+	bash -c "grep -q 'Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg' '$root/usr/share/boswas/apt/debian.sources' &&
+		grep -q 'trixie-security' '$root/usr/share/boswas/apt/debian.sources' && test -s '$root/usr/share/keyrings/debian-archive-keyring.gpg'"
+
+# Applications: privileged helper and Android manager installed; no Android runtime,
+# no Android images and no Google components preinstalled
+check "boswas-sysops installed (helper only reachable through pkexec)" \
+	bash -c "test -x '$root/usr/libexec/boswas/sysops' && test -s '$root/usr/share/polkit-1/actions/com.boswas.sysops.policy'"
+check "boswas-android installed" test -x "$root/usr/bin/boswas-android"
+for p in waydroid lxc python3-gbinder; do
+	check_not "the Android runtime is not preinstalled ($p absent)" pkg_installed "$root" "$p"
+done
+check_not "no Android images in the image (/var/lib/waydroid)" test -e "$root/var/lib/waydroid"
+check_not "no Google Play / Google Mobile Services package preinstalled" \
+	bash -c "dpkg-query --admindir='$root/var/lib/dpkg' -W -f='\${Package}\n' | grep -qiE '(^|-)(gapps|google-play|play-services|gms)(-|$)'"
+check_not "no Waydroid or other third-party APT source preconfigured (the Android repository is opt-in)" \
+	bash -c "grep -rqsE 'waydro' '$root/etc/apt/sources.list' '$root/etc/apt/sources.list.d/' '$root/etc/apt/preferences.d/'"
+check_not "no Flatpak remote preconfigured (an administrator enables an approved one)" \
+	bash -c "grep -qs '^\[remote' '$root/var/lib/flatpak/repo/config'"
+
 finish

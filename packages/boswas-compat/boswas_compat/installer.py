@@ -22,6 +22,14 @@ MZ = b"MZ"
 OLE_MAGIC = bytes.fromhex("d0cf11e0a1b11ae1")
 PE_MACHINES = {0x8664: "x86_64", 0x014C: "x86", 0xAA64: "arm64"}
 PE_SUBSYSTEMS = {2: "gui", 3: "console"}
+# Optional-header magic: PE32 (32-bit images) and PE32+ (64-bit images).
+PE32_MAGIC, PE32PLUS_MAGIC = 0x10B, 0x20B
+PE_FORMATS = {PE32_MAGIC: "PE32", PE32PLUS_MAGIC: "PE32+"}
+# The format each known machine type must use; anything else is a damaged or
+# altered file (e.g. a 64-bit image whose machine field says i386).
+PE_MACHINE_FORMAT = {0x014C: PE32_MAGIC, 0x8664: PE32PLUS_MAGIC, 0xAA64: PE32PLUS_MAGIC}
+IMAGE_FILE_EXECUTABLE_IMAGE = 0x0002
+IMAGE_FILE_DLL = 0x2000
 FRAMEWORK_SCAN_BYTES = 16 * 1024 * 1024
 HEADER_BYTES = 64 * 1024
 _CHUNK = 1024 * 1024
@@ -41,10 +49,11 @@ class InstallerInfo:
     subsystem: str | None          # gui | console (PE only)
     framework: str | None          # NSIS, Inno Setup, ...
     framework_silent_args: tuple[str, ...] = field(default=())
+    pe_format: str | None = None   # PE32 | PE32+ (PE only)
 
     def to_dict(self) -> dict:
         return {"kind": self.kind, "machine": self.machine, "subsystem": self.subsystem,
-                "framework": self.framework}
+                "framework": self.framework, "format": self.pe_format}
 
 
 def load_installer_types() -> tuple[tuple[dict, ...], tuple[str, ...]]:
@@ -59,20 +68,41 @@ def load_installer_types() -> tuple[tuple[dict, ...], tuple[str, ...]]:
         return DEFAULT_FRAMEWORKS, DEFAULT_MSI_SILENT
 
 
-def _pe_header(head: bytes) -> tuple[str, str | None]:
+def _pe_header(head: bytes) -> tuple[str, str | None, str]:
+    """(machine, subsystem, format) from the COFF and optional headers.
+
+    The architecture comes from the COFF machine field, cross-checked with the
+    optional-header magic: x86 must be PE32, x86_64 and arm64 PE32+. A file
+    whose two fields disagree, a DLL, or an image not marked executable is
+    refused: it cannot be started as a program.
+    """
     if len(head) < 0x40:
         raise Refused("not a Windows program: truncated DOS header", reason="bad-installer")
     (pe_offset,) = struct.unpack_from("<I", head, 0x3C)
     if pe_offset + 24 + 70 > len(head) or head[pe_offset:pe_offset + 4] != b"PE\0\0":
         raise Refused("not a Windows program: no PE header (DOS or damaged executable)", reason="bad-installer")
-    (machine,) = struct.unpack_from("<H", head, pe_offset + 4)
+    (machine, _sections, _stamp, _symtab, _nsyms, opt_size, characteristics) = \
+        struct.unpack_from("<HHIIIHH", head, pe_offset + 4)
     optional = pe_offset + 24
     (magic,) = struct.unpack_from("<H", head, optional)
-    subsystem = None
-    if magic in (0x10B, 0x20B):
-        (sub,) = struct.unpack_from("<H", head, optional + 68)
-        subsystem = PE_SUBSYSTEMS.get(sub, f"other({sub})")
-    return PE_MACHINES.get(machine, f"unknown(0x{machine:04x})"), subsystem
+    if magic not in PE_FORMATS:
+        raise Refused(f"not a Windows program: unknown optional header (magic 0x{magic:04x})", reason="bad-installer")
+    if opt_size < 70:
+        raise Refused("not a Windows program: truncated optional header", reason="bad-installer")
+    arch = PE_MACHINES.get(machine, f"unknown(0x{machine:04x})")
+    expected = PE_MACHINE_FORMAT.get(machine)
+    if expected is not None and expected != magic:
+        raise Refused(f"not a valid Windows program: {PE_FORMATS[magic]} image with the {arch} machine type "
+                      f"(an {arch} program is {PE_FORMATS[expected]}); the file is damaged or was altered",
+                      reason="bad-installer")
+    if characteristics & IMAGE_FILE_DLL:
+        raise Refused("not a Windows program: this is a library (DLL), which cannot be started on its own",
+                      reason="bad-installer")
+    if not characteristics & IMAGE_FILE_EXECUTABLE_IMAGE:
+        raise Refused("not a Windows program: the image is not marked executable (object file or damaged)",
+                      reason="bad-installer")
+    (sub,) = struct.unpack_from("<H", head, optional + 68)
+    return arch, PE_SUBSYSTEMS.get(sub, f"other({sub})"), PE_FORMATS[magic]
 
 
 def _framework(path: Path, frameworks) -> dict | None:
@@ -247,11 +277,15 @@ def inspect(path: Path) -> InstallerInfo:
     if head.startswith(OLE_MAGIC):
         return InstallerInfo(kind="msi", machine=msi_platform(path), subsystem=None, framework="Windows Installer")
     if head.startswith(MZ):
-        machine, subsystem = _pe_header(head)
+        machine, subsystem, pe_format = _pe_header(head)
         fw = _framework(path, frameworks)
         return InstallerInfo(kind="exe", machine=machine, subsystem=subsystem,
                              framework=fw["name"] if fw else None,
-                             framework_silent_args=tuple(fw.get("silentArgs", [])) if fw else ())
+                             framework_silent_args=tuple(fw.get("silentArgs", [])) if fw else (),
+                             pe_format=pe_format)
+    if head[:2] == b"#!" or head[:4096].lstrip()[:1] in (b"@", b":") or b"\x00" not in head[:4096]:
+        raise Refused("not a Windows program: this is a script or text file (batch files and scripts are not "
+                      "installed; run the program they start instead)", reason="bad-installer")
     raise Refused("not a Windows installer: expected a PE executable (.exe) or a Windows Installer "
                   "package (.msi)", reason="bad-installer")
 

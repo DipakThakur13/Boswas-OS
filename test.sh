@@ -7,15 +7,16 @@
 #   ./test.sh --packages-only  only static checks and the Boswas packages
 #   ./test.sh --iso PATH       test a specific ISO
 #                              (default: build/output/Boswas-OS-<tag>-amd64.iso)
-#   ./test.sh --install-test   also install the ISO onto a virtual disk and boot
-#                              the installed system (slow: 1-2 h without KVM)
+#   ./test.sh --install-test   also install the ISO onto a virtual disk (with and
+#                              without internet access) and boot the installed
+#                              systems (slow: 2-3 h without KVM)
 #
 # Like build.sh, runs inside the boswas-os-builder container unless the host
 # is Debian 13 and the script runs as root.
 #
 # Stages: static, packages, unit tests (incl. agent <-> Control Plane over
 # mutual TLS), WinCompat fixtures, manifest (network), artifacts, image
-# extraction, ISO contents, image packages, security, compatibility, device
+# extraction, ISO contents, installer firmware, image packages, security, compatibility, device
 # management (image), WinCompat runtime, device management runtime, boot
 # (QEMU: serial, UEFI Secure Boot, Live USB release blocker; WinCompat and
 # device management under AppArmor).
@@ -103,6 +104,7 @@ if [ "$stages_mode" = "all" ] || [ "$stages_mode" = "no-boot" ]; then
 		run_stage "build artifacts" bash "$t/build/test_artifacts.sh"
 		run_stage "image extraction" bash "$t/build/extract_image.sh"
 		run_stage "ISO contents" bash "$t/build/test_iso_contents.sh"
+		run_stage "installer firmware (the installer's own code against the medium)" bash "$t/installer/test_installer_firmware.sh"
 		run_stage "image packages" bash "$t/packages/test_image_packages.sh"
 		run_stage "security baseline" bash "$t/security/test_image_security.sh"
 		run_stage "compatibility" bash "$t/compatibility/test_wine.sh"

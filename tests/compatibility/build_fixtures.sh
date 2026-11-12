@@ -4,12 +4,14 @@
 #   $TESTWORK/fixtures/boswas-testapp.exe           the test application
 #   $TESTWORK/fixtures/boswas-testapp-blocked.exe   byte-different variant, blocked by a manifest
 #   $TESTWORK/fixtures/boswas-testapp-unlisted.exe  byte-different variant, in no manifest
-#   $TESTWORK/fixtures/boswas-testapp-x86.exe       the same program marked as a 32-bit (i386) PE file:
-#                                                   refused before anything runs (64-bit only)
+#   $TESTWORK/fixtures/boswas-testapp-x86.exe       the same program built as a 32-bit (x86, PE32) program
+#                                                   (i686 MinGW-w64): installs and runs with wine32:i386
+#   $TESTWORK/fixtures/boswas-testapp-badpe.exe     a PE32+ image whose machine field was changed to i386:
+#                                                   an inconsistent header, refused before anything runs
 #   $TESTWORK/fixtures/manifests/*.json             manifests pinned to the built hashes
 #   $TESTWORK/fixtures.iso                          all of the above, for the QEMU boot test
 #
-# Needs the MinGW-w64 cross-compiler of the builder image.
+# Needs the MinGW-w64 cross-compilers (x86_64 and i686) of the builder image.
 set -uo pipefail
 . "$(dirname "$0")/../lib.sh"
 . "$BOSWAS_REPO_ROOT/build/scripts/lib.sh"
@@ -17,6 +19,7 @@ set -uo pipefail
 src="$BOSWAS_REPO_ROOT/tests/compatibility/fixtures"
 out="${TESTWORK:?TESTWORK not set}/fixtures"
 cc=x86_64-w64-mingw32-gcc
+cc32=i686-w64-mingw32-gcc
 
 if ! command -v "$cc" >/dev/null 2>&1; then
 	skip "WinCompat test fixtures ($cc not installed; rebuild the builder image)"
@@ -36,9 +39,23 @@ else
 fi
 check "test application is a PE32+ x86-64 console program" \
 	bash -c "file -b '$out/boswas-testapp.exe' | grep -q '^PE32+ executable.*(console), x86-64'"
-# A 32-bit-marked copy: only the PE machine field changes (0x8664 -> 0x014c).
-# Boswas OS must refuse it from the header alone; it is never executed.
-if python3 - "$out/boswas-testapp-unlisted.exe" "$out/boswas-testapp-x86.exe" <<'PYEOF'
+# The real 32-bit build of the same program (variant 4: its own hash).
+if command -v "$cc32" >/dev/null 2>&1; then
+	if "$cc32" -O2 -s -Wall -Werror -std=c11 -DBOSWAS_VARIANT=4 -o "$out/boswas-testapp-x86.exe" \
+		"$src/testapp/testapp.c" -lws2_32; then
+		pass "32-bit Windows test application builds from source (MinGW-w64 i686, x86 PE)"
+		check "32-bit test application is a PE32 Intel 80386 console program" \
+			bash -c "file -b '$out/boswas-testapp-x86.exe' | grep -qE '^PE32 executable.*\(console\).*Intel (80386|i386)'"
+	else
+		fail "32-bit Windows test application build"
+	fi
+else
+	fail "32-bit Windows test application ($cc32 not installed; rebuild the builder image)"
+fi
+# A damaged copy: only the PE machine field of the 64-bit build changes
+# (0x8664 -> 0x014c), leaving a PE32+ optional header. Boswas OS must refuse
+# it from the header alone (inconsistent); it is never executed.
+if python3 - "$out/boswas-testapp-unlisted.exe" "$out/boswas-testapp-badpe.exe" <<'PYEOF'
 import struct, sys
 data = bytearray(open(sys.argv[1], "rb").read())
 pe = struct.unpack_from("<I", data, 0x3C)[0]
@@ -47,10 +64,27 @@ struct.pack_into("<H", data, pe + 4, 0x014C)
 open(sys.argv[2], "wb").write(bytes(data))
 PYEOF
 then
-	pass "32-bit (i386) variant of the test application prepared (refusal tests)"
+	pass "inconsistent PE header variant prepared (PE32+ image marked i386; refusal test)"
 else
-	fail "32-bit variant of the test application"
+	fail "inconsistent PE header variant"
 fi
+# boswas-winapp's own inspection of the real fixtures (same code as on devices).
+inspect_out="$(cd "$BOSWAS_REPO_ROOT/packages/boswas-compat" && python3 -B -c '
+import sys
+sys.path.insert(0, ".")
+from boswas_compat import installer
+from boswas_compat.errors import Refused
+from pathlib import Path
+for name in sys.argv[1:]:
+    try:
+        i = installer.inspect(Path(name))
+        print(Path(name).name, i.machine, i.pe_format)
+    except Refused as exc:
+        print(Path(name).name, "REFUSED", exc.reason)' "$out/boswas-testapp.exe" "$out/boswas-testapp-x86.exe" \
+	"$out/boswas-testapp-badpe.exe" 2>&1)"
+check "PE detection on the real binaries: 64-bit = x86_64 PE32+, 32-bit = x86 PE32, altered header refused" \
+	bash -c "grep -qx 'boswas-testapp.exe x86_64 PE32+' <<<\"\$1\" && grep -qx 'boswas-testapp-x86.exe x86 PE32' <<<\"\$1\" &&
+		grep -qx 'boswas-testapp-badpe.exe REFUSED bad-installer' <<<\"\$1\"" _ "$inspect_out"
 main_sha="$(sha256sum "$out/boswas-testapp.exe" | cut -d' ' -f1)"
 blocked_sha="$(sha256sum "$out/boswas-testapp-blocked.exe" | cut -d' ' -f1)"
 unlisted_sha="$(sha256sum "$out/boswas-testapp-unlisted.exe" | cut -d' ' -f1)"

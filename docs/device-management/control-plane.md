@@ -207,13 +207,15 @@ written straight into the database.
   | `support` | Meaning |
   |-----------|---------|
   | `SUPPORTED` | x86_64, no missing components: installable |
-  | `UNSUPPORTED_ARCHITECTURE` | x86 (32-bit): listed, **never installable** |
+  | `UNSUPPORTED_ARCHITECTURE` | An architecture Boswas OS does not run (only x86_64 and x86 are installable) |
   | `MISSING_DEPENDENCIES` | Needs runtime components or winetricks verbs Boswas does not provide |
 
-- **64-bit only:**
-  - a manifest that declares x86_64 for a 32-bit installer is refused
-    (`ARCHITECTURE_MISMATCH`);
-  - the dashboard shows "x86 / 32-bit (not supported)" for such entries.
+- **Architecture must match the installer (ADR-0022):**
+  - a manifest's `architecture` (`x86_64` or `x86`) must match the uploaded
+    installer's PE header; otherwise `ARCHITECTURE_MISMATCH`;
+  - x86 entries are installable; a device whose 32-bit runtime
+    (`wine32:i386`) was removed refuses them before downloading and reports
+    `UNSUPPORTED_ARCHITECTURE`.
 
 ## Policies
 

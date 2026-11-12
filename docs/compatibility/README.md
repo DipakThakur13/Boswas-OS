@@ -51,28 +51,51 @@ device agent ([device-management](../device-management/README.md)). Both use
 - **No DXVK / VKD3D-Proton:** they are not part of this release. Direct3D
   goes through Wine's own WineD3D.
 
-### 64-bit Windows applications only
+### Architectures: 64-bit and 32-bit Windows applications
 
-**Boswas OS v1 runs x86_64 (64-bit) Windows applications only.** This is a
-deliberate, final product decision (ADR-0014), not a missing feature. There
-is no `wine32`, no i386 multiarch, no WoW64 and no fallback.
+Boswas OS runs **x86_64 (64-bit) and x86 (32-bit)** Windows applications
+(ADR-0022, which supersedes the earlier 64-bit-only decision ADR-0014).
 
-32-bit software is refused before anything is created or run, always with:
+| | 64-bit (x86_64) | 32-bit (x86) |
+|--|-----------------|--------------|
+| Debian package | `wine64` | `wine32:i386` (dpkg multiarch; the system stays amd64) |
+| Loader | `/usr/lib/wine/wine64` | `/usr/lib/wine/wine`, started by wine64 for 32-bit programs |
+| Windows modules | `/usr/lib/x86_64-linux-gnu/wine/x86_64-windows` | `/usr/lib/i386-linux-gnu/wine/i386-windows` |
+| Prefix | the application's own win64 prefix | the same kind of prefix; 32-bit system files in `C:\Windows\SysWOW64` |
+| Sandbox, AppArmor | bubblewrap + `boswas-winapp` profile | identical (the profile allows the 32-bit loader, nothing else changes) |
 
-> This application requires 32-bit Windows compatibility, which is not supported by Boswas OS.
+Why i386 multiarch: Debian 13's 64-bit Wine contains only 64-bit Windows
+modules, so it cannot run 32-bit programs without `wine32`. The Wine
+preloaders are not installed.
 
-| Where | How 32-bit software is detected |
-|-------|---------------------------------|
-| `boswas-winapp install`, `inspect`, `upgrade` | PE header of .exe files (machine field), Template property of .msi packages (`Intel;…` means 32-bit). Exit 4, reason `architecture` |
-| Catalog manifests | `"architecture": "x86"` is accepted to describe an application, but marks it unsupported: it is never installable or launchable |
-| Compatibility Manager | Shows the sentence above and "32-bit Windows applications are not supported by this version of Boswas OS." |
-| Device agent | Refuses a 32-bit catalog entry before downloading anything |
-| Control Plane | Marks it `UNSUPPORTED_ARCHITECTURE`; it can never become an install command. An x86_64 manifest for a 32-bit installer is refused |
+**How the architecture is detected.** From the file's content, never its name:
 
-Guard rails fail the image build if `wine32` or a foreign dpkg architecture
-appears. Many installers, including NSIS and Inno Setup stubs, are 32-bit
-even when they install 64-bit software. Applications are validated for the
-catalog with 64-bit installers only.
+| File | What is read | Result |
+|------|--------------|--------|
+| .exe | COFF machine field, cross-checked with the optional-header magic | `x86_64` (PE32+), `x86` (PE32), `arm64` (PE32+) |
+| .exe with contradicting fields (e.g. a PE32+ image marked i386), a DLL, an object file | the same headers | refused: "not a valid Windows program …" |
+| .msi | Template property of the summary information (`x64;…`, `Intel;…`) | `x86_64` or `x86` |
+| scripts, .bat/.cmd, text | no PE header | refused: "this is a script or text file" |
+
+`boswas-winapp inspect` and `--json` output report `machine` and `format`
+(`PE32`/`PE32+`). ARM64 and other architectures are refused, and the
+message names what runs here.
+
+**If `wine32:i386` is missing** (an administrator removed it), x86 is
+reported as unavailable (`boswas-winapp runtime`), and 32-bit software is
+refused before anything is created or run with:
+
+> This application requires 32-bit Windows compatibility, which is not installed on this system.
+
+The Compatibility Manager adds which package an administrator can install.
+The device agent refuses x86 catalog entries before downloading. The Control
+Plane accepts x86 manifests only for installers whose header is x86.
+
+**Known limitations** (Wine, not Boswas policy): no Windows kernel drivers
+(anti-cheat, hardware dongles, some VPN and security clients), no DRM schemes
+that need a kernel component, no Windows services that need real system
+privileges, and no .NET Framework or Internet Explorer engine (Mono/Gecko
+are not shipped).
 
 ## Per-application prefixes
 
@@ -170,7 +193,7 @@ validator in `boswas_compat/manifest.py`.
 |-------|-------|
 | `id` | Lower-case reverse-DNS name with at least one dot. Must equal the file name (`<id>.json`) |
 | `runtime.wineVersion` | Major version must match the runtime (10) |
-| `architecture` | `x86_64`. `x86` describes a 32-bit application, which is never installed or started (64-bit only) |
+| `architecture` | `x86_64` or `x86`; must match the installer's PE header. `x86` needs `wine32:i386` on the device |
 | `launch` | `C:\dir\app.exe`, `dir/app.exe` (relative to `C:\`) or a unique file name. Never another drive, UNC or `..` |
 | `status` | `unknown`, `untested`, `experimental`, `tested`, `approved`, `blocked` |
 | `installer.sha256` | **Required** for `tested` and `approved`: validated status always refers to one exact installer |
@@ -228,7 +251,7 @@ Compatibility Manager, the device agent's inventory and the Control Plane:
 | `ERROR` | The installation or an upgrade failed (see the record's error) |
 | `REPAIR_REQUIRED` | The prefix is damaged or the program is missing |
 | `BLOCKED` | The catalog or the device policy no longer allows it |
-| `UNSUPPORTED` | This runtime cannot run it (32-bit, another Wine version, missing components) |
+| `UNSUPPORTED` | This runtime cannot run it (32-bit without `wine32`, another architecture or Wine version, missing components) |
 
 `stop` ends the application's sandbox and every Windows process in it, like
 "End task": unsaved work is lost. Only the process that holds the
@@ -426,7 +449,7 @@ Desktop launcher "boswas-winapp launch <id>" in the application menu
   - choose an .exe or .msi;
   - the installer is checked first (`inspect`: type, architecture, catalog
     status, the sandbox it would get, the policy decision);
-  - 32-bit installers get the sentence above and nothing else;
+  - installers for an architecture this device cannot run get the reason (and, for 32-bit without `wine32`, the package an administrator can install);
   - the installation runs with live progress.
 - **Details:**
   - overview (executable, architecture, prefix shown as
@@ -442,7 +465,7 @@ Desktop launcher "boswas-winapp launch <id>" in the application menu
   - Wine, AppArmor, bubblewrap;
   - Device Agent, Control Plane;
   - disk space, system architecture;
-  - Windows applications: x86_64 / 64-bit only;
+  - Windows applications: the architectures the runtime executes (x86_64 and x86);
   - Boswas OS version, policy.
 
 **How it works:**

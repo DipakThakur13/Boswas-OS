@@ -29,7 +29,9 @@ from boswas_manager import backend as be  # noqa: E402
 from boswas_manager import viewmodel as vm  # noqa: E402
 
 VIEWMODEL_SOURCE = (HERE.parents[1] / "boswas_manager" / "viewmodel.py").read_text(encoding="utf-8")
-FORBIDDEN_WORDS = ("wine32", "i386", "wow64", "multiarch")
+# 32-bit refusals (wine32 missing) name the package for an administrator but never
+# tell the user to run commands or to weaken the sandbox.
+FORBIDDEN_WORDS = ("sudo", "apt install", "apt-get", "add-architecture", "disable", "unconfined", "winetricks")
 UTC = timezone.utc
 
 
@@ -157,10 +159,22 @@ class ActionTest(unittest.TestCase):
 class InstallFlowTest(unittest.TestCase):
     def test_exact_32bit_texts(self):
         self.assertEqual(vm.UNSUPPORTED_32BIT_MESSAGE, "This application requires 32-bit Windows compatibility, "
-                                                       "which is not supported by Boswas OS.")
+                                                       "which is not installed on this system.")
         self.assertEqual(vm.UNSUPPORTED_32BIT_DETAIL,
-                         "32-bit Windows applications are not supported by this version of Boswas OS.")
-        self.assertEqual(vm.SUPPORTED_ARCHITECTURE, "x86_64 / 64-bit Windows applications")
+                         "The 32-bit Windows runtime (package wine32:i386) is not installed on this device. "
+                         "An administrator can install it; 64-bit Windows applications are not affected.")
+        self.assertEqual(vm.SUPPORTED_ARCHITECTURE, "x86_64 (64-bit) and x86 (32-bit) Windows applications")
+
+    def test_message_matches_boswas_winapp(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "boswas-compat"))
+        from boswas_compat import UNSUPPORTED_32BIT_MESSAGE
+        self.assertEqual(vm.UNSUPPORTED_32BIT_MESSAGE, UNSUPPORTED_32BIT_MESSAGE)
+
+    def test_windows_applications_text_follows_the_runtime(self):
+        self.assertEqual(vm.windows_applications_text(["x86_64", "x86"]), "x86_64 (64-bit) and x86 (32-bit)")
+        self.assertEqual(vm.windows_applications_text(["x86_64"]),
+                         "x86_64 (64-bit) only (32-bit runtime not installed)")
+        self.assertEqual(vm.windows_applications_text(None), vm.WINDOWS_APPLICATIONS)
 
     def test_32bit_installer_is_refused_with_the_fixed_texts(self):
         flow = vm.InstallFlow()
@@ -185,12 +199,14 @@ class InstallFlowTest(unittest.TestCase):
     def test_other_architectures_are_not_called_32bit(self):
         doc = copy.deepcopy(fx.INSPECT_32)
         doc["architecture"].update(detected="arm64", message="setup.exe is a arm64 Windows program")
-        doc["decision"]["message"] = "setup.exe is a arm64 Windows program; Boswas OS runs x86_64 only."
+        doc["decision"]["message"] = ("setup.exe is a arm64 Windows program; Boswas OS runs x86_64 (64-bit) and "
+                                      "x86 (32-bit) Windows applications.")
         flow = vm.InstallFlow()
         flow.select("/x/setup.exe")
         self.assertEqual(flow.inspected(doc), flow.REFUSED)
-        self.assertEqual(flow.refusal_title, "This installer is not for 64-bit Windows")
-        self.assertNotIn("32-bit", flow.refusal_title + flow.refusal_hint)
+        self.assertEqual(flow.refusal_title, "This installer is for a Windows architecture Boswas OS does not run")
+        self.assertNotIn(vm.UNSUPPORTED_32BIT_MESSAGE, flow.refusal_title + flow.refusal_detail)
+        self.assertEqual(flow.refusal_hint, "Boswas OS runs x86_64 (64-bit) and x86 (32-bit) Windows applications.")
 
     def test_no_workaround_words_anywhere_in_the_viewmodel(self):
         lowered = VIEWMODEL_SOURCE.casefold()
@@ -404,7 +420,7 @@ class SystemRowsTest(unittest.TestCase):
         self.assertEqual(values, {
             "wine": "Healthy (wine-10.0)", "apparmor": "Enforced", "bubblewrap": "Available (0.11.0)",
             "agent": "Running (Ready)", "control_plane": "Connected", "disk": "118.4 GiB free of 237.9 GiB",
-            "architecture": "x86_64", "windows": "x86_64 / 64-bit only", "os_version": "1.0~alpha3",
+            "architecture": "x86_64", "windows": "x86_64 (64-bit) and x86 (32-bit)", "os_version": "1.0~alpha3",
             "policy": "Managed: 2026.10.1"})
 
     def test_apparmor_modes(self):
@@ -440,7 +456,7 @@ class SystemRowsTest(unittest.TestCase):
         values = self.values(system=None, agent=None)
         self.assertEqual(values["wine"], "Unknown")
         self.assertEqual(values["disk"], "Unknown")
-        self.assertEqual(values["windows"], "x86_64 / 64-bit only")
+        self.assertEqual(values["windows"], "x86_64 (64-bit) and x86 (32-bit)")
         self.assertEqual(values["policy"], "Unknown")
 
     def test_local_policy_and_header(self):

@@ -1,0 +1,18 @@
+# Boswas OS: Debian 13 package sources (deb822).
+#
+# Written at installation by /usr/lib/boswas/installer/finish-install when the
+# installer left no active package source (the installation does not use a
+# network mirror, so it works without internet). Every repository is verified
+# with the Debian archive keyring; i386 packages (32-bit Windows support) come
+# from the same repositories.
+Types: deb
+URIs: http://deb.debian.org/debian
+Suites: trixie trixie-updates
+Components: main non-free-firmware
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+
+Types: deb
+URIs: http://deb.debian.org/debian-security
+Suites: trixie-security
+Components: main non-free-firmware
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg

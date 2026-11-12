@@ -34,3 +34,5 @@ __pycache__/
 *.sec
 secring.*
 private-keys-v1.d/
+/build/known-good/
+/build/previous/

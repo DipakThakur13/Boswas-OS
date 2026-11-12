@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Callable
 
 from boswas_compat import manifest as compat_manifest
+from boswas_compat import ops as compat_ops
 from boswas_compat.errors import Refused
 
 from .commands import Command, CommandOutcome, CommandType, architecture_refusal
@@ -122,7 +123,8 @@ class CommandExecutor:
 
     def _install(self, cmd: Command) -> CommandOutcome:
         payload, app_id = cmd.payload, cmd.application_id
-        refusal = architecture_refusal(cmd.type, payload)
+        # What the local WinCompat runtime executes (x86 only while wine32:i386 is installed).
+        refusal = architecture_refusal(cmd.type, payload, compat_ops.load_runtime().architectures)
         if refusal:
             return self._blocked(cmd, refusal, "UNSUPPORTED_ARCHITECTURE")
         manifest = compat_manifest.from_document(payload["manifest"], layer="managed")

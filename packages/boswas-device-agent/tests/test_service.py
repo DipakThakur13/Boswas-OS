@@ -29,6 +29,12 @@ from agent_testlib import (POSTURE, RUNTIME_OK, FakeControlPlane, FakeInventory,
                            TestCA, command_doc, fake_run)
 
 from boswas_compat import UNSUPPORTED_32BIT_MESSAGE  # noqa: E402
+from boswas_compat import sandbox as compat_sandbox  # noqa: E402
+
+
+def winapp_runtime(architectures):
+    unavailable = () if "x86" in architectures else (("x86", "wine32:i386 is not installed"),)
+    return compat_sandbox.Runtime(architectures=tuple(architectures), unavailable=unavailable)
 
 from boswas_agent import cli, commands, daemon, localapi, policydoc, privacy, session_agent, sessions  # noqa: E402
 from boswas_agent import winapp as winapp_mod  # noqa: E402
@@ -325,12 +331,20 @@ class ExecutorTests(AgentCase):
         again = self.agent.executor.execute(self.install_cmd())               # idempotent
         self.assertEqual((again.status.value, again.result.get("already")), ("SUCCEEDED", True))
 
-    def test_32_bit_entries_are_refused_before_any_download(self):
-        outcome = self.agent.executor.execute(self.install_cmd(architecture="x86"))
+    def test_32_bit_entries_are_refused_before_any_download_without_wine32(self):
+        no_wine32 = winapp_runtime(("x86_64",))
+        with mock.patch("boswas_compat.ops.load_runtime", return_value=no_wine32):
+            outcome = self.agent.executor.execute(self.install_cmd(architecture="x86"))
         self.assertEqual((outcome.status.value, outcome.error_code), ("FAILED", "UNSUPPORTED_ARCHITECTURE"))
         self.assertEqual(outcome.error_message, UNSUPPORTED_32BIT_MESSAGE)
         self.assertEqual(self.sessions.calls, [])
         self.assertFalse(self.paths.artifacts.exists() and any(self.paths.artifacts.iterdir()))
+
+    def test_32_bit_entries_install_while_wine32_is_installed(self):
+        with mock.patch("boswas_compat.ops.load_runtime", return_value=winapp_runtime(("x86_64", "x86"))):
+            outcome = self.agent.executor.execute(self.install_cmd(architecture="x86"))
+        self.assertEqual(outcome.status.value, "SUCCEEDED", outcome.error_message)
+        self.assertEqual(self.sessions.calls[-1][0], "apps.install")
 
     def test_device_policy_refusal(self):
         (self.paths.root / "etc/boswas/compat").mkdir(parents=True)
@@ -657,7 +671,7 @@ class CliTests(AgentCase):
         code, out, _ = self.run_cli("--json", "identity")
         self.assertEqual(json.loads(out)["identity"]["device_id"], self.agent.device_id)
         code, out, _ = self.run_cli("inventory")
-        self.assertIn("x86_64 only", out)
+        self.assertIn("x86_64 Windows applications", out)
 
     def test_config_validate(self):
         bad = self.root / "bad.conf"

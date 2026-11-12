@@ -30,7 +30,9 @@ Signed-By: $keyring
 EOF
 cp "$BOSWAS_REPO_ROOT/config/live-build/config/archives/boswas-exclude.pref.chroot" \
 	"$root/etc/apt/preferences.d/boswas-exclude.pref"
-apt_opts=(-o "Dir=$root" -o "Dir::State::status=$root/var/lib/dpkg/status" -o APT::Architecture=amd64 -o Debug::NoLocking=1)
+# amd64 system with i386 as the only foreign architecture (wine32:i386, ADR-0022).
+apt_opts=(-o "Dir=$root" -o "Dir::State::status=$root/var/lib/dpkg/status" -o APT::Architecture=amd64
+	-o APT::Architectures::=amd64 -o APT::Architectures::=i386 -o Debug::NoLocking=1)
 
 if ! apt-get "${apt_opts[@]}" update -qq >/dev/null 2>&1; then
 	skip "package manifest resolution (Debian archive unreachable)"
@@ -48,5 +50,7 @@ fi
 for p in kdeconnect plasma-discover packagekit libpam-fprintd openssh-server cups-browsed plasma-welcome; do
 	check_not "excluded package '$p' is not pulled in" grep -q "^Inst $p " <<<"$out"
 done
+check "wine32 resolves from the i386 architecture" grep -qE '^Inst wine32:i386 ' <<<"$out"
+check_not "no Android runtime or Google component is pulled in" grep -qE '^Inst (waydroid|lxc|python3-gbinder)[: ]' <<<"$out"
 rm -rf "$root"
 finish

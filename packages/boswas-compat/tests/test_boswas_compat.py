@@ -36,14 +36,23 @@ REAL_REQUIRE_USER = ops.require_user
 
 # --- fixtures ------------------------------------------------------------------------------
 
-def pe_bytes(machine=0x8664, subsystem=3, extra=b"") -> bytes:
-    """A minimal PE header (enough for inspection; not a runnable program)."""
+def pe_bytes(machine=0x8664, subsystem=3, extra=b"", magic=None, characteristics=None) -> bytes:
+    """A minimal PE header (enough for inspection; not a runnable program).
+
+    Like a linker writes it: PE32 optional header for x86, PE32+ for x86_64
+    and arm64, SizeOfOptionalHeader set, executable image characteristics.
+    """
     data = bytearray(0x200)
     data[0:2] = b"MZ"
     struct.pack_into("<I", data, 0x3C, 0x80)
     data[0x80:0x84] = b"PE\0\0"
     struct.pack_into("<H", data, 0x84, machine)
-    struct.pack_into("<H", data, 0x80 + 24, 0x20B if machine == 0x8664 else 0x10B)
+    is32 = machine == 0x14C
+    struct.pack_into("<H", data, 0x80 + 20, 0xE0 if is32 else 0xF0)            # SizeOfOptionalHeader
+    if characteristics is None:
+        characteristics = 0x0102 if is32 else 0x0022                            # EXECUTABLE_IMAGE | 32BIT/LARGE_ADDRESS
+    struct.pack_into("<H", data, 0x80 + 22, characteristics)
+    struct.pack_into("<H", data, 0x80 + 24, magic if magic is not None else (0x10B if is32 else 0x20B))
     struct.pack_into("<H", data, 0x80 + 24 + 68, subsystem)
     return bytes(data) + extra
 
@@ -124,7 +133,8 @@ class CompatTestCase(unittest.TestCase):
         (share / "manifests").mkdir()
         (self.root / "etc/boswas/compat/manifests").mkdir(parents=True)
         self.write_policy((COMPAT / "policies/policy.conf").read_text())
-        for exe in ("usr/lib/wine/wine64", "usr/lib/wine/wineserver64", "usr/bin/bwrap",
+        # As in the image: the 64-bit and the 32-bit loader (wine32:i386).
+        for exe in ("usr/lib/wine/wine64", "usr/lib/wine/wine", "usr/lib/wine/wineserver64", "usr/bin/bwrap",
                     "usr/lib/boswas/compat/winapp-exec"):
             p = self.root / exe
             p.parent.mkdir(parents=True, exist_ok=True)
@@ -134,6 +144,10 @@ class CompatTestCase(unittest.TestCase):
         user = mock.patch.object(ops, "require_user", lambda: None)
         user.start()
         self.addCleanup(user.stop)
+
+    def remove_wine32(self):
+        """An administrator removed wine32:i386: x86 programs can no longer run."""
+        (self.root / "usr/lib/wine/wine").unlink()
 
     def write_policy(self, text):
         p = self.root / "etc/boswas/compat/policy.conf"
@@ -300,8 +314,46 @@ class InstallerTests(CompatTestCase):
         info = installer.inspect(exe)
         self.assertEqual((info.kind, info.machine, info.subsystem, info.framework), ("exe", "x86_64", "console", "NSIS"))
         self.assertEqual(info.framework_silent_args, ("/S",))
+        self.assertEqual(info.pe_format, "PE32+")
         x86 = self.installer_file("x86.exe", pe_bytes(machine=0x14C, subsystem=2))
-        self.assertEqual((installer.inspect(x86).machine, installer.inspect(x86).subsystem), ("x86", "gui"))
+        info32 = installer.inspect(x86)
+        self.assertEqual((info32.machine, info32.subsystem, info32.pe_format), ("x86", "gui", "PE32"))
+        self.assertEqual(info32.to_dict()["format"], "PE32")
+        arm = self.installer_file("arm64.exe", pe_bytes(machine=0xAA64))
+        self.assertEqual(installer.inspect(arm).machine, "arm64")
+        odd = self.installer_file("odd.exe", pe_bytes(machine=0x0200))      # IA-64: known magic, unknown machine
+        self.assertEqual(installer.inspect(odd).machine, "unknown(0x0200)")
+
+    def test_architecture_comes_from_the_header_never_the_name(self):
+        # A 64-bit program named like a 32-bit setup, and the reverse.
+        named32 = self.installer_file("setup32-x86.exe", pe_bytes(machine=0x8664))
+        named64 = self.installer_file("setup-x64-win64.exe", pe_bytes(machine=0x14C))
+        self.assertEqual(installer.inspect(named32).machine, "x86_64")
+        self.assertEqual(installer.inspect(named64).machine, "x86")
+
+    def test_inconsistent_or_unusable_pe_headers_are_refused(self):
+        cases = {
+            # The fixture built by tests/compatibility/build_fixtures.sh: a PE32+
+            # image whose machine field was changed to i386.
+            "pe32plus-i386.exe": (pe_bytes(machine=0x14C, magic=0x20B), "PE32+ image with the x86 machine type"),
+            "pe32-amd64.exe": (pe_bytes(machine=0x8664, magic=0x10B), "PE32 image with the x86_64 machine type"),
+            "rom.exe": (pe_bytes(magic=0x107), "unknown optional header"),
+            "library.exe": (pe_bytes(characteristics=0x2022), "library (DLL)"),
+            "object.exe": (pe_bytes(characteristics=0x0020), "not marked executable"),
+            "truncated.exe": (pe_bytes()[:0x90], "no PE header"),
+        }
+        for name, (data, expected) in cases.items():
+            with self.subTest(name=name), self.assertRaises(Refused) as cm:
+                installer.inspect(self.installer_file(name, data))
+            self.assertIn(expected, str(cm.exception))
+            self.assertEqual(cm.exception.reason, "bad-installer")
+
+    def test_scripts_are_not_windows_programs(self):
+        for name, data in (("run.bat", b"@echo off\r\nsetup.exe /S\r\n"), ("install.cmd", b":: setup\r\nstart x.exe\r\n"),
+                           ("setup.sh", b"#!/bin/sh\nexit 0\n")):
+            with self.subTest(name=name), self.assertRaises(Refused) as cm:
+                installer.inspect(self.installer_file(name, data))
+            self.assertIn("script or text file", str(cm.exception))
 
     def test_msi_and_unknown_formats(self):
         msi = self.installer_file("a.msi", installer.OLE_MAGIC + b"\0" * 600)
@@ -546,7 +598,8 @@ class InstallTests(CompatTestCase):
         record = store.AppStore(self.home).read_record("com.example.app")
         self.assertEqual(record["state"], "failed")
 
-    def test_32_bit_programs_are_refused(self):
+    def test_32_bit_programs_are_refused_without_wine32(self):
+        self.remove_wine32()
         with self.assertRaises(Refused) as cm:
             ops.install(self.ctx(), str(self.installer_file("x86.exe", pe_bytes(machine=0x14C))))
         self.assertEqual(cm.exception.reason, "architecture")
@@ -848,9 +901,9 @@ class CliTests(CompatTestCase):
         self.assertEqual(json.loads(out)["error"]["reason"], "not-found")
         code, _, err = self.run_cli("status", "local.none")
         self.assertEqual(code, 3)
-        code, _, err = self.run_cli("install", str(self.installer_file("x86.exe", pe_bytes(machine=0x14C))))
+        code, _, err = self.run_cli("install", str(self.installer_file("arm.exe", pe_bytes(machine=0xAA64))))
         self.assertEqual(code, 4)
-        self.assertIn("x86", err)
+        self.assertIn("arm64", err)
         with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
             with self.assertRaises(SystemExit) as cm:
                 cli.main(["list", "--", "x"])
