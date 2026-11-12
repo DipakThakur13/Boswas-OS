@@ -830,7 +830,12 @@ def scenario_install(iso: Path, workdir: Path, outdir: Path, timeout: float, off
     if offline:
         responder = serve_dir / "responder.py"
         responder.write_text(PRESEED_RESPONDER)
-        preseed_url = "http://10.0.2.100:8088/boswas-test.cfg"
+        # restrict=on also blocks QEMU's built-in DHCP, so the installer gets a
+        # static address on its command line (a LAN without a route to the
+        # internet); the test preseed arrives through the guestfwd rule.
+        preseed_url = ("http://10.0.2.100:8088/boswas-test.cfg netcfg/disable_autoconfig=true "
+                       "netcfg/get_ipaddress=10.0.2.15 netcfg/get_netmask=255.255.255.0 netcfg/get_gateway=10.0.2.2 "
+                       "netcfg/get_nameservers=10.0.2.3 netcfg/confirm_static=true")
         nic = ["-netdev", f"user,id=n0,restrict=on,guestfwd=tcp:10.0.2.100:8088-cmd:python3 -I {responder} "
                           f"{serve_dir / 'boswas-test.cfg'}",
                "-device", "virtio-net-pci,netdev=n0"]
