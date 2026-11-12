@@ -1349,9 +1349,9 @@ def agent_checks(sh: "Shell") -> None:
           "device identity created at first start, marked ephemeral in the live session")
     rc, out = sh.run("boswas-device --json inventory")
     inventory = _json(out).get("inventory", {})
-    check(inventory.get("compatibility", {}).get("architectures") == ["x86_64"] and "boswas" not in
+    check(inventory.get("compatibility", {}).get("architectures") == ["x86_64", "x86"] and "boswas" not in
           json.dumps(inventory.get("windows_applications", [])),
-          "local inventory: x86_64-only Windows runtime, no user names")
+          "local inventory: 64-bit and 32-bit Windows runtime, no user names")
 
 
 def device_management_checks(vm: "VM", sh: "Shell", outdir: Path, workdir: Path, fixtures: Path | None,
