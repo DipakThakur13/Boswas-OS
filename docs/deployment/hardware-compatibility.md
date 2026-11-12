@@ -100,8 +100,8 @@ What has been validated where. "VM" means QEMU under software emulation
 | UEFI boot, Secure Boot enforced (shim → signed GRUB → signed kernel) | Tested | Not tested |
 | Legacy BIOS boot | Boots (reported WARN) | Not tested |
 | Live USB to desktop, no installer started | Tested | Not tested |
-| Encrypted installation, reboot into the installed system | Tested (with network; without internet: see the release report) | Not tested |
-| Installer firmware loading (rtl8125b and the required list) | The installer's own code against the medium (no hardware) | Not tested |
+| Encrypted installation, reboot into the installed system | Tested with internet (1.0~alpha3) and without internet (2026-11-12 build) | Not tested |
+| Installer firmware loading (rtl8125b and the required list) | The installer's own code against the medium (no hardware); Intel SOF audio cannot be loaded by the installer | Not tested |
 | SATA / NVMe storage | virtio only | Not tested |
 | Wired Ethernet / Wi-Fi / Bluetooth drivers | virtio-net only | Not tested |
 | Intel / AMD / NVIDIA graphics | QEMU standard VGA only | Not tested |

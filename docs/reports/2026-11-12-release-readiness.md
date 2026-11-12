@@ -20,13 +20,13 @@ Three kinds of evidence, kept apart throughout:
 
 | | |
 |--|--|
-| Build ID | @BUILD_ID@ |
-| ISO | `build/output/Boswas-OS-v1-alpha-amd64.iso`, @ISO_SIZE@ bytes, SHA-256 `@ISO_SHA@` |
+| Build ID | BOS-1.0~alpha3-20261112T120011Z |
+| ISO | `build/output/Boswas-OS-v1-alpha-amd64.iso`, 3,598,512,128 bytes, SHA-256 `a906410db33d0c764a6e713b50ec41864b05c47d1f609622227198889d30ea54` |
 | Packages | 2044 (1.0~alpha3 shipped 1753) |
 | Source | Uncommitted working tree on branch `feature/m2-device-management` (manifest says `dirty: true`) |
 | Previous images | Last known-good 1.0~alpha3 image (BOS-1.0~alpha3-20261004T201233Z) kept, checksum verified, in `build/known-good/`. The intermediate image of this work is in `build/previous/` |
 
-**ISO size impact: +682 MiB** (2,883,624,960 → 3,598,5xx,xxx bytes, +24.8 %):
+**ISO size impact: +682 MiB** (2,883,624,960 → 3,598,512,128 bytes, +24.8 %):
 
 - root filesystem +412 MiB (2,249 → 2,661 MiB squashfs): mostly `wine32:i386`
   and its i386 libraries (291 more packages), plus five firmware packages and
@@ -61,7 +61,31 @@ Three kinds of evidence, kept apart throughout:
 
 ### Gate 1: Regression (Automated + VM)
 
-@GATE1@
+`./test.sh` on the release candidate (report
+`build/logs/test-report-20261112T121524Z.txt`): **595 passed, 0 failed, 4
+skipped**.
+
+- **Skipped:** AppArmor enforcement in two runtime stages (the Docker kernel
+  has no AppArmor; the VM runs the same operations confined), and the two
+  image-only SOF audio files the installer cannot load.
+- **Automated:** 53 static, 63 package/lintian, 9 unit-suite stages
+  (911 unit tests: compat 100, agent 98, Compatibility Manager 107, Control
+  Center 236, sysops 120, android 109, Control Plane 50, CLI 26, presets 69,
+  icons 16), 40 ISO structure, 10 installer firmware, 72 image packages,
+  32 security, 26 Wine, 19 device image, 49 WinCompat runtime, 64 device
+  management runtime.
+- **VM, 123 boot checks:**
+  - UEFI with Secure Boot enforced (shim, signed GRUB, Boswas splash);
+  - Live USB to the desktop: the default entry is the live session, no
+    installer, wizard or browser starts by itself, and the internal disk is
+    bit-for-bit unchanged;
+  - branding, lock and login screens, all ten presets;
+  - WinCompat 64-bit and 32-bit under real AppArmor;
+  - device management round trip through a Control Plane;
+  - the new Control Center pages start no privileged helper.
+
+Earlier full run on the intermediate build: 594 passed and 1 failed (a
+leftover 64-bit-only inventory assertion), fixed before the release candidate.
 
 ### Gate 2: Firmware and installation
 
@@ -74,7 +98,7 @@ Three kinds of evidence, kept apart throughout:
 | A file on no medium stays missing (honest prompt) | Automated | Passed |
 | Required firmware in the image | Automated | Passed |
 | Clean installation **with** network, Secure Boot, LUKS2, reboot, login | VM | Passed on 2026-10-05 (1.0~alpha3). **Not re-run** on this build: the offline run below covers the same steps |
-| Clean installation **without internet** (DHCP-less LAN, no route out), reboot, signed sources, report, wine32, firmware | VM | @OFFLINE@ |
+| Clean installation **without internet** (DHCP-less LAN, no route out), reboot, signed sources, report, wine32, firmware | VM | **Passed, 20/20** (2,513 s installation under TCG): the installer completes with no route to the internet; the installed system boots through shim/GRUB with Secure Boot enforced; LUKS2; signed `debian.sources` with security and non-free-firmware, no unsigned live pool; install report without problems; wine32:i386 and i386 multiarch; firmware incl. `rtl8125b-2.fw`; firmware index. The first run of this scenario found root cause 3 (no active source), which is fixed in the release candidate |
 | Installation on physical hardware; RTL8125B on real hardware | Physical | **Not tested** |
 
 ### Gate 3: Linux applications
@@ -119,7 +143,15 @@ Three kinds of evidence, kept apart throughout:
 
 ### Gate 7: Release build
 
-@GATE7@
+| Check | Kind | Result |
+|-------|------|--------|
+| Complete ISO build with the existing pipeline (`./build.sh`, container) | Build | Passed: guard rails (`0100-boswas-verify`) and installer firmware gate (`0150-boswas-firmware`) |
+| Package dependencies and manifest resolution (incl. `wine32:i386`, no Android/Google packages) | Automated | Passed |
+| All existing and new tests | Automated + VM | 595 passed, 0 failed, 4 skipped |
+| Boot and installation smoke tests | VM | UEFI Secure Boot boot, Live USB, offline installation and installed boot: passed |
+| Live desktop launches directly | VM | Passed |
+| Installed OS after reboot | VM | Passed (offline installation) |
+| Physical hardware | Physical | **Not tested** |
 
 ## Configuration delivered
 
@@ -154,6 +186,19 @@ Three kinds of evidence, kept apart throughout:
 - The installer cannot load Intel SOF audio firmware (Debian limitation).
 - DEP-11 modalias patterns are not generated (no AppStream metadata in the
   build chroot). Requested firmware loads anyway.
+- `firmware-libertas` (added for old Marvell Wi-Fi) Recommends
+  `firmware-marvell-prestera` (58 MB of network-switch firmware), which is
+  therefore in the image. Next build: drop `firmware-libertas` or pin
+  `firmware-marvell-prestera` out. Not changed in the release candidate after
+  it was tested.
+- The online installation (with internet) was not re-run on this build. It
+  takes the same steps as the offline run, which passed.
+- **Changed in source after the release candidate (unit-tested, not in the
+  tested ISO):** `boswas-sysops android-init` now reports Waydroid's
+  "downloaded image hash doesn't match" as a retryable `NETWORK` failure, so
+  Control Center offers Retry. The VM run saw a SourceForge download stop at
+  27 %; Waydroid's checksum check refused the partial image, which is
+  correct. The release candidate reports the same event as `FAILED`.
 - Version: the build still identifies as 1.0~alpha3. Bump to 1.0~alpha4
   before publishing (`config/boswas/release.conf` and the package
   changelogs).

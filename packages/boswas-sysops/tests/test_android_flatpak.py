@@ -314,6 +314,19 @@ class RuntimeOtherTest(unittest.TestCase):
         self.assertEqual(run(h, "android-init"), 5)
         h.close()
 
+    def test_init_interrupted_download_fails_the_checksum_and_is_retryable(self):
+        # Seen in the VM test: the SourceForge download stopped at 27 %, Waydroid refused the image.
+        h = AndroidHarness()
+        h.waydroid()
+        h.runner.script([("line", "[Downloading] 250.00 MB/ 900.00 MB"),
+                         ("line", "ERROR: Downloaded system image hash doesn't match, expected: 0535527"),
+                         ("line", "See also: <https://github.com/waydroid>")], code=1)
+        self.assertEqual(run(h, "android-init"), 5)
+        result = h.events()[-1]
+        self.assertEqual(result["code"], "NETWORK")
+        self.assertIn("checksum did not match", result["message"])
+        h.close()
+
     def test_service(self):
         h = AndroidHarness()
         h.waydroid()
