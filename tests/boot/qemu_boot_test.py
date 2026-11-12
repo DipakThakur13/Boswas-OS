@@ -830,7 +830,12 @@ def scenario_install(iso: Path, workdir: Path, outdir: Path, timeout: float, off
     if offline:
         responder = serve_dir / "responder.py"
         responder.write_text(PRESEED_RESPONDER)
-        preseed_url = "http://10.0.2.100:8088/boswas-test.cfg"
+        # restrict=on also blocks QEMU's built-in DHCP, so the installer gets a
+        # static address on its command line (a LAN without a route to the
+        # internet); the test preseed arrives through the guestfwd rule.
+        preseed_url = ("http://10.0.2.100:8088/boswas-test.cfg netcfg/disable_autoconfig=true "
+                       "netcfg/get_ipaddress=10.0.2.15 netcfg/get_netmask=255.255.255.0 netcfg/get_gateway=10.0.2.2 "
+                       "netcfg/get_nameservers=10.0.2.3 netcfg/confirm_static=true")
         nic = ["-netdev", f"user,id=n0,restrict=on,guestfwd=tcp:10.0.2.100:8088-cmd:python3 -I {responder} "
                           f"{serve_dir / 'boswas-test.cfg'}",
                "-device", "virtio-net-pci,netdev=n0"]
@@ -1344,9 +1349,9 @@ def agent_checks(sh: "Shell") -> None:
           "device identity created at first start, marked ephemeral in the live session")
     rc, out = sh.run("boswas-device --json inventory")
     inventory = _json(out).get("inventory", {})
-    check(inventory.get("compatibility", {}).get("architectures") == ["x86_64"] and "boswas" not in
+    check(inventory.get("compatibility", {}).get("architectures") == ["x86_64", "x86"] and "boswas" not in
           json.dumps(inventory.get("windows_applications", [])),
-          "local inventory: x86_64-only Windows runtime, no user names")
+          "local inventory: 64-bit and 32-bit Windows runtime, no user names")
 
 
 def device_management_checks(vm: "VM", sh: "Shell", outdir: Path, workdir: Path, fixtures: Path | None,
