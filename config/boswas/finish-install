@@ -56,8 +56,24 @@ for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list; do
 done
 
 # --- 2. signature-verified package sources --------------------------------------------------
+# The installer's own "deb cdrom:" entry is still active at this point (the
+# installer comments it out only after this script ran). The installed system
+# has no CD, so it is never a package source: comment it out now, and never
+# count it below. (Without this, an offline installation ended with no active
+# source at all: found by the offline installation test.)
+for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list; do
+	[ -f "$f" ] || continue
+	if grep -qE '^[[:space:]]*deb[[:space:]]+(\[[^]]*\][[:space:]]+)?cdrom:' "$f"; then
+		if sed -i -E 's/^([[:space:]]*deb[[:space:]]+(\[[^]]*\][[:space:]]+)?cdrom:)/# \1/' "$f"; then
+			log "disabled the installation medium (cdrom) entry in $f"
+		else
+			problem "could not disable the installation medium (cdrom) entry in $f"
+		fi
+	fi
+done
+
 active_sources() {
-	grep -hsE '^[[:space:]]*deb[[:space:]]' /etc/apt/sources.list /etc/apt/sources.list.d/*.list
+	grep -hsE '^[[:space:]]*deb[[:space:]]' /etc/apt/sources.list /etc/apt/sources.list.d/*.list | grep -v 'cdrom:'
 	for s in /etc/apt/sources.list.d/*.sources; do
 		[ -f "$s" ] || continue
 		# deb822: a stanza is active unless it says Enabled: no
@@ -93,8 +109,8 @@ fi
 	fi
 	echo
 	echo "Firmware packages installed:"
-	dpkg-query -W -f='  ${Package} ${Version}\n' 'firmware-*' 'intel-microcode' 'amd64-microcode' 2>/dev/null \
-		|| echo "  (dpkg-query failed)"
+	dpkg-query -W -f='${db:Status-Status} ${Package} ${Version}\n' 'firmware-*' 'intel-microcode' 'amd64-microcode' \
+		2>/dev/null | awk '$1 == "installed" { print "  " $2 " " $3 }'
 	echo
 	echo "Package sources:"
 	active_sources | sed 's/^/  /'
