@@ -76,7 +76,13 @@ unsigned="$(grep -rhsE '^[^#]*trusted=yes' "$root/etc/apt" | grep -v 'file:/run/
 [ -z "$unsigned" ] && pass "no unauthenticated APT sources besides the live boot medium" \
 	|| fail "unauthenticated APT sources: $unsigned"
 preseed_late="$(zcat "$TESTWORK/iso/install/gtk/initrd.gz" 2>/dev/null | cpio -i --quiet --to-stdout preseed.cfg 2>/dev/null | grep 'preseed/late_command' || true)"
-check "installer removes the live-medium source from installed systems" grep -q 'file:/run/live/medium' <<<"$preseed_late"
+finish="$root/usr/lib/boswas/installer/finish-install"
+if grep -qF 'in-target /usr/lib/boswas/installer/finish-install' <<<"$preseed_late" &&
+	grep -qF "LIVE_POOL='file:/run/live/medium'" "$finish" && grep -qF '#$LIVE_POOL#d' "$finish"; then
+	pass "installer removes the live-medium source from installed systems (late_command runs finish-install)"
+else
+	fail "installer removes the live-medium source from installed systems (late_command runs finish-install)"
+fi
 check "Debian archive keyring present" bash -c "ls '$root'/usr/share/keyrings/debian-archive-keyring.* >/dev/null"
 
 # Screen lock policy

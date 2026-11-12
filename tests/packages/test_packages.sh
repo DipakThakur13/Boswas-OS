@@ -40,7 +40,7 @@ check_not "no setuid/setgid files" grep -qE '^-..[sS]|^-.....[sS]' <<<"$listing"
 os_depends="$(dpkg-deb -f "$debs/boswas-os_${BOSWAS_VERSION_ID}_all.deb" Depends 2>/dev/null)"
 check "boswas-os depends on all Boswas device components" bash -c '
 	for p in boswas-branding boswas-security boswas-cli "boswas-compat " boswas-device-agent boswas-compat-manager \
-		boswas-control-center; do
+		boswas-control-center boswas-sysops boswas-android; do
 		grep -q -- "$p" <<<"$1" || exit 1
 	done' _ "$os_depends"
 check_not "boswas-os does not pull in the Control Plane" grep -q boswas-control-plane <<<"$os_depends"
@@ -146,6 +146,63 @@ check "Control Center: command and its four desktop entries shipped (no Install 
 check "Control Center depends on PySide6, KDE's module launcher, the CLI, the device agent and the branding (presets)" \
 	bash -c "d=\$(dpkg-deb -f '$cc_deb' Depends); for p in python3-pyside6.qtwidgets libkf6kcmutils-bin boswas-cli boswas-device-agent boswas-branding; do
 		grep -q \"\$p\" <<<\"\$d\" || exit 1; done"
+
+# boswas-os: the installer's last step, the sources it writes, the required firmware list
+check "boswas-os ships the installer's finish step, the signed Debian sources template and the required firmware list" \
+	bash -c "grep -qE '^-rwxr-xr-x root/root .* \./usr/lib/boswas/installer/finish-install$' <<<\"\$1\" &&
+		grep -qE '^-rw-r--r-- root/root .* \./usr/share/boswas/apt/debian.sources$' <<<\"\$1\" &&
+		grep -qE '^-rw-r--r-- root/root .* \./usr/share/boswas/firmware/required.list$' <<<\"\$1\"" _ "$listing"
+
+# Privileged helper: started only by pkexec, one polkit action per operation
+sysops_deb="$debs/boswas-sysops_${BOSWAS_VERSION_ID}_all.deb"
+check "boswas-sysops: helper in /usr/libexec (0755), polkit actions (0644), nothing on the PATH" \
+	bash -c "grep -qE '^-rwxr-xr-x root/root .* \./usr/libexec/boswas/sysops$' <<<\"\$1\" &&
+		grep -qE '^-rw-r--r-- root/root .* \./usr/share/polkit-1/actions/com.boswas.sysops.policy$' <<<\"\$1\" &&
+		! grep -qE '\./usr/(s?bin|local/bin)/[^ ]*sysops' <<<\"\$1\"" _ "$listing"
+ctl="$(mktemp -d)"
+dpkg-deb -e "$sysops_deb" "$ctl" 2>/dev/null
+check "boswas-sysops: /etc/boswas/apps.conf is a conffile; depends on apt, pkexec and polkitd" \
+	bash -c "grep -qx /etc/boswas/apps.conf '$ctl/conffiles' && d=\$(dpkg-deb -f '$sysops_deb' Depends) &&
+		grep -q apt <<<\"\$d\" && grep -q pkexec <<<\"\$d\" && grep -q polkitd <<<\"\$d\""
+rm -rf "$ctl"
+sx="$(mktemp -d)"
+dpkg-deb -x "$sysops_deb" "$sx"
+check "boswas-sysops: every operation is a polkit action; state changes need administrator authentication" python3 - \
+	"$sx/usr/share/polkit-1/actions/com.boswas.sysops.policy" <<'PYEOF'
+import sys
+import xml.etree.ElementTree as ET
+root = ET.parse(sys.argv[1]).getroot()
+read_only = {"firmware-report", "android-service"}
+seen = set()
+for action in root.findall("action"):
+    ann = {a.get("key"): a.text for a in action.findall("annotate")}
+    op = ann["org.freedesktop.policykit.exec.argv1"]
+    assert ann["org.freedesktop.policykit.exec.path"] == "/usr/libexec/boswas/sysops", op
+    assert action.get("id") == f"com.boswas.sysops.{op}", op
+    d = action.find("defaults")
+    assert d.findtext("allow_any") == "no" and d.findtext("allow_inactive") == "no", op
+    assert d.findtext("allow_active") == ("yes" if op in read_only else "auth_admin_keep"), op
+    seen.add(op)
+assert {"apt-install", "apt-remove", "apt-upgrade", "android-runtime-install", "android-init"} <= seen, seen
+PYEOF
+rm -rf "$sx"
+
+# Android runtime manager: no runtime, no autostart, the pinned repository key
+android_deb="$debs/boswas-android_${BOSWAS_VERSION_ID}_all.deb"
+check "boswas-android: command (0755), runtime.conf and the Waydroid repository keyring (0644)" \
+	bash -c "grep -qE '^-rwxr-xr-x root/root .* \./usr/bin/boswas-android$' <<<\"\$1\" &&
+		grep -qE '^-rw-r--r-- root/root .* \./usr/share/boswas/android/runtime.conf$' <<<\"\$1\" &&
+		grep -qE '^-rw-r--r-- root/root .* \./usr/share/boswas/keyrings/waydroid.gpg$' <<<\"\$1\"" _ "$listing"
+check_not "boswas-android: does not depend on or recommend the Android runtime (opt-in after installation)" \
+	bash -c "dpkg-deb -f '$android_deb' Depends Recommends | grep -qiE 'waydroid|lxc|gbinder'"
+check_not "boswas-android: ships no desktop entry, autostart or service (nothing starts Android by itself)" \
+	bash -c "dpkg-deb -c '$android_deb' | grep -qE '\.(desktop|service|timer)$|/autostart/'"
+ax="$(mktemp -d)"
+dpkg-deb -x "$android_deb" "$ax"
+check "boswas-android: Android images are VANILLA only (never GAPPS)" \
+	bash -c "grep -qx 'IMAGE_TYPE=\"VANILLA\"' '$ax/usr/share/boswas/android/runtime.conf' &&
+		! grep -v '^[[:space:]]*#' '$ax/usr/share/boswas/android/runtime.conf' | grep -qi 'gapps'"
+rm -rf "$ax"
 
 # Package contents never carry key material
 extract="$(mktemp -d)"

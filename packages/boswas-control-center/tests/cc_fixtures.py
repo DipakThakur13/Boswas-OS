@@ -3,7 +3,9 @@
 The real Backend is used everywhere; only its three boundaries are replaced:
 
   FakeCommands   records every argv instead of starting a process and
-                 answers with canned output (boswas --json status, ...)
+                 answers with canned output (boswas --json status, ...);
+                 streamed operations (boswas-sysops, boswas-android) play a
+                 script of output lines, optionally waiting for Cancel
   FakeServices   the device agent and session agent sockets (localapi shape)
   make_root()    a temporary root directory with the public files the
                  probes read (/usr/lib/boswas/release, /proc, /sys, APT, ...)
@@ -102,14 +104,14 @@ CONFIG = {"path": "/etc/boswas/device.conf", "valid": True,
           "problems": [], "warnings": []}
 RUNTIME = {
     "wine": {"available": True, "version": "wine-10.0 (Debian 10.0~repack-6)", "major": "10"},
-    "architectures": ["x86_64"], "winearch": "win64",
+    "architectures": ["x86_64", "x86"], "winearch": "win64",
     "bubblewrap": {"available": True, "version": "0.11.0", "disable_userns": True},
     "runner": {"available": True}, "apparmor": {"profile": "boswas-winapp", "mode": "enforce", "required": True},
     "policy": {"source": "local", "managed": False, "problems": []}, "healthy": True,
 }
 SYSTEM = {
     "os": {"name": "Boswas OS", "version": "v1 Alpha", "version_id": "1.0~alpha3", "architecture": "x86_64"},
-    "windows_architectures": ["x86_64"], "runtime": copy.deepcopy(RUNTIME), "agent": copy.deepcopy(AGENT),
+    "windows_architectures": ["x86_64", "x86"], "runtime": copy.deepcopy(RUNTIME), "agent": copy.deepcopy(AGENT),
     "disk": {"total_gib": 58.0, "free_gib": 41.2},
     "session_agent": {"version": "1.0~alpha3", "connected_to_agent": True},
 }
@@ -141,6 +143,127 @@ def preset_doc(root: Path) -> dict:
 
 APT_SHELL = "UU='1'\nPL='1'\nDL=''\nAC='7'\n"
 
+# --- outputs of the programs behind the functional pages (real formats) ---------------------------------------
+
+UPGRADE_SIM = """NOTE: This is only a simulation!
+      apt-get needs root privileges for real execution.
+      Keep also in mind that locking is deactivated,
+      so don't depend on the relevance to the real current situation!
+Reading package lists...
+Building dependency tree...
+Calculating upgrade...
+The following packages will be upgraded:
+  libssl3t64 openssl firefox-esr
+3 upgraded, 1 newly installed, 0 to remove and 0 not upgraded.
+Inst libssl3t64 [3.5.1-1] (3.5.2-1~deb13u1 Debian-Security:13/stable-security [amd64])
+Inst openssl [3.5.1-1] (3.5.2-1~deb13u1 Debian-Security:13/stable-security [amd64])
+Inst firefox-esr [140.3.0esr-1~deb13u1] (140.4.0esr-1~deb13u1 Debian:13.2/stable [amd64])
+Inst libnew1 (1.0-1 Debian:13.2/stable [amd64])
+Conf libssl3t64 (3.5.2-1~deb13u1 Debian-Security:13/stable-security [amd64])
+Conf openssl (3.5.2-1~deb13u1 Debian-Security:13/stable-security [amd64])
+"""
+APT_SEARCH = "vlc - multimedia player and streamer\nvlc-bin - binaries from VLC\nbogus name - skipped\n"
+APT_POLICY = """vlc:
+  Installed: (none)
+  Candidate: 3.0.21-10
+  Version table:
+     3.0.21-10 500
+        500 http://deb.debian.org/debian trixie/main amd64 Packages
+vlc-bin:
+  Installed: 3.0.21-10
+  Candidate: 3.0.21-10
+  Version table:
+ *** 3.0.21-10 500
+        500 http://deb.debian.org/debian trixie/main amd64 Packages
+        100 /var/lib/dpkg/status
+"""
+APT_SHOW = """Package: vlc
+Version: 3.0.21-10
+Installed-Size: 217
+Maintainer: Debian Multimedia Maintainers <debian-multimedia@lists.debian.org>
+Section: video
+Size: 64536
+Homepage: https://www.videolan.org/vlc/
+Description: multimedia player and streamer
+ VLC is the VideoLAN project's media player.
+ .
+ It plays MPEG, MPEG-2, MPEG-4, DivX, MOV, WMV and more.
+
+Package: vlc
+Version: 3.0.20-1
+Description: an older stanza that must be ignored
+"""
+NMCLI_DEVICES = ("enp3s0:ethernet:unavailable:--\nwlp2s0:wifi:connected:Home\\:Net\n"
+                 "lo:loopback:connected (externally):lo\np2p-dev-wlp2s0:wifi-p2p:disconnected:--\n")
+NMCLI_SHOW = "IP4.ADDRESS[1]:192.168.1.23/24\nIP4.GATEWAY:192.168.1.1\nIP6.ADDRESS[1]:fe80\\:\\:1/64\n"
+LSBLK = json.dumps({"blockdevices": [
+    {"name": "nvme0n1", "type": "disk", "size": 512110190592, "fstype": None, "mountpoints": [None],
+     "model": "Example NVMe SSD", "tran": "nvme", "rm": False, "ro": False, "children": [
+         {"name": "nvme0n1p1", "type": "part", "size": 536870912, "fstype": "vfat", "mountpoints": ["/boot/efi"]},
+         {"name": "nvme0n1p3", "type": "part", "size": 510000000000, "fstype": "crypto_LUKS", "mountpoints": [None],
+          "children": [{"name": "nvme0n1p3_crypt", "type": "crypt", "size": 509000000000, "fstype": "LVM2_member",
+                        "mountpoints": [None], "children": [
+                            {"name": "boswas--vg-root", "type": "lvm", "size": 500000000000, "fstype": "ext4",
+                             "mountpoints": ["/"]}]}]}]},
+    {"name": "loop0", "type": "loop", "size": 1000, "mountpoints": ["/snap"]},
+    {"name": "sda", "type": "disk", "size": 32000000000, "model": "USB Stick", "tran": "usb", "rm": True,
+     "ro": False, "fstype": None, "mountpoints": [None], "children": []},
+]})
+FLATPAK_SYSTEM_REMOTES = "flathub\thttps://dl.flathub.org/repo/\tsystem\n"
+FLATPAK_USER_APPS = "org.gimp.GIMP\tGNU Image Manipulation Program\t3.0.4\tflathub\n"
+FLATPAK_SEARCH = "org.videolan.VLC\tVLC\tVLC media player\t3.0.21\tflathub\n"
+
+ANDROID_STATUS = {
+    "schema": "boswas-android/1",
+    "runtime": {"installed": True, "version": "1.5.4", "repository": True},
+    "compatibility": {"supported": True, "checks": [
+        {"id": "binder", "status": "PASS", "title": "Android binder driver",
+         "detail": "binder_linux is loaded (/dev/binder, /dev/hwbinder, /dev/vndbinder)"},
+        {"id": "wayland", "status": "PASS", "title": "Wayland session", "detail": "Plasma Wayland session"},
+        {"id": "gpu", "status": "WARN", "title": "Graphics", "detail": "software rendering (no supported GPU)"}]},
+    "initialized": True,
+    "images": {"type": "VANILLA", "system": "lineage-20.0-20261001", "vendor": "MAINLINE-20261001",
+               "bytes": 1200000000},
+    "service": {"active": True}, "session": {"running": False, "state": "STOPPED"},
+    "storage": {"images_bytes": 1200000000, "user_bytes": 52428800},
+    "network": {"interface": "waydroid0", "present": False, "address": None},
+    "gpu": {"acceleration": "software", "driver": "virtio_gpu", "render_node": "/dev/dri/renderD128"},
+    "google_play": {"available": False,
+                    "reason": "Google Play is not offered: Google licenses its apps only for certified devices, and "
+                              "no licensed installation method exists for this Android runtime.",
+                    "alternatives": ["fdroid", "local-apk"]},
+}
+ANDROID_STATUS_NOT_INSTALLED = {**copy.deepcopy(ANDROID_STATUS), "runtime": {"installed": False, "version": None,
+                                                                            "repository": False},
+                                "initialized": False, "service": {"active": None},
+                                "session": {"running": False, "state": None}, "images": {}}
+ANDROID_STATUS_UNSUPPORTED = {**copy.deepcopy(ANDROID_STATUS_NOT_INSTALLED), "compatibility": {
+    "supported": False, "checks": [{"id": "binder", "status": "FAIL", "title": "Android binder driver",
+                                    "detail": "the kernel has no binder support"}]}}
+ANDROID_APPS = {"schema": "boswas-android/1",
+                "apps": [{"package": "org.fdroid.fdroid", "name": "F-Droid", "version": "1.20.0"},
+                         {"package": "bad package", "name": "skipped"}]}
+APK_DOC = {"schema": "boswas-android/1", "apk": {
+    "path": "/home/alice/app.apk", "size": 4096, "sha256": "ab" * 32, "package": "org.example.notes",
+    "version_name": "2.1", "version_code": 21, "label": "Example Notes", "min_sdk": 24, "target_sdk": 34,
+    "abis": ["x86_64", "arm64-v8a"], "split": {"is_split": False, "name": None, "requires_splits": False},
+    "signing": {"schemes": ["v2", "v3"], "certificates": [{"sha256": "CD" * 32}]}, "compatible": True,
+    "problems": []}}
+APK_ARM_ONLY = {"schema": "boswas-android/1", "apk": {**APK_DOC["apk"], "abis": ["arm64-v8a"], "compatible": False,
+                                                      "problems": ["needs an ARM translation layer, which Boswas OS "
+                                                                   "does not include"]}}
+
+def sysops_lines(operation: str, ok: bool = True, code: str = "OK", message: str = "Done.", data: dict | None = None,
+                 progress: tuple = (("download", 50.0, True), ("install", None, False))) -> list[str]:
+    """The JSON Lines boswas-sysops prints (contract section 1)."""
+    lines = [json.dumps({"type": "start", "schema": "boswas-sysops/1", "operation": operation,
+                         "cancellable": True})]
+    for phase, percent, cancellable in progress:
+        lines.append(json.dumps({"type": "progress", "phase": phase, "percent": percent, "message": f"{phase}…",
+                                 "cancellable": cancellable}))
+    lines.append(json.dumps({"type": "result", "ok": ok, "code": code, "message": message, "data": data or {}}))
+    return lines
+
 
 def completed(stdout: str = "", code: int = 0, stderr: str = "") -> commands.Completed:
     return commands.Completed(code, stdout, stderr)
@@ -156,11 +279,38 @@ class FakeCommands:
             (E["boswas-preset"], "--json", "list"): completed(json.dumps(preset_doc(root))),
             (E["systemctl"], "reboot"): completed(),
         }
+        sysops = commands.SYSOPS
+        self.outputs.update({
+            (E["apt-get"], "-s", "-o", "Debug::NoLocking=1", "--with-new-pkgs", "upgrade"): completed(UPGRADE_SIM),
+            (E["apt-cache"], "search", "--names-only", "vlc"): completed(APT_SEARCH),
+            (E["apt-cache"], "policy", "vlc", "vlc-bin"): completed(APT_POLICY),
+            (E["apt-cache"], "policy", "vlc"): completed(APT_POLICY),
+            (E["apt-cache"], "show", "vlc"): completed(APT_SHOW),
+            (E["nmcli"], "-t", "-f", "DEVICE,TYPE,STATE,CONNECTION", "device"): completed(NMCLI_DEVICES),
+            (E["nmcli"], "-t", "-f", "IP4.ADDRESS,IP4.GATEWAY,IP6.ADDRESS", "device", "show", "wlp2s0"):
+                completed(NMCLI_SHOW),
+            (E["nmcli"], "-t", "radio", "wifi"): completed("enabled\n"),
+            (E["nmcli"], "radio", "wifi", "off"): completed(),
+            (E["nmcli"], "device", "disconnect", "wlp2s0"): completed(),
+            (E["lsblk"], "-J", "-b", "-o", "NAME,TYPE,SIZE,FSTYPE,MOUNTPOINTS,MODEL,TRAN,RM,RO"): completed(LSBLK),
+            (E["flatpak"], "remotes", "--system", "--columns=name,url,options"): completed(FLATPAK_SYSTEM_REMOTES),
+            (E["flatpak"], "remotes", "--user", "--columns=name,url,options"): completed(""),
+            (E["flatpak"], "list", "--user", "--app", "--columns=application,name,version,origin"):
+                completed(FLATPAK_USER_APPS),
+            (E["flatpak"], "list", "--system", "--app", "--columns=application,name,version,origin"): completed(""),
+            (E["flatpak"], "search", "--columns=application,name,description,version,remotes", "vlc"):
+                completed(FLATPAK_SEARCH),
+            (E["boswas-android"], "--json", "status"): completed(json.dumps(ANDROID_STATUS)),
+            (E["boswas-android"], "--json", "app", "list"): completed(json.dumps(ANDROID_APPS)),
+        })
         self.ran: list[list[str]] = []
         self.started: list[list[str]] = []
+        self.streamed: list[list[str]] = []
+        self.streams: dict[tuple, object] = {}
         self.timeouts: list[float] = []
         self.start_errors: dict[tuple, Exception] = {}
         self.lock = threading.Lock()
+        self.sysops = sysops
 
     @staticmethod
     def _check(command: list[str]) -> None:
@@ -189,6 +339,42 @@ class FakeCommands:
         error = self.start_errors.get(tuple(command))
         if error is not None:
             raise error
+
+    def stream(self, command: list[str], on_line, handle: commands.StreamHandle,
+               timeout: float = commands.STREAM_TIMEOUT) -> int:
+        """Play the scripted output of a long operation.
+
+        A script is (lines, exit code) or a callable(handle, emit) -> exit code
+        that can wait for handle.cancel_requested. Without a script the program
+        prints nothing and fails (exit 1): no result, never a success.
+        """
+        self._check(command)
+        commands._check(command)
+        assert timeout and timeout > 0
+        with self.lock:
+            self.streamed.append(list(command))
+        script = self.streams.get(tuple(command))
+        try:
+            if callable(script):
+                return script(handle, on_line)
+            lines, code = script if script is not None else ([], 1)
+            for line in lines:
+                on_line(line)
+            return code
+        finally:
+            handle.done()
+
+    def privileged(self) -> list[list[str]]:
+        """Every command that went to the privileged helper or the Android runtime manager."""
+        with self.lock:
+            return [c for c in self.streamed + self.ran + self.started if c in self.streamed or c[0] == E["pkexec"]]
+
+    def changes(self) -> list[list[str]]:
+        """Run commands that change state (network, Flatpak, Android apps), as opposed to reads."""
+        with self.lock:
+            return [c for c in self.ran if c[:2] in ([E["nmcli"], "radio"], [E["nmcli"], "device"]) or
+                    (c[0] == E["flatpak"] and c[1] in ("install", "uninstall", "update", "remote-add")) or
+                    (c[0] == E["boswas-android"] and c[2:4] == ["app", "launch"])]
 
     def ran_program(self, name: str) -> list[list[str]]:
         with self.lock:
@@ -316,6 +502,36 @@ def make_root(base: Path, live: bool = False, battery: bool = True, uu_log: bool
         sub = "systemsettings_qwidgets" if module in ("kcm_networkmanagement", "kcm_proxy", "kcm_kwallet5", "kcm_clock",
                                                       "kcm_recentFiles") else "systemsettings"
         write(kcms / sub / f"{module}.so", "")
+    # sysfs: an Ethernet controller without a driver, a GPU with one, a USB keyboard (serial numbers present but
+    # never read), the ids databases and /proc/stat.
+    pci = root / "sys/bus/pci/devices"
+    for address, vendor, device, klass, driver in (("0000:03:00.0", "0x10ec", "0x8125", "0x020000", None),
+                                                   ("0000:00:02.0", "0x8086", "0x46a6", "0x030000", "i915"),
+                                                   ("0000:00:1f.3", "0x8086", "0x51c8", "0x040380", "snd_hda_intel")):
+        write(pci / address / "vendor", vendor + "\n")
+        write(pci / address / "device", device + "\n")
+        write(pci / address / "class", klass + "\n")
+        if driver:
+            target = root / "sys/bus/pci/drivers" / driver
+            target.mkdir(parents=True, exist_ok=True)
+            os.symlink(target, pci / address / "driver")
+    usb = root / "sys/bus/usb/devices"
+    write(usb / "1-2/idVendor", "046d\n")
+    write(usb / "1-2/idProduct", "c31c\n")
+    write(usb / "1-2/bDeviceClass", "00\n")
+    write(usb / "1-2/product", "USB Keyboard\n")
+    write(usb / "1-2/manufacturer", "Logitech\n")
+    write(usb / "1-2/serial", "SECRET-USB-SERIAL\n")
+    (root / "sys/bus/usb/drivers/usbhid").mkdir(parents=True, exist_ok=True)
+    (usb / "1-2/1-2:1.0").mkdir(parents=True)
+    os.symlink(root / "sys/bus/usb/drivers/usbhid", usb / "1-2/1-2:1.0/driver")
+    write(usb / "usb1/idVendor", "1d6b\n")
+    write(root / "usr/share/misc/pci.ids", "# pci.ids\n10ec  Realtek Semiconductor Co., Ltd.\n"
+          "\t8125  RTL8125 2.5GbE Controller\n\t\t10ec 8125  subsystem line\n8086  Intel Corporation\n"
+          "\t46a6  Alder Lake-P GT2 [Iris Xe Graphics]\nC 02  Network controller\n\t00  Ethernet controller\n")
+    write(root / "proc/stat", "cpu  100 0 100 800 0 0 0 0 0 0\ncpu0 50 0 50 400 0 0 0 0 0 0\n")
+    write(root / "proc/meminfo", MEMINFO + "MemAvailable:    8151760 kB\n")
+    write(root / "usr/share/boswas/sysops/flatpak-remotes/flathub.flatpakrepo", "[Flatpak Repo]\nTitle=Flathub\n")
     write(root / "usr/share/boswas/presets/boswas-dark.png", png(32, 18, (17, 26, 43)))
     write(root / "usr/share/boswas/presets/boswas-light.png", png(32, 18, (240, 242, 246)))
     (root / "home").mkdir(parents=True, exist_ok=True)

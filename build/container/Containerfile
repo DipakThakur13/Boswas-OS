@@ -16,9 +16,9 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # live-build + its runtime helpers, Debian packaging toolchain (dh-apparmor
 # for boswas-compat), asset rendering (librsvg + the Lato typeface used by
 # Boswas branding), and the tooling used by test.sh: ISO inspection, the QEMU
-# boot test, apparmor_parser (profile compile checks), a MinGW
-# cross-compiler that builds the Windows test application from source
-# (tests/compatibility/fixtures/), openssl (device credentials and signed
+# boot test, apparmor_parser (profile compile checks), the MinGW
+# cross-compilers that build the 64-bit and 32-bit Windows test application
+# from source (tests/compatibility/fixtures/), openssl (device credentials and signed
 # policies in the agent and Control Plane tests) and PySide6 with Qt's
 # offscreen platform (Compatibility Manager widget tests).
 RUN apt-get update \
@@ -31,7 +31,7 @@ RUN apt-get update \
         librsvg2-bin fonts-lato potrace netpbm \
         python3 openssl \
         python3-pyside6.qtcore python3-pyside6.qtgui python3-pyside6.qtwidgets qt6-qpa-plugins \
-        apparmor gcc-mingw-w64-x86-64-win32 \
+        apparmor gcc-mingw-w64-x86-64-win32 gcc-mingw-w64-i686-win32 \
         qemu-system-x86 qemu-utils ovmf \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*

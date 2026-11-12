@@ -1,4 +1,4 @@
-.TH BOSWAS-CONTROL-CENTER 1 "October 2026" "boswas-control-center 1.0~alpha3" "Boswas OS"
+.TH BOSWAS-CONTROL-CENTER 1 "November 2026" "boswas-control-center 1.0~alpha3" "Boswas OS"
 .SH NAME
 boswas-control-center \- settings hub of Boswas OS
 .SH SYNOPSIS
@@ -11,17 +11,19 @@ boswas-control-center \- settings hub of Boswas OS
 .SH DESCRIPTION
 .B boswas-control-center
 is Boswas Control Center, the settings hub of Boswas OS. It has one page per
-area. Each page explains the state of the device and opens the matching KDE
-settings module with
+area. Each page shows the state of the device as the system reports it,
+offers the actions that area supports, and opens the matching KDE settings
+module with
 .BR kcmshell6 (1)
 for everything that is configured there.
 .PP
 The pages are Personalization (Boswas desktop presets and the KDE
 appearance modules), Network, Bluetooth, Display, Sound, Power, Storage,
-Applications (the Boswas Software Center), Windows Compatibility, Security
-(the Boswas Security Center), Users, Updates (the Boswas Update Center),
-Devices, Privacy, System and About Boswas OS. In a live session an Install
-Boswas OS page explains how to restart into the installer.
+Applications (the Boswas Software Center), Windows Compatibility, Android,
+Security (the Boswas Security Center), Users, Updates (the Boswas Update
+Center), Devices, Privacy, Hardware & Drivers, System and About Boswas OS.
+In a live session an Install Boswas OS page explains how to restart into the
+installer.
 .PP
 The Security Center shows the local posture checks of
 .B boswas \-\-json status
@@ -30,30 +32,62 @@ Warning, Attention, Info, Not available or Error, always as text and as an
 icon. The checks are a local self\-assessment of the device, not remote
 attestation.
 .PP
-The Update Center shows whether automatic security updates are enabled, read
-from the APT periodic settings, and when they last ran. It changes nothing:
-updates are installed automatically, and this release has no manual updater.
+The Update Center shows whether automatic security updates are enabled and
+when they last ran, and lists the pending updates (an APT simulation from the
+package lists on the device, marking security updates). Check for Updates
+refreshes the package lists and Install Updates upgrades the packages (never
+removing any); both are administrator operations.
 .PP
-The Software Center lists the installed applications in three groups: Boswas
-applications, Windows applications (from the user's Boswas session service)
-and the other desktop applications. It opens native applications with
+The Software Center lists the installed applications (Boswas, Windows and
+the other desktop applications) and opens native applications with
 .BR kstart (1).
-Windows applications are managed in the Compatibility Manager and are never
-started by Control Center. Installing new software is not possible here.
+Its other tabs search and install Debian packages from the signed
+repositories, install Flatpak applications for the user from remotes the
+administrator enabled, add AppImages (copied to ~/Applications; they run
+without a sandbox), and route a chosen file by its content: Debian packages
+to the package manager (with a warning that their origin is not verified),
+Windows programs to the Compatibility Manager, Android apps to the Android
+page.
 .PP
-Control Center runs as the desktop user and never as root. It starts only the
-programs it knows (boswas, boswas\-preset, kcmshell6, kstart, kioclient,
-dolphin, partitionmanager, kinfocenter, boswas\-compat\-manager, plasmashell,
-apt\-config and, in a live session after confirmation, systemctl reboot), each
-with a fixed argument list and a timeout, and never through a shell.
+The Android page shows the optional Android runtime (Waydroid) as reported by
+.BR boswas\-android (1):
+compatibility checks, installation, initialisation, start, stop, repair,
+update and removal, the installed Android apps, and installing an APK file
+after it was inspected. Google Play is shown as the runtime manager assesses
+it; F\-Droid is offered as an alternative under its own name.
+.PP
+Hardware & Drivers lists the PCI and USB devices with the driver each one
+uses (from sysfs; serial numbers are never read) and checks the kernel log for
+missing firmware, offering to install the Debian package that provides it.
+Storage shows the disks and file systems and frees space (package cache,
+system journal, thumbnail cache). Network shows the connections and
+addresses and switches Wi\-Fi and connections through NetworkManager; Wi\-Fi
+passwords stay in KDE's network module. About Boswas OS includes a system
+overview (load, memory, network, runtimes).
+.SH SECURITY
+Control Center runs as the desktop user and never as root. It starts only
+the programs it knows (boswas, boswas\-preset, boswas\-android, kcmshell6,
+kstart, kioclient, dolphin, partitionmanager, kinfocenter,
+boswas\-compat\-manager, plasmashell, apt\-config, apt\-get (simulation only),
+apt\-cache, flatpak, nmcli, lsblk, systemctl reboot in a live session, and
+the polkit authorization tool), each with a validated argument list and a
+timeout, and never through a shell.
+.PP
+Administrator operations go only to the Boswas system helper
+.I /usr/libexec/boswas/sysops
+(package boswas\-sysops), with an operation from a fixed list; polkit asks
+for authorization. Nothing privileged runs when the window opens or a page
+is shown: every change starts with a click and a confirmation that says what
+will change. Success is reported only when the helper reports success.
 .SH OPTIONS
 .TP
 .BI \-\-page " page"
 Open the window at
 .IR page :
 one of personalization, network, bluetooth, display, sound, power, storage,
-applications, windows, security, users, updates, devices, privacy, system,
-about or install. The install page exists only in a live session.
+applications, windows, android, security, users, updates, devices, privacy,
+hardware, system, about or install. The install page exists only in a live
+session.
 .TP
 .B \-\-version
 Print the version and exit.
@@ -72,7 +106,7 @@ Refresh the current page.
 Search the installed applications.
 .TP
 .B Ctrl+Q
-Quit.
+Quit (an operation that cannot be interrupted safely finishes first).
 .SH FILES
 .TP
 .I /run/boswas\-agent/agent.sock
@@ -87,9 +121,16 @@ applications and the compatibility runtime.
 .TQ
 .I /usr/lib/boswas/image\-info
 The Boswas OS version and build shown on the About page.
+.TP
+.I ~/Applications
+.TQ
+.I ~/.local/share/applications/boswas\-appimage\-*.desktop
+AppImages added in the Software Center and their menu entries.
 .SH EXIT STATUS
 0 when the window was closed normally; 4 when started as root.
 .SH SEE ALSO
 .BR boswas (1),
+.BR boswas\-android (1),
 .BR boswas\-compat\-manager (1),
-.BR kcmshell6 (1)
+.BR kcmshell6 (1),
+.BR pkexec (1)

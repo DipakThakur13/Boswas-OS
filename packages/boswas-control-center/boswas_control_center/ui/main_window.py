@@ -12,21 +12,26 @@ from __future__ import annotations
 
 from PySide6.QtCore import QRectF, QSize, Qt
 from PySide6.QtGui import QFont, QFontMetrics, QKeySequence, QPainter, QPalette, QPen, QShortcut
-from PySide6.QtWidgets import (QAbstractItemView, QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
-                               QMainWindow, QMessageBox, QStackedWidget, QStyle, QStyledItemDelegate, QToolButton,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QAbstractItemView, QFileDialog, QFrame, QHBoxLayout, QLabel, QListWidget,
+                               QListWidgetItem, QMainWindow, QMessageBox, QStackedWidget, QStyle, QStyledItemDelegate,
+                               QToolButton, QVBoxLayout, QWidget)
 
 from .. import catalog
 from ..errors import user_message
+from .android_page import AndroidPage
 from .applications import ApplicationsPage
 from .common import (SP, Badge, MessageBanner, Separator, app_icon, border_colour, icon, mark_icon, message_box, mix,
                      plain_label, scaled_font)
 from .device_pages import PowerPage, SettingsPage, StoragePage
+from .hardware_page import HardwarePage
+from .jobs import JobController
+from .network_page import NetworkPage
 from .personalization import PersonalizationPage
 from .security import SecurityPage
-from .status_pages import PrivacyPage, UpdatesPage, WindowsPage
+from .status_pages import PrivacyPage, WindowsPage
 from .store import Store
 from .system_pages import AboutPage, InstallPage, SystemPage
+from .updates import UpdatesPage
 from .worker import Runner
 
 APP_NAME = "Boswas Control Center"
@@ -35,11 +40,13 @@ PAGE_CLASSES = {
     "personalization": PersonalizationPage, "power": PowerPage, "storage": StoragePage,
     "applications": ApplicationsPage, "windows": WindowsPage, "security": SecurityPage, "updates": UpdatesPage,
     "privacy": PrivacyPage, "system": SystemPage, "about": AboutPage, "install": InstallPage,
+    "android": AndroidPage, "hardware": HardwarePage, "network": NetworkPage,
 }
 SIDEBAR_FALLBACKS = {"about": SP.SP_MessageBoxInformation, "storage": SP.SP_DriveHDIcon,
                      "install": SP.SP_DriveHDIcon, "applications": SP.SP_FileDialogListView,
                      "security": SP.SP_DialogApplyButton, "network": SP.SP_DriveNetIcon,
-                     "system": SP.SP_ComputerIcon}
+                     "system": SP.SP_ComputerIcon, "hardware": SP.SP_ComputerIcon, "android": SP.SP_DesktopIcon,
+                     "updates": SP.SP_BrowserReload}
 
 
 class SidebarDelegate(QStyledItemDelegate):
@@ -140,6 +147,10 @@ class MainWindow(QMainWindow):
         self.pending_page = initial_page if initial_page in catalog.PAGE_KEYS else None
         # Modal interactions go through these attributes so tests can answer them.
         self.ask = self._ask
+        self.choose_file = self._choose_file
+        self.jobs = JobController(self)
+        self.close_when_done = False
+        self.jobs.finished.connect(self._job_finished)
         self.setWindowTitle(APP_NAME)
         self.setWindowIcon(app_icon())
         self.resize(1180, 780)
@@ -314,6 +325,10 @@ class MainWindow(QMainWindow):
         self.message.show_message("error", text)
         self.message_holder.show()
 
+    def _choose_file(self, title: str, filters: str) -> str | None:
+        path, _selected = QFileDialog.getOpenFileName(self, title, "", filters)
+        return path or None
+
     def _ask(self, title: str, text: str, confirm: str) -> bool:
         box = message_box(self, "question", title, text)
         yes = box.addButton(confirm, QMessageBox.ButtonRole.AcceptRole)
@@ -324,9 +339,30 @@ class MainWindow(QMainWindow):
 
     # --- shutdown ---
     def shutdown(self) -> None:
+        self.jobs.stop_for_close()
         self.runner.shutdown()
 
+    def _job_finished(self, _spec, _outcome) -> None:
+        if self.close_when_done:
+            self.close()
+
     def closeEvent(self, event) -> None:
+        if self.jobs.busy():
+            current = self.jobs.current.spec.title
+            if self.jobs.current.state.cancellable:
+                if not self.ask("Cancel and close?", f"{current} is still running. Closing Control Center cancels "
+                                                     "it; nothing has been changed yet.", "Cancel and Close"):
+                    event.ignore()
+                    return
+            else:
+                # Packages are being installed: never interrupt dpkg. Close once it has finished, if wanted.
+                self.close_when_done = self.ask("Wait for the operation to finish",
+                                                f"{current} cannot be interrupted safely. Control Center can close "
+                                                "by itself when it has finished.", "Close When Finished")
+                if self.close_when_done:
+                    self.show_status(f"{current} is finishing; Control Center closes when it is done.")
+                event.ignore()
+                return
         self.shutdown()
         super().closeEvent(event)
 

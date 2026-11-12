@@ -16,8 +16,17 @@ a public Linux distribution.
 > - security baseline and encrypted installer
 > - `boswas` status tools
 > - **WinCompat:** Windows applications in isolated, AppArmor-confined Wine
->   sandboxes (`boswas-winapp`); **x86_64 / 64-bit Windows applications only**
->   (32-bit is intentionally not supported)
+>   sandboxes (`boswas-winapp`); **64-bit and 32-bit Windows applications**
+>   (32-bit through Debian's `wine32:i386`, ADR-0022)
+> - **Android applications (opt-in):** the Android runtime manager
+>   (`boswas-android`, Waydroid installed on request after installation),
+>   APK inspection; Google Play is not offered (ADR-0025)
+> - **Applications and system management:** Control Center installs, updates
+>   and removes software and reports hardware, firmware, storage and network
+>   state through one narrowly scoped privileged helper (`boswas-sysops`)
+> - **Installer firmware:** every Debian firmware package on the medium, so
+>   the installer loads e.g. Realtek RTL8125B firmware without a network;
+>   installation needs no internet connection (ADR-0023)
 > - **Compatibility Manager:** the graphical application manager
 > - **Device agent:** persistent identity, state, inventory, a local
 >   management API; standalone unless a Control Plane is configured
@@ -112,10 +121,10 @@ boswas-device status        # device agent: state, identity, Control Plane conne
 | Desktop | KDE Plasma 6.3 (Wayland) with the Boswas OS experience: ten presets (Global Themes, colour schemes, wallpapers, Konsole profiles), Boswas icon themes, Boswas Launcher, Boswas splash, login and lock screens, Boswas Control Center ([docs/experience](docs/experience/README.md)) |
 | Branding | Built from the official Boswas Group logo and lettering ([desktop/branding](desktop/branding/README.md)) |
 | Boot | GRUB for BIOS and UEFI; Debian-signed shim/GRUB/kernel for Secure Boot; Boswas boot menu and Plymouth boot, shutdown and passphrase splash |
-| Installer | Debian Installer (live mode), Boswas banner, policy: full-disk encryption, root locked, host `boswas-device` |
+| Installer | Debian Installer (live mode), Boswas banner, policy: full-disk encryption, root locked, host `boswas-device`; firmware pool on the medium, no network needed, signed APT sources and an installation report written at the end |
 | Security | nftables (inbound deny), AppArmor, auditd rules, sudo/pwquality policy, kernel hardening, no SSH server, security-only automatic updates, enforced screen lock |
 | Tools | `boswas`, `boswas-info`, `boswas-status` (read-only, `--json`) |
-| Compatibility | Wine 10, **x86_64 / 64-bit Windows applications only**. `boswas-winapp`: one prefix per application, bubblewrap sandbox, `boswas-winapp` AppArmor profile, compatibility manifests and catalog, policy, "Run with Boswas". Compatibility Manager (PySide6). Flatpak without a remote |
+| Compatibility | Wine 10, **64-bit and 32-bit Windows applications** (`wine32:i386`). `boswas-winapp`: one prefix per application, bubblewrap sandbox, `boswas-winapp` AppArmor profile, PE header detection, compatibility manifests and catalog, policy, "Run with Boswas". Compatibility Manager (PySide6). Linux applications: APT (signed Debian repositories), Flatpak (approved remotes only), AppImage. Android: `boswas-android` + Waydroid (opt-in) |
 | Device management | `boswas-device-agent` (sandboxed service, per-user session agent, `boswas-device`), mutual TLS to the Boswas Control Plane (`control-plane/`, server package): enrollment, heartbeat, inventory, typed commands, signed policies, catalog, audit, dashboard |
 
 ## Documentation
@@ -135,6 +144,9 @@ boswas-device status        # device agent: state, identity, Control Plane conne
 | Hardware Compatibility List | [docs/deployment/hardware-compatibility.md](docs/deployment/hardware-compatibility.md) |
 | CLI reference | [docs/administration/cli.md](docs/administration/cli.md) |
 | Windows compatibility | [docs/compatibility/README.md](docs/compatibility/README.md) |
+| Android applications | [docs/android/README.md](docs/android/README.md) |
+| Privileged helper (boswas-sysops) | [docs/administration/sysops.md](docs/administration/sysops.md) |
+| Platform contracts (sysops, Android, Control Center) | [docs/architecture/platform-contracts.md](docs/architecture/platform-contracts.md) |
 | The Boswas OS experience | [docs/experience/README.md](docs/experience/README.md) |
 | Debian references audit | [docs/experience/debian-references.md](docs/experience/debian-references.md) |
 | Live USB checklist | [docs/experience/live-usb-checklist.md](docs/experience/live-usb-checklist.md) |

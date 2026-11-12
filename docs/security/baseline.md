@@ -75,7 +75,9 @@ installed system never inherits the live user.
   starts through boswas-winapp, needs user namespaces).
 - **Device credentials:** the device key is a root-only file, not yet
   TPM-backed. Device certificates last 365 days; renewal means re-enrollment.
-- **Windows applications:** 64-bit only (by decision, ADR-0014).
+- **Windows applications:** 64-bit and 32-bit (ADR-0022). The i386
+  libraries of wine32 are a second library stack that Debian security
+  updates must keep current.
 - **Direct Wine use:** running `/usr/bin/wine` directly is not mediated (it runs with the user's normal rights). X11 applications can
   observe other X11 clients on the same display (limited to Xwayland under
   Plasma Wayland).

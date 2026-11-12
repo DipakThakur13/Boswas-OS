@@ -19,25 +19,43 @@ Depends: python3 (>= 3.11),
          kde-cli-tools,
          libkf6kcmutils-bin,
          ${misc:Depends}
-Recommends: boswas-compat-manager, dolphin, kinfocenter
+Recommends: boswas-compat-manager,
+            boswas-sysops,
+            boswas-android,
+            network-manager,
+            flatpak,
+            pci.ids,
+            usb.ids,
+            dolphin,
+            kinfocenter
 Description: Boswas OS Control Center, Security Center and Software Center
  The settings hub of Boswas OS (KDE Plasma). One window with a page per
- area, each explaining the state of the device and opening the matching KDE
- settings modules (kcmshell6) instead of re-implementing them:
+ area, each showing the state of the device as the system reports it,
+ offering the actions of that area, and opening the matching KDE settings
+ modules (kcmshell6) for everything configured there:
  .
   * Personalization: Boswas desktop presets (boswas-preset) and the KDE
     appearance modules
-  * Network, Bluetooth, Display, Sound, Power, Storage, Users, Devices,
-    Privacy and System pages
-  * Boswas Software Center: installed Boswas, Windows and native
-    applications, searchable and ready to open
+  * Network: connections, addresses, Wi-Fi radio (NetworkManager)
+  * Storage: disks, file systems, and freeing space
+  * Hardware & Drivers: PCI and USB devices, their drivers, and missing
+    firmware with the Debian package that provides it
+  * Boswas Software Center: installed applications; Debian packages from the
+    signed repositories, Flatpak applications and AppImages; files routed to
+    the right installer by their content
   * Windows Compatibility: runtime health and the Compatibility Manager
+  * Android: the optional Waydroid runtime (boswas-android), Android apps and
+    APK files
   * Boswas Security Center: the local posture checks of boswas-cli and the
     device agent's state, as Secure, Warning, Attention or Error
-  * Boswas Update Center: automatic security updates (read-only)
-  * About Boswas OS, and in live sessions a way to restart into the
-    installer
+  * Boswas Update Center: automatic updates, pending updates, check for and
+    install updates
+  * Bluetooth, Display, Sound, Power, Users, Devices, Privacy and System
+    pages, About Boswas OS with a system overview, and in live sessions a way
+    to restart into the installer
  .
  Control Center runs as the desktop user and never as root. It starts only
- a fixed list of programs, each with a fixed argument list and a timeout,
- and never through a shell.
+ a fixed list of programs, each with a validated argument list and a
+ timeout, and never through a shell. Administrator operations go only to
+ the Boswas system helper (boswas-sysops) through polkit, with an operation
+ from a fixed list, and only after the user clicked and confirmed.

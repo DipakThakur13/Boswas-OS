@@ -1,9 +1,16 @@
 # Boswas OS v1 - hardware enablement
 #
 # Redistributable firmware from Debian's non-free-firmware area (the same
-# firmware Debian ships on its official media since Debian 12). Selected for
-# common business laptops/desktops; live-build's "all firmware" mode is
-# disabled to keep the image small. See docs/deployment/hardware-compatibility.md.
+# firmware Debian ships on its official media since Debian 12), installed in
+# the live and installed system. Selected for common laptops, desktops and
+# workstations; live-build's "all firmware in the chroot" mode stays disabled.
+#
+# The installer is a separate system (its own kernel and initrd): it loads
+# firmware from the medium's /firmware pool, which holds every Debian firmware
+# package (lb config --firmware-binary true). Whatever it loads there is
+# installed on the target as well. Files that must be in both places:
+# config/boswas/firmware-required.list (checked at build time).
+# See docs/deployment/hardware-compatibility.md.
 
 firmware-linux-free
 intel-microcode
@@ -22,9 +29,20 @@ firmware-brcm80211
 bluez
 bluez-firmware
 
-# Audio (Intel SOF DSP firmware is required by most current laptops)
+# Audio (Intel SOF DSP firmware is required by most current laptops; Cirrus
+# Logic CS35L41 speaker amplifiers in many current laptops)
 firmware-sof-signed
 firmware-intel-sound
+firmware-cirrus
+
+# Wired Ethernet: Broadcom NetXtreme II (bnx2, bnx2x) in workstations
+# (tg3 and Realtek NICs: firmware-misc-nonfree, firmware-realtek)
+firmware-bnx2
+firmware-bnx2x
+
+# Older Wi-Fi: Marvell Libertas, ZyDAS ZD1211 USB
+firmware-libertas
+firmware-zd1211
 
 # Remaining small firmware blobs (Intel misc, USB NICs, etc.)
 firmware-intel-misc

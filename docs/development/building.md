@@ -140,7 +140,7 @@ exactly which versions were used.
 5. package manifest resolution
 6. image tests: artifacts, extraction, ISO contents, packages, security,
    compatibility, device management (no identity baked in, enabled units,
-   64-bit only)
+   64-bit and 32-bit Windows runtime)
 7. **WinCompat runtime** (`tests/compatibility/test_winapp_runtime.sh`)
 8. **Device management runtime** (`tests/device/test_device_runtime.sh`):
    in the image, the device agent, a user's session agent, the

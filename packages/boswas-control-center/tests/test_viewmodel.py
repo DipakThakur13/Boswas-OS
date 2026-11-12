@@ -252,7 +252,8 @@ class UpdatesTest(unittest.TestCase):
         view = vm.updates_view(doc, "security-only", tz=UTC)
         rows = dict(view.rows)
         self.assertEqual(view.summary.state, vm.SECURE)
-        self.assertIn("no manual updater", view.summary.detail)
+        self.assertIn("check for updates", view.summary.detail)
+        self.assertNotIn("no manual updater", view.summary.detail)
         self.assertEqual(rows["Package lists refreshed"], "Every day")
         self.assertEqual(rows["Last refresh"], "2026-10-04 07:46")
         self.assertEqual(rows["Last automatic update run"], "Not yet on this device")
@@ -295,10 +296,25 @@ class WindowsTest(unittest.TestCase):
         view = vm.windows_view(fx.SYSTEM, None, fx.WINDOWS_APPS, None)
         rows = dict(view.rows)
         self.assertEqual(view.summary.state, vm.SECURE)
-        self.assertEqual(rows["Supported applications"], "x86_64 / 64-bit Windows applications only")
+        self.assertEqual(rows["Supported applications"], "64-bit (x86_64) and 32-bit (x86) Windows applications")
         self.assertEqual(rows["Installed applications"], "2")
         self.assertEqual(rows["Confinement"], "Enforcing")
-        self.assertEqual(vm.windows_line(view), "Runtime healthy, 2 applications installed (x86_64, 64-bit only)")
+        self.assertEqual(vm.windows_line(view), "Runtime healthy, 2 applications installed (64-bit (x86_64) and "
+                                                "32-bit (x86) Windows applications)")
+
+    def test_architectures_come_from_the_runtime(self):
+        system = copy.deepcopy(fx.SYSTEM)
+        system["windows_architectures"] = ["x86_64"]
+        self.assertEqual(dict(vm.windows_view(system, None, [], None).rows)["Supported applications"],
+                         "64-bit (x86_64) Windows applications only")
+        del system["windows_architectures"]
+        system["runtime"]["architectures"] = ["x86_64", "x86"]
+        self.assertEqual(vm.windows_architectures(system), ["x86_64", "x86"])
+        system["runtime"]["architectures"] = ["sparc", 5]
+        self.assertEqual(dict(vm.windows_view(system, None, [], None).rows)["Supported applications"],
+                         vm.WINDOWS_SUPPORT)
+        self.assertEqual(dict(vm.windows_view(None, "down", None, "down").rows)["Supported applications"],
+                         vm.WINDOWS_SUPPORT)
 
     def test_session_unavailable_falls_back_to_the_agent(self):
         view = vm.windows_view(None, "not running", None, "not running", fx.AGENT)

@@ -21,7 +21,8 @@ review and an integration test all exist.
 | **M3 Control Plane foundation** | `control-plane/` modular monolith (**Python stdlib + SQLite**, ADR-0017): device registry, enrollment with one-time tokens and a device CA, heartbeat, inventory, typed command system with lifecycle, application catalog and installer artifacts, hash-chained audit trail | **Implemented in 1.0~alpha3** (no Docker Compose: a Debian package and `boswas-cp`) |
 | **M4 Policy engine** | Signed, versioned policies (Ed25519), device-side verification and anti-rollback, managed WinCompat policy layer, policy-limited commands | **Core implemented in 1.0~alpha3**. One policy per device; the global → group → profile → override hierarchy is open |
 | **M5 Fleet management** | Admin dashboard, remote application management | **Dashboard implemented in 1.0~alpha3**. Organisation/department/group model open |
-| **Compatibility Manager** | `boswas-compat-manager` (PySide6): dashboard, library, install with 32-bit refusal, details, permissions (display-only), logs, repair, update, remove, system status | **Implemented in 1.0~alpha3** |
+| **Compatibility Manager** | `boswas-compat-manager` (PySide6): dashboard, library, install (64-bit and 32-bit since ADR-0022), details, permissions (display-only), logs, repair, update, remove, system status | **Implemented in 1.0~alpha3** |
+| **Cross-platform applications** | 32-bit Windows (ADR-0022), installer firmware and offline installation (ADR-0023), `boswas-sysops` (ADR-0024), Android via Waydroid opt-in (ADR-0025), functional Control Center | **Implemented after 1.0~alpha3** (see `docs/reports/2026-11-12-release-readiness.md` for what is verified) |
 | M6 Boswas Store | `boswas-store` client and catalog API; Windows apps through WinCompat manifests | Planned |
 | M7 Update infrastructure | Debian snapshot pinning, dev → qa → stable promotion, staged updates, rollback | Planned |
 | M8 Hardware certification | `boswas hardware test`, `boswas-hardware-profile`, certification levels | Planned |
@@ -31,13 +32,21 @@ Boswas ID is intentionally deferred (ADR-0015); only interfaces exist.
 
 ## Decided
 
-- **64-bit Windows applications only (ADR-0014, final for v1).** There is no
-  `wine32`, i386 multiarch or WoW64, and 32-bit software is refused everywhere
-  with one message. This is a product limitation, not an open item.
+- **64-bit and 32-bit Windows applications (ADR-0022, supersedes ADR-0014).**
+  `wine32:i386` multiarch; the system stays amd64.
+- **Android applications through Waydroid, opt-in; no Google Play (ADR-0025).**
+  Google Play needs a licence Boswas does not have. F-Droid and local APK
+  files are the supported alternatives.
 - **Boswas ID stays deferred (ADR-0015).** Only interfaces exist.
 
 ## Open items
 
+- **Physical hardware validation.** No physical PC has been certified; the
+  validation matrix in `docs/deployment/hardware-compatibility.md` lists what
+  was tested only in a VM.
+- **Android on real hardware.** Waydroid needs a GPU with open drivers for
+  acceleration; ARM-only apps cannot run (no redistributable translation).
+  The Waydroid repository is outside Debian security support.
 - **First validated applications.** The system catalog is empty until the
   first 10–20 business applications are validated and their manifests pinned.
 - **Production WinCompat policy.** The Control Plane's `default` policy

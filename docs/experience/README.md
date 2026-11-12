@@ -98,7 +98,7 @@ Boswas OS keeps KDE Plasma and shapes it, instead of replacing it:
 | **Boswas Security Center** | Control Center's Security page: AppArmor, Windows-app sandbox, firewall, Secure Boot, disk encryption, screen lock, automatic security updates, device agent, device policy. Each item is Secure, Warning, Attention, Error or Not available, shown with an icon and text, never colour alone |
 | **Boswas Software Center** | Control Center's Applications page: Boswas, Windows and native applications, searchable. Installing new native software comes with the Boswas Store (M6); there is no unmanaged package installer |
 | **Boswas Update Center** | Control Center's Updates page: automatic security updates (read-only) |
-| **Boswas Compatibility Manager** | Windows applications (x86_64 / 64-bit only) in isolated sandboxes |
+| **Boswas Compatibility Manager** | Windows applications (64-bit and 32-bit) in isolated sandboxes |
 | **About Boswas OS** | Version, architecture, kernel, CPU, memory, storage, desktop, security, Windows compatibility, device agent, live or installed. Technical details include the package base |
 
 ## Terminal

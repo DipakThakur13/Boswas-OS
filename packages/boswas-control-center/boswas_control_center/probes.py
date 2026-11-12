@@ -83,6 +83,13 @@ class Root:
         except OSError:
             return None
 
+    def link_name(self, path: str) -> str:
+        """The last component of a symbolic link's target ("" when it is not a link)."""
+        try:
+            return os.path.basename(os.readlink(self(path)))
+        except OSError:
+            return ""
+
 
 # --- identity and hardware ------------------------------------------------------------------------------
 
@@ -165,6 +172,75 @@ def power_supplies(root: Root) -> list[dict]:
                 doc[attribute] = value.strip()
         supplies.append(doc)
     return supplies
+
+
+# --- devices (sysfs) ----------------------------------------------------------------------------------------
+#
+# Only identifiers, classes and the bound driver are read; serial numbers and
+# other per-device identifiers never are.
+
+PCI_DIR = "/sys/bus/pci/devices"
+USB_DIR = "/sys/bus/usb/devices"
+PCI_IDS = ("/usr/share/misc/pci.ids", "/usr/share/hwdata/pci.ids")
+USB_IDS = ("/usr/share/misc/usb.ids", "/usr/share/hwdata/usb.ids")
+MAX_DEVICES = 512
+IDS_LIMIT = 8 * 1024 * 1024
+
+
+def pci_devices(root: Root) -> list[dict]:
+    devices = []
+    for address in root.listdir(PCI_DIR)[:MAX_DEVICES]:
+        base = f"{PCI_DIR}/{address}"
+        devices.append({
+            "address": address,
+            "vendor": (root.read(f"{base}/vendor", 64) or "").strip(),
+            "device": (root.read(f"{base}/device", 64) or "").strip(),
+            "class": (root.read(f"{base}/class", 64) or "").strip(),
+            "driver": root.link_name(f"{base}/driver"),
+        })
+    return devices
+
+
+def usb_devices(root: Root) -> list[dict]:
+    devices = []
+    for name in root.listdir(USB_DIR)[:MAX_DEVICES]:
+        if ":" in name or name.startswith("usb"):
+            continue                              # interfaces and root hubs
+        base = f"{USB_DIR}/{name}"
+        drivers = []
+        for child in root.listdir(base):
+            if child.startswith(f"{name}:"):
+                driver = root.link_name(f"{base}/{child}/driver")
+                if driver:
+                    drivers.append(driver)
+        devices.append({
+            "address": name,
+            "vendor": (root.read(f"{base}/idVendor", 64) or "").strip(),
+            "product_id": (root.read(f"{base}/idProduct", 64) or "").strip(),
+            "class": (root.read(f"{base}/bDeviceClass", 64) or "").strip(),
+            "product": (root.read(f"{base}/product", 512) or "").strip(),
+            "manufacturer": (root.read(f"{base}/manufacturer", 512) or "").strip(),
+            "drivers": drivers,
+        })
+    return devices
+
+
+def ids_text(root: Root, candidates: tuple[str, ...]) -> str | None:
+    for path in candidates:
+        text = root.read(path, IDS_LIMIT)
+        if text:
+            return text
+    return None
+
+
+# --- load ----------------------------------------------------------------------------------------------------
+
+def proc_stat(root: Root) -> str | None:
+    return root.read("/proc/stat", 65536)
+
+
+def meminfo(root: Root) -> str | None:
+    return root.read("/proc/meminfo", 65536)
 
 
 # --- updates ------------------------------------------------------------------------------------------------

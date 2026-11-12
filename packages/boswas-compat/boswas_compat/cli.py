@@ -129,7 +129,8 @@ def cmd_runtime(args, ctx) -> int:
     aa = r["apparmor"]
     _emit(args, "runtime", r, _rows([
         ("Wine", (r["wine"]["version"] or "unknown version") if r["wine"]["available"] else "MISSING"),
-        ("Architectures", ", ".join(r["architectures"]) + " (64-bit Windows applications only)"),
+        ("Architectures", ops.supported_text(ctx.runtime) + " Windows applications"
+         + "".join(f"; {u['architecture']} unavailable: {u['reason']}" for u in r["unavailable_architectures"])),
         ("Bubblewrap", (r["bubblewrap"]["version"] or "available") if r["bubblewrap"]["available"] else "MISSING"),
         ("AppArmor", f"{aa['profile']}: {aa['mode']}" + ("" if aa["required"] else " (not required by policy)")),
         ("Policy", f"{r['policy']['source']}" + (" (managed)" if r["policy"]["managed"] else "")),

@@ -2,7 +2,10 @@
 
 About reads the release identity (/usr/lib/boswas/release, image-info),
 the kernel, processor, memory, storage, the Plasma version, and the
-summaries of the Security and Windows Compatibility pages. Install is shown
+summaries of the Security and Windows Compatibility pages. Its System
+Overview adds the current load, the network state, and what other pages
+already found in this window (pending updates, missing firmware) plus the
+Android runtime's status; it starts no operation itself. Install is shown
 only in a live session; its only action is a confirmed restart
 (`systemctl reboot`) so the user can choose the installer in the boot menu.
 Nothing ever starts an installer.
@@ -14,6 +17,7 @@ from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout
 
+from .. import overview
 from .. import viewmodel as vm
 from .base import Page
 from .common import (SP, Card, Collapsible, InfoGrid, StatusIcon, heading, icon, mark_icon, muted_label,
@@ -38,7 +42,9 @@ class SystemPage(Page):
 
 class AboutPage(Page):
     data_keys = ("release", "hardware", "storage", "plasma", "live", "security", "session_system", "windows_apps",
-                 "agent", "agent_runtime")
+                 "agent", "agent_runtime", "load", "network", "android")
+    # Shown when another page has loaded them, never requested from here.
+    passive_keys = ("upgradable", "firmware")
 
     def build(self) -> None:
         self.heading.hide()
@@ -70,6 +76,10 @@ class AboutPage(Page):
         self.grid = InfoGrid(self.card)
         self.card.addWidget(self.grid)
         self.body.addWidget(self.card)
+        self.overview = Card("System overview", self.content)
+        self.overview_grid = InfoGrid(self.overview)
+        self.overview.addWidget(self.overview_grid)
+        self.body.addWidget(self.overview)
 
         self.technical = Collapsible("Technical details", self.content)
         self.technical_grid = InfoGrid(self.technical.content)
@@ -81,6 +91,7 @@ class AboutPage(Page):
         self.body.addWidget(self.licences)
         self.release = vm.release_info(None)
         self.rows: list[tuple[str, str]] = []
+        self.overview_rows: list[tuple[str, str]] = []
         self.technical_rows: list[tuple[str, str]] = []
 
     def _windows(self) -> vm.WindowsView | None:
@@ -115,10 +126,25 @@ class AboutPage(Page):
         self.grid.set_rows(self.rows)
         self.technical_rows = vm.technical_rows(release, self.store.value("hardware"))
         self.technical_grid.set_rows(self.technical_rows)
+        network = self.store.get("network")
+        android_result = self.store.get("android")
+        self.overview_rows = overview.overview_rows(
+            self.store.value("load"), self.store.value("network"),
+            network.error if network is not None and not network.ok else None,
+            self.store.value("upgradable"), self.store.value("firmware"), self.store.value("android"),
+            bool(android_result is not None and android_result.unavailable))
+        self.overview_grid.set_rows(self.overview_rows)
         self.release = release
 
+    def _changed(self, key: str) -> None:
+        if key in self.passive_keys:
+            self._render_all()
+        else:
+            super()._changed(key)
+
     def copy(self) -> None:
-        QGuiApplication.clipboard().setText(vm.about_text(self.release.name, self.rows, self.technical_rows))
+        QGuiApplication.clipboard().setText(vm.about_text(self.release.name, self.rows + self.overview_rows,
+                                                          self.technical_rows))
         self.window_.show_status("Copied the device information to the clipboard.")
 
 

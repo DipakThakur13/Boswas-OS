@@ -176,8 +176,12 @@ def to_png(ppm: Path, png: Path) -> None:
 
 # --- QEMU control ------------------------------------------------------------------
 
+DEFAULT_NIC = ["-nic", "user,model=virtio-net-pci"]
+
+
 class VM:
-    def __init__(self, name: str, workdir: Path, outdir: Path, qemu_args: list[str]):
+    def __init__(self, name: str, workdir: Path, outdir: Path, qemu_args: list[str], nic: list[str] | None = None,
+                 memory: str = "4096"):
         self.name, self.workdir, self.outdir = name, workdir, outdir
         self.mon_path = workdir / f"{name}.mon"
         self.ser_path = workdir / f"{name}.ser"
@@ -187,9 +191,9 @@ class VM:
             accel = ["-accel", "kvm", "-cpu", "host"]
         else:
             accel = ["-accel", "tcg,thread=multi", "-cpu", "max"]
-        cmd = ["qemu-system-x86_64", *accel, "-m", "4096", "-smp", "4",
+        cmd = ["qemu-system-x86_64", *accel, "-m", memory, "-smp", "4",
                "-display", "none", "-vga", "std",
-               "-nic", "user,model=virtio-net-pci",
+               *(DEFAULT_NIC if nic is None else nic),
                "-monitor", f"unix:{self.mon_path},server=on,wait=off",
                "-chardev", f"socket,id=ser0,path={self.ser_path},server=on,wait=off",
                "-serial", "chardev:ser0", *qemu_args]
@@ -624,6 +628,13 @@ def scenario_usb(iso: Path, workdir: Path, outdir: Path, timeout: float) -> None
                   "Live USB: Boswas Control Center opens (About Boswas OS)")
         start_app("boswas-control-center --page security", "boswas-control-center", "security-center",
                   "Live USB: Boswas Security Center opens")
+        # The functional pages read state only; nothing privileged starts until the user clicks.
+        no_helper = "pgrep -f '(^|/)(pkexec|sysops)( |$)' >/dev/null || echo ok"
+        for page, label in (("updates", "Update Center"), ("android", "Android"), ("hardware", "Hardware & Drivers"),
+                            ("applications", "Software Center")):
+            start_app(f"boswas-control-center --page {page}", "boswas-control-center", f"cc-{page}",
+                      f"Live USB: Control Center {label} opens and starts no privileged helper by itself",
+                      extra=no_helper)
         start_app("systemsettings", "^systemsettings", "system-settings", "Live USB: system settings open")
         start_app("kcalc", "^kcalc", "application", "Live USB: applications start (calculator)")
         start_app("boswas-compat-manager", "boswas-compat-manager", "compat-manager",
@@ -783,35 +794,66 @@ d-i debian-installer/add-kernel-opts string console=ttyS0,115200n8 console=tty0 
 DISK_PASSPHRASE = "boswas-disk-passphrase"
 
 
-def scenario_install(iso: Path, workdir: Path, outdir: Path, timeout: float) -> None:
+PRESEED_RESPONDER = """import sys
+# One HTTP/1.0 response with the test preseed for QEMU's guestfwd (stdin/stdout = the guest's connection).
+body = open(sys.argv[1], "rb").read()
+while sys.stdin.buffer.readline() not in (b"\\r\\n", b"\\n", b""):
+    pass
+sys.stdout.buffer.write(b"HTTP/1.0 200 OK\\r\\nContent-Type: text/plain\\r\\nContent-Length: %d\\r\\n"
+                        b"Connection: close\\r\\n\\r\\n" % len(body) + body)
+sys.stdout.buffer.flush()
+"""
+
+
+def scenario_install(iso: Path, workdir: Path, outdir: Path, timeout: float, offline: bool = False) -> None:
     """Installed OS: the real installer (chosen in the boot menu, UEFI with Secure Boot)
     installs Boswas OS with the shipped policy (encrypted LVM) onto an empty disk;
     the installed system then boots through Secure Boot, shows the Boswas OS
-    passphrase screen and login screen, and identifies itself as Boswas OS."""
+    passphrase screen and login screen, and identifies itself as Boswas OS.
+
+    offline: the VM's network has DHCP but no route to the host or the internet
+    (QEMU user networking with restrict=on); only the test preseed is served,
+    through a guestfwd rule. The installation must complete and the installed
+    system must still get signature-verified package sources, the firmware and
+    the 32-bit Windows runtime from the medium alone."""
     import http.server
     import threading
+    tag = "install-offline" if offline else "install"
+    what = "installed system (offline)" if offline else "installed system"
     if not ((OVMF_DIR / "OVMF_CODE_4M.secboot.fd").exists() and shutil.which("qemu-img")):
-        record("SKIP", "installed-system test (OVMF Secure Boot firmware or qemu-img missing)")
+        record("SKIP", f"{what} test (OVMF Secure Boot firmware or qemu-img missing)")
         return
-    serve_dir = workdir / "preseed"
+    serve_dir = workdir / f"preseed-{tag}"
     serve_dir.mkdir()
     (serve_dir / "boswas-test.cfg").write_text(INSTALL_PRESEED)
-    handler = lambda *a, **k: http.server.SimpleHTTPRequestHandler(*a, directory=str(serve_dir), **k)  # noqa: E731
-    httpd = http.server.ThreadingHTTPServer(("0.0.0.0", 8088), handler)
-    threading.Thread(target=httpd.serve_forever, daemon=True).start()
-    disk = workdir / "installed.qcow2"
+    httpd = None
+    if offline:
+        responder = serve_dir / "responder.py"
+        responder.write_text(PRESEED_RESPONDER)
+        preseed_url = "http://10.0.2.100:8088/boswas-test.cfg"
+        nic = ["-netdev", f"user,id=n0,restrict=on,guestfwd=tcp:10.0.2.100:8088-cmd:python3 -I {responder} "
+                          f"{serve_dir / 'boswas-test.cfg'}",
+               "-device", "virtio-net-pci,netdev=n0"]
+        installed_nic = ["-netdev", "user,id=n0,restrict=on", "-device", "virtio-net-pci,netdev=n0"]
+    else:
+        handler = lambda *a, **k: http.server.SimpleHTTPRequestHandler(*a, directory=str(serve_dir), **k)  # noqa: E731
+        httpd = http.server.ThreadingHTTPServer(("0.0.0.0", 8088), handler)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        preseed_url = "http://10.0.2.2:8088/boswas-test.cfg"
+        nic = installed_nic = None
+    disk = workdir / f"{tag}.qcow2"
     subprocess.run(["qemu-img", "create", "-q", "-f", "qcow2", str(disk), "24G"], check=True)
-    vars_copy = workdir / "install-vars.fd"
+    vars_copy = workdir / f"{tag}-vars.fd"
     shutil.copyfile(OVMF_DIR / "OVMF_VARS_4M.ms.fd", vars_copy)
     firmware = ["-machine", "q35,smm=on", "-global", "driver=cfi.pflash01,property=secure,value=on",
                 "-drive", f"if=pflash,format=raw,unit=0,readonly=on,file={OVMF_DIR / 'OVMF_CODE_4M.secboot.fd'}",
                 "-drive", f"if=pflash,format=raw,unit=1,file={vars_copy}",
                 "-drive", f"file={disk},format=qcow2,if=virtio"]
-    vm = VM("install", workdir, outdir, [*firmware, "-drive", f"file={iso},media=cdrom,readonly=on,if=ide"])
+    vm = VM(tag, workdir, outdir, [*firmware, "-drive", f"file={iso},media=cdrom,readonly=on,if=ide"], nic=nic)
     try:
         start = time.time()
-        menu = wait_boot_menu(vm, start, min(timeout, 600), "install", outdir, workdir)
-        if not check(menu is not None, "installed system: the boot menu appears (installation boot)"):
+        menu = wait_boot_menu(vm, start, min(timeout, 600), tag, outdir, workdir)
+        if not check(menu is not None, f"{what}: the boot menu appears (installation boot)"):
             return
         # Third entry, "Install Boswas OS": add the unattended-installation answers
         # before the "---" that separates installer and installed-system options.
@@ -825,28 +867,33 @@ def scenario_install(iso: Path, workdir: Path, outdir: Path, timeout: float) -> 
         vm.key("end")
         for _ in range(len(" --- quiet")):
             vm.key("left")
-        vm.type_text(" auto=true priority=critical url=http://10.0.2.2:8088/boswas-test.cfg")
+        vm.type_text(f" auto=true priority=critical url={preseed_url}")
         time.sleep(1)
-        to_png(vm.screendump("boot-edit"), outdir / "install-boot-edit.png")
+        to_png(vm.screendump("boot-edit"), outdir / f"{tag}-boot-edit.png")
         vm.key("ctrl-x")
-        log("install: unattended installation running (encrypted LVM, live image copy)")
+        log(f"{tag}: unattended installation running (encrypted LVM, live image copy"
+            f"{'; no internet access' if offline else ''})")
         # Copying and encrypting the image under TCG takes hours, not minutes.
         deadline = start + max(timeout, 14400)
         last = time.time()
         while vm.alive() and time.time() < deadline:
             time.sleep(60)
             if time.time() - last > 600:
-                to_png(vm.screendump(f"t{int(time.time() - start):05d}"), outdir / "install-progress.png")
+                to_png(vm.screendump(f"t{int(time.time() - start):05d}"), outdir / f"{tag}-progress.png")
                 last = time.time()
         finished = not vm.alive() and vm.proc.returncode == 0
-        if not check(finished, f"installed system: the installer completes and powers off "
-                               f"({int(time.time() - start)} s; screenshot install-progress.png if not)"):
+        if not finished and vm.alive():
+            to_png(vm.screendump("stuck"), outdir / f"{tag}-progress.png")
+        if not check(finished, f"{what}: the installer completes and powers off "
+                               f"({int(time.time() - start)} s; screenshot {tag}-progress.png if not)"):
             return
     finally:
         vm.stop(timeout=10)
-        httpd.shutdown()
+        if httpd is not None:
+            httpd.shutdown()
 
-    vm = VM("installed", workdir, outdir, firmware)
+    name = "installed-offline" if offline else "installed"
+    vm = VM(name, workdir, outdir, firmware, nic=installed_nic)
     try:
         start = time.time()
         passphrase = shot = None
@@ -857,55 +904,254 @@ def scenario_install(iso: Path, workdir: Path, outdir: Path, timeout: float) -> 
                 passphrase = shot
                 break
         if shot is not None:
-            to_png(shot, outdir / "installed-passphrase.png")
-        check(passphrase is not None, "installed system: boots through shim and GRUB under Secure Boot to the Boswas OS "
-                                      "disk-unlock screen (screenshot installed-passphrase.png)")
+            to_png(shot, outdir / f"{name}-passphrase.png")
+        check(passphrase is not None, f"{what}: boots through shim and GRUB under Secure Boot to the Boswas OS "
+                                      f"disk-unlock screen (screenshot {name}-passphrase.png)")
         time.sleep(3)
         vm.type_text(DISK_PASSPHRASE)
         vm.key("ret")
         m = vm.expect(rb"(login: )", min(timeout, 2400))
-        if not check(m is not None, f"installed system: unlocks the disk and boots ({int(time.time() - start)} s)"):
+        if not check(m is not None, f"{what}: unlocks the disk and boots ({int(time.time() - start)} s)"):
             return
         vm.pump(60)
         shot = vm.screendump("login")
-        to_png(shot, outdir / "installed-login-screen.png")
+        to_png(shot, outdir / f"{name}-login-screen.png")
         stats = analyse(shot)
         check(stats["navy"] > 0.4 and stats["black"] < 0.5,
-              "installed system: the Boswas OS login screen (no automatic sign-in; screenshot installed-login-screen.png)")
+              f"{what}: the Boswas OS login screen (no automatic sign-in; screenshot {name}-login-screen.png)")
         vm.send("tester\n")
         if vm.expect(rb"Password: ", 60):
             vm.send("Boswas-Test-1234\n")
-        if not check(vm.expect(rb"\$ ", 120) is not None, "installed system: the administrator created at installation signs in"):
+        if not check(vm.expect(rb"\$ ", 120) is not None, f"{what}: the administrator created at installation signs in"):
             return
         vm.send("export TERM=dumb PAGER=cat SYSTEMD_PAGER= SYSTEMD_COLORS=0 PS1='$ '; stty -echo cols 250\n")
         vm.pump(3)
         sh = Shell(vm)
         rc, out = sh.run(". /etc/os-release; echo \"$NAME|$ID|$ID_LIKE\"; cat /etc/issue; hostnamectl | grep -i 'operating system'")
         check(out.startswith("Boswas OS|boswas|debian") and "debian" not in out.split("\n", 1)[-1].lower(),
-              "installed system: identifies as Boswas OS (os-release, console banner, hostnamectl)")
+              f"{what}: identifies as Boswas OS (os-release, console banner, hostnamectl)")
+        installed_system_checks(sh, outdir, what, name, offline)
         rc, out = sh.run("echo Boswas-Test-1234 | sudo -S -p '' sh -c 'mokutil --sb-state; efibootmgr -v; "
                          "cryptsetup status $(ls /dev/mapper | grep -m1 _crypt) | grep -i type; aa-enabled; "
                          "plymouth-set-default-theme; test -e /usr/local/share/applications/com.boswas.InstallBoswasOS.desktop "
                          "&& echo install-entry-present; dpkg -s live-boot 2>/dev/null | "
                          "grep -qx \"Status: install ok installed\" && echo live-boot-installed; echo'",
                          timeout=300)
-        (outdir / "installed-system.txt").write_text(out + "\n")
-        check("SecureBoot enabled" in out, "installed system: Secure Boot is enforced")
+        (outdir / f"{name}-system.txt").write_text(out + "\n")
+        check("SecureBoot enabled" in out, f"{what}: Secure Boot is enforced")
         check("\\EFI\\debian\\shimx64.efi" in out or "\\EFI\\DEBIAN\\SHIMX64.EFI" in out.upper(),
-              "installed system: the firmware boots Debian's signed shim from \\EFI\\debian (Secure Boot path kept)")
-        check("LUKS2" in out, "installed system: disk encryption is LUKS2 (installation policy)")
-        check("Yes" in out, "installed system: AppArmor is enabled")
-        check("boswas" in out.split(), "installed system: the Boswas OS boot splash is configured")
+              f"{what}: the firmware boots Debian's signed shim from \\EFI\\debian (Secure Boot path kept)")
+        check("LUKS2" in out, f"{what}: disk encryption is LUKS2 (installation policy)")
+        check("Yes" in out, f"{what}: AppArmor is enabled")
+        check("boswas" in out.split(), f"{what}: the Boswas OS boot splash is configured")
         check("install-entry-present" not in out and "live-boot-installed" not in out,
-              "installed system: no live-session leftovers (no Install entry, live-boot removed)")
+              f"{what}: no live-session leftovers (no Install entry, live-boot removed)")
         vm.send("echo Boswas-Test-1234 | sudo -S -p '' systemctl poweroff\n")
         try:
             vm.proc.wait(timeout=300)
-            check(True, "installed system: shuts down cleanly")
+            check(True, f"{what}: shuts down cleanly")
         except subprocess.TimeoutExpired:
-            check(False, "installed system: shuts down cleanly")
+            check(False, f"{what}: shuts down cleanly")
     finally:
         vm.stop(timeout=10)
+
+
+def installed_system_checks(sh: "Shell", outdir: Path, what: str, name: str, offline: bool) -> None:
+    """What the installer leaves behind, whatever the network was: signature-verified
+    package sources, no unsigned live pool, the installation report, the firmware and
+    the 32-bit Windows runtime from the medium."""
+    rc, out = sh.run("cat /etc/apt/sources.list.d/*.sources 2>/dev/null; "
+                     "grep -hE '^[[:space:]]*deb[[:space:]]' /etc/apt/sources.list /etc/apt/sources.list.d/*.list "
+                     "2>/dev/null; echo ===LIVE===; grep -rl 'run/live/medium' /etc/apt/ 2>/dev/null; echo ===END===")
+    (outdir / f"{name}-apt-sources.txt").write_text(out + "\n")
+    sources, _, rest = out.partition("===LIVE===")
+    live = rest.partition("===END===")[0]
+    check("Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg" in sources and "trixie-security" in sources
+          and "non-free-firmware" in sources,
+          f"{what}: signature-verified Debian sources with security updates and firmware ({name}-apt-sources.txt)")
+    check(live.strip() == "", f"{what}: the live medium's unsigned package pool is not an APT source")
+    rc, out = sh.run("echo Boswas-Test-1234 | sudo -S -p '' cat /var/log/boswas/install-report.txt", timeout=60)
+    (outdir / f"{name}-install-report.txt").write_text(out + "\n")
+    check("Boswas OS installation report" in out and "PROBLEM" not in out and "NONE (" not in out,
+          f"{what}: the installation report exists and records no problem ({name}-install-report.txt)")
+    rc, out = sh.run("dpkg --print-foreign-architectures; "
+                     "dpkg-query -W -f='${Package}:${Architecture} ${db:Status-Status}\\n' wine32 firmware-realtek; "
+                     "test -x /usr/lib/wine/wine && echo loader32-ok; "
+                     "test -s /usr/share/boswas/firmware/index.tsv && echo index-ok; "
+                     "test -e /usr/lib/firmware/rtl_nic/rtl8125b-2.fw && echo rtl8125b-ok")
+    check("i386" in out.split() and "wine32:i386 installed" in out and "loader32-ok" in out,
+          f"{what}: the 32-bit Windows runtime is installed (wine32:i386, i386 multiarch)")
+    check("firmware-realtek:all installed" in out and "rtl8125b-ok" in out and "index-ok" in out,
+          f"{what}: firmware (incl. rtl_nic/rtl8125b-2.fw) and the firmware index are installed")
+    if offline:
+        rc, out = sh.run("getent hosts deb.debian.org >/dev/null && echo has-internet || echo no-internet", timeout=60)
+        check("no-internet" in out, f"{what}: control: the test network had no internet access")
+
+
+FDROID = "org.fdroid.fdroid"
+
+
+def scenario_android(iso: Path, workdir: Path, outdir: Path, timeout: float) -> None:
+    """Android applications end to end on the live system (needs internet access).
+
+    The real Debian kernel (binder_linux), boswas-sysops android-runtime-install
+    (the Waydroid project's repository with the pinned key, Waydroid's own
+    launchers hidden), android-init (VANILLA images), the container service, a
+    Waydroid session in the Plasma (Wayland) session, then a real signed APK:
+    the F-Droid client, downloaded by boswas-android with its signer
+    certificate checked, installed, launched, found in the launcher and
+    removed. Google Play must be absent throughout.
+
+    pkexec needs a polkit authentication agent, which a serial console does not
+    have: here sysops runs as root directly, with PKEXEC_UID set as pkexec would
+    (polkit authorization itself is covered by the package and unit tests).
+    Under software emulation (TCG) Android starts slowly and renders in
+    software; this proves function, not performance."""
+    kernel = iso_extract(iso, workdir, "vmlinuz*")
+    initrd = iso_extract(iso, workdir, "initrd.img*")
+    if not (kernel and initrd and shutil.which("qemu-img")):
+        record("SKIP", "Android scenario (live kernel/initrd or qemu-img missing)")
+        return
+    data_disk = workdir / "android-data.qcow2"
+    subprocess.run(["qemu-img", "create", "-q", "-f", "qcow2", str(data_disk), "12G"], check=True)
+    append = "boot=live components quiet hostname=boswas-device username=boswas console=tty0 console=ttyS0,115200n8"
+    vm = VM("android", workdir, outdir, [
+        "-machine", "q35",
+        "-drive", f"file={iso},media=cdrom,readonly=on,if=ide",
+        "-drive", f"file={data_disk},format=qcow2,if=virtio",
+        "-kernel", str(kernel), "-initrd", str(initrd), "-append", append,
+    ], memory="8192")
+    root_sysops = "sudo -n env PKEXEC_UID=$(id -u) /usr/libexec/boswas/sysops"
+
+    def sysops(op: str, seconds: float) -> dict:
+        rc, out = sh.run(f"{root_sysops} {op} </dev/null 2>&1 | tail -n 400", timeout=seconds)
+        (outdir / f"android-sysops-{op.split()[0]}.txt").write_text(out + "\n")
+        for line in reversed(out.splitlines()):
+            try:
+                doc = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(doc, dict) and doc.get("type") == "result":
+                return doc
+        return {}
+
+    try:
+        start = time.time()
+        m = vm.expect(rb"(login: |\$ $|\$ )", timeout)
+        if not check(m is not None, f"android: live system reached a shell ({int(time.time() - start)} s)"):
+            return
+        if m.group(1) == b"login: ":
+            vm.send("boswas\n")
+            if vm.expect(rb"Password: ", 60):
+                vm.send("live\n")
+            vm.expect(rb"\$ ", 120)
+        vm.send("export TERM=dumb PAGER=cat SYSTEMD_PAGER= SYSTEMD_COLORS=0 PS1='$ '; stty -echo cols 250; "
+                "sudo -n dmesg -n 1\n")
+        vm.pump(3)
+        sh = Shell(vm)
+        # Test setup only: the live system keeps its changes in RAM; Android images and
+        # data go to a scratch disk instead.
+        rc, out = sh.run("sudo -n mkfs.ext4 -q -F /dev/vda && sudo -n mkdir -p /mnt/android /var/lib/waydroid "
+                         "~/.local/share/waydroid && sudo -n mount /dev/vda /mnt/android && "
+                         "sudo -n mkdir -p /mnt/android/lib /mnt/android/home && sudo -n chown boswas: /mnt/android/home && "
+                         "sudo -n mount --bind /mnt/android/lib /var/lib/waydroid && "
+                         "sudo -n mount --bind /mnt/android/home ~/.local/share/waydroid && echo setup-ok", timeout=300)
+        if not check("setup-ok" in out, "android: scratch disk for Android images and data (test setup)"):
+            return
+        rc, out = sh.run("boswas-android --json google-play")
+        check('"available": false' in out, "android: Google Play is reported unavailable, with alternatives")
+        rc, out = sh.run("dpkg-query -W -f='${db:Status-Status}' waydroid 2>/dev/null; echo; "
+                         "ls /etc/apt/sources.list.d/ /usr/local/share/applications/ 2>/dev/null")
+        check("installed" not in out.split("\n")[0] and "boswas-waydroid" not in out,
+              "android: no Android runtime and no Waydroid repository before the user asks for it")
+
+        doc = sysops("android-runtime-install", 2400)
+        if not check(doc.get("ok") is True, f"android: runtime installed through boswas-sysops android-runtime-install "
+                                            f"(sysops as root; {doc.get('code')}: {str(doc.get('message'))[:160]})"):
+            return
+        rc, out = sh.run("cat /etc/apt/sources.list.d/boswas-waydroid.sources; cat /etc/apt/preferences.d/boswas-waydroid.pref; "
+                         "lsmod | grep -c '^binder_linux'; ls -l /dev/binder /dev/hwbinder /dev/vndbinder; "
+                         "systemctl is-enabled waydroid-container.service; "
+                         "grep -l '^Hidden=true' /usr/local/share/applications/*.desktop 2>/dev/null")
+        (outdir / "android-runtime.txt").write_text(out + "\n")
+        check("Signed-By: /usr/share/boswas/keyrings/waydroid.gpg" in out and "Pin-Priority: -1" in out,
+              "android: the Waydroid repository is signature-checked with the pinned key and pinned to its packages")
+        check("/dev/binder" in out and "/dev/vndbinder" in out,
+              "android: binder devices from Debian's signed binder_linux module (Secure Boot compatible)")
+        check("disabled" in out, "android: the container service does not start at boot (on demand only)")
+        check("Hidden=true" in out or "/usr/local/share/applications/" in out,
+              "android: Waydroid's own launcher and APK handler are hidden (they would offer Google Apps images)")
+
+        doc = sysops("android-init", 5400)
+        if not check(doc.get("ok") is True, f"android: Android images downloaded and verified (android-init, VANILLA; "
+                                            f"{doc.get('code')}: {str(doc.get('message'))[:160]})"):
+            return
+        rc, out = sh.run("sudo -n grep -iE '^(system_ota|vendor_ota|images_path)' /var/lib/waydroid/waydroid.cfg")
+        (outdir / "android-waydroid-cfg.txt").write_text(out + "\n")
+        check("VANILLA" in out.upper() and "GAPPS" not in out.upper(), "android: VANILLA images only (no GAPPS)")
+        doc = sysops("android-service start", 300)
+        check(doc.get("ok") is True, "android: container service started on demand (android-service start)")
+
+        # The Plasma session (SDDM autologin) must be up: Waydroid shows apps on Wayland.
+        deadline = time.time() + min(1800, timeout)
+        env = ""
+        while time.time() < deadline:
+            env = session_env(sh)
+            if "WAYLAND_DISPLAY" in env:
+                break
+            vm.pump(20)
+        if not check("XDG_SESSION_TYPE=wayland" in env, "android: Plasma Wayland session running for the live user"):
+            return
+        sh.run(in_session("boswas-android session start", background=True))
+        booted = False
+        deadline = time.time() + max(timeout, 3600)
+        while time.time() < deadline:
+            vm.pump(30)
+            rc, out = sh.run("sudo -n waydroid shell getprop sys.boot_completed 2>/dev/null", timeout=120)
+            if out.strip().endswith("1"):
+                booted = True
+                break
+        to_png(vm.screendump("android-session"), outdir / "android-session.png")
+        if not check(booted, f"android: the Android session starts and boots ({int(time.time() - start)} s since boot; "
+                             f"screenshot android-session.png)"):
+            rc, out = sh.run("boswas-android logs --lines 120", timeout=120)
+            (outdir / "android-logs.txt").write_text(out + "\n")
+            return
+        rc, out = sh.run(in_session("boswas-android --json status"), timeout=180)
+        (outdir / "android-status.json").write_text(out + "\n")
+        status = _json(out)
+        check((status.get("runtime") or {}).get("installed") is True and (status.get("session") or {}).get("running"),
+              "android: boswas-android status reports the runtime installed and the session running")
+
+        rc, out = sh.run(in_session("boswas-android --json fdroid install"), timeout=1800)
+        (outdir / "android-fdroid-install.txt").write_text(out + "\n")
+        rc, apps = sh.run(in_session("boswas-android --json app list"), timeout=300)
+        installed = FDROID in apps
+        check(installed, "android: an APK installs (F-Droid client: downloaded over HTTPS, signer certificate pinned, "
+                         "signature verified by Android)")
+        if installed:
+            rc, out = sh.run(f"ls ~/.local/share/applications/ | grep -c '{FDROID}'")
+            check(out.strip() not in ("", "0"), "android: the installed app appears in the application launcher "
+                                                "(desktop entry)")
+            sh.run(in_session(f"boswas-android app launch {FDROID}"), timeout=300)
+            vm.pump(120)
+            to_png(vm.screendump("android-app"), outdir / "android-app.png")
+            rc, out = sh.run("sudo -n waydroid shell dumpsys activity activities 2>/dev/null | "
+                             "grep -E 'ResumedActivity|mFocusedApp' | head -3", timeout=180)
+            check(FDROID in out, f"android: the app launches and is in the foreground (screenshot android-app.png)")
+            rc, out = sh.run("sudo -n waydroid shell pm list packages 2>/dev/null", timeout=180)
+            check("com.android.vending" not in out and "com.google.android.gms" not in out,
+                  "android: no Google Play Store or Google Play Services inside Android")
+            sh.run(in_session(f"boswas-android app remove {FDROID}"), timeout=300)
+            rc, apps = sh.run(in_session("boswas-android --json app list"), timeout=300)
+            rc, out = sh.run(f"ls ~/.local/share/applications/ | grep -c '{FDROID}'")
+            check(FDROID not in apps and out.strip() in ("", "0"),
+                  "android: removing the app removes it and its launcher entry")
+        sh.run(in_session("boswas-android session stop"), timeout=180)
+        doc = sysops("android-service stop", 300)
+        check(doc.get("ok") is True, "android: container service stops (android-service stop)")
+    finally:
+        vm.stop(timeout=30)
 
 
 WINAPP = "com.boswas.testapp"
@@ -975,6 +1221,7 @@ def winapp_checks(sh: "Shell", outdir: Path, fixtures: bool, timeout: float) -> 
                      f"write C:/users/boswas/AppData/Roaming/probe.txt; echo rc=$?", timeout=timeout)
     (outdir / "winapp-launch.txt").write_text(out + "\n")
     check("BOSWAS-TESTAPP OK" in out and "rc=0" in out, "boswas-winapp launch runs the Windows application")
+    check("BOSWAS-TESTAPP ARCH x86_64 WOW64 no" in out, "the 64-bit test application ran as a native 64-bit process")
     probes = probe_results(out)
     for key, expected, text in (
             ("read Z:/home/boswas/.bashrc", "BLOCKED", "the user's home is not reachable"),
@@ -993,6 +1240,53 @@ def winapp_checks(sh: "Shell", outdir: Path, fixtures: bool, timeout: float) -> 
     log(f"boswas-winapp AppArmor denials recorded: {out.strip()} (build/logs/boot-test/winapp-apparmor-denials.txt)")
     rc, out = sh.run(f"boswas-winapp remove {WINAPP} && test ! -e ~/.local/share/boswas/wine/{WINAPP} && echo removed")
     check("removed" in out, "boswas-winapp remove deletes the application and its prefix")
+
+
+WINAPP32 = "local.testapp-x86"
+
+
+def winapp_32bit_checks(sh: "Shell", outdir: Path, timeout: float) -> None:
+    """32-bit (x86) Windows applications: Debian's wine32:i386 in the application's win64 prefix,
+    in the same bubblewrap sandbox and under the same enforcing AppArmor profile as 64-bit ones."""
+    rc, out = sh.run("boswas-winapp --json runtime")
+    doc = _json(out)
+    check(doc.get("architectures") == ["x86_64", "x86"] and (doc.get("loader32") or {}).get("available") is True,
+          f"the Windows runtime runs x86_64 and x86 programs (architectures: {doc.get('architectures')})")
+    rc, out = sh.run("boswas-winapp install /mnt/boswas-testapp-badpe.exe --id local.badpe; echo rc=$?")
+    check("rc=4" in out and "damaged or was altered" in out,
+          "a program with an inconsistent PE header (PE32+ image marked i386) is refused before anything runs")
+    rc, out = sh.run("boswas-winapp --json inspect /mnt/boswas-testapp-x86.exe")
+    doc = _json(out)
+    inst = doc.get("installer") or {}
+    check((inst.get("machine"), inst.get("format")) == ("x86", "PE32") and (doc.get("decision") or {}).get("allowed"),
+          f"the 32-bit test program is detected from its header as x86 / PE32 and allowed "
+          f"({inst.get('machine')}, {inst.get('format')})")
+    start = time.time()
+    rc, out = sh.run(f"boswas-winapp install /mnt/boswas-testapp-x86.exe --id {WINAPP32} -- /S; echo rc=$?",
+                     timeout=timeout)
+    (outdir / "winapp32-install.txt").write_text(out + "\n")
+    if not check("rc=0" in out, f"a 32-bit Windows application installs in its own sandbox "
+                                f"({int(time.time() - start)} s)"):
+        rc, install_log = sh.run(f"boswas-winapp logs {WINAPP32} --install --lines 60")
+        (outdir / "winapp32-install.log").write_text(install_log + "\n")
+        return
+    rc, out = sh.run(f"boswas-winapp launch {WINAPP32} --exe 'C:\\Program Files\\Boswas Test App\\boswas-testapp.exe' "
+                     f"-- read Z:/home/boswas/.bashrc write C:/users/boswas/AppData/Roaming/probe32.txt; echo rc=$?",
+                     timeout=timeout)
+    (outdir / "winapp32-launch.txt").write_text(out + "\n")
+    check("BOSWAS-TESTAPP OK" in out and "rc=0" in out, "boswas-winapp launch runs the 32-bit Windows application")
+    check("BOSWAS-TESTAPP ARCH x86 WOW64 yes" in out,
+          "the 32-bit build ran as a 32-bit process under WoW64 (wine32 loader, win64 prefix)")
+    probes = probe_results(out)
+    check(probes.get("read Z:/home/boswas/.bashrc") == "BLOCKED",
+          "32-bit WinCompat isolation: the user's home is not reachable")
+    check(probes.get("write C:/users/boswas/AppData/Roaming/probe32.txt") == "ALLOWED",
+          "32-bit WinCompat isolation: positive control, its own prefix is writable")
+    rc, out = sh.run(f"boswas-winapp --json status {WINAPP32}")
+    check('"confinement": "boswas-winapp (enforce)"' in out and '"architecture": "x86"' in out,
+          "the 32-bit application ran confined by AppArmor (boswas-winapp, enforce) and is recorded as x86")
+    rc, out = sh.run(f"boswas-winapp remove {WINAPP32} && test ! -e ~/.local/share/boswas/wine/{WINAPP32} && echo removed")
+    check("removed" in out, "boswas-winapp remove deletes the 32-bit application and its prefix")
 
 
 def winapp_gui_check(vm: "VM", sh: "Shell", outdir: Path, timeout: float) -> None:
@@ -1021,7 +1315,6 @@ def winapp_gui_check(vm: "VM", sh: "Shell", outdir: Path, timeout: float) -> Non
     sh.run("boswas-winapp remove local.gui-test")
 
 
-MESSAGE_32 = "This application requires 32-bit Windows compatibility, which is not supported by Boswas OS."
 CP_PORT = 18443
 
 
@@ -1083,9 +1376,6 @@ def device_management_checks(vm: "VM", sh: "Shell", outdir: Path, workdir: Path,
     if fixtures is None:
         record("SKIP", "Control Plane round trip in the VM (no --fixtures-iso)")
         return
-    rc, out = sh.run("boswas-winapp install /mnt/boswas-testapp-x86.exe; echo rc=$?", timeout=600)
-    check("rc=4" in out and MESSAGE_32 in out, "a 32-bit Windows installer is refused with the product message")
-
     # A Control Plane in the builder container, reachable from the VM at 10.0.2.2.
     repo = Path(__file__).resolve().parents[2]
     sys.path.insert(0, str(repo / "tests/device"))
@@ -1270,6 +1560,8 @@ def scenario_serial(iso: Path, workdir: Path, outdir: Path, timeout: float, fixt
                "network: DNS resolution works" if "resolved" in out else "network: DNS resolution (no upstream network)")
 
         winapp_checks(sh, outdir, fixtures is not None, timeout)
+        if fixtures is not None:
+            winapp_32bit_checks(sh, outdir, timeout)
         agent_checks(sh)
 
         # The graphical session (SDDM autologin -> Plasma) under emulation may
@@ -1308,8 +1600,12 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--iso", type=Path, required=True)
     ap.add_argument("--out", type=Path, required=True, help="directory for screenshots and logs")
-    ap.add_argument("--scenario", choices=("all", "uefi", "serial", "usb", "install", "full"), default="all",
-                    help="all = serial, uefi and usb; full = all plus the installed-system test (slow)")
+    ap.add_argument("--scenario", choices=("all", "uefi", "serial", "usb", "install", "install-offline", "android",
+                                           "full"),
+                    default="all",
+                    help="all = serial, uefi and usb; install = installation with network; install-offline = "
+                         "installation without internet access; android = Android runtime and an APK end to end "
+                         "(needs internet, slow); full = all plus both installations (slow)")
     ap.add_argument("--timeout", type=float, default=None, help="per-scenario timeout in seconds")
     ap.add_argument("--fixtures-iso", type=Path, default=None,
                     help="WinCompat test fixtures (tests/compatibility/build_fixtures.sh) attached as a second CD")
@@ -1336,6 +1632,10 @@ def main() -> int:
             scenario_usb(args.iso, workdir, args.out, timeout)
         if args.scenario in ("full", "install"):
             scenario_install(args.iso, workdir, args.out, timeout)
+        if args.scenario in ("full", "install-offline"):
+            scenario_install(args.iso, workdir, args.out, timeout, offline=True)
+        if args.scenario == "android":
+            scenario_android(args.iso, workdir, args.out, timeout)
     return 1 if FAILED else 0
 
 

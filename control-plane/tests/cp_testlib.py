@@ -28,12 +28,16 @@ OPERATOR = Principal("operator:ops", "operator")
 
 
 def pe_bytes(machine: int = 0x8664, tag: bytes = b"") -> bytes:
+    """A minimal PE header as a linker writes it (PE32 for x86, PE32+ otherwise, executable image)."""
     data = bytearray(0x200)
     data[0:2] = b"MZ"
     struct.pack_into("<I", data, 0x3C, 0x80)
     data[0x80:0x84] = b"PE\0\0"
     struct.pack_into("<H", data, 0x84, machine)
-    struct.pack_into("<H", data, 0x80 + 24, 0x20B if machine == 0x8664 else 0x10B)
+    is32 = machine == 0x14C
+    struct.pack_into("<H", data, 0x80 + 20, 0xE0 if is32 else 0xF0)
+    struct.pack_into("<H", data, 0x80 + 22, 0x0102 if is32 else 0x0022)
+    struct.pack_into("<H", data, 0x80 + 24, 0x10B if is32 else 0x20B)
     struct.pack_into("<H", data, 0x80 + 24 + 68, 3)
     return bytes(data) + tag
 

@@ -1,19 +1,24 @@
 """Hardware pages: the plain settings pages, Power and Storage.
 
-Network, Bluetooth, Display, Sound, Users and Devices are configured
-entirely in KDE's modules, so those pages explain what is where and open the
-modules. Power adds the battery state from /sys/class/power_supply; Storage
-the usage of / and /home.
+Bluetooth, Display, Sound, Users and Devices are configured entirely in
+KDE's modules, so those pages explain what is where and open the modules.
+Power adds the battery state from /sys/class/power_supply. Storage shows the
+usage of / and /home, the disks and file systems (lsblk, without serial
+numbers) and three ways to free space, each confirmed first: the package
+cache and the system journal (boswas-sysops, administrator rights) and the
+user's thumbnail cache. Partitioning stays in KDE Partition Manager.
 """
 
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QHBoxLayout, QProgressBar, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QProgressBar, QPushButton, QVBoxLayout, QWidget
 
+from .. import commands, jobs, sysinfo
 from .. import viewmodel as vm
 from .base import Page
-from .common import Card, StatusIcon, muted_label, plain_label, title_label
+from .common import SP, Card, MessageBanner, StatusIcon, icon, muted_label, plain_label, title_label
+from .jobs import JobPanel
 
 
 class SettingsPage(Page):
@@ -67,7 +72,7 @@ class PowerPage(Page):
 
 
 class StoragePage(Page):
-    data_keys = ("storage", "live")
+    data_keys = ("storage", "live", "disks", "thumbnails")
 
     def build(self) -> None:
         self.disks = QVBoxLayout()
@@ -78,8 +83,126 @@ class StoragePage(Page):
         self.note = muted_label("", parent=self.content)
         self.note.hide()
         self.body.addWidget(self.note)
+
+        self.devices = Card("Disks and file systems", self.content)
+        self.devices_text = plain_label("", wrap=True, selectable=True, parent=self.devices)
+        self.devices_text.setAccessibleName("Disks and file systems")
+        self.devices.addWidget(self.devices_text)
+        self.devices.addWidget(muted_label("Formatting and partitioning are done in KDE Partition Manager (below), "
+                                           "never from here.", parent=self.devices))
+        self.body.addWidget(self.devices)
+
+        self.cleanup = Card("Free up space", self.content)
+        self.cleanup_message = MessageBanner(parent=self.cleanup)
+        self.cleanup.addWidget(self.cleanup_message)
+        self.apt_button = self._cleanup_row("Downloaded package files",
+                                            "Software packages kept after installation. They are downloaded "
+                                            "again when needed.", "Remove Package Files…", self.clean_packages)
+        self.journal_button = self._cleanup_row("Old system logs",
+                                                "Keeps the newest 200 MB of the system journal and deletes older "
+                                                "entries.", "Shrink System Logs…", self.clean_journal)
+        self.thumbs_button = self._cleanup_row("Thumbnail cache",
+                                               "Preview images of your files. They are created again when needed.",
+                                               "Clear Thumbnails…", self.clean_thumbnails)
+        self.thumbs_text = muted_label("", parent=self.cleanup)
+        self.cleanup.addWidget(self.thumbs_text)
+        self.panel = JobPanel(self.info.key, self.window_.jobs, self.content)
+        self.body.addWidget(self.cleanup)
+        self.body.addWidget(self.panel)
         self.add_modules()
         self.cards: dict[str, tuple] = {}
+        self.cleaning = False
+        self.window_.jobs.changed.connect(self._buttons)
+
+    def _cleanup_row(self, title: str, description: str, label: str, slot) -> QPushButton:
+        row = QHBoxLayout()
+        text = QVBoxLayout()
+        text.setSpacing(2)
+        text.addWidget(title_label(title, 1.0, self.cleanup))
+        text.addWidget(muted_label(description, parent=self.cleanup))
+        button = QPushButton(label, self.cleanup)
+        button.setIcon(icon("edit-clear", "edit-delete", fallback=SP.SP_TrashIcon))
+        button.setAccessibleDescription(description)
+        button.clicked.connect(slot)
+        row.addLayout(text, 1)
+        row.addWidget(button, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.cleanup.addLayout(row)
+        return button
+
+    def _buttons(self) -> None:
+        jobs_ = self.window_.jobs
+        reason = jobs_.busy_reason() if jobs_.busy() else ""
+        admin = (self.store.value("programs") or {}).get("admin", True)
+        for button in (self.apt_button, self.journal_button):
+            why = reason or ("" if admin else commands.NO_ADMIN)
+            button.setEnabled(not why)
+            button.setToolTip(why or button.accessibleDescription())
+        thumbs = self.store.value("thumbnails")
+        why = "Clearing…" if self.cleaning else ("The thumbnail cache is empty." if thumbs is not None and not thumbs[1]
+                                                 else "")
+        self.thumbs_button.setEnabled(not why)
+        self.thumbs_button.setToolTip(why or self.thumbs_button.accessibleDescription())
+
+    def _render_devices(self) -> None:
+        result = self.store.get("disks")
+        if result is None:
+            self.devices_text.setText("Reading disks…")
+            return
+        if not result.ok:
+            self.devices_text.setText(f"The disks could not be listed: {result.error}")
+            return
+        lines = []
+        for disk in result.value:
+            size = vm.format_bytes(disk.size) if disk.size is not None else "unknown size"
+            lines.append(f"{disk.title} ({disk.name}, {size}{', read-only' if disk.read_only else ''})")
+            for volume in disk.volumes:
+                lines.append("    " * volume.depth + sysinfo.volume_text(volume))
+        self.devices_text.setText("\n".join(lines) or "No disks found.")
+
+    # --- cleanup ---
+    def clean_packages(self) -> None:
+        if self.window_.ask("Remove downloaded package files?",
+                            "The package files APT kept in /var/cache/apt/archives are deleted. Installed software "
+                            "is not affected. You are asked for an administrator password.", "Remove"):
+            self.window_.jobs.start(jobs.JobSpec(jobs.SYSOPS, ("apt-clean",), "Removing downloaded package files",
+                                                 self.info.key), self._cleaned)
+
+    def clean_journal(self) -> None:
+        if self.window_.ask("Shrink the system logs?",
+                            "Older entries of the system journal are deleted until it uses at most 200 MB. Recent "
+                            "logs are kept. You are asked for an administrator password.", "Shrink Logs"):
+            self.window_.jobs.start(jobs.JobSpec(jobs.SYSOPS, ("journal-vacuum",), "Shrinking the system logs",
+                                                 self.info.key), self._cleaned)
+
+    def _cleaned(self, outcome: jobs.Outcome) -> None:
+        freed = outcome.data.get("freed_bytes") if outcome.ok else None
+        if isinstance(freed, int) and not isinstance(freed, bool) and freed >= 0:
+            self.cleanup_message.show_message("ok", f"{vm.format_bytes(freed)} freed.")
+        self.store.request("storage", force=True)
+
+    def clean_thumbnails(self) -> None:
+        thumbs = self.store.value("thumbnails")
+        size = f" ({thumbs[0]} files, {vm.format_bytes(thumbs[1])})" if thumbs else ""
+        if not self.window_.ask("Clear the thumbnail cache?",
+                                f"The preview images in ~/.cache/thumbnails{size} are deleted. Your files are not "
+                                "affected.", "Clear"):
+            return
+        self.cleaning = True
+        self._buttons()
+        self.window_.runner.submit(self.window_.backend.clean_thumbnails,
+                                   on_done=self._thumbnails_cleared, on_error=self._thumbnails_failed)
+
+    def _thumbnails_cleared(self, freed: int) -> None:
+        self.cleaning = False
+        self.cleanup_message.show_message("ok", f"Thumbnail cache cleared: {vm.format_bytes(freed)} freed.")
+        self.store.request("thumbnails", force=True)
+        self.store.request("storage", force=True)
+
+    def _thumbnails_failed(self, exc) -> None:
+        self.cleaning = False
+        self.cleanup_message.show_message("error", "The thumbnail cache could not be cleared. "
+                                                   f"{self.window_.error_text(exc)}")
+        self._buttons()
 
     def _card(self, row: vm.StorageRow) -> tuple:
         card = Card(f"{row.title} ({row.path})", self.content)
@@ -101,6 +224,8 @@ class StoragePage(Page):
     def render(self) -> None:
         result = self.store.get("storage")
         if result is None:
+            self._render_devices()
+            self._buttons()
             return
         rows = vm.storage_rows(result.value if result.ok else [])
         self.loading.setVisible(not rows)
@@ -121,3 +246,8 @@ class StoragePage(Page):
             notes.append("In this live session, changes are kept in memory and lost when you shut down.")
         self.note.setText(" ".join(notes))
         self.note.setVisible(bool(notes))
+        self._render_devices()
+        thumbs = self.store.value("thumbnails")
+        self.thumbs_text.setText(f"Thumbnail cache: {thumbs[0]} files, {vm.format_bytes(thumbs[1])}."
+                                 if thumbs is not None else "")
+        self._buttons()

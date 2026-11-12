@@ -1,0 +1,124 @@
+.TH BOSWAS-SYSOPS 8 "November 2026" "boswas-sysops 1.0~alpha3" "Boswas OS"
+.SH NAME
+boswas-sysops \- the privileged helper of Boswas OS
+.SH SYNOPSIS
+.B pkexec /usr/libexec/boswas/sysops
+.I operation
+.RI [ arguments ...]
+.SH DESCRIPTION
+.B /usr/libexec/boswas/sysops
+performs a fixed set of system operations as root on behalf of the desktop
+user: software installation and updates through APT, cleanup, a report of
+missing firmware, Flatpak remotes and the Android runtime. Boswas Control
+Center and
+.B boswas-android
+start it through
+.BR pkexec (1);
+it is never setuid, never a daemon, never runs a shell and never runs an
+arbitrary command.
+.PP
+Each operation has its own polkit action
+.BI com.boswas.sysops. operation
+(\fI/usr/share/polkit-1/actions/com.boswas.sysops.policy\fR). Read-only
+operations are allowed for the active local session; every operation that
+changes the system needs an administrator. Remote and inactive sessions are
+refused.
+.SH OPERATIONS
+.TP
+.B apt-refresh
+Refresh the package lists (apt-get update).
+.TP
+.B apt-upgrade
+Install all available updates without removing packages
+(apt-get \-\-with\-new\-pkgs upgrade).
+.TP
+.BI "apt-install " "PACKAGE ..."
+Install up to 50 packages from the configured, signature-verified
+repositories. Packages excluded by Boswas policy are refused.
+.TP
+.BI "apt-remove " "PACKAGE ..."
+Remove up to 50 packages. Refused when the change would remove a protected
+package (Boswas components, essential and required packages, the kernel and
+boot chain, the desktop core, the security baseline, APT and dpkg).
+.TP
+.BI "apt-install-local " /path/to/file.deb
+Install a package file the requesting user owns. The file is copied into a
+root-only directory before it is inspected. Its origin is not verified by a
+signed repository; the device policy can turn this off.
+.TP
+.B apt-clean
+Remove downloaded package files.
+.TP
+.B journal-vacuum
+Reduce the system journal to at most 200 MB.
+.TP
+.B firmware-report
+List firmware files the kernel requested and did not find during this boot,
+with the Debian package that provides each one (read-only).
+.TP
+.BI "flatpak-remote-enable " NAME ", flatpak-remote-disable " NAME
+Enable or disable a system-wide Flatpak remote approved by Boswas.
+.TP
+.BR android-runtime-install ", " "android-runtime-remove " [ \-\-purge\-data ]
+Install or remove the Android runtime (Waydroid, from the Waydroid project's
+repository with its signing key pinned by fingerprint).
+.TP
+.BR android-init ", " android-update ", " android-repair
+Download and set up, update, or repair the Android system image (without
+Google components).
+.TP
+.BR "android-service start" | stop | restart
+Start, stop or restart the Android runtime service (read-only class: allowed
+for the active local session).
+.SH OUTPUT
+JSON Lines on standard output: one
+.B start
+object, any number of
+.B progress
+and
+.B log
+objects, and exactly one
+.B result
+object, last. Writing
+.B cancel
+to standard input cancels an operation while nothing has been changed (package
+list refresh, downloads); during package installation the request is refused
+and the operation completes.
+.SH EXIT STATUS
+.TP
+.B 0
+done
+.TP
+.B 1
+failed, or not enough disk space
+.TP
+.B 2
+invalid argument, refused by policy, package not found, or source not verified
+.TP
+.B 3
+another package manager holds the lock
+.TP
+.B 4
+cancelled
+.TP
+.B 5
+a download failed
+.TP
+.B 6
+not supported on this system
+.SH FILES
+.TP
+.I /etc/boswas/apps.conf
+Device policy: local packages, Flatpak remotes, Android runtime.
+.TP
+.I /var/log/boswas/sysops.log
+One line per invocation: time, requesting user ID, operation, arguments,
+result code.
+.TP
+.I /usr/share/boswas/sysops/flatpak-remotes/
+Flatpak remotes approved by Boswas.
+.SH SEE ALSO
+.BR pkexec (1),
+.BR polkit (8),
+.BR apt-get (8),
+.BR boswas-control-center (1)

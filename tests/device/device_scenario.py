@@ -9,9 +9,9 @@ the Compatibility Manager's backend calls. The Control Plane runs from the
 repository sources on 127.0.0.1 with the image's Python.
 
 Covers: persistent identity, local API, local install/launch/stop/logs/
-repair/remove through the session agent, 32-bit and blocked refusals,
+repair/remove through the session agent, a real 32-bit install, blocked refusals,
 enrollment, heartbeat, signed policy, remote INSTALL/LAUNCH/REMOVE with the
-installer downloaded over mutual TLS, 32-bit catalog entries refused,
+installer downloaded over mutual TLS, a 32-bit catalog entry installed remotely,
 policy blocks, offline operation, privacy of the inventory, the audit
 trail, and clean shutdown.
 
@@ -42,7 +42,7 @@ CP_URL = f"https://127.0.0.1:{CP_PORT}"
 CP_DATA = Path("/root/cp-data")
 LOGS = Path("/root/device-logs")
 APP, LONG = "com.boswas.testapp", "com.boswas.testapp-long"
-MESSAGE_32 = "This application requires 32-bit Windows compatibility, which is not supported by Boswas OS."
+APP32 = "local.testapp-x86"           # the real 32-bit build of the test application (wine32:i386)
 processes: dict[str, subprocess.Popen] = {}
 controlplanes: list = []
 
@@ -232,8 +232,8 @@ def main() -> int:
           forbidden.stdout)
     sysstat = session("system.status")
     st = sysstat.get("result", {})
-    check(sysstat.get("ok") and st.get("windows_architectures") == ["x86_64"] and st.get("agent", {}).get("state"),
-          "system status: x86_64-only Windows runtime, device agent reachable", sysstat)
+    check(sysstat.get("ok") and st.get("windows_architectures") == ["x86_64", "x86"] and st.get("agent", {}).get("state"),
+          "system status: 64-bit and 32-bit Windows runtime, device agent reachable", sysstat)
     check(st.get("runtime", {}).get("bubblewrap", {}).get("available") is True and
           st.get("runtime", {}).get("wine", {}).get("available") is True, "system status: Wine and bubblewrap available",
           st.get("runtime"))
@@ -242,12 +242,23 @@ def main() -> int:
     downloads = HOME / "Downloads"
     x86 = session("apps.inspect", {"path": str(downloads / "boswas-testapp-x86.exe")})
     decision = x86.get("result", {}).get("decision", {})
-    check(x86.get("ok") and decision.get("allowed") is False and decision.get("reason") == "architecture" and
-          MESSAGE_32 in decision.get("message", ""), "a 32-bit installer is refused by inspection", x86)
-    refused = session("apps.install", {"path": str(downloads / "boswas-testapp-x86.exe")})
-    check(not refused.get("ok") and refused["error"]["code"] == "ARCHITECTURE" and
-          MESSAGE_32 in refused["error"]["message"], "installing a 32-bit installer is refused with the product message",
-          refused)
+    installer32 = x86.get("result", {}).get("installer", {})
+    check(x86.get("ok") and decision.get("allowed") is True and
+          (installer32.get("machine"), installer32.get("format")) == ("x86", "PE32"),
+          "a 32-bit installer is detected from its header (x86, PE32) and allowed by inspection", x86)
+    started = time.monotonic()
+    job32 = session("apps.install", {"path": str(downloads / "boswas-testapp-x86.exe"), "id": APP32},
+                    job=True)
+    check(job32.get("ok") and job32["result"]["state"] == "succeeded",
+          f"a 32-bit Windows application installs through the session agent (real wine32) "
+          f"({time.monotonic() - started:.0f} s)", job32)
+    apps = {a["id"]: a for a in session("apps.list").get("result", {}).get("applications", [])}
+    check(apps.get(APP32, {}).get("app_state") == "INSTALLED" and apps[APP32].get("architecture") == "x86",
+          "the library lists the 32-bit application as INSTALLED, x86", apps.get(APP32))
+    removed32 = session("apps.remove", {"id": APP32}, job=True)
+    check(removed32.get("ok") and removed32["result"]["state"] == "succeeded" and
+          not (HOME / f".local/share/boswas/wine/{APP32}").exists(), "removing the 32-bit application deletes its prefix",
+          removed32)
     blocked = session("apps.install", {"path": str(downloads / "boswas-testapp-blocked.exe"), "id": "local.renamed"})
     check(not blocked.get("ok") and blocked["error"]["code"] == "BLOCKED", "a blocked installer is refused", blocked)
     started = time.monotonic()
@@ -285,8 +296,8 @@ def main() -> int:
         gui = {}
     check(gui.get("listed") is True, "the Compatibility Manager window lists the user's Windows application",
           gui or probe.stderr)
-    check(gui.get("system_loaded") and gui.get("windows_architectures") == ["x86_64"] and gui.get("agent_state"),
-          "the Compatibility Manager shows system status (x86_64 only, device agent state)", gui)
+    check(gui.get("system_loaded") and gui.get("windows_architectures") == ["x86_64", "x86"] and gui.get("agent_state"),
+          "the Compatibility Manager shows system status (x86_64 and x86, device agent state)", gui)
     check(gui.get("launched") is True, "Launch in the Compatibility Manager starts the application (through the "
                                        "session agent and boswas-winapp)", gui)
     check(gui.get("stopped") is True, "Stop in the Compatibility Manager stops it", gui)
@@ -368,11 +379,17 @@ def main() -> int:
     legacy = {**manifest, "id": "com.boswas.legacy", "name": "Legacy 32-bit", "architecture": "x86",
               "installer": {**manifest["installer"], "sha256": art32.get("sha256")}}
     status, entry = op("POST", "/api/v1/applications", {"manifest": legacy})
-    check(status == 201 and entry["support"] == "UNSUPPORTED_ARCHITECTURE" and not entry["installable"],
-          "a 32-bit catalog entry is marked UNSUPPORTED_ARCHITECTURE", entry)
+    check(status == 201 and entry["support"] == "SUPPORTED" and entry["installable"],
+          "a 32-bit catalog entry whose installer is x86 is accepted and installable", entry)
     status, body = command({"type": "INSTALL_APPLICATION", "application_id": "com.boswas.legacy"})
-    check(status == 422 and body["error"]["code"] == "UNSUPPORTED_ARCHITECTURE",
-          "a 32-bit application can never become an install command", body)
+    check(status in (200, 201) and body.get("status") in ("QUEUED", "SENT"),
+          "a 32-bit application can become an install command (the device decides from its own runtime)", body)
+    if body.get("command_id"):
+        result = finished(body["command_id"])
+        check(result.get("status") == "SUCCEEDED",
+              "the device installs the 32-bit catalog application remotely (wine32 present)", result)
+        cmd_rm = command({"type": "REMOVE_APPLICATION", "application_id": "com.boswas.legacy"})[1]
+        finished(cmd_rm.get("command_id", ""))
     status, body = op("POST", "/api/v1/applications", {"manifest": {**legacy, "id": "com.boswas.liar",
                                                                     "architecture": "x86_64"}})
     check(status == 422 and body["error"]["code"] == "ARCHITECTURE_MISMATCH",

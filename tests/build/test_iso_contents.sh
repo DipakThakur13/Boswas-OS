@@ -24,6 +24,51 @@ preseed="$(zcat "$isodir/install/gtk/initrd.gz" | cpio -i --quiet --to-stdout pr
 check "installer defaults to encrypted LVM (LUKS)" grep -q 'partman-auto/method string crypto' <<<"$preseed"
 check "installer disables root login (sudo administrator)" grep -q 'passwd/root-login boolean false' <<<"$preseed"
 check "installer default hostname is boswas-device" grep -q 'get_hostname string boswas-device' <<<"$preseed"
+check "installer needs no network: no network mirror and no security/updates services during installation" \
+	bash -c "grep -qx 'd-i apt-setup/use_mirror boolean false' <<<\"\$1\" && grep -qx 'd-i apt-setup/services-select multiselect' <<<\"\$1\"" _ "$preseed"
+check "installer's last step writes signed package sources and the installation report (finish-install)" \
+	grep -q 'in-target /usr/lib/boswas/installer/finish-install' <<<"$preseed"
+check_not "installer never disables firmware lookup or answers destructive questions" \
+	grep -qE 'firmware-lookup string never|partman-auto/disk|partman/confirm boolean true|passwd/user-password ' <<<"$preseed"
+
+# Firmware for the installer (loaded before any network exists)
+fw="$isodir/firmware"
+check "installer firmware pool present on the medium (/firmware)" test -d "$fw"
+check "installer firmware index present (/firmware/Contents-firmware, read by hw-detect)" test -s "$fw/Contents-firmware"
+# DEP-11 modalias patterns are a second, optional mechanism (queue firmware
+# packages for devices that never asked for firmware during installation);
+# live-build only writes them when the build chroot has DEP-11 metadata.
+# Loading requested firmware (Contents-firmware, above and below) does not
+# depend on them.
+dep11="$(find "$fw/dep11" -name '*.patterns' 2>/dev/null | wc -l)"
+if [ "$dep11" -gt 0 ]; then
+	pass "firmware modalias patterns present for $dep11 packages (/firmware/dep11)"
+else
+	skip "firmware modalias patterns (/firmware/dep11): none generated (no DEP-11 metadata in the build chroot); requested firmware still loads through Contents-firmware"
+fi
+check "every package named in Contents-firmware is on the medium" \
+	bash -c "awk '{ print \$2 }' '$fw/Contents-firmware' | sort -u | while read -r d; do test -f '$fw'/\"\$d\" || exit 1; done"
+check "the reported Realtek RTL8125B firmware (rtl_nic/rtl8125b-2.fw) is in the installer's index (firmware-realtek)" \
+	grep -qE '^/?(usr/)?lib/firmware/rtl_nic/rtl8125b-2\.fw[[:space:]]+firmware-realtek_[^ ]+\.deb[[:space:]]+non-free-firmware$' \
+	"$fw/Contents-firmware"
+required="$BOSWAS_REPO_ROOT/config/boswas/firmware-required.list"
+if out="$(python3 - "$required" "$fw/Contents-firmware" <<'PYEOF'
+import fnmatch, re, sys
+patterns = [l.split("#")[0].strip() for l in open(sys.argv[1])]
+patterns = [p for p in patterns if p]
+files = [re.sub(r"^/?(usr/)?lib/firmware/", "", l.split()[0]) for l in open(sys.argv[2]) if l.strip()]
+missing = [p for p in patterns if not any(fnmatch.fnmatchcase(f, p) for f in files)]
+print(f"{len(patterns)} patterns, {len(files)} files")
+sys.exit(f"missing: {' '.join(missing)}" if missing else 0)
+PYEOF
+)"; then
+	pass "every required firmware file is in the installer's index ($out)"
+else
+	fail "required firmware missing from the installer's index: $out"
+fi
+pool_mb="$(du -smL "$fw" 2>/dev/null | cut -f1)"
+pool_n="$(find -L "$fw" -maxdepth 1 -name '*.deb' | wc -l)"
+pass "installer firmware pool: $pool_n packages, ${pool_mb:-?} MiB (informational)"
 
 # Boot paths
 eltorito="$(xorriso -indev "$iso" -report_el_torito plain 2>/dev/null)"

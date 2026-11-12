@@ -4,7 +4,8 @@
 #
 # Attaches to the in-sandbox runner /usr/lib/boswas/compat/winapp-exec, which
 # boswas-winapp starts inside a bubblewrap sandbox. The runner, the Wine
-# loader, wineserver and every Windows process inherit this profile, and the
+# loaders (64-bit, and 32-bit for x86 programs), wineserver and every Windows
+# process inherit this profile, and the
 # runner refuses to start Wine unless it is enforcing (policy
 # REQUIRE_APPARMOR). Running /usr/bin/wine directly is not affected.
 #
@@ -57,6 +58,11 @@ profile boswas-winapp /usr/lib/boswas/compat/winapp-exec flags=(attach_disconnec
   /usr/bin/dash mrix,
   /usr/lib/wine/wine64 mrix,
   /usr/lib/wine/wineserver64 mrix,
+  # 32-bit loader (wine32:i386), started by wine64 for x86 programs; it stays
+  # in this profile (ix). Its i386 libraries (/usr/lib/i386-linux-gnu/**,
+  # including the Wine modules) are covered by abstractions/base and the
+  # @{multiarch} rule below.
+  /usr/lib/wine/wine mrix,
   # Debian's wineserver wrapper script (execs wineserver64), started by Wine itself.
   /usr/lib/wine/wineserver rix,
   /usr/lib/@{multiarch}/wine/ r,

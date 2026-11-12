@@ -18,16 +18,69 @@ for pkg in boswas-os boswas-cli boswas-branding boswas-security boswas-compat \
 	plasma-workspace sddm kwin-wayland firefox-esr \
 	apparmor auditd nftables libpam-pwquality \
 	cryptsetup cryptsetup-initramfs lvm2 \
-	wine wine64 flatpak network-manager; do
+	wine wine64 wine32 flatpak network-manager libfuse2t64; do
 	installed "$pkg" || fail "required package missing: $pkg"
 done
 
 for pkg in openssh-server kdeconnect plasma-discover packagekit libpam-fprintd cups-browsed plasma-welcome \
-	boswas-control-plane wine32; do
+	boswas-control-plane; do
 	installed "$pkg" && fail "excluded package present: $pkg"
 done
-# 64-bit only (ADR-0014): no i386 multiarch for a 32-bit Wine.
-[ -z "$(dpkg --print-foreign-architectures)" ] || fail "foreign dpkg architectures enabled: $(dpkg --print-foreign-architectures)"
+
+# 64-bit and 32-bit Windows applications (ADR-0022): the system is amd64; the
+# only foreign architecture is i386, for wine32 and its libraries.
+[ "$(dpkg --print-architecture)" = amd64 ] || fail "the image architecture is not amd64"
+[ "$(dpkg --print-foreign-architectures | tr '\n' ' ')" = "i386 " ] \
+	|| fail "foreign dpkg architectures must be exactly i386 (found: $(dpkg --print-foreign-architectures | tr '\n' ' '))"
+[ "$(dpkg-query -W -f='${Architecture}' wine32 2>/dev/null)" = i386 ] || fail "wine32 is not the i386 package"
+[ -x /usr/lib/wine/wine ] && [ -x /usr/lib/wine/wine64 ] || fail "the 32-bit or 64-bit Wine loader is missing"
+for pkg in $(dpkg-query -W -f='${binary:Package}\n' 2>/dev/null | sed -n 's/:i386$//p'); do
+	case "$pkg" in linux-image-*|linux-headers-*|grub-*|shim-*|systemd*) fail "i386 system package installed: $pkg" ;; esac
+done
+
+# Privileged helper (fixed operations behind polkit, no general root command)
+# and the Android runtime manager.
+for pkg in boswas-sysops boswas-android; do
+	installed "$pkg" || fail "required package missing: $pkg"
+done
+[ -x /usr/libexec/boswas/sysops ] || fail "/usr/libexec/boswas/sysops missing"
+[ -s /usr/share/polkit-1/actions/com.boswas.sysops.policy ] || fail "polkit actions of boswas-sysops missing"
+python3 -IB -c 'import sys; sys.path.insert(0, "/usr/lib/boswas/python"); import boswas_sysops.cli' \
+	|| fail "boswas-sysops does not import"
+[ -n "$(find /usr/bin /usr/sbin /usr/local/bin -maxdepth 1 -name '*sysops*' 2>/dev/null)" ] \
+	&& fail "boswas-sysops must not be on the PATH (only pkexec starts it)"
+boswas-android --json google-play | python3 -c '
+import json, sys
+d = json.load(sys.stdin)["google_play"]
+assert d["available"] is False and "fdroid" in d["alternatives"] and "local-apk" in d["alternatives"]' \
+	|| fail "boswas-android must report Google Play as unavailable, with F-Droid and local APKs as alternatives"
+
+# Android (opt-in, after installation) and Google Play (never preinstalled):
+# no Android runtime, Android images or Google components in the image.
+for pkg in waydroid lxc python3-gbinder libgbinder; do
+	installed "$pkg" && fail "the Android runtime is opt-in, but $pkg is preinstalled"
+done
+[ ! -e /var/lib/waydroid ] || fail "Android runtime state (/var/lib/waydroid) is present in the image"
+if dpkg-query -W -f='${Package}\n' 2>/dev/null | grep -qiE '(^|-)(gapps|google-play|play-services|gms)(-|$)'; then
+	fail "a Google Play / Google Mobile Services package is preinstalled"
+fi
+
+# Firmware: every file of the required list is in the image (the installer
+# medium is checked by 0150-boswas-firmware.hook.binary).
+required_fw=/usr/share/boswas/firmware/required.list
+[ -s "$required_fw" ] || fail "$required_fw missing (boswas-os)"
+for pattern in $(sed -e 's/#.*//' -e 's/[[:space:]]*$//' -e '/^$/d' "$required_fw"); do
+	# Unquoted on purpose: the pattern is a shell glob below /usr/lib/firmware.
+	# shellcheck disable=SC2086
+	set -- /usr/lib/firmware/$pattern
+	[ -e "$1" ] || fail "required firmware missing from the image: $pattern"
+done
+[ -s /usr/share/boswas/firmware/index.tsv ] || fail "firmware index /usr/share/boswas/firmware/index.tsv missing"
+grep -q "$(printf '^rtl_nic/rtl8125b-2.fw\tfirmware-realtek$')" /usr/share/boswas/firmware/index.tsv \
+	|| fail "firmware index does not map rtl_nic/rtl8125b-2.fw to firmware-realtek"
+# Installation: the installer's last step and the sources it writes.
+[ -x /usr/lib/boswas/installer/finish-install ] || fail "/usr/lib/boswas/installer/finish-install missing"
+[ -s /usr/share/boswas/apt/debian.sources ] || fail "/usr/share/boswas/apt/debian.sources missing"
 
 for unit in nftables.service auditd.service apparmor.service boswas-device-agent.service; do
 	state="$(systemctl is-enabled "$unit" 2>/dev/null || true)"
@@ -78,6 +131,8 @@ done
 installed boswas-control-center || fail "required package missing: boswas-control-center"
 python3 -IB -c 'import sys; sys.path.insert(0, "/usr/lib/boswas/python"); import boswas_control_center.app' \
 	|| fail "Boswas Control Center does not import"
+QT_QPA_PLATFORM=offscreen python3 -IB -c 'import sys; sys.path.insert(0, "/usr/lib/boswas/python"); import boswas_control_center.ui.main_window' \
+	|| fail "Boswas Control Center's window (all pages) does not import"
 for theme in Boswas Boswas-Light; do
 	[ -f "/usr/share/icons/$theme/index.theme" ] || fail "icon theme $theme missing"
 done

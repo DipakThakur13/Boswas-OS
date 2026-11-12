@@ -2,6 +2,57 @@
 
 All notable changes to Boswas OS. Versions follow `config/boswas/release.conf`.
 
+## [Unreleased] - 2026-11-12 (cross-platform applications, installer firmware, functional Control Center)
+
+Baseline audit: [docs/reports/2026-11-12-baseline-audit.md](docs/reports/2026-11-12-baseline-audit.md).
+Release report: [docs/reports/2026-11-12-release-readiness.md](docs/reports/2026-11-12-release-readiness.md).
+
+### Fixed
+- **Installer firmware (`rtl_nic/rtl8125b-2.fw` prompt):** the ISO had no
+  firmware pool for the installer (`--firmware-binary false`), which runs its
+  own kernel and initrd. The medium now carries every Debian firmware package
+  under `/firmware` with the installer's index. The installer loads missing
+  firmware before any network exists and installs it on the target
+  (ADR-0023). `config/boswas/firmware-required.list` is a build gate for both
+  the installer medium and the image; `tests/installer/` runs the installer's
+  own firmware code against the built medium.
+- **Installation without internet access:** the installer no longer uses a
+  network mirror or the security/updates services, so an unreachable mirror
+  or a NIC without a driver cannot stop an installation. The new
+  `/usr/lib/boswas/installer/finish-install` writes signature-verified Debian
+  sources (`debian.sources`, deb822) when none are configured, removes the live
+  medium's unsigned pool, and writes `/var/log/boswas/install-report.txt`.
+
+### Added
+- **32-bit Windows applications (ADR-0022, supersedes ADR-0014):**
+  `wine32:i386` (i386 is the only foreign architecture; the system stays
+  amd64). PE detection cross-checks the machine field with the
+  optional-header magic, and refuses damaged headers, DLLs and scripts with
+  the reason. The device agent and Control Plane accept x86 entries. The VM
+  test runs a real 32-bit program built from source and checks that it ran
+  under WoW64, confined.
+- **`boswas-sysops`** (ADR-0024): the only privileged helper. It offers fixed
+  operations (APT, cleanup, firmware report, Flatpak remotes, Android
+  runtime), each its own polkit action, with JSON Lines progress, safe
+  cancellation and fixed exit codes.
+- **`boswas-android`** (ADR-0025): Android runtime manager (Waydroid, opt-in
+  after installation, VANILLA images), APK inspection (manifest, ABIs, split
+  packages, signer) and install/launch/remove. Google Play is **not**
+  offered. F-Droid is offered with a pinned signer certificate, alongside
+  local APK files.
+- **Control Center:** functional Update Center, Android page, application hub
+  (Debian packages, Flatpak, AppImage, install from file), Hardware & Drivers
+  (devices, drivers, missing firmware), Storage cleanup and live Network
+  status ([docs/experience/control-center.md](docs/experience/control-center.md)).
+- **Firmware in the image:** firmware-cirrus, firmware-bnx2, firmware-bnx2x,
+  firmware-libertas, firmware-zd1211; `/usr/share/boswas/firmware/index.tsv`.
+- **libfuse2t64** for AppImages built with the older runtime.
+- **Tests:** offline installation scenario (`--scenario install-offline`),
+  32-bit WinCompat checks in the VM, installer firmware stage, image checks
+  for firmware, sources, Android and Google components.
+- **Build:** the previous image is kept in `build/previous/<build ID>/`
+  instead of being deleted.
+
 ## [1.0~alpha3] - 2026-10-04 (Device Agent, Compatibility Manager, Control Plane, Boswas OS experience)
 
 ### Added

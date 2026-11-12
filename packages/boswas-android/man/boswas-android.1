@@ -1,0 +1,107 @@
+.TH BOSWAS-ANDROID 1 "November 2026" "boswas-android 1.0~alpha3" "Boswas OS"
+.SH NAME
+boswas-android \- manage the Android runtime and Android apps on Boswas OS
+.SH SYNOPSIS
+.B boswas-android
+.RB [ \-\-json ]
+.I command
+.RI [ arguments ]
+.SH DESCRIPTION
+.B boswas-android
+manages the optional Android runtime of Boswas OS (Waydroid, LineageOS
+without Google applications) and the Android apps in it. It runs as the
+desktop user. Steps that change the system (installing, setting up, updating,
+repairing or removing the runtime, starting or stopping its container service)
+are performed by
+.B /usr/libexec/boswas/sysops
+through
+.BR pkexec (1),
+which asks for authorisation.
+.PP
+The runtime is installed only when a user asks for it and never starts on its
+own; Android apps never start automatically.
+.SH COMMANDS
+.TP
+.B status
+Runtime installation and version, compatibility checks, whether the runtime is
+set up, Android image type and versions, container service, session, storage,
+network (waydroid0), graphics acceleration, and the Google Play assessment.
+.TP
+.B check
+Only the compatibility checks: binder driver, Wayland session, processor,
+kernel, graphics, free disk space and Secure Boot (PASS, WARN, FAIL, UNKNOWN).
+.TP
+.BI "apk inspect " FILE
+Describe an APK without running anything from it: package, name, version,
+SDK levels, native ABIs, split status, signing schemes and signer certificate
+SHA-256 fingerprints, and whether it can run here. Inspection does not show
+that an app is safe.
+.TP
+.BI "apk install " FILE
+Inspect, then install into the running Android session. APKs with native code
+only for ARM processors and split APKs are refused with an explanation.
+APKs are never modified or re-signed; Android verifies the signature.
+.TP
+.B app list
+Installed Android apps (package and name).
+.TP
+.BI "app launch " PACKAGE
+Start an app (starts Android if needed).
+.TP
+.BI "app remove " PACKAGE
+Uninstall an app; its launcher entry is removed.
+.TP
+.BR "session start" | stop
+Start or stop Android for this user.
+.TP
+.BR "runtime install" | init | update | repair | "remove " [ \-\-purge\-data ]
+Install Waydroid from its signed repository, download and verify the Android
+images (init), update them, repair the runtime, or remove it
+.RB ( \-\-purge\-data
+also deletes the images). Prints the progress of boswas-sysops; "cancel" on
+standard input or the first Ctrl+C cancels while nothing has been changed yet.
+.TP
+.BR "service start" | stop | restart
+The Android container service.
+.TP
+.B fdroid install
+Download the F-Droid client over HTTPS, require F-Droid's published signing
+certificate, and install it. F-Droid is an independent catalogue of free and
+open-source apps; it is not Google Play.
+.TP
+.B google-play
+Why Google Play is not available on Boswas OS, and the alternatives.
+.TP
+.BI "logs " "\fR[\fP" "\-\-lines " "N\fR]\fP"
+The Boswas Android log and the Waydroid log.
+.TP
+.BR cleanup " [" \-\-yes ]
+After the runtime was removed: delete your Android data and leftover Android
+launcher entries.
+.SH OPTIONS
+.TP
+.B \-\-json
+Print JSON (schema boswas-android/1); the runtime and service commands print
+the JSON Lines of boswas-sysops. Errors are printed as
+{"schema", "error": {"code", "message", "problems"}}.
+.SH EXIT STATUS
+0 done; 1 failed; 2 invalid argument or refused (incompatible APK, confirmation
+missing); 3 runtime not installed, not set up or not running; 6 this computer or
+session cannot run the runtime. The runtime and service commands exit with the
+status of boswas-sysops (126 or 127: not authorised).
+.SH FILES
+.TP
+.I /usr/share/boswas/android/runtime.conf
+Where the runtime comes from (repository, key fingerprint, allowed packages,
+image type, F-Droid URL and certificate).
+.TP
+.I /usr/share/boswas/keyrings/waydroid.gpg
+The Waydroid repository signing key.
+.TP
+.I ~/.local/state/boswas/android.log
+This command's own log.
+.TP
+.I /var/lib/waydroid/waydroid.log
+The Waydroid log.
+.SH SEE ALSO
+.BR pkexec (1)

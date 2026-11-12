@@ -1,0 +1,30 @@
+Source: boswas-android
+Section: otherosfs
+Priority: optional
+Maintainer: Boswas OS Platform Team <os-platform@boswas.invalid>
+Build-Depends: debhelper-compat (= 13), python3:any
+Standards-Version: 4.7.2
+Rules-Requires-Root: no
+
+Package: boswas-android
+Architecture: all
+Depends: python3 (>= 3.11),
+         ${misc:Depends}
+Description: Boswas OS Android runtime manager (Waydroid) and APK installer
+ Manages the optional Android runtime of Boswas OS and the Android apps in
+ it. The runtime itself (Waydroid, from the Waydroid project's signed
+ repository) is not part of this package: it is installed only when a user
+ chooses to, through the boswas-sysops helper, and never starts on its own.
+ .
+  * boswas-android status / check: runtime, compatibility (binder, Wayland,
+    processor, kernel, graphics, disk, Secure Boot), images, session,
+    storage, network and the Google Play assessment; --json output
+  * runtime install, init, update, repair, remove and service control,
+    each authorised through pkexec and boswas-sysops
+  * APK inspection (package, version, native ABIs, split APKs, signing
+    certificates) before anything is installed; ARM-only and split APKs are
+    refused with an explanation, and APKs are never modified or re-signed
+  * install, launch and remove Android apps; F-Droid on request
+ .
+ Google Play is not available: Boswas OS has no Google Mobile Services
+ licence and never downloads Google's apps.

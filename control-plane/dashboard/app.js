@@ -265,8 +265,8 @@
   /** Why a catalog entry cannot be installed (null when it can). */
   function installBlockReason(app) {
     if (!app || app.installable) return null;
-    if (app.architecture !== "x86_64" || app.support === "UNSUPPORTED_ARCHITECTURE") {
-      return "x86 / 32-bit — not supported by Boswas OS";
+    if (app.support === "UNSUPPORTED_ARCHITECTURE") {
+      return `${app.architecture_label || app.architecture} — not a Windows architecture Boswas OS runs`;
     }
     if (app.deprecated) return "deprecated in the catalog";
     if (app.support === "MISSING_DEPENDENCIES") return "needs extra dependencies — not installable";
@@ -462,7 +462,8 @@
       version: "1.0",
       publisher: "Publisher",
       runtime: { type: "wine", wineVersion: "10" },
-      architecture: "x86_64",
+      // From the installer's PE header (the catalog rejects a mismatch).
+      architecture: artifact && artifact.machine === "x86" ? "x86" : "x86_64",
       launch: "C:\\Program Files\\Publisher\\Application\\application.exe",
       status: "tested",
       installer,
@@ -1604,7 +1605,7 @@
           : h("span", { class: "muted" }, "Not in the catalog")),
       },
       { label: "State", cell: (a) => (a.app_state ? badge(a.app_state) : "—") },
-      { label: "Architecture", cell: (a) => (a.architecture === "x86" ? badge("UNSUPPORTED", "x86 / 32-bit") : a.architecture) },
+      { label: "Architecture", cell: (a) => (a.architecture ? machineLabel(a.architecture) : "—") },
       { label: "Installs", class: "num", cell: (a) => (a.installations === undefined ? "—" : String(a.installations)) },
       { label: "Running", class: "num", cell: (a) => String(a.running || 0) },
     ];
@@ -1808,8 +1809,8 @@
       { label: "Publisher", cell: (a) => a.publisher },
       { label: "Version", cell: (a) => a.version },
       {
-        label: "Architecture", cell: (a) => (a.architecture === "x86_64" ? a.architecture_label
-          : badge("UNSUPPORTED_ARCHITECTURE", a.architecture_label)),
+        label: "Architecture", cell: (a) => (a.support === "UNSUPPORTED_ARCHITECTURE"
+          ? badge("UNSUPPORTED_ARCHITECTURE", a.architecture_label) : a.architecture_label),
       },
       { label: "Support", cell: (a) => badge(a.support) },
       { label: "Catalog status", cell: (a) => badge(a.status) },
@@ -1838,8 +1839,8 @@
       { label: "SHA-256", cell: (a) => h("span", { class: "mono", title: a.sha256 }, shortHash(a.sha256)) },
       { label: "Type", cell: (a) => a.kind },
       {
-        label: "Windows architecture", cell: (a) => (a.machine === "x86"
-          ? badge("UNSUPPORTED_ARCHITECTURE", "x86 / 32-bit") : machineLabel(a.machine)),
+        label: "Windows architecture", cell: (a) => (a.machine && a.machine !== "x86_64" && a.machine !== "x86"
+          ? badge("UNSUPPORTED_ARCHITECTURE", machineLabel(a.machine)) : machineLabel(a.machine)),
       },
       { label: "Size", class: "num", cell: (a) => formatBytes(a.size) },
       { label: "Uploaded", cell: (a) => h("div", null, timeEl(a.uploaded_at), h("div", { class: "cell-sub" }, a.uploaded_by || "")) },
@@ -1852,7 +1853,7 @@
     }
     return page(
       pageHeader("Applications", "The catalog of Windows applications that can be managed on Boswas OS devices."),
-      alertBox("info", "Boswas OS runs 64-bit (x86_64) Windows applications only. 32-bit (x86) entries stay listed as unsupported and can never be installed."),
+      alertBox("info", "Boswas OS runs 64-bit (x86_64) and 32-bit (x86) Windows applications. A manifest's architecture must match its installer. A device whose 32-bit runtime (wine32:i386) was removed refuses x86 entries before downloading anything."),
       panel("Catalog", { wide: true }, dataTable("Application catalog", columns, list, "The catalog is empty.",
         (a) => (a.deprecated ? "row--muted" : null))),
       isAdmin ? uploadPanel(editor) : null,
@@ -1863,14 +1864,16 @@
 
   function uploadResult(artifact, editor) {
     const is32 = artifact.machine === "x86";
-    return alertBox(is32 ? "warn" : "ok", `Stored ${artifact.file_name}`,
+    const unsupported = Boolean(artifact.machine) && !["x86_64", "x86"].includes(artifact.machine);
+    return alertBox(unsupported ? "warn" : "ok", `Stored ${artifact.file_name}`,
       facts([
         ["SHA-256", h("span", { class: "mono wrap-anywhere" }, artifact.sha256)],
         ["Size", formatBytes(artifact.size)],
         ["Type", artifact.kind],
         ["Windows architecture", machineLabel(artifact.machine)],
       ]),
-      is32 ? h("p", null, "This is a 32-bit (x86) installer. Boswas OS runs 64-bit Windows applications only; a catalog entry for it is listed as unsupported and cannot be installed.") : null,
+      is32 ? h("p", null, "This is a 32-bit (x86) installer: its manifest must declare \"architecture\": \"x86\". It runs on devices with the 32-bit Windows runtime (wine32:i386, part of Boswas OS).") : null,
+      unsupported ? h("p", null, `This installer is a ${machineLabel(artifact.machine)} Windows program. Boswas OS runs x86_64 and x86 Windows applications only; a catalog entry for it cannot be installed.`) : null,
       h("div", { class: "button-row" }, copyButton(artifact.sha256, "Copy SHA-256"),
         button("Start a manifest for this installer", () => editor.load(manifestTemplate(artifact)), { kind: "small" })));
   }

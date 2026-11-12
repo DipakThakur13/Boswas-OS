@@ -1,0 +1,210 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!--
+  Boswas OS: one polkit action per boswas-sysops operation.
+
+  pkexec picks the action whose exec.path is the helper and whose exec.argv1
+  is the operation, so each operation is authorised separately. Read-only
+  operations are allowed for the active local session; everything that
+  changes the system needs an administrator (auth_admin_keep). Remote and
+  inactive sessions get nothing. Generated from boswas_sysops/cli.py
+  OPERATIONS; tests/test_policy.py keeps both in step.
+-->
+<policyconfig>
+  <vendor>Boswas Group</vendor>
+  <icon_name>boswas-logo</icon_name>
+
+  <action id="com.boswas.sysops.apt-refresh">
+    <description>Refresh the list of available software and updates</description>
+    <message>Authentication is required to refresh the list of available software.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/boswas/sysops</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">apt-refresh</annotate>
+  </action>
+
+  <action id="com.boswas.sysops.apt-upgrade">
+    <description>Install software updates</description>
+    <message>Authentication is required to install software updates.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/boswas/sysops</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">apt-upgrade</annotate>
+  </action>
+
+  <action id="com.boswas.sysops.apt-install">
+    <description>Install software from the configured repositories</description>
+    <message>Authentication is required to install software.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/boswas/sysops</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">apt-install</annotate>
+  </action>
+
+  <action id="com.boswas.sysops.apt-remove">
+    <description>Remove installed software</description>
+    <message>Authentication is required to remove software.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/boswas/sysops</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">apt-remove</annotate>
+  </action>
+
+  <action id="com.boswas.sysops.apt-install-local">
+    <description>Install a software package from a local file</description>
+    <message>Authentication is required to install a package from a file. Its origin is not verified by a signed repository.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/boswas/sysops</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">apt-install-local</annotate>
+  </action>
+
+  <action id="com.boswas.sysops.apt-clean">
+    <description>Remove downloaded software package files</description>
+    <message>Authentication is required to clean the software package cache.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/boswas/sysops</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">apt-clean</annotate>
+  </action>
+
+  <action id="com.boswas.sysops.journal-vacuum">
+    <description>Reduce the size of the system journal</description>
+    <message>Authentication is required to clean the system journal.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/boswas/sysops</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">journal-vacuum</annotate>
+  </action>
+
+  <action id="com.boswas.sysops.firmware-report">
+    <description>Report missing hardware firmware</description>
+    <message>Authentication is required to read the kernel messages.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/boswas/sysops</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">firmware-report</annotate>
+  </action>
+
+  <action id="com.boswas.sysops.flatpak-remote-enable">
+    <description>Enable an approved Flatpak remote</description>
+    <message>Authentication is required to add a Flatpak remote.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/boswas/sysops</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">flatpak-remote-enable</annotate>
+  </action>
+
+  <action id="com.boswas.sysops.flatpak-remote-disable">
+    <description>Disable a Flatpak remote</description>
+    <message>Authentication is required to remove a Flatpak remote.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/boswas/sysops</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">flatpak-remote-disable</annotate>
+  </action>
+
+  <action id="com.boswas.sysops.android-runtime-install">
+    <description>Install the Android runtime</description>
+    <message>Authentication is required to install the Android runtime.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/boswas/sysops</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">android-runtime-install</annotate>
+  </action>
+
+  <action id="com.boswas.sysops.android-runtime-remove">
+    <description>Remove the Android runtime</description>
+    <message>Authentication is required to remove the Android runtime.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/boswas/sysops</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">android-runtime-remove</annotate>
+  </action>
+
+  <action id="com.boswas.sysops.android-init">
+    <description>Download and set up the Android system</description>
+    <message>Authentication is required to set up the Android system.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/boswas/sysops</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">android-init</annotate>
+  </action>
+
+  <action id="com.boswas.sysops.android-update">
+    <description>Update the Android system</description>
+    <message>Authentication is required to update the Android system.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/boswas/sysops</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">android-update</annotate>
+  </action>
+
+  <action id="com.boswas.sysops.android-repair">
+    <description>Repair the Android runtime</description>
+    <message>Authentication is required to repair the Android runtime.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/boswas/sysops</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">android-repair</annotate>
+  </action>
+
+  <action id="com.boswas.sysops.android-service">
+    <description>Start or stop the Android runtime</description>
+    <message>Authentication is required to start or stop the Android runtime.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/boswas/sysops</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">android-service</annotate>
+  </action>
+
+</policyconfig>

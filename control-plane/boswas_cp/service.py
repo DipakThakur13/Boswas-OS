@@ -6,8 +6,9 @@ Commands: typed operations built by the Control Plane itself (an operator
 names an application, the payload comes from the catalog), validated with
 the same code the device uses, idempotent, expiring, audited.
 Catalog: manifests validated by boswas-compat's validator, installers stored
-as content-addressed artifacts; 32-bit entries are UNSUPPORTED_ARCHITECTURE
-and can never become an install command.
+as content-addressed artifacts; a manifest's architecture (x86_64 or x86)
+must match its installer's PE header. Each device decides again from its own
+runtime (x86 needs wine32:i386) before it downloads anything.
 Policies: versioned, validated and signed; devices pull the latest version
 of the policy assigned to them.
 Audit: every security-relevant action becomes an event in the hash-chained
@@ -50,6 +51,9 @@ _PROFILE_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 _OPERATOR_RE = re.compile(r"^[a-z][a-z0-9._-]{1,31}$")
 _FILE_RE = re.compile(r"^[^\\/:*?\"<>|\x00-\x1f]{1,255}$")
 
+
+# Windows architectures Boswas OS devices run (x86 with wine32:i386, ADR-0022).
+ARCHITECTURE_LABELS = {"x86_64": "x86_64 / 64-bit", "x86": "x86 / 32-bit"}
 
 class ServiceError(Exception):
     status = 400
@@ -799,11 +803,11 @@ class ControlPlane:
         artifact = self.store.one("SELECT * FROM artifacts WHERE sha256 = ?", (sha,))
         if artifact is None:
             raise unprocessable("ARTIFACT_MISSING", "upload the installer first (POST /api/v1/artifacts)")
-        if manifest.architecture == "x86_64" and artifact["machine"] not in (None, "x86_64"):
+        if artifact["machine"] not in (None, manifest.architecture):
             raise unprocessable("ARCHITECTURE_MISMATCH",
                                 f"the installer is a {artifact['machine']} Windows program, but the manifest declares "
-                                "x86_64; Boswas OS runs 64-bit Windows applications only")
-        if manifest.architecture != "x86_64":
+                                f"{manifest.architecture}")
+        if manifest.architecture not in ARCHITECTURE_LABELS:
             support = "UNSUPPORTED_ARCHITECTURE"
         elif manifest.dependencies or manifest.winetricks:
             support = "MISSING_DEPENDENCIES"
@@ -832,8 +836,9 @@ class ControlPlane:
 
     def _application_view(self, row: dict) -> dict:
         return {"app_id": row["app_id"], "name": row["name"], "publisher": row["publisher"], "version": row["version"],
-                "architecture": row["architecture"], "architecture_label": "x86_64 / 64-bit" if row["architecture"] ==
-                "x86_64" else "x86 / 32-bit (not supported)", "status": row["status"], "support": row["support"],
+                "architecture": row["architecture"],
+                "architecture_label": ARCHITECTURE_LABELS.get(row["architecture"], f"{row['architecture']} (not supported)"),
+                "status": row["status"], "support": row["support"],
                 "installable": row["support"] == "SUPPORTED" and row["status"] != "blocked" and not row["deprecated"],
                 "installer": {"sha256": row["installer_sha256"], "file_name": row["installer_file_name"]},
                 "manifest": json.loads(row["manifest"]), "deprecated": bool(row["deprecated"]),

@@ -234,14 +234,21 @@ class CommandTests(ControlPlaneCase):
                          "NOT_IN_CATALOG")
         self.assertEqual(self.store.one("SELECT COUNT(*) AS n FROM commands")["n"], 0)
 
-    def test_32_bit_catalog_entries_never_become_commands(self):
+    def test_32_bit_catalog_entries_are_installable(self):
         app = self.catalog_app(app_id="com.legacy.app", machine=0x14C, architecture="x86")
-        self.assertEqual((app["support"], app["installable"]), ("UNSUPPORTED_ARCHITECTURE", False))
-        self.assertEqual(app["architecture_label"], "x86 / 32-bit (not supported)")
-        self.assertEqual(code_of(lambda: self.create(type="INSTALL_APPLICATION", application_id="com.legacy.app")),
-                         "UNSUPPORTED_ARCHITECTURE")
+        self.assertEqual((app["support"], app["installable"]), ("SUPPORTED", True))
+        self.assertEqual(app["architecture_label"], "x86 / 32-bit")
+        command, created = self.create(type="INSTALL_APPLICATION", application_id="com.legacy.app")
+        self.assertTrue(created)
+        self.assertEqual((command["status"], command["payload"]["installer"]["sha256"]),
+                         ("QUEUED", app["installer"]["sha256"]))
+
+    def test_manifest_architecture_must_match_the_installer_header(self):
+        # A 32-bit installer declared as x86_64, and a 64-bit installer declared as x86.
         self.assertEqual(code_of(lambda: self.catalog_app(app_id="com.liar.app", machine=0x14C)),
                          "ARCHITECTURE_MISMATCH")
+        self.assertEqual(code_of(lambda: self.catalog_app(app_id="com.liar64.app", machine=0x8664,
+                                                          architecture="x86")), "ARCHITECTURE_MISMATCH")
 
     def test_idempotency_and_duplicates(self):
         a, created_a = self.create(type="REFRESH_INVENTORY", idempotency_key="nightly-1")

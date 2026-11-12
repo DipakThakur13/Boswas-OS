@@ -1,9 +1,12 @@
 /*
- * Boswas WinCompat test application (64-bit Windows console program).
+ * Boswas WinCompat test application (Windows console program).
  *
- * Built from source by tests/compatibility/build_fixtures.sh with MinGW-w64;
- * no binary is committed. Used by the image integration test and the QEMU
- * boot test to exercise boswas-winapp end to end:
+ * Built from source by tests/compatibility/build_fixtures.sh with MinGW-w64,
+ * as a 64-bit (x86_64, PE32+) and a 32-bit (x86, PE32) program; no binary is
+ * committed. Used by the image integration test and the QEMU boot test to
+ * exercise boswas-winapp end to end. The application prints
+ * "BOSWAS-TESTAPP ARCH <x86_64|x86> WOW64 <yes|no>" so a test can see which
+ * build ran and that a 32-bit build ran as a WoW64 process:
  *
  *   boswas-testapp.exe /S                 "installer": copies itself to
  *                                         C:\Program Files\Boswas Test App\
@@ -156,6 +159,15 @@ int main(int argc, char **argv)
 		return install();
 
 	printf("BOSWAS-TESTAPP OK (variant %d)\n", BOSWAS_VARIANT);
+	/* What actually ran: the compiled architecture, and whether Windows
+	 * (Wine) runs it as a 32-bit process on 64-bit Windows (WoW64). */
+	BOOL wow64 = FALSE;
+	IsWow64Process(GetCurrentProcess(), &wow64);
+#ifdef _WIN64
+	printf("BOSWAS-TESTAPP ARCH x86_64 WOW64 %s\n", wow64 ? "yes" : "no");
+#else
+	printf("BOSWAS-TESTAPP ARCH x86 WOW64 %s\n", wow64 ? "yes" : "no");
+#endif
 	fflush(stdout);
 	record_run();
 	for (int i = 1; i < argc; i++) {

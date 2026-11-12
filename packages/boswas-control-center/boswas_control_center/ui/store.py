@@ -26,6 +26,8 @@ class Result:
 
 class Store(QObject):
     changed = Signal(str)
+    # Keys only ever filled by put(): results of operations the user started (never loaded on page show).
+    LOCAL = frozenset({"firmware"})
 
     def __init__(self, backend, runner, parent: QObject | None = None):
         super().__init__(parent)
@@ -48,10 +50,24 @@ class Store(QObject):
             "updates": backend.updates,
             "kcms": backend.kcm_availability,
             "programs": backend.program_availability,
+            # Read-only data of the functional pages (never a privileged operation).
+            "upgradable": backend.upgradable,
+            "android": backend.android_status,
+            "android_apps": backend.android_apps,
+            "flatpak": backend.flatpak,
+            "appimages": backend.appimages,
+            "pci": backend.pci,
+            "usb": backend.usb,
+            "disks": backend.disks,
+            "thumbnails": backend.thumbnails,
+            "network": backend.network,
+            "load": backend.load,
         }
         self._results: dict[str, Result] = {}
 
     def request(self, key: str, force: bool = False) -> None:
+        if key in self.LOCAL:
+            return                       # filled by put() only
         if key not in self.loaders:
             raise KeyError(key)
         if (key in self._results and not force) or self.runner.busy(f"store:{key}"):
@@ -64,6 +80,10 @@ class Store(QObject):
     def _set(self, key: str, result: Result) -> None:
         self._results[key] = result
         self.changed.emit(key)
+
+    def put(self, key: str, value: object) -> None:
+        """Store a value a page obtained itself (for example the firmware report of an operation)."""
+        self._set(key, Result(True, value))
 
     def get(self, key: str) -> Result | None:
         return self._results.get(key)

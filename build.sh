@@ -146,16 +146,20 @@ BOSWAS_CONFIG_HASH="$(config_hash)"
 BOSWAS_LIVE_BUILD_VERSION="$lb_version"
 EOF
 
-# 3. live-build tree -----------------------------------------------------------------
+# 3. Firmware index (which Debian package ships which firmware file) ------------------
+log "firmware index (Debian non-free-firmware Contents)"
+"$BOSWAS_REPO_ROOT/build/scripts/firmware-index.sh" "$WORK/firmware-index.tsv" "$CACHE/boswas-contents"
+
+# 4. live-build tree -----------------------------------------------------------------
 lbdir="$WORK/lb"
 if [ -d "$lbdir/chroot" ]; then
 	log "cleaning previous live-build state"
 	(cd "$lbdir" && lb clean noauto >/dev/null 2>&1) || true
 fi
-"$BOSWAS_REPO_ROOT/build/scripts/prepare-live-config.sh" "$lbdir" "$WORK/debs" "$image_info"
+"$BOSWAS_REPO_ROOT/build/scripts/prepare-live-config.sh" "$lbdir" "$WORK/debs" "$image_info" "$WORK/firmware-index.tsv"
 ln -sfn "$CACHE" "$lbdir/cache"
 
-# 4. live-build ---------------------------------------------------------------------------
+# 5. live-build ---------------------------------------------------------------------------
 export BOSWAS_BASE_CODENAME BOSWAS_ARCH BOSWAS_IMAGE_TAG
 export BOSWAS_ISO_VOLUME="BOSWAS_OS_$(echo "$BOSWAS_IMAGE_TAG" | tr 'a-z-' 'A-Z_')"
 log "lb config"
@@ -166,9 +170,21 @@ log "lb build (this takes a while: bootstrap, ~1400 packages, squashfs, ISO)"
 iso_src="$lbdir/Boswas-OS-${BOSWAS_IMAGE_TAG}-${BOSWAS_ARCH}.hybrid.iso"
 [ -s "$iso_src" ] || die "live-build finished but produced no ISO ($iso_src)"
 
-# 5. Artifacts ------------------------------------------------------------------------------
+# 6. Artifacts ------------------------------------------------------------------------------
 iso="$OUT/${BOSWAS_IMAGE_BASENAME}.iso"
 log "collecting artifacts into build/output/"
+# The previous image is kept, not deleted, until the new one has passed
+# ./test.sh: build/previous/<its build ID>/ (one generation; images promoted
+# by hand to build/known-good/ are never touched).
+if [ -s "$OUT/${BOSWAS_IMAGE_BASENAME}.iso" ]; then
+	prev_id="$(sed -n 's/^Build ID: *//p' "$OUT/${BOSWAS_IMAGE_BASENAME}.manifest.txt" 2>/dev/null | head -1)"
+	prev_dir="$BOSWAS_REPO_ROOT/build/previous/${prev_id:-unknown-build}"
+	rm -rf "$BOSWAS_REPO_ROOT/build/previous"
+	mkdir -p "$prev_dir"
+	mv "$OUT/${BOSWAS_IMAGE_BASENAME}".* "$prev_dir/"
+	mv "$OUT"/boswas-control-plane_*.deb "$prev_dir/" 2>/dev/null || true
+	log "previous image kept in build/previous/$(basename "$prev_dir")/"
+fi
 rm -f "$OUT/${BOSWAS_IMAGE_BASENAME}".* "$OUT"/boswas-control-plane_*.deb
 cp "$iso_src" "$iso"
 (cd "$OUT" && sha256sum "$(basename "$iso")" > "${BOSWAS_IMAGE_BASENAME}.sha256")
@@ -187,18 +203,19 @@ python3 "$BOSWAS_REPO_ROOT/build/scripts/generate-manifest.py" \
 	--set "debootstrap=$(dpkg-query -W -f='${Version}' debootstrap)" \
 	--set "builder=${BOSWAS_BUILDER_IMAGE:-native $(. /etc/os-release && echo "$PRETTY_NAME")}"
 
-# 6. Clean temporary state -------------------------------------------------------------
+# 7. Clean temporary state -------------------------------------------------------------
 if $keep_work; then
 	log "keeping work tree in $lbdir (--keep-work)"
 else
 	log "removing live-build chroot and binary trees (package cache kept in $CACHE)"
 	(cd "$lbdir" && lb clean noauto >/dev/null 2>&1) || true
 	safe_rm_tree "$lbdir"
-	rm -rf "$WORK/debs" "$image_info"
+	rm -rf "$WORK/debs" "$image_info" "$WORK/firmware-index.tsv"
 fi
 
 if [ -n "${BOSWAS_HOST_UID:-}" ]; then
-	chown -R "$BOSWAS_HOST_UID:${BOSWAS_HOST_GID:-$BOSWAS_HOST_UID}" "$OUT" "$LOGS" "$MANIFESTS" 2>/dev/null || true
+	chown -R "$BOSWAS_HOST_UID:${BOSWAS_HOST_GID:-$BOSWAS_HOST_UID}" "$OUT" "$LOGS" "$MANIFESTS" \
+		"$BOSWAS_REPO_ROOT/build/previous" 2>/dev/null || true
 fi
 
 ok "ISO:       build/output/$(basename "$iso") ($(du -h "$iso" | cut -f1))"

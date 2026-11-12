@@ -27,6 +27,7 @@ done < <(find build packages desktop tests control-plane -name '*.py' -not -path
 	printf '%s\n' packages/boswas-cli/bin/boswas packages/boswas-compat/bin/boswas-winapp \
 		packages/boswas-device-agent/bin/boswas-device packages/boswas-device-agent/bin/boswas-device-agent \
 		packages/boswas-device-agent/bin/boswas-session-agent packages/boswas-compat-manager/bin/boswas-compat-manager \
+		packages/boswas-sysops/bin/sysops packages/boswas-android/bin/boswas-android \
 		control-plane/bin/boswas-cp)
 [ -z "$pyfail" ] && pass "Python sources parse" || fail "Python syntax errors:$pyfail"
 
@@ -37,7 +38,9 @@ for cl in packages/*/debian/changelog control-plane/debian/changelog; do
 	[ "$v" = "$BOSWAS_VERSION_ID" ] || mismatch="$mismatch $(basename "$(dirname "$(dirname "$cl")")")=$v"
 done
 for mod in packages/boswas-cli:boswas_cli packages/boswas-compat:boswas_compat \
-	packages/boswas-device-agent:boswas_agent packages/boswas-compat-manager:boswas_manager control-plane:boswas_cp; do
+	packages/boswas-device-agent:boswas_agent packages/boswas-compat-manager:boswas_manager control-plane:boswas_cp \
+	packages/boswas-control-center:boswas_control_center packages/boswas-sysops:boswas_sysops \
+	packages/boswas-android:boswas_android; do
 	v="$(python3 -B -c 'import sys; sys.path.insert(0, sys.argv[1]); print(__import__(sys.argv[2]).__version__)' \
 		"${mod%%:*}" "${mod#*:}" 2>/dev/null)"
 	[ "$v" = "$BOSWAS_VERSION_ID" ] || mismatch="$mismatch ${mod#*:}=$v"
@@ -87,9 +90,14 @@ fi
 # keeps its denials and grants nothing that escapes confinement.
 profile=compatibility/policies/apparmor/boswas-winapp
 loader="$(sed -n 's/^WINE_LOADER="\(.*\)"/\1/p' compatibility/wine/runtime.conf)"
+loader32="$(sed -n 's/^WINE_LOADER32="\(.*\)"/\1/p' compatibility/wine/runtime.conf)"
 server="$(sed -n 's/^WINE_SERVER="\(.*\)"/\1/p' compatibility/wine/runtime.conf)"
-check "AppArmor profile grants exactly the runtime's Wine loader and server" \
-	bash -c "grep -qF '$loader mrix,' '$profile' && grep -qF '$server mrix,' '$profile'"
+check "AppArmor profile grants exactly the runtime's Wine loaders (64-bit, 32-bit) and server" \
+	bash -c "[ -n '$loader32' ] && grep -qF '$loader mrix,' '$profile' && grep -qF '$loader32 mrix,' '$profile' &&
+		grep -qF '$server mrix,' '$profile'"
+wine_exec="$(grep -E '^[[:space:]]*/usr/lib/wine/[^ ]+ [a-z]*x[a-z]*,' "$profile" | awk '{ print $1 }' | sort | tr '\n' ' ')"
+check "AppArmor profile executes only the two loaders, wineserver64 and the wineserver wrapper (no preloaders, no wineserver32)" \
+	test "$wine_exec" = "/usr/lib/wine/wine /usr/lib/wine/wine64 /usr/lib/wine/wineserver /usr/lib/wine/wineserver64 "
 check "runner path agrees between profile, code and package" \
 	bash -c "grep -q 'profile boswas-winapp /usr/lib/boswas/compat/winapp-exec ' '$profile' && grep -q 'RUNNER = \"/usr/lib/boswas/compat/winapp-exec\"' packages/boswas-compat/boswas_compat/paths.py && grep -q 'usr/lib/boswas/compat/winapp-exec' packages/boswas-compat/debian/rules"
 for rule in 'deny capability,' 'deny mount,' 'deny pivot_root,' 'deny userns,' 'deny dbus,' 'audit deny @{HOME}/** rwklmx,' 'audit deny /home/** rwklmx,' 'deny /etc/machine-id r,' 'deny @{sys}/devices/**/net/** r,' 'deny @{sys}/devices/virtual/dmi/** r,'; do
@@ -105,22 +113,31 @@ check_not "AppArmor profile lets nothing in the prefix run as a Linux program" \
 check "Windows code never starts as root (runner refuses unless confined; tool refuses root)" \
 	bash -c "grep -q 'boswas-winapp (enforce)' compatibility/runners/winapp-exec && grep -q 'os.geteuid() == 0' packages/boswas-compat/boswas_compat/ops.py"
 
-# 64-bit only (ADR-0014, final for v1): x86_64 runtime, no 32-bit Wine, no i386.
-check "Wine runtime declares x86_64 only" grep -qx 'ARCHITECTURES="x86_64"' compatibility/wine/runtime.conf
-check_not "no wine32, i386 or WoW64 package in the image manifest" \
-	grep -rqiE '^[[:space:]]*[^#]*(wine32|:i386|wow64)' config/live-build/config/package-lists
-check_not "no i386 multiarch in build scripts and hooks" \
-	grep -rqE 'add-architecture|architectures?[[:space:]=]+"?i386' build.sh build/scripts build/container \
-	config/live-build/auto config/live-build/config/hooks config/live-build/config/package-lists
-check "32-bit refusals use the product message" python3 -B -c '
+# 64-bit and 32-bit Windows applications (ADR-0022, supersedes ADR-0014): the
+# runtime declares both; the only i386 package the manifest names is wine32
+# (its i386 libraries follow as dependencies); i386 is enabled by live-build
+# from that entry, never by build scripts or hooks; the OS itself stays amd64.
+check "Wine runtime declares x86_64 and x86" grep -qx 'ARCHITECTURES="x86_64 x86"' compatibility/wine/runtime.conf
+check "the image manifest installs wine32 from the i386 architecture" \
+	grep -rqx 'wine32:i386' config/live-build/config/package-lists
+check_not "no other i386 package is named in the image manifest" \
+	bash -c "grep -rhE '^[^#]*:i386' config/live-build/config/package-lists | grep -vx 'wine32:i386' | grep -q ."
+check_not "no WoW64 or wine32 preloader package in the image manifest" \
+	grep -rqiE '^[[:space:]]*[^#]*(wow64|wine32-preloader|wine64-preloader)' config/live-build/config/package-lists
+check_not "the image architecture stays amd64 (no i386 base, no add-architecture in scripts and hooks)" \
+	grep -rqE 'add-architecture|--architecture[[:space:]]+"?i386|BOSWAS_ARCH="i386"' build.sh build/scripts \
+	build/container config/live-build/auto config/live-build/config/hooks config/boswas/release.conf
+check "32-bit refusals (wine32 missing) use the product message" python3 -B -c '
 import sys
 sys.path.insert(0, "packages/boswas-compat")
 from boswas_compat import UNSUPPORTED_32BIT_MESSAGE as m
-assert m == "This application requires 32-bit Windows compatibility, which is not supported by Boswas OS."'
+assert m == "This application requires 32-bit Windows compatibility, which is not installed on this system."'
 
 # Device management: no remote shell, no shell execution, no Boswas ID.
 pysrc=(packages/boswas-compat/boswas_compat packages/boswas-device-agent/boswas_agent
-	packages/boswas-compat-manager/boswas_manager control-plane/boswas_cp)
+	packages/boswas-compat-manager/boswas_manager control-plane/boswas_cp
+	packages/boswas-control-center/boswas_control_center packages/boswas-sysops/boswas_sysops
+	packages/boswas-android/boswas_android)
 check_not "no shell execution primitives in the Boswas Python components (shell=True, os.system, os.popen, eval, exec)" \
 	grep -rqE 'shell=True|os\.system\(|os\.popen\(|[^_.a-z]eval\(|[^_.a-z]exec\(' "${pysrc[@]}"
 check_not "no shell-like remote command type" \

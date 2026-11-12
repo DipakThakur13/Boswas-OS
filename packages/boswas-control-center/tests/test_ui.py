@@ -267,6 +267,38 @@ class PersonalizationTest(UiTestCase):
         self.assertIn([E["boswas-preset"], "apply", "classic", "--layout"],
                       self.rig.commands.ran_program("boswas-preset"))
 
+    def test_reset_to_default_applies_the_default_preset_with_its_layout_after_asking(self):
+        # The fixture list has no "horizon": the reset is disabled and says why.
+        w = self.window()
+        page = w.page("personalization")
+        self.assertFalse(page.reset_button.isEnabled())
+        self.assertIn("not installed", page.reset_button.toolTip())
+        # With the default preset installed.
+        doc = fx.preset_doc(self.rig.root)
+        doc["presets"].append({"id": "horizon", "name": "Horizon", "description": "The Boswas OS default.",
+                               "variant": "dark", "accent": "#D9B26E", "preview": None})
+        self.rig.commands.outputs[(E["boswas-preset"], "--json", "list")] = fx.completed(json.dumps(doc))
+        w2 = self.window()
+        page = w2.page("personalization")
+        self.assertTrue(page.reset_button.isEnabled())
+        self.answer = False
+        page.reset_button.click()
+        self.settle(w2)
+        self.assertEqual(len(self.questions), 1)
+        self.assertIn("panels", self.questions[0][1])
+        self.assertFalse(any(c[1] == "apply" for c in self.rig.commands.ran_program("boswas-preset")))
+        self.answer = True
+        page.reset_button.click()
+        self.settle(w2)
+        self.assertIn([E["boswas-preset"], "apply", "horizon", "--layout"], self.rig.commands.ran_program("boswas-preset"))
+        self.assertEqual(page.banner.level, "ok")
+
+    def test_default_preset_matches_the_shipped_presets(self):
+        shipped = json.loads((Path(__file__).resolve().parents[3] / "desktop/presets/presets.json").read_text())
+        self.assertEqual(shipped["default"], vm.DEFAULT_PRESET)
+        names = {p["id"]: p["name"] for p in shipped["presets"]}
+        self.assertEqual(names[vm.DEFAULT_PRESET], vm.DEFAULT_PRESET_NAME)
+
     def test_apply_failure(self):
         self.rig.commands.outputs[(E["boswas-preset"], "apply", "classic")] = fx.completed("", 2, "theme missing")
         w = self.window()
@@ -430,14 +462,18 @@ class ApplicationsPageTest(UiTestCase):
 
     def test_store_note(self):
         page = self.show(self.window(), "applications")
-        self.assertIn("Boswas Store", page.store_note.text.text())
+        self.assertIn("signed repositories", page.store_note.text.text())
+        self.assertIn("Compatibility Manager", page.store_note.text.text())
 
 
 class StatusPagesTest(UiTestCase):
     def test_windows_page(self):
         w = self.window()
         page = self.show(w, "windows")
-        self.assertEqual(page.grid.value("Supported applications"), "x86_64 / 64-bit Windows applications only")
+        self.assertEqual(page.grid.value("Supported applications"),
+                         "64-bit (x86_64) and 32-bit (x86) Windows applications")
+        self.assertIn("32-bit (x86)", page.note.text())
+        self.assertNotIn("applications only", page.note.text())
         self.assertEqual(page.grid.value("Installed applications"), "2")
         page.open_button.click()
         self.settle(w)

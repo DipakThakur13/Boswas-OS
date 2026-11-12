@@ -1,0 +1,10 @@
+#!/usr/bin/python3 -IB
+"""Boswas OS Android runtime manager (Waydroid, APKs). See boswas-android(1)."""
+
+import sys
+
+sys.path.insert(0, "/usr/lib/boswas/python")
+
+from boswas_android.cli import main  # noqa: E402
+
+sys.exit(main())

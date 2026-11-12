@@ -329,6 +329,10 @@ restricting it remains an open item (roadmap).
 
 ## ADR-0014 Boswas OS v1 runs 64-bit Windows applications only (final)
 
+> **Superseded by ADR-0022 (2026-11-12):** the product owner asked for 32-bit
+> Windows application support; Boswas OS now ships `wine32:i386`. The text
+> below is kept as the record of the earlier decision.
+
 **Decision (final for v1, confirmed with 1.0~alpha3).**
 
 - **Runtime:** WinCompat ships Debian's `wine64` only. There is no `wine32`,
@@ -565,3 +569,140 @@ able to install a policy.
 - **Least privilege:** the GUI runs as the user with no privileges at all.
 - **Testable without a desktop:** the UI is tested against a fake backend,
   and the backend is tested without a GUI.
+
+## ADR-0022 64-bit and 32-bit Windows applications (wine32 from i386 multiarch)
+
+Supersedes ADR-0014 (product owner request, 2026-11-12).
+
+**Decision.**
+
+- **Runtime:** Debian 13's Wine 10.0. `libwine:amd64` contains only
+  `x86_64-windows` modules, so the 64-bit package cannot run 32-bit programs
+  (no new-style WoW64 in this build). Boswas OS therefore installs `wine32`
+  from the **i386** architecture (dpkg multiarch, enabled by live-build from
+  the `wine32:i386` package-list entry). The operating system stays amd64:
+  kernel, userland and every other package are 64-bit; i386 is the only
+  foreign architecture and only Wine's 32-bit side and its libraries use it.
+  The preloaders (`wine*-preloader`) are not installed.
+- **One loader, one prefix:** the sandbox always starts `/usr/lib/wine/wine64`;
+  for a 32-bit program Wine itself starts `/usr/lib/wine/wine`
+  (`WINELOADER` without its "64" suffix) in the same win64 prefix
+  (`C:\Windows\SysWOW64`). Per-application prefixes, bubblewrap and the
+  `boswas-winapp` AppArmor profile are unchanged; the profile gains exactly
+  one rule (`/usr/lib/wine/wine mrix`).
+- **Architecture from the header only:** `boswas-winapp` reads the COFF
+  machine field and cross-checks the optional-header magic (x86 = PE32,
+  x86_64/arm64 = PE32+). Inconsistent headers, DLLs, non-executable images,
+  scripts and text files are refused with the reason. The file name never
+  matters.
+- **When wine32 is missing** (an administrator removed it): x86 is reported
+  unavailable at every start, and 32-bit software is refused with *"This
+  application requires 32-bit Windows compatibility, which is not installed
+  on this system."* plus the package name.
+- **Fleet:** the Control Plane accepts x86 catalog entries whose installer
+  really is x86; each device decides again from its own runtime before it
+  downloads anything.
+
+**Why.** Many business applications and installers are still 32-bit. Debian's
+multiarch Wine is the packaged, security-supported way to run them on
+Debian 13. Cost: about 1 GB more installed software (libwine:i386 alone is
+623 MB) and a second library stack to keep updated. Debian security updates
+cover it, and the build records the ISO size.
+
+## ADR-0023 Installer firmware from the medium; installation needs no network
+
+**Decision.**
+
+- **Firmware pool:** `lb config --firmware-binary true`. The ISO carries
+  every Debian firmware package under `/firmware` with `Contents-firmware`
+  and DEP-11 modalias patterns, the same layout as Debian's official media.
+  hw-detect loads missing firmware from it before the network is configured,
+  and installs the packages it used on the target.
+- **Required firmware:** `config/boswas/firmware-required.list` lists the
+  firmware that must reach both the installer and the image: common
+  Ethernet, Wi-Fi, Bluetooth, GPU and audio, including the reported
+  `rtl_nic/rtl8125b-2.fw`. The build fails if any file cannot be loaded
+  from the medium (`0150-boswas-firmware.hook.binary`) or is missing from
+  the image (`0100-boswas-verify.hook.chroot`). The live image's own
+  firmware list grows by firmware-cirrus, bnx2, bnx2x, libertas and zd1211.
+- **No network during installation:** `apt-setup/use_mirror false` and no
+  security/updates services. Every package is on the medium, and an
+  unreachable mirror can no longer stop an installation.
+  `/usr/lib/boswas/installer/finish-install` (late_command) writes
+  signature-verified Debian sources (deb822, `Signed-By` the Debian archive
+  keyring, including security and non-free-firmware) when none are
+  configured. It also removes the live medium's unsigned pool and writes
+  `/var/log/boswas/install-report.txt`.
+- **Firmware index:** `/usr/share/boswas/firmware/index.tsv` (built from
+  Debian's Contents indices) names the package for a firmware file a driver
+  could not load (`boswas-sysops firmware-report`).
+- **Known limitation (inherited from Debian):** the installer cannot load
+  `firmware-sof-signed` (Intel SOF audio DSP). Its preinst calls
+  `dpkg-maintscript-helper`, which Debian Installer lacks, so hw-detect
+  discards the package. Audio is not needed to install, and the installed
+  system has the package. The list marks these entries `# image-only`, and
+  the installer test reports them as a limitation, not a pass.
+- **Not done:** pruning irrelevant packages (switch ASICs, datacenter GPU
+  firmware, about 95 MB) from the pool. live-build already generated the
+  pool's APT index, and the saving is about 3 %.
+
+**Why.** The installer is a separate system with its own kernel and initrd.
+Without the pool it cannot satisfy a firmware request, and Ethernet firmware
+cannot come from the internet that the same Ethernet is supposed to reach.
+Root cause and evidence: `docs/reports/2026-11-12-baseline-audit.md`.
+
+## ADR-0024 One narrowly scoped privileged helper (boswas-sysops)
+
+**Decision.** System changes requested from the desktop go through
+`pkexec /usr/libexec/boswas/sysops <operation> [arguments]` only:
+
+- a fixed set of operations (APT refresh/upgrade/install/remove/local .deb,
+  cleanup, firmware report, Flatpak remotes, Android runtime), each its own
+  polkit action (`exec.argv1`). Read-only operations need no password;
+  everything else needs administrator authentication (`auth_admin_keep`);
+- validated arguments, no shell, signed repositories only (never
+  `--allow-unauthenticated`), protected and excluded packages refused;
+- JSON Lines progress and exactly one result line. Cancellation is honoured
+  only before anything is changed. Exit codes are fixed. Every call is logged
+  to `/var/log/boswas/sysops.log`.
+
+Contract: `docs/architecture/platform-contracts.md`. Control Center and
+`boswas-android` run as the user and call it. PackageKit and Discover stay
+excluded (ADR-0003).
+
+**Why.** Least privilege. The GUI never runs as root, there is no general
+root command executor, and each operation can be reviewed, tested and
+authorized on its own.
+
+## ADR-0025 Android applications through Waydroid, opt-in; Google Play not offered
+
+**Decision.**
+
+- **Runtime:** Waydroid (LineageOS, x86_64 images). It is the maintained
+  runtime for Plasma on Wayland, and Debian's signed kernel has binder as a
+  module (`binder_linux`, loads under Secure Boot lockdown; legacy device
+  nodes via `options binder_linux devices=binder,hwbinder,vndbinder`). No
+  kernel change and no unsigned module are needed.
+- **Opt-in after installation:** the image contains only the manager
+  (`boswas-android`). On request, `boswas-sysops android-runtime-install`
+  enables the Waydroid project's APT repository with its pinned keyring
+  (fingerprint checked; APT pin lets through only the four Waydroid
+  packages), installs Waydroid, and hides Waydroid's own launcher and APK
+  handler (which offer Google Apps images and skip Boswas's checks).
+  `android-init` downloads **VANILLA** images only, verified by Waydroid's
+  checksums. Nothing starts at boot.
+- **APKs:** inspected before installation (manifest, ABIs, split packages,
+  signer certificate). ARM-only apps are refused, because no
+  redistributable ARM translation exists. Android verifies signatures;
+  Boswas never re-signs or modifies an APK.
+- **Google Play: not offered.** Google Mobile Services are licensed by Google
+  only to makers of Play Protect certified devices. Boswas OS has no licence
+  and Waydroid is not certified. Waydroid's GAPPS images redistribute
+  Google's apps without that licence. Boswas never downloads them, never
+  works around certification or Play Integrity, and never asks for Google
+  credentials. The alternatives are F-Droid (labelled as F-Droid, client
+  signer certificate pinned) and local APK files. A licensed source would be
+  a new decision.
+
+**Why.** A real, maintained Android runtime without changing the kernel or
+weakening Secure Boot, and an honest position on Google Play.

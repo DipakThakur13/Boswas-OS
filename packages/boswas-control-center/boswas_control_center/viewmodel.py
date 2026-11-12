@@ -21,9 +21,11 @@ from datetime import datetime, timezone, tzinfo
 
 # --- fixed texts -------------------------------------------------------------------------------------
 
-WINDOWS_SUPPORT = "x86_64 / 64-bit Windows applications only"
-STORE_NOTE = ("Installing new software arrives with the Boswas Store in a later release of Boswas OS. "
-              "Windows applications can already be installed with the Compatibility Manager.")
+WINDOWS_SUPPORT = "64-bit and 32-bit (x86) Windows applications"
+WINDOWS_ARCH_LABELS = {"x86_64": "64-bit (x86_64)", "x86": "32-bit (x86)", "arm64": "ARM64"}
+STORE_NOTE = ("Install Linux software from Debian's signed repositories, Flatpak applications from remotes your "
+              "administrator enabled, and AppImages. Windows applications are installed with the Compatibility "
+              "Manager, Android apps on the Android page.")
 SESSION_UNAVAILABLE = ("The Boswas session service is not running, so Windows applications cannot be listed. "
                        "It starts automatically when you log in; log out and back in if this does not change.")
 AGENT_UNAVAILABLE = "The Boswas device agent is not running, so device management information is not available."
@@ -37,10 +39,10 @@ INSTALL_POINTS = (
     "boot menu.",
 )
 INSTALL_BOOT_HINT = "When the boot menu appears, choose “Install Boswas OS”."
-UPDATES_AUTOMATIC = ("Security updates are downloaded and installed automatically in the background. "
-                     "This release has no manual updater; there is nothing you need to do.")
-UPDATES_OFF = ("Automatic security updates are turned off on this device. Contact your administrator: "
-               "this release has no manual updater.")
+UPDATES_AUTOMATIC = ("Security updates are downloaded and installed automatically in the background. You can also "
+                     "check for updates and install them now.")
+UPDATES_OFF = ("Automatic security updates are turned off on this device. Check for updates and install them "
+               "below, or contact your administrator.")
 NEVER_COLLECTED = ("Boswas OS never collects keystrokes, screen contents, your files or browsing history, the "
                    "commands you type, or which applications you start.")
 
@@ -510,11 +512,31 @@ class WindowsView:
     summary: Summary
     rows: list[tuple[str, str]]
     app_count: int | None
+    support: str = WINDOWS_SUPPORT
+
+
+def windows_architectures(system: object) -> list[str]:
+    """The Windows architectures the runtime reports (session agent system.status), [] when unknown."""
+    doc = _dict(system)
+    values = doc.get("windows_architectures")
+    if not isinstance(values, list):
+        values = _dict(doc.get("runtime")).get("architectures")
+    return [v for v in values if isinstance(v, str) and v in WINDOWS_ARCH_LABELS] if isinstance(values, list) else []
+
+
+def windows_support(architectures: list[str]) -> str:
+    """"64-bit (x86_64) and 32-bit (x86) Windows applications" from the reported architectures."""
+    if not architectures:
+        return WINDOWS_SUPPORT
+    labels = [WINDOWS_ARCH_LABELS[a] for a in architectures]
+    text = labels[0] if len(labels) == 1 else ", ".join(labels[:-1]) + " and " + labels[-1]
+    return f"{text} Windows applications" + (" only" if len(labels) == 1 else "")
 
 
 def windows_view(system: object, system_error: str | None, apps: object, apps_error: str | None,
                  agent: object = None, loading: bool = False) -> WindowsView:
     count = len([a for a in apps if isinstance(a, dict)]) if isinstance(apps, list) else None
+    support = windows_support(windows_architectures(system))
     if not isinstance(system, dict):
         healthy = _dict(agent).get("runtime_healthy") if agent_running(agent) else None
         if loading and not system_error:
@@ -528,9 +550,9 @@ def windows_view(system: object, system_error: str | None, apps: object, apps_er
         else:
             summary = Summary(UNAVAILABLE, "Windows compatibility status is not available",
                               SESSION_UNAVAILABLE if system_error else "")
-        rows = [("Supported applications", WINDOWS_SUPPORT),
+        rows = [("Supported applications", support),
                 ("Installed applications", str(count) if count is not None else "Not available")]
-        return WindowsView(summary, rows, count)
+        return WindowsView(summary, rows, count, support)
     runtime = _dict(system.get("runtime"))
     wine = _dict(runtime.get("wine"))
     bubblewrap = _dict(runtime.get("bubblewrap"))
@@ -545,7 +567,7 @@ def windows_view(system: object, system_error: str | None, apps: object, apps_er
         summary = Summary(WARNING, "The runtime needs attention",
                           sentence(problem) if problem else "Open the Compatibility Manager for details.")
     rows = [
-        ("Supported applications", WINDOWS_SUPPORT),
+        ("Supported applications", support),
         ("Installed applications", str(count) if count is not None else
          ("Not available" if apps_error else "Checking…")),
         ("Wine", one_line(wine.get("version"), 60) or "Available" if wine.get("available") is True else "Missing"),
@@ -554,7 +576,7 @@ def windows_view(system: object, system_error: str | None, apps: object, apps_er
         ("Confinement", APPARMOR_MODE_LABELS.get(mode, "Unknown")),
         ("Policy", "Managed by your organisation" if policy.get("managed") is True else "Local"),
     ]
-    return WindowsView(summary, rows, count)
+    return WindowsView(summary, rows, count, support)
 
 
 def windows_line(view: WindowsView | None) -> str:
@@ -562,7 +584,7 @@ def windows_line(view: WindowsView | None) -> str:
         return "Not checked yet"
     if view.summary.state == SECURE:
         apps = "" if view.app_count is None else f", {_plural(view.app_count, 'application')} installed"
-        return f"Runtime healthy{apps} (x86_64, 64-bit only)"
+        return f"Runtime healthy{apps} ({view.support})"
     return view.summary.headline
 
 
@@ -1063,6 +1085,8 @@ def filter_apps(items: list[AppItem], text: object) -> list[AppItem]:
 # --- presets (boswas-preset --json list) ----------------------------------------------------------------
 
 PRESET_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
+# The image's default preset ("default" in desktop/presets/presets.json; a test keeps them equal).
+DEFAULT_PRESET, DEFAULT_PRESET_NAME = "horizon", "Boswas Horizon"
 _ACCENT_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 PREVIEW_SUFFIXES = (".png", ".jpg", ".jpeg", ".svg", ".webp")
 VARIANT_LABELS = {"light": "Light", "dark": "Dark"}

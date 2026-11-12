@@ -1,11 +1,12 @@
-"""Boswas Software Center: the installed applications in one searchable list.
+"""Boswas Software Center: installed applications, and installing Linux software.
 
-Three groups: Boswas applications (desktop entries com.boswas.*), Windows
-applications (the session agent's apps.list) and the other applications
-(XDG desktop entries visible in KDE). Native and Boswas applications open
-with `kstart --application <desktop id>`; Windows applications are managed
-in the Compatibility Manager and never started from here. Installing new
-software is not possible here: it arrives with the Boswas Store.
+Installed: three groups in one searchable list, Boswas applications (desktop
+entries com.boswas.*), Windows applications (the session agent's apps.list)
+and the other applications (XDG desktop entries visible in KDE). Native and
+Boswas applications open with `kstart --application <desktop id>`; Windows
+applications are managed in the Compatibility Manager and never started from
+here. The other tabs (software_tabs.py) install Debian packages, Flatpak
+applications and AppImages, and route a chosen file to the right installer.
 """
 
 from __future__ import annotations
@@ -13,12 +14,14 @@ from __future__ import annotations
 from PySide6.QtCore import QRect, QRectF, QSize, Qt
 from PySide6.QtGui import QFont, QFontMetrics, QIcon, QPainter, QPalette
 from PySide6.QtWidgets import (QAbstractItemView, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-                               QPushButton, QStyle, QStyledItemDelegate, QWidget)
+                               QPushButton, QStyle, QStyledItemDelegate, QTabWidget, QVBoxLayout, QWidget)
 
 from .. import viewmodel as vm
 from ..catalog import COMPAT_MANAGER
 from .base import Page
 from .common import SP, Badge, Card, MessageBanner, icon, mix, muted_label, plain_label, scaled_font, title_label
+from .jobs import JobPanel
+from .software_tabs import AppImageTab, FileTab, FlatpakTab, LinuxTab
 
 KIND, PAYLOAD = Qt.ItemDataRole.UserRole, Qt.ItemDataRole.UserRole + 1
 HEADER, APP, NOTE = "header", "app", "note"
@@ -184,25 +187,39 @@ class DetailPanel(Card):
 
 
 class ApplicationsPage(Page):
-    data_keys = ("desktop_apps", "windows_apps")
+    data_keys = ("desktop_apps", "windows_apps", "flatpak", "appimages")
+    TABS = ("installed", "linux", "flatpak", "appimage", "file")
 
     def build(self) -> None:
         self.message = MessageBanner(parent=self.content)
         self.body.addWidget(self.message)
+        self.panel = JobPanel(self.info.key, self.window_.jobs, self.content)
+        self.body.addWidget(self.panel)
+        self.tabs = QTabWidget(self.content)
+        self.tabs.setAccessibleName("Software Center sections")
+        installed = QWidget(self.tabs)
+        installed_layout = QVBoxLayout(installed)
+        installed_layout.setContentsMargins(4, 10, 4, 4)
+        installed_layout.setSpacing(12)
         search_row = QHBoxLayout()
-        self.search = QLineEdit(self.content)
+        self.search = QLineEdit(installed)
         self.search.setPlaceholderText("Search applications (Ctrl+F)")
         self.search.setClearButtonEnabled(True)
         self.search.setAccessibleName("Search applications")
         self.search.addAction(icon("search", "edit-find", fallback=SP.SP_FileDialogContentsView),
                               QLineEdit.ActionPosition.LeadingPosition)
-        self.count = muted_label("", wrap=False, parent=self.content)
+        self.count = muted_label("", wrap=False, parent=installed)
+        self.updates_button = QPushButton("Check for Updates", installed)
+        self.updates_button.setIcon(icon("system-software-update", fallback=SP.SP_BrowserReload))
+        self.updates_button.setAccessibleDescription("Opens the Boswas Update Center")
+        self.updates_button.clicked.connect(lambda: self.window_.show_page("updates"))
         search_row.addWidget(self.search, 1)
         search_row.addWidget(self.count)
-        self.body.addLayout(search_row)
+        search_row.addWidget(self.updates_button)
+        installed_layout.addLayout(search_row)
         row = QHBoxLayout()
         row.setSpacing(14)
-        list_card = Card(parent=self.content, margins=6, spacing=0)
+        list_card = Card(parent=installed, margins=6, spacing=0)
         self.list = AppList(list_card)
         self.list.setItemDelegate(AppDelegate(self.list))
         self.list.setFrameShape(QListWidget.Shape.NoFrame)
@@ -214,15 +231,27 @@ class ApplicationsPage(Page):
         self.list.setAccessibleName("Installed applications")
         self.list.setMinimumHeight(380)
         list_card.addWidget(self.list)
-        self.detail = DetailPanel(self.content)
+        self.detail = DetailPanel(installed)
         row.addWidget(list_card, 1)
         row.addWidget(self.detail, 0, Qt.AlignmentFlag.AlignTop)
-        self.body.addLayout(row)
-        note = MessageBanner(closable=False, parent=self.content)
+        installed_layout.addLayout(row)
+        note = MessageBanner(closable=False, parent=installed)
         note.show_message("info", vm.STORE_NOTE)
         self.store_note = note
-        self.body.addWidget(note)
+        installed_layout.addWidget(note)
+        self.linux_tab = LinuxTab(self, self.tabs)
+        self.flatpak_tab = FlatpakTab(self, self.tabs)
+        self.appimage_tab = AppImageTab(self, self.tabs)
+        self.file_tab = FileTab(self, self.tabs)
+        for widget, title in ((installed, "Installed"), (self.linux_tab, "Linux Packages"),
+                              (self.flatpak_tab, "Flatpak"), (self.appimage_tab, "AppImages"),
+                              (self.file_tab, "Install from File")):
+            self.tabs.addTab(widget, title)
+        self.install_tabs = (self.linux_tab, self.flatpak_tab, self.appimage_tab, self.file_tab)
+        self.tabs.currentChanged.connect(self._tab_changed)
+        self.body.addWidget(self.tabs)
         self.add_modules()
+        self.window_.jobs.changed.connect(self._update_tab_buttons)
         self.items: dict[str, vm.AppItem] = {}
         self.groups: dict[str, list[vm.AppItem]] = {}
         self.search.textChanged.connect(self.populate)
@@ -238,6 +267,20 @@ class ApplicationsPage(Page):
         self.groups = vm.application_groups(apps.value if apps is not None and apps.ok else [],
                                             windows.value if windows is not None and windows.ok else [])
         self.populate()
+        self.flatpak_tab.refresh()
+        self.appimage_tab.refresh()
+        self._update_tab_buttons()
+
+    def show_tab(self, key: str) -> None:
+        self.tabs.setCurrentIndex(self.TABS.index(key))
+
+    def _tab_changed(self, index: int) -> None:
+        if 0 < index <= len(self.install_tabs):
+            self.install_tabs[index - 1].refresh()
+
+    def _update_tab_buttons(self) -> None:
+        for tab in self.install_tabs:
+            tab.update_buttons()
 
     def _windows_note(self, items: list) -> str:
         windows = self.store.get("windows_apps")
@@ -311,6 +354,7 @@ class ApplicationsPage(Page):
         return False
 
     def focus_search(self) -> None:
+        self.tabs.setCurrentIndex(0)
         self.search.setFocus(Qt.FocusReason.ShortcutFocusReason)
         self.search.selectAll()
 

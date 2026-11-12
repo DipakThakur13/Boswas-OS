@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Device management as shipped in the image: device agent, session agent,
-# Compatibility Manager; no Control Plane; 64-bit only; no identity baked in.
+# Compatibility Manager; no Control Plane; 64-bit and 32-bit Windows runtime;
+# no identity baked in.
 set -uo pipefail
 . "$(dirname "$0")/../lib.sh"
 
@@ -10,9 +11,10 @@ root="${TESTWORK:?}/rootfs"
 check "boswas-device-agent installed" pkg_installed "$root" boswas-device-agent
 check "boswas-compat-manager installed" pkg_installed "$root" boswas-compat-manager
 check_not "the Control Plane is not part of the device image" pkg_installed "$root" boswas-control-plane
-check_not "no 32-bit Wine (wine32) in the image" pkg_installed "$root" wine32
-check "no foreign dpkg architectures (no i386 multiarch)" \
-	bash -c "[ -z \"\$(chroot '$root' dpkg --print-foreign-architectures)\" ]"
+check "32-bit Wine (wine32:i386) in the image, for 32-bit Windows applications" pkg_installed "$root" wine32
+check "the only foreign dpkg architecture is i386 (multiarch for wine32; the system stays amd64)" \
+	bash -c "[ \"\$(chroot '$root' dpkg --print-foreign-architectures | tr '\n' ' ')\" = 'i386 ' ] &&
+		[ \"\$(chroot '$root' dpkg --print-architecture)\" = amd64 ]"
 
 check "boswas-device-agent.service enabled" \
 	bash -c "[ \"\$(chroot '$root' systemctl is-enabled boswas-device-agent.service 2>/dev/null)\" = enabled ]"

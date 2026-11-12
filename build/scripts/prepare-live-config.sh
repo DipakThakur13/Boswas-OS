@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # Assemble the live-build working tree for one build.
 #
-# Usage: prepare-live-config.sh WORK_DIR DEB_DIR IMAGE_INFO_FILE
+# Usage: prepare-live-config.sh WORK_DIR DEB_DIR IMAGE_INFO_FILE [FIRMWARE_INDEX]
 #
 # Copies config/live-build into WORK_DIR and adds everything generated per
 # build: the Boswas .debs, rendered boot/installer branding, the installer
-# preseed and /usr/lib/boswas/image-info. The repository is never modified.
+# preseed, /usr/lib/boswas/image-info and the firmware index
+# (/usr/share/boswas/firmware/index.tsv, from build/scripts/firmware-index.sh).
+# The repository is never modified.
 set -euo pipefail
 # shellcheck source=build/scripts/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -13,6 +15,7 @@ set -euo pipefail
 work="${1:?usage: prepare-live-config.sh WORK_DIR DEB_DIR IMAGE_INFO_FILE}"
 debs="${2:?missing DEB_DIR}"
 image_info="${3:?missing IMAGE_INFO_FILE}"
+firmware_index="${4:-}"
 scripts="$BOSWAS_REPO_ROOT/build/scripts"
 
 safe_rm_tree "$work"
@@ -51,5 +54,11 @@ done
 
 # Image build metadata, readable on every device (boswas info)
 install -D -m 0644 "$image_info" "$work/config/includes.chroot_after_packages/usr/lib/boswas/image-info"
+
+# Firmware index: which Debian package ships which firmware file (boswas-sysops firmware-report)
+if [ -n "$firmware_index" ]; then
+	[ -s "$firmware_index" ] || die "firmware index $firmware_index is missing or empty"
+	install -D -m 0644 "$firmware_index" "$work/config/includes.chroot_after_packages/usr/share/boswas/firmware/index.tsv"
+fi
 
 ok "live-build tree prepared in $work"

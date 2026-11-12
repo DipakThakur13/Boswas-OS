@@ -1,0 +1,34 @@
+Source: boswas-sysops
+Section: admin
+Priority: optional
+Maintainer: Boswas OS Platform Team <os-platform@boswas.invalid>
+Build-Depends: debhelper-compat (= 13), python3:any
+Standards-Version: 4.7.2
+Rules-Requires-Root: no
+
+Package: boswas-sysops
+Architecture: all
+Depends: apt,
+         pkexec,
+         polkitd,
+         python3 (>= 3.11),
+         ${misc:Depends}
+Suggests: flatpak
+Description: Boswas OS privileged helper for software, updates and runtimes
+ The one privileged component behind Boswas Control Center's software,
+ update, storage, hardware and Android pages. Started through pkexec as
+ /usr/libexec/boswas/sysops <operation>, it performs a fixed set of
+ operations, each with its own polkit action:
+ .
+  * APT: refresh, upgrade, install and remove packages from the configured,
+    signature-verified repositories; install a local .deb (device policy)
+  * cleanup: package cache, system journal
+  * a read-only report of firmware the kernel could not find
+  * approved Flatpak remotes
+  * the Android runtime (Waydroid): install, initialise, update, repair,
+    start and stop, from the Waydroid repository with its key pinned
+ .
+ It is never setuid, never a daemon, never runs a shell or an arbitrary
+ command, refuses changes that would install software excluded by Boswas
+ policy or remove protected packages, and reports progress and results as
+ JSON Lines.

@@ -1,0 +1,111 @@
+#!/bin/sh
+# Boswas OS: last step of an installation.
+#
+# Run by the Debian Installer at the end of the installation (preseed
+# late_command, "in-target": inside the installed system, as root). Shipped
+# by boswas-os as /usr/lib/boswas/installer/finish-install.
+#
+#  1. Removes the live medium's package pool from the APT sources: it is
+#     unsigned ("trusted=yes") and only meant for the live session.
+#  2. Makes sure the system has signature-verified Debian package sources.
+#     The installer does not use a network mirror (the image contains every
+#     package, so installing needs no internet), which leaves no active
+#     source; without one, security updates, firmware updates and the
+#     application manager could not work. Sources an administrator configured
+#     (preseeded mirror) are kept.
+#  3. Writes /var/log/boswas/install-report.txt: build, firmware the installer
+#     loaded, firmware packages installed, package sources.
+#
+# Problems are reported and logged but do not fail the installation: the
+# system is fully installed and bootable at this point. Exit status 0 means
+# every step succeeded; 1 means at least one step needs attention (the report
+# says which); the Debian Installer then shows an error and the logs.
+set -u
+
+REPORT_DIR=/var/log/boswas
+REPORT="$REPORT_DIR/install-report.txt"
+SOURCES_TEMPLATE=/usr/share/boswas/apt/debian.sources
+SOURCES_TARGET=/etc/apt/sources.list.d/debian.sources
+LIVE_POOL='file:/run/live/medium'
+problems=0
+
+log() {
+	echo "boswas-finish-install: $*"
+	logger -t boswas-finish-install -- "$*" 2>/dev/null || true
+}
+
+problem() {
+	problems=$((problems + 1))
+	log "PROBLEM: $*"
+	echo "PROBLEM: $*" >> "$REPORT"
+}
+
+mkdir -p "$REPORT_DIR" && chmod 0750 "$REPORT_DIR"
+: > "$REPORT" && chmod 0640 "$REPORT"
+
+# --- 1. live medium pool ----------------------------------------------------------------
+for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list; do
+	[ -f "$f" ] || continue
+	if grep -q "$LIVE_POOL" "$f"; then
+		if sed -i -e "\\#$LIVE_POOL#d" "$f"; then
+			log "removed the live medium's unsigned package pool from $f"
+		else
+			problem "could not remove the live medium's package pool from $f"
+		fi
+	fi
+done
+
+# --- 2. signature-verified package sources --------------------------------------------------
+active_sources() {
+	grep -hsE '^[[:space:]]*deb[[:space:]]' /etc/apt/sources.list /etc/apt/sources.list.d/*.list
+	for s in /etc/apt/sources.list.d/*.sources; do
+		[ -f "$s" ] || continue
+		# deb822: a stanza is active unless it says Enabled: no
+		grep -qiE '^Types:([[:space:]]+[a-z-]+)*[[:space:]]+deb([[:space:]]|$)' "$s" &&
+			! grep -qiE '^Enabled:[[:space:]]*no' "$s" && echo "$s"
+	done
+}
+if [ -n "$(active_sources)" ]; then
+	log "keeping the package sources configured during installation"
+elif [ ! -s "$SOURCES_TEMPLATE" ]; then
+	problem "no package sources are configured and $SOURCES_TEMPLATE is missing"
+elif install -m 0644 "$SOURCES_TEMPLATE" "$SOURCES_TARGET"; then
+	log "wrote signature-verified Debian package sources to $SOURCES_TARGET"
+else
+	problem "could not write $SOURCES_TARGET"
+fi
+
+# --- 3. installation report -------------------------------------------------------------------
+{
+	echo "Boswas OS installation report"
+	echo "Date (UTC):   $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+	if [ -r /usr/lib/boswas/image-info ]; then
+		sed -n 's/^BOSWAS_BUILD_ID="\(.*\)"$/Build ID:     \1/p; s/^BOSWAS_VERSION="\(.*\)"$/Version:      \1/p' \
+			/usr/lib/boswas/image-info
+	fi
+	echo "Kernel:       $(uname -r) (installer environment)"
+	echo
+	echo "Firmware loaded by the installer (package, component, reason):"
+	if [ -s /var/log/installer/firmware-summary ]; then
+		sed 's/^/  /' /var/log/installer/firmware-summary
+	else
+		echo "  none (no device requested firmware that was missing)"
+	fi
+	echo
+	echo "Firmware packages installed:"
+	dpkg-query -W -f='  ${Package} ${Version}\n' 'firmware-*' 'intel-microcode' 'amd64-microcode' 2>/dev/null \
+		|| echo "  (dpkg-query failed)"
+	echo
+	echo "Package sources:"
+	active_sources | sed 's/^/  /'
+	[ -n "$(active_sources)" ] || echo "  NONE (updates cannot be installed until a source is configured)"
+	echo
+	echo "Installer logs: /var/log/installer/ (syslog, partman, hardware-summary)"
+} >> "$REPORT" 2>&1
+
+if [ "$problems" -gt 0 ]; then
+	log "finished with $problems problem(s); see $REPORT"
+	exit 1
+fi
+log "finished; report: $REPORT"
+exit 0

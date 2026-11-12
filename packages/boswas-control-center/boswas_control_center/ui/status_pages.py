@@ -1,10 +1,10 @@
-"""Windows Compatibility, Boswas Update Center and Privacy.
+"""Windows Compatibility and Privacy.
 
-Windows Compatibility reads the session agent (system.status, apps.list)
-and opens the Compatibility Manager; it never starts Wine or a Windows
-application. The Update Center reads APT's periodic settings and stamps
-(read-only) and explains that updates install automatically. Privacy shows
-what the device agent may send, from its configuration and status.
+Windows Compatibility reads the session agent (system.status, apps.list),
+including the Windows architectures the runtime supports, and opens the
+Compatibility Manager; it never starts Wine or a Windows application.
+Privacy shows what the device agent may send, from its configuration and
+status. (The Update Center is in updates.py.)
 """
 
 from __future__ import annotations
@@ -33,9 +33,8 @@ class WindowsPage(Page):
         self.grid = InfoGrid(self.details)
         self.details.addWidget(self.grid)
         self.body.addWidget(self.details)
-        note = muted_label("Boswas OS runs x86_64 (64-bit) Windows applications only. Each application runs in its "
-                           "own sandbox and can reach only the folders it was granted.", parent=self.content)
-        self.body.addWidget(note)
+        self.note = muted_label("", parent=self.content)
+        self.body.addWidget(self.note)
 
     def view(self) -> vm.WindowsView:
         system, apps, agent = (self.store.get(k) for k in self.data_keys)
@@ -50,41 +49,10 @@ class WindowsPage(Page):
         view = self.view()
         self.summary.set_summary(view.summary)
         self.grid.set_rows(view.rows)
+        self.note.setText(f"Boswas OS runs {view.support[0].lower() + view.support[1:]}. Each application runs in "
+                          "its own sandbox and can reach only the folders it was granted.")
         programs = self.store.value("programs") or {}
         self.open_button.setEnabled(programs.get("compat-manager", True))
-
-
-class UpdatesPage(Page):
-    data_keys = ("updates", "agent_config", "live")
-
-    def build(self) -> None:
-        self.summary = SummaryCard(self.content)
-        self.body.addWidget(self.summary)
-        self.details = Card("Details", self.content)
-        self.grid = InfoGrid(self.details)
-        self.details.addWidget(self.grid)
-        self.body.addWidget(self.details)
-        self.log_card = Card("Recent automatic updates", self.content)
-        self.log = plain_label("", wrap=True, selectable=True, parent=self.log_card)
-        self.log_note = muted_label("", parent=self.log_card)
-        self.log_card.addWidget(self.log)
-        self.log_card.addWidget(self.log_note)
-        self.body.addWidget(self.log_card)
-
-    def render(self) -> None:
-        result = self.store.get("updates")
-        if result is None:
-            self.summary.set_summary(vm.Summary(vm.CHECKING, "Reading the update settings…", ""))
-            return
-        settings = vm.device_settings(self.store.value("agent_config"))
-        view = vm.updates_view(result.value if result.ok else None, settings.get("UPDATE_POLICY"),
-                               self.store.value("live") is True)
-        self.summary.set_summary(view.summary)
-        self.grid.set_rows(view.rows)
-        self.log.setText("\n".join(view.log_lines))
-        self.log.setVisible(bool(view.log_lines))
-        self.log_note.setText(view.log_note)
-        self.log_note.setVisible(bool(view.log_note))
 
 
 class PrivacyPage(Page):
