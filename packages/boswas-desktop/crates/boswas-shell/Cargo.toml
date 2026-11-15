@@ -10,6 +10,8 @@ publish.workspace = true
 
 [dependencies]
 boswas-ui = { workspace = true, features = ["text", "icons", "images"] }
+boswas-services.workspace = true
+toml = { version = "0.8", default-features = false, features = ["parse"] }
 serde.workspace = true
 serde_json.workspace = true
 tiny-skia.workspace = true

@@ -263,6 +263,23 @@ impl Canvas {
         self.pixmap.draw_pixmap(0, 0, source.as_ref(), &paint, transform, None);
     }
 
+    /// Fills a rounded rectangle with a picture: `placement` maps the
+    /// picture's pixels to logical pixels of this canvas. What lies outside
+    /// the picture repeats its edge.
+    #[allow(clippy::too_many_arguments)]
+    pub fn fill_rounded_rect_pixmap(&mut self, x: f32, y: f32, w: f32, h: f32, radii: Corners, source: &Pixmap, placement: Transform) {
+        let Some(path) = rounded_rect_path(x, y, w, h, radii) else {
+            return;
+        };
+        let paint = Paint {
+            shader: tiny_skia::Pattern::new(source.as_ref(), SpreadMode::Pad, FilterQuality::Bilinear, 1.0, placement),
+            anti_alias: true,
+            ..Paint::default()
+        };
+        self.pixmap
+            .fill_path(&path, &paint, FillRule::Winding, self.transform(), None);
+    }
+
     /// Blends one premultiplied source pixel over the canvas (device pixels).
     /// Out-of-bounds coordinates are ignored.
     #[inline]

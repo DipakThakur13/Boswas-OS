@@ -112,6 +112,21 @@ impl Background {
         self.set_picture(picture);
     }
 
+    /// A reduced rendering of the background for an output of `width` x
+    /// `height` logical pixels: what the materials are blurred from.
+    pub fn reduced(&self, theme: &Theme, width: f32, height: f32) -> Option<Pixmap> {
+        let scale = (320.0 / width.max(1.0)).min(1.0);
+        let mut canvas = Canvas::new(width, height, scale)?;
+        match &self.picture {
+            Some(picture) => {
+                canvas.clear(theme.background);
+                draw_picture(&mut canvas, picture);
+            }
+            None => draw_default(&mut canvas, theme),
+        }
+        Some(canvas.into_pixmap())
+    }
+
     /// Fills the canvas with the background.
     pub fn paint(&mut self, canvas: &mut Canvas, theme: &Theme) {
         let (pw, ph) = canvas.pixel_size();

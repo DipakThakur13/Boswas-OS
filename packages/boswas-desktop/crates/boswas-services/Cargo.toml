@@ -14,6 +14,12 @@ serde_json.workspace = true
 tracing.workspace = true
 zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
 zeroize = "1"
+# The four crates below are what zbus itself is built on (same versions in
+# Cargo.lock): each service thread runs one small executor of its own.
+async-channel = "2"
+async-executor = "1"
+async-io = "2"
+futures-lite = { version = "2", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 tempfile = "3"

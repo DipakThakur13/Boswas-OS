@@ -26,7 +26,19 @@ pub struct App {
     pub keywords: Vec<String>,
     /// `StartupWMClass`, when the window's app id differs from the file id.
     pub wm_class: String,
+    /// The entry's additional actions ("New Window", "New Private Window").
+    pub actions: Vec<DesktopAction>,
 }
+
+/// A `[Desktop Action ...]` group of a desktop entry.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DesktopAction {
+    pub name: String,
+    pub exec: Vec<String>,
+}
+
+/// Most actions kept per entry.
+const MAX_ACTIONS: usize = 8;
 
 impl App {
     /// Whether a window with this app id belongs to this application.
@@ -96,18 +108,32 @@ fn read_capped(path: &Path) -> Option<String> {
 /// applications, are not meant for this desktop, or cannot be started.
 pub fn parse_entry(id: &str, text: &str, locale: &str) -> Option<App> {
     let mut fields: HashMap<&str, &str> = HashMap::new();
+    // (group id, fields) of each "Desktop Action" group, in file order.
+    let mut action_groups: Vec<(&str, HashMap<&str, &str>)> = Vec::new();
     let mut in_entry = false;
+    let mut in_action = false;
     for line in text.lines() {
         let line = line.trim();
         if line.starts_with('[') {
             in_entry = line == "[Desktop Entry]";
+            in_action = false;
+            if let Some(name) = line.strip_prefix("[Desktop Action ").and_then(|l| l.strip_suffix(']')) {
+                action_groups.push((name.trim(), HashMap::new()));
+                in_action = true;
+            }
             continue;
         }
-        if !in_entry || line.starts_with('#') {
+        if line.starts_with('#') {
             continue;
         }
         if let Some((key, value)) = line.split_once('=') {
-            fields.entry(key.trim()).or_insert(value.trim());
+            if in_entry {
+                fields.entry(key.trim()).or_insert(value.trim());
+            } else if in_action {
+                if let Some((_, group)) = action_groups.last_mut() {
+                    group.entry(key.trim()).or_insert(value.trim());
+                }
+            }
         }
     }
     let flag = |key: &str| fields.get(key).is_some_and(|v| v.eq_ignore_ascii_case("true"));
@@ -146,6 +172,28 @@ pub fn parse_entry(id: &str, text: &str, locale: &str) -> Option<App> {
     if name.is_empty() {
         return None;
     }
+    // Only the actions the entry lists in `Actions` count.
+    let listed = lists("Actions");
+    let lang = locale.split(['.', '@']).next().unwrap_or("");
+    let short = lang.split('_').next().unwrap_or("");
+    let actions = action_groups
+        .iter()
+        .filter(|(group, _)| listed.contains(group))
+        .filter_map(|(_, group)| {
+            let name = [lang, short]
+                .iter()
+                .filter(|l| !l.is_empty())
+                .find_map(|l| group.get(format!("Name[{l}]").as_str()).copied())
+                .or_else(|| group.get("Name").copied())
+                .map(unescape)
+                .filter(|n| !n.is_empty())?;
+            Some(DesktopAction {
+                name,
+                exec: parse_exec(group.get("Exec")?)?,
+            })
+        })
+        .take(MAX_ACTIONS)
+        .collect();
     Some(App {
         id: id.to_owned(),
         name,
@@ -155,6 +203,7 @@ pub fn parse_entry(id: &str, text: &str, locale: &str) -> Option<App> {
         terminal: flag("Terminal"),
         keywords: lists("Keywords").into_iter().map(str::to_lowercase).collect(),
         wm_class: fields.get("StartupWMClass").map(|v| unescape(v)).unwrap_or_default(),
+        actions,
     })
 }
 
@@ -235,7 +284,7 @@ pub fn parse_exec(exec: &str) -> Option<Vec<String>> {
     (!args.is_empty()).then_some(args)
 }
 
-fn program_exists(program: &str) -> bool {
+pub fn program_exists(program: &str) -> bool {
     if program.contains('/') {
         return Path::new(program).is_file();
     }
@@ -245,7 +294,7 @@ fn program_exists(program: &str) -> bool {
 }
 
 /// How well an application matches a search; lower is better.
-fn match_rank(app: &App, query: &str) -> Option<u8> {
+pub fn match_rank(app: &App, query: &str) -> Option<u8> {
     let name = app.name.to_lowercase();
     if name.starts_with(query) {
         Some(0)
@@ -322,7 +371,7 @@ pub fn launch(app: &App) -> std::io::Result<()> {
 /// How often each application was started, kept in the user's state
 /// directory so search can rank by use.
 pub struct Usage {
-    path: Option<PathBuf>,
+    pub(crate) path: Option<PathBuf>,
     pub counts: HashMap<String, u32>,
 }
 
@@ -361,8 +410,9 @@ mod tests {
     use super::*;
 
     const ENTRY: &str = "[Desktop Entry]\nType=Application\nName=Files\nName[hi]=फ़ाइलें\nComment=Browse folders\n\
-        Exec=dolphin %u\nIcon=system-file-manager\nKeywords=folder;browse;\nStartupWMClass=dolphin\n\
-        [Desktop Action new]\nName=New Window\nExec=dolphin --new-window\n";
+        Exec=dolphin %u\nIcon=system-file-manager\nKeywords=folder;browse;\nStartupWMClass=dolphin\nActions=new;\n\
+        [Desktop Action new]\nName=New Window\nName[hi]=नई विंडो\nExec=dolphin --new-window %u\n\
+        [Desktop Action unlisted]\nName=Hidden\nExec=dolphin --hidden\n";
 
     #[test]
     fn entries_parse_with_localised_names() {
@@ -372,9 +422,11 @@ mod tests {
         assert_eq!(app.icon, "system-file-manager");
         assert_eq!(app.keywords, ["folder", "browse"]);
         assert!(!app.terminal);
+        assert_eq!(app.actions, [DesktopAction { name: "New Window".into(), exec: vec!["dolphin".into(), "--new-window".into()] }]);
         let hindi = parse_entry("org.kde.dolphin", ENTRY, "hi_IN.UTF-8").unwrap();
         assert_eq!(hindi.name, "फ़ाइलें");
         assert_eq!(hindi.comment, "Browse folders");
+        assert_eq!(hindi.actions[0].name, "नई विंडो");
     }
 
     #[test]
@@ -416,6 +468,7 @@ mod tests {
             terminal: false,
             keywords: keywords.iter().map(|k| k.to_string()).collect(),
             wm_class: String::new(),
+            actions: Vec::new(),
         }
     }
 
@@ -444,6 +497,7 @@ mod tests {
     fn windows_are_matched_to_their_application() {
         let dolphin = App {
             wm_class: "Dolphin".into(),
+            actions: Vec::new(),
             ..app("org.kde.dolphin", "Files", &[])
         };
         assert!(dolphin.owns_window("org.kde.dolphin"));

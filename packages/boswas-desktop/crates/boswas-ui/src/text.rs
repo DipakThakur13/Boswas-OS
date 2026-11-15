@@ -10,7 +10,7 @@ use crate::canvas::Canvas;
 use crate::tokens::{tokens, Rgba};
 
 /// Which typeface a run of text uses.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub enum Face {
     /// The UI face (the first installed family of `type.family`).
     #[default]
@@ -65,7 +65,12 @@ pub struct TextEngine {
     cache: SwashCache,
     ui_family: Option<String>,
     display_family: Option<String>,
+    /// Widths already measured, by text and style.
+    widths: std::collections::HashMap<(String, u32, u16, Face), f32>,
 }
+
+/// Measured widths kept before the cache is emptied.
+const MAX_WIDTHS: usize = 4096;
 
 impl Default for TextEngine {
     fn default() -> Self {
@@ -90,6 +95,7 @@ impl TextEngine {
             cache: SwashCache::new(),
             ui_family,
             display_family,
+            widths: std::collections::HashMap::new(),
         }
     }
 
@@ -124,8 +130,70 @@ impl TextEngine {
         if text.is_empty() {
             return (0.0, style.line_height());
         }
-        let buffer = self.shape(first_line(text), style, 1.0);
-        (Self::buffer_width(&buffer).ceil(), style.line_height())
+        let text = first_line(text);
+        let key = (text.to_owned(), style.size.to_bits(), style.weight, style.face);
+        if let Some(width) = self.widths.get(&key) {
+            return (*width, style.line_height());
+        }
+        let buffer = self.shape(text, style, 1.0);
+        let width = Self::buffer_width(&buffer).ceil();
+        if self.widths.len() >= MAX_WIDTHS {
+            self.widths.clear();
+        }
+        self.widths.insert(key, width);
+        (width, style.line_height())
+    }
+
+    /// Breaks `text` into at most `max_lines` lines no wider than
+    /// `max_width`, at spaces where possible. Line breaks in the text are
+    /// kept; what does not fit ends in an ellipsis.
+    pub fn wrap(&mut self, text: &str, style: &TextStyle, max_width: f32, max_lines: usize) -> Vec<String> {
+        let mut lines: Vec<String> = Vec::new();
+        if max_lines == 0 || max_width <= 0.0 {
+            return lines;
+        }
+        let mut truncated = false;
+        'paragraphs: for paragraph in text.split('\n') {
+            let paragraph: String = paragraph.chars().filter(|c| !c.is_control()).collect();
+            let mut current = String::new();
+            for word in paragraph.split_whitespace() {
+                let candidate = if current.is_empty() { word.to_owned() } else { format!("{current} {word}") };
+                if self.measure(&candidate, style).0 <= max_width {
+                    current = candidate;
+                    continue;
+                }
+                if !current.is_empty() {
+                    if lines.len() + 1 >= max_lines {
+                        current = candidate;
+                        truncated = true;
+                        lines.push(current);
+                        break 'paragraphs;
+                    }
+                    lines.push(std::mem::take(&mut current));
+                }
+                // A single word wider than the line is cut by eliding.
+                current = word.to_owned();
+            }
+            if lines.len() >= max_lines {
+                truncated = true;
+                break;
+            }
+            if !current.is_empty() || lines.is_empty() {
+                lines.push(current);
+            }
+        }
+        if let Some(last) = lines.last_mut() {
+            if truncated && self.measure(last, style).0 <= max_width {
+                last.push('…');
+            }
+            *last = self.elide(last, style, max_width);
+        }
+        for line in &mut lines {
+            if self.measure(line, style).0 > max_width {
+                *line = self.elide(line, style, max_width);
+            }
+        }
+        lines
     }
 
     /// The longest prefix of `text` (plus an ellipsis) that fits `max_width`.
@@ -247,6 +315,29 @@ mod tests {
         assert!(engine.measure(&elided, &style).0 <= w);
         assert_eq!(engine.elide("Boswas OS", &style, w + 1.0), "Boswas OS");
         assert_eq!(engine.elide("Boswas OS", &style, 0.5), "");
+    }
+
+    #[test]
+    fn wrapping_respects_width_and_line_count() {
+        let mut engine = TextEngine::new();
+        let style = TextStyle::new(14.0, Rgba::WHITE);
+        let text = "The quarterly report is ready for review and has been shared with the whole team today";
+        let (full, _) = engine.measure(text, &style);
+        if full == 0.0 {
+            return;
+        }
+        let width = full / 3.0;
+        let lines = engine.wrap(text, &style, width, 10);
+        assert!(lines.len() >= 3, "{lines:?}");
+        assert!(lines.iter().all(|l| engine.measure(l, &style).0 <= width), "{lines:?}");
+        assert_eq!(lines.join(" "), text, "nothing is lost when there is room");
+        let two = engine.wrap(text, &style, width, 2);
+        assert_eq!(two.len(), 2);
+        assert!(two[1].ends_with('…'), "{two:?}");
+        assert!(engine.measure(&two[1], &style).0 <= width);
+        assert_eq!(engine.wrap("one\ntwo", &style, 500.0, 4), ["one", "two"]);
+        assert!(engine.wrap("x", &style, 500.0, 0).is_empty());
+        assert_eq!(engine.wrap("", &style, 500.0, 3), [""]);
     }
 
     #[test]

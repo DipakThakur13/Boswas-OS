@@ -2,35 +2,61 @@
 //!
 //! One unprivileged program with three roles:
 //!
-//! * (no option)  the desktop: wallpaper, panel and launcher
+//! * (no option)  the desktop: wallpaper, taskbar, Start, quick settings,
+//!   notifications, on-screen displays, dialogs and screen capture
 //! * `--lock`     the lock screen (ext-session-lock, PAM)
 //! * `--greeter`  the login screen (greetd)
 //!
-//! It replaces plasmashell, kscreenlocker's greeter and the SDDM theme. The
-//! compositor starts it and hands it a trusted Wayland connection; if the
-//! shell crashes the compositor restarts it and open windows are untouched.
+//! The compositor starts it and hands it a trusted Wayland connection; if
+//! the shell crashes the compositor restarts it and open windows are
+//! untouched. This file holds the surfaces and the Wayland plumbing;
+//! `desk.rs` holds what the desktop does, `input.rs` how the pointer and
+//! the keyboard reach it.
 
+mod action;
 mod apps;
+mod calendar;
+mod capture;
+mod config;
 mod control;
+mod desk;
+mod dialogs;
+mod glyph;
 mod greetd;
-mod launcher;
+mod input;
 mod lock;
+mod menu;
+mod notify;
+mod osd;
 mod pam;
-mod panel;
+mod quick;
+mod start;
+mod state;
 mod status;
+mod svc;
+mod taskbar;
 mod ui;
 mod wallpaper;
 
 use std::{
+    collections::HashMap,
     path::PathBuf,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
-use boswas_ui::{Canvas, Scheme, Theme};
+use boswas_services::{Command, Event, Services};
+use boswas_ui::{material::Backdrop, tokens::tokens, Canvas, Scheme, Theme};
 use smithay_client_toolkit::{
-    compositor::{CompositorHandler, CompositorState},
-    delegate_compositor, delegate_keyboard, delegate_layer, delegate_output, delegate_pointer, delegate_registry,
-    delegate_seat, delegate_session_lock, delegate_shm,
+    compositor::{CompositorHandler, CompositorState, Region},
+    data_device_manager::{
+        data_device::{DataDevice, DataDeviceHandler},
+        data_offer::{DataOfferHandler, DragOffer},
+        data_source::{CopyPasteSource, DataSourceHandler},
+        DataDeviceManagerState, WritePipe,
+    },
+    delegate_compositor, delegate_data_device, delegate_keyboard, delegate_layer, delegate_output, delegate_pointer,
+    delegate_registry, delegate_seat, delegate_session_lock, delegate_shm,
     output::{OutputHandler, OutputState},
     reexports::{
         calloop::{
@@ -45,7 +71,7 @@ use smithay_client_toolkit::{
     registry_handlers,
     seat::{
         keyboard::{KeyEvent, KeyboardHandler, Keysym, Modifiers},
-        pointer::{PointerEvent, PointerEventKind, PointerHandler},
+        pointer::{PointerEvent, PointerHandler},
         Capability, SeatHandler, SeatState,
     },
     session_lock::{
@@ -59,28 +85,46 @@ use smithay_client_toolkit::{
     },
     shm::{slot::SlotPool, Shm, ShmHandler},
 };
+use tiny_skia::Pixmap;
 use tracing::{error, info, warn};
 use wayland_client::{
+    delegate_noop,
     globals::registry_queue_init,
-    protocol::{wl_keyboard, wl_output, wl_pointer, wl_seat, wl_shm, wl_surface},
-    Connection, QueueHandle,
+    protocol::{
+        wl_data_device::WlDataDevice, wl_data_device_manager::DndAction, wl_data_source::WlDataSource, wl_keyboard,
+        wl_output, wl_pointer, wl_seat, wl_shm, wl_surface,
+    },
+    Connection, Dispatch, QueueHandle,
+};
+use wayland_protocols::wp::{
+    fractional_scale::v1::client::{
+        wp_fractional_scale_manager_v1::WpFractionalScaleManagerV1,
+        wp_fractional_scale_v1::{self, WpFractionalScaleV1},
+    },
+    viewporter::client::{wp_viewport::WpViewport, wp_viewporter::WpViewporter},
 };
 
 use crate::{
-    apps::{App, Usage},
-    control::{Control, ControlEvent, WindowInfo},
-    launcher::{Key, KeyOutcome, Launcher, LauncherAction, Power},
-    lock::{AuthState, AuthView, LockAction},
-    panel::{PanelAction, PanelModel},
+    action::Action,
+    apps::Usage,
+    config::{RunHistory, ShellConfig},
+    control::Control,
+    lock::AuthView,
+    notify::Notes,
+    quick::Quick,
+    start::Start,
+    state::{Mode, State},
     status::Status,
-    ui::{action_at, Frame, Rect, Resources, TextField},
+    svc::Sys,
+    ui::{Anim, Frame, Hit, Rect, Resources},
     wallpaper::Background,
 };
 
 const USAGE: &str = "\
 Usage: boswas-shell [--lock | --greeter]
 
-The Boswas OS desktop shell: wallpaper, panel and launcher.
+The Boswas OS desktop shell: wallpaper, taskbar, Start, quick settings and
+notifications.
 
 Options:
   --lock         show the lock screen and unlock after the user's password
@@ -89,81 +133,118 @@ Options:
   -V, --version  show the version
 ";
 
-/// Applications pinned to the panel, by desktop file id, in order.
-const PINNED: &[&str] = &[
-    "com.boswas.ControlCenter",
-    "org.kde.dolphin",
-    "org.kde.konsole",
-    "firefox-esr",
-    "com.boswas.CompatibilityManager",
-];
-
 /// The PAM service the lock screen authenticates against.
 const PAM_SERVICE: &str = "boswas-lock";
 /// What greetd starts after a successful login.
 const SESSION_COMMAND: &str = "/usr/bin/boswas-session";
+/// Room around a flyout's panel for its shadow; also its distance from the
+/// screen edge and the taskbar.
+pub(crate) const PAD: f32 = 12.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Mode {
-    Desktop,
-    Lock,
-    Greeter,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Role {
+pub(crate) enum Role {
     Wallpaper,
-    Panel,
-    Launcher,
+    Taskbar,
+    /// Invisible, behind a flyout or menu: a click on it closes them.
+    Dismiss,
+    Flyout,
+    /// A context menu; the number is its depth in the menu stack.
+    Menu(usize),
+    Toasts,
+    Osd,
+    Tooltip,
+    /// The window previews of a taskbar button.
+    Preview,
+    /// Dims the desktop behind a dialog and takes its clicks.
+    Smoke,
+    Dialog,
+    Capture,
     /// Lock screen or greeter.
     Auth,
 }
 
-enum Hits {
-    None,
-    Panel(Vec<(Rect, PanelAction)>),
-    Launcher(Vec<(Rect, LauncherAction)>),
-    Auth(Vec<(Rect, LockAction)>),
-}
-
 /// The Wayland object behind a shell surface.
-enum Handle {
+pub(crate) enum Handle {
     Layer(LayerSurface),
     Lock(SessionLockSurface),
 }
 
-struct Surface {
-    role: Role,
-    handle: Handle,
-    output: wl_output::WlOutput,
-    width: u32,
-    height: u32,
-    scale: i32,
+pub(crate) struct Surface {
+    pub role: Role,
+    pub handle: Handle,
+    pub output: wl_output::WlOutput,
+    /// Size in logical pixels, from the compositor's configure.
+    pub width: u32,
+    pub height: u32,
+    /// The scale the surface is drawn at (fractional when the compositor
+    /// offers fractional scaling).
+    pub scale: f32,
+    viewport: Option<WpViewport>,
+    fractional: Option<WpFractionalScaleV1>,
     pool: Option<SlotPool>,
-    configured: bool,
-    dirty: bool,
+    pub configured: bool,
+    pub dirty: bool,
     frame_pending: bool,
-    pointer: Option<(f32, f32)>,
-    hits: Hits,
+    pub pointer: Option<(f32, f32)>,
+    /// The primary button is held on this surface.
+    pub pressed: bool,
+    pub hits: Vec<Hit>,
+    /// The hit the pointer is on.
+    pub hover: Option<usize>,
+    /// Where the surface's top-left corner is on its output.
+    pub origin: (f32, f32),
+    /// Opening or closing transition.
+    pub anim: Option<Anim>,
+    /// The surface's content at full presence, reused while it animates.
+    snapshot: Option<Pixmap>,
 }
 
 impl Surface {
-    fn wl_surface(&self) -> &wl_surface::WlSurface {
+    pub fn wl_surface(&self) -> &wl_surface::WlSurface {
         match &self.handle {
             Handle::Layer(layer) => layer.wl_surface(),
             Handle::Lock(lock) => lock.wl_surface(),
         }
     }
+
+    /// Marks the content as changed.
+    pub fn touch(&mut self) {
+        self.dirty = true;
+        self.snapshot = None;
+    }
+}
+
+/// How a layer surface is created.
+pub(crate) struct Spec {
+    pub layer: Layer,
+    pub namespace: &'static str,
+    pub anchor: Anchor,
+    /// 0 lets the compositor size that axis (with opposite anchors).
+    pub size: (u32, u32),
+    /// Top, right, bottom, left.
+    pub margin: (i32, i32, i32, i32),
+    pub exclusive: i32,
+    pub keyboard: KeyboardInteractivity,
+    /// The surface takes pointer input.
+    pub input: bool,
+    pub origin: (f32, f32),
+    pub animate: bool,
 }
 
 /// The result of a password check done on a worker thread.
-enum AuthResult {
+pub(crate) enum AuthResult {
     Unlocked,
     LoggedIn,
     Failed(String),
 }
 
-struct Shell {
+/// A request to the compositor whose reply the shell waits for.
+pub(crate) enum Pending {
+    Thumbnail { window: u64, path: PathBuf },
+    Screenshot { path: PathBuf, whole: bool },
+}
+
+pub(crate) struct Shell {
     registry_state: RegistryState,
     seat_state: SeatState,
     output_state: OutputState,
@@ -172,32 +253,53 @@ struct Shell {
     layer_shell: Option<LayerShell>,
     session_lock_state: SessionLockState,
     session_lock: Option<SessionLock>,
+    data_devices: Option<DataDeviceManagerState>,
+    data_device: Option<DataDevice>,
+    /// What the shell put on the clipboard (a captured picture).
+    clipboard: Option<(CopyPasteSource, Arc<Vec<u8>>)>,
+    viewporter: Option<WpViewporter>,
+    fractional_scale: Option<WpFractionalScaleManagerV1>,
     conn: Connection,
     qh: QueueHandle<Shell>,
     loop_handle: LoopHandle<'static, Shell>,
     auth_sender: Sender<AuthResult>,
 
-    mode: Mode,
-    res: Resources,
-    background: Background,
-    surfaces: Vec<Surface>,
-    control: Option<Control>,
+    pub res: Resources,
+    pub background: Background,
+    pub surfaces: Vec<Surface>,
+    /// Logical size of each output, learned from its full-screen surface.
+    output_sizes: Vec<(wl_output::WlOutput, (f32, f32))>,
+    pub control: Option<Control>,
+    pub services: Option<Services>,
+    #[cfg(debug_assertions)]
+    pub fake: Option<svc::fake::Fake>,
+    /// Lines of the development feed already read.
+    #[cfg(debug_assertions)]
+    pub feed_lines: usize,
     keyboard: Option<wl_keyboard::WlKeyboard>,
     pointer: Option<wl_pointer::WlPointer>,
-    modifiers: Modifiers,
+    pub modifiers: Modifiers,
+    /// Serial of the latest input event (for the clipboard).
+    pub serial: u32,
 
-    apps: Vec<App>,
-    pinned: Vec<usize>,
-    usage: Usage,
-    windows: Vec<WindowInfo>,
-    workspace: usize,
-    status: Status,
-    launcher: Launcher,
-    auth: AuthView,
-    /// Login name of the session's user (lock screen).
-    user: String,
-    user_name: String,
-    exit: Option<i32>,
+    pub st: State,
+    pub pending: HashMap<u64, Pending>,
+    /// The compositor answered a thumbnail request with an error once.
+    pub thumbnails_unsupported: bool,
+    /// The flyout is playing its closing transition.
+    pub flyout_closing: bool,
+    /// The control the primary button went down on.
+    pub press: Option<(usize, Action)>,
+    /// A slider value waiting for its turn to be sent (commands are rate
+    /// limited while dragging).
+    pub slider_pending: Option<Command>,
+    pub slider_sent: Instant,
+    /// The tray item whose menu was asked for, and where it will open.
+    pub tray_menu: Option<(String, f32, f32, wl_output::WlOutput)>,
+    /// Files behind the shell's own notifications (captured pictures).
+    pub shell_notes: HashMap<u32, PathBuf>,
+    pub next_note_id: u32,
+    pub exit: Option<i32>,
 }
 
 fn main() {
@@ -243,19 +345,22 @@ fn run(mode: Mode) -> Result<i32, Box<dyn std::error::Error>> {
     let qh = event_queue.handle();
     let mut event_loop: EventLoop<'static, Shell> = EventLoop::try_new()?;
     let (auth_sender, auth_channel): (Sender<AuthResult>, Channel<AuthResult>) = channel::channel();
+    let (service_sender, service_channel): (Sender<Event>, Channel<Event>) = channel::channel();
 
     let scheme = match std::env::var("BOSWAS_SCHEME").as_deref() {
         Ok("light") => Scheme::Light,
         _ => Scheme::Dark,
     };
     let (user, user_name) = pam::current_user();
-    let locale = std::env::var("LC_MESSAGES").or_else(|_| std::env::var("LANG")).unwrap_or_default();
+    let locale = std::env::var("LC_TIME")
+        .or_else(|_| std::env::var("LC_MESSAGES"))
+        .or_else(|_| std::env::var("LANG"))
+        .unwrap_or_default();
     let apps = if mode == Mode::Desktop {
         apps::load_apps(&apps::application_dirs(), &locale)
     } else {
         Vec::new()
     };
-    let pinned = PINNED.iter().filter_map(|id| apps.iter().position(|a| a.id == *id)).collect();
 
     let mut auth = AuthView {
         display_name: user_name.clone(),
@@ -264,12 +369,49 @@ fn run(mode: Mode) -> Result<i32, Box<dyn std::error::Error>> {
     match mode {
         Mode::Lock => auth.hint = "Enter your password to unlock".into(),
         Mode::Greeter => {
-            auth.user_field = Some(TextField::default());
-            auth.editing_user = true;
+            auth.greeter = true;
             auth.hint = "Sign in to Boswas OS".into();
+            auth.users = std::fs::read_to_string("/etc/passwd").map(|text| lock::login_users(&text)).unwrap_or_default();
+            if auth.users.is_empty() {
+                auth.other_user();
+            } else {
+                auth.select(0);
+            }
         }
         Mode::Desktop => {}
     }
+
+    let st = State {
+        mode,
+        apps,
+        usage: Usage::load(),
+        config: if mode == Mode::Desktop { ShellConfig::load() } else { ShellConfig::default() },
+        run_history: if mode == Mode::Desktop { RunHistory::load() } else { RunHistory::default() },
+        windows: Vec::new(),
+        workspace: 0,
+        status: Status::read(),
+        sys: Sys::default(),
+        locked: false,
+        user,
+        user_name,
+        locale,
+        flyout: None,
+        start: Start::default(),
+        quick: Quick::default(),
+        notes: Notes::default(),
+        menus: Vec::new(),
+        dialog: None,
+        osd: None,
+        tooltip: None,
+        preview: None,
+        capture: None,
+        focus: None,
+        night_light: false,
+        layouts: Vec::new(),
+        layout: 0,
+        thumbnails: HashMap::new(),
+        auth,
+    };
 
     let mut shell = Shell {
         registry_state: RegistryState::new(&globals),
@@ -280,28 +422,39 @@ fn run(mode: Mode) -> Result<i32, Box<dyn std::error::Error>> {
         layer_shell: LayerShell::bind(&globals, &qh).ok(),
         session_lock_state: SessionLockState::new(&globals, &qh),
         session_lock: None,
+        data_devices: DataDeviceManagerState::bind(&globals, &qh).ok(),
+        data_device: None,
+        clipboard: None,
+        viewporter: globals.bind(&qh, 1..=1, ()).ok(),
+        fractional_scale: globals.bind(&qh, 1..=1, ()).ok(),
         conn: conn.clone(),
         qh: qh.clone(),
         loop_handle: event_loop.handle(),
         auth_sender,
-        mode,
         res: Resources::new(Theme::of(scheme)),
         background: Background::default(),
         surfaces: Vec::new(),
+        output_sizes: Vec::new(),
         control,
+        services: None,
+        #[cfg(debug_assertions)]
+        fake: None,
+        #[cfg(debug_assertions)]
+        feed_lines: 0,
         keyboard: None,
         pointer: None,
         modifiers: Modifiers::default(),
-        apps,
-        pinned,
-        usage: Usage::load(),
-        windows: Vec::new(),
-        workspace: 0,
-        status: Status::read(),
-        launcher: Launcher::default(),
-        auth,
-        user,
-        user_name,
+        serial: 0,
+        st,
+        pending: HashMap::new(),
+        thumbnails_unsupported: false,
+        flyout_closing: false,
+        press: None,
+        slider_pending: None,
+        slider_sent: Instant::now(),
+        tray_menu: None,
+        shell_notes: HashMap::new(),
+        next_note_id: u32::MAX,
         exit: None,
     };
 
@@ -325,7 +478,7 @@ fn run(mode: Mode) -> Result<i32, Box<dyn std::error::Error>> {
 
     WaylandSource::new(conn, event_queue).insert(event_loop.handle())?;
 
-    // Compositor events (window list, launcher key).
+    // Compositor events (window list, shortcuts, appearance).
     if let Some(control) = &mut shell.control {
         control.subscribe();
         let watched = control.watch()?;
@@ -354,7 +507,40 @@ fn run(mode: Mode) -> Result<i32, Box<dyn std::error::Error>> {
         }
     })?;
 
-    // The clock and status area: checked every second, redrawn on change.
+    // The system services. The lock screen and the greeter only read
+    // status; they neither show notifications nor answer polkit.
+    event_loop.handle().insert_source(service_channel, |event, _, shell| {
+        if let channel::Event::Msg(event) = event {
+            shell.service_event(event);
+        }
+    })?;
+    #[cfg(debug_assertions)]
+    if svc::fake::enabled() {
+        let fake = svc::fake::Fake::default();
+        for event in fake.initial() {
+            let _ = service_sender.send(event);
+        }
+        shell.fake = Some(fake);
+        warn!("BOSWAS_SHELL_FAKE_SERVICES is set: the system services are simulated");
+    }
+    let simulated = {
+        #[cfg(debug_assertions)]
+        {
+            shell.fake.is_some()
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            false
+        }
+    };
+    if !simulated {
+        let config = if mode == Mode::Desktop { boswas_services::Config::desktop() } else { boswas_services::Config::status_only() };
+        shell.services = Some(Services::start(config, move |event| {
+            let _ = service_sender.send(event);
+        }));
+    }
+
+    // The clock: checked every second, redrawn when the minute changes.
     event_loop
         .handle()
         .insert_source(Timer::from_duration(Duration::from_secs(1)), |_, _, shell| {
@@ -364,7 +550,10 @@ fn run(mode: Mode) -> Result<i32, Box<dyn std::error::Error>> {
 
     info!("boswas-shell {} started ({mode:?})", env!("CARGO_PKG_VERSION"));
     while shell.exit.is_none() {
-        event_loop.dispatch(None, &mut shell)?;
+        let now = Instant::now();
+        let timeout = shell.next_deadline(now).map(|due| due.saturating_duration_since(now));
+        event_loop.dispatch(timeout, &mut shell)?;
+        shell.housekeeping(Instant::now());
         shell.redraw_dirty();
     }
     Ok(shell.exit.unwrap_or(0))
@@ -375,97 +564,154 @@ impl Shell {
     // Surfaces
     // ---------------------------------------------------------------------
 
-    fn create_layer(&mut self, role: Role, output: &wl_output::WlOutput) {
-        let Some(layer_shell) = &self.layer_shell else {
-            return;
+    /// Logical size of an output (a common size until it is known).
+    pub fn output_size(&self, output: &wl_output::WlOutput) -> (f32, f32) {
+        self.output_sizes.iter().find(|(o, _)| o == output).map_or((1280.0, 720.0), |(_, size)| *size)
+    }
+
+    /// The output things appear on when no surface says otherwise.
+    pub fn primary_output(&self) -> Option<wl_output::WlOutput> {
+        self.surfaces
+            .iter()
+            .find(|s| matches!(s.role, Role::Taskbar | Role::Auth))
+            .map(|s| s.output.clone())
+            .or_else(|| self.output_state.outputs().next())
+    }
+
+    fn new_surface(&mut self, role: Role, handle: Handle, output: &wl_output::WlOutput, origin: (f32, f32), animate: bool) {
+        let wl = match &handle {
+            Handle::Layer(layer) => layer.wl_surface().clone(),
+            Handle::Lock(lock) => lock.wl_surface().clone(),
         };
-        let surface = self.compositor_state.create_surface(&self.qh);
-        let (layer_kind, namespace) = match role {
-            Role::Wallpaper => (Layer::Background, "boswas-wallpaper"),
-            Role::Panel => (Layer::Top, "boswas-panel"),
-            Role::Launcher => (Layer::Overlay, "boswas-launcher"),
-            Role::Auth => (Layer::Overlay, "boswas-greeter"),
+        let viewport = self.viewporter.as_ref().map(|v| v.get_viewport(&wl, &self.qh, ()));
+        // Fractional scaling needs the viewport to present the buffer at
+        // its logical size.
+        let fractional = match (&self.fractional_scale, &viewport) {
+            (Some(manager), Some(_)) => Some(manager.get_fractional_scale(&wl, &self.qh, wl.clone())),
+            _ => None,
         };
-        let layer = layer_shell.create_layer_surface(&self.qh, surface, layer_kind, Some(namespace), Some(output));
-        match role {
-            Role::Wallpaper => {
-                layer.set_anchor(Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT);
-                layer.set_exclusive_zone(-1);
-                layer.set_keyboard_interactivity(KeyboardInteractivity::None);
-            }
-            Role::Panel => {
-                layer.set_anchor(Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT);
-                layer.set_size(0, panel::HEIGHT);
-                layer.set_exclusive_zone(panel::HEIGHT as i32);
-                layer.set_keyboard_interactivity(KeyboardInteractivity::None);
-            }
-            Role::Launcher => {
-                // Covers the area above the panel, so a click anywhere
-                // outside the flyout closes it.
-                layer.set_anchor(Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT);
-                layer.set_exclusive_zone(0);
-                layer.set_keyboard_interactivity(KeyboardInteractivity::Exclusive);
-            }
-            Role::Auth => {
-                layer.set_anchor(Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT);
-                layer.set_exclusive_zone(-1);
-                layer.set_keyboard_interactivity(KeyboardInteractivity::Exclusive);
-            }
-        }
-        layer.commit();
         self.surfaces.push(Surface {
             role,
-            handle: Handle::Layer(layer),
+            handle,
             output: output.clone(),
             width: 0,
             height: 0,
-            scale: 1,
+            scale: 1.0,
+            viewport,
+            fractional,
             pool: None,
             configured: false,
             dirty: true,
             frame_pending: false,
             pointer: None,
-            hits: Hits::None,
+            pressed: false,
+            hits: Vec::new(),
+            hover: None,
+            origin,
+            anim: animate.then(|| Anim::opening(Instant::now(), self.res.reduced_motion)),
+            snapshot: None,
         });
     }
 
-    fn output_added(&mut self, output: &wl_output::WlOutput) {
-        match self.mode {
-            Mode::Desktop => {
-                self.create_layer(Role::Wallpaper, output);
-                self.create_layer(Role::Panel, output);
+    pub fn create_layer(&mut self, role: Role, output: &wl_output::WlOutput, spec: Spec) {
+        let Some(layer_shell) = &self.layer_shell else {
+            return;
+        };
+        let surface = self.compositor_state.create_surface(&self.qh);
+        if !spec.input {
+            // An empty input region: the pointer passes through.
+            if let Ok(region) = Region::new(&self.compositor_state) {
+                surface.set_input_region(Some(region.wl_region()));
             }
-            Mode::Greeter => self.create_layer(Role::Auth, output),
+        }
+        let layer = layer_shell.create_layer_surface(&self.qh, surface, spec.layer, Some(spec.namespace), Some(output));
+        layer.set_anchor(spec.anchor);
+        layer.set_size(spec.size.0, spec.size.1);
+        layer.set_margin(spec.margin.0, spec.margin.1, spec.margin.2, spec.margin.3);
+        layer.set_exclusive_zone(spec.exclusive);
+        layer.set_keyboard_interactivity(spec.keyboard);
+        layer.commit();
+        self.new_surface(role, Handle::Layer(layer), output, spec.origin, spec.animate);
+    }
+
+    /// Moves or resizes an existing layer surface.
+    pub fn reshape(&mut self, role: Role, size: (u32, u32), margin: (i32, i32, i32, i32), origin: (f32, f32)) {
+        for surface in self.surfaces.iter_mut().filter(|s| s.role == role) {
+            if let Handle::Layer(layer) = &surface.handle {
+                if (surface.width, surface.height) != size || surface.origin != origin {
+                    layer.set_size(size.0, size.1);
+                    layer.set_margin(margin.0, margin.1, margin.2, margin.3);
+                    layer.commit();
+                    surface.origin = origin;
+                }
+            }
+            surface.touch();
+        }
+    }
+
+    pub fn has(&self, role: Role) -> bool {
+        self.surfaces.iter().any(|s| s.role == role)
+    }
+
+    pub fn remove(&mut self, role: Role) {
+        self.surfaces.retain(|s| s.role != role);
+    }
+
+    /// Starts the closing transition of a role's surfaces; they are removed
+    /// when it ends.
+    pub fn fade_out(&mut self, role: Role) {
+        let now = Instant::now();
+        let reduced = self.res.reduced_motion;
+        for surface in self.surfaces.iter_mut().filter(|s| s.role == role) {
+            surface.anim = Some(Anim::closing(now, reduced));
+            surface.dirty = true;
+        }
+    }
+
+    fn output_added(&mut self, output: &wl_output::WlOutput) {
+        match self.st.mode {
+            Mode::Desktop => {
+                self.create_layer(Role::Wallpaper, output, Self::full_screen(Layer::Background, "boswas-wallpaper", KeyboardInteractivity::None, -1));
+                let height = tokens().shell("taskbar-height") as u32;
+                self.create_layer(
+                    Role::Taskbar,
+                    output,
+                    Spec {
+                        layer: Layer::Top,
+                        namespace: "boswas-taskbar",
+                        anchor: Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
+                        size: (0, height),
+                        margin: (0, 0, 0, 0),
+                        exclusive: height as i32,
+                        keyboard: KeyboardInteractivity::None,
+                        input: true,
+                        origin: (0.0, 0.0),
+                        animate: false,
+                    },
+                );
+            }
+            Mode::Greeter => {
+                self.create_layer(Role::Auth, output, Self::full_screen(Layer::Overlay, "boswas-greeter", KeyboardInteractivity::Exclusive, -1));
+            }
             Mode::Lock => {
                 if let Some(lock) = self.session_lock.as_ref().filter(|lock| lock.is_locked()) {
                     let surface = self.compositor_state.create_surface(&self.qh);
                     let lock_surface = lock.create_lock_surface(surface, output, &self.qh);
-                    self.push_lock_surface(lock_surface, output);
+                    self.new_surface(Role::Auth, Handle::Lock(lock_surface), output, (0.0, 0.0), false);
                 }
             }
         }
     }
 
-    fn push_lock_surface(&mut self, lock_surface: SessionLockSurface, output: &wl_output::WlOutput) {
-        self.surfaces.push(Surface {
-            role: Role::Auth,
-            handle: Handle::Lock(lock_surface),
-            output: output.clone(),
-            width: 0,
-            height: 0,
-            scale: 1,
-            pool: None,
-            configured: false,
-            dirty: true,
-            frame_pending: false,
-            pointer: None,
-            hits: Hits::None,
-        });
+    pub fn mark(&mut self, role: Role) {
+        for surface in self.surfaces.iter_mut().filter(|s| s.role == role) {
+            surface.touch();
+        }
     }
 
-    fn mark(&mut self, role: Role) {
-        for surface in self.surfaces.iter_mut().filter(|s| s.role == role) {
-            surface.dirty = true;
+    pub fn mark_all(&mut self) {
+        for surface in &mut self.surfaces {
+            surface.touch();
         }
     }
 
@@ -477,93 +723,145 @@ impl Shell {
         }
     }
 
+    /// Makes the blurred wallpaper for an output available to the drawing
+    /// code.
+    fn prepare_backdrop(&mut self, size: (f32, f32)) {
+        let key = (size.0 as u32, size.1 as u32);
+        if self.res.backdrop.is_some() && self.res.backdrop_key == key {
+            return;
+        }
+        self.res.backdrop = self.background.reduced(self.res.theme, size.0, size.1).and_then(|reduced| Backdrop::new(&reduced, size.0, size.1));
+        self.res.backdrop_key = key;
+    }
+
     fn draw(&mut self, index: usize) {
+        let Some(surface) = self.surfaces.get(index) else {
+            return;
+        };
+        if !surface.configured || surface.width == 0 || surface.height == 0 {
+            return;
+        }
+        let role = surface.role;
+        let size = self.output_size(&surface.output);
+        if !matches!(role, Role::Wallpaper | Role::Dismiss | Role::Smoke | Role::Capture) {
+            self.prepare_backdrop(size);
+        }
+        let now = Instant::now();
+        let first_auth = self.surfaces.iter().position(|s| s.role == Role::Auth) == Some(index);
         let Shell {
             surfaces,
             res,
             background,
             shm,
             qh,
-            apps,
-            pinned,
-            windows,
-            workspace,
-            status,
-            launcher,
-            auth,
-            user_name,
+            st,
             ..
         } = self;
-        let Some(surface) = surfaces.get_mut(index) else {
+        let surface = &mut surfaces[index];
+        let (w, h) = (surface.width as f32, surface.height as f32);
+
+        // Invisible and dimming surfaces are one pixel, stretched.
+        let stretched = matches!(role, Role::Dismiss | Role::Smoke) && surface.viewport.is_some();
+        let (cw, ch, scale) = if stretched { (1.0, 1.0, 1.0) } else { (w, h, surface.scale) };
+        let Some(mut canvas) = Canvas::new(cw, ch, scale) else {
             return;
         };
-        if !surface.configured || surface.width == 0 || surface.height == 0 {
-            return;
-        }
-        let Some(mut canvas) = Canvas::new(surface.width as f32, surface.height as f32, surface.scale as f32) else {
-            return;
-        };
-        let pointer = surface.pointer;
-        // The first output's auth surface takes the input.
-        let is_first_auth = index == 0 || surface.role != Role::Auth;
-        surface.hits = match surface.role {
-            Role::Wallpaper => {
-                background.paint(&mut canvas, res.theme);
-                Hits::None
-            }
-            Role::Panel => {
-                let mut hits = Vec::new();
-                let model = PanelModel {
-                    apps,
-                    pinned,
-                    windows,
-                    workspace: *workspace,
-                    status,
-                    launcher_open: launcher.open,
+        let presence = surface.anim.as_ref().map_or(1.0, |anim| anim.presence(now));
+        let animating = surface.anim.as_ref().is_some_and(|anim| !anim.done(now)) && presence < 0.999;
+        let reuse = animating && surface.snapshot.as_ref().is_some_and(|s| (s.width(), s.height()) == canvas.pixel_size());
+        if !reuse {
+            let mut hits = Vec::new();
+            let panel = Rect::new(PAD, PAD, w - 2.0 * PAD, h - 2.0 * PAD);
+            {
+                let mut frame = Frame {
+                    canvas: &mut canvas,
+                    res,
+                    pointer: surface.pointer,
+                    pressed: surface.pressed,
+                    hits: &mut hits,
+                    focus: st.focus.as_ref(),
+                    origin: surface.origin,
                 };
-                panel::draw(
-                    &mut Frame {
-                        canvas: &mut canvas,
-                        res,
-                        pointer,
-                        hits: &mut hits,
+                match role {
+                    Role::Wallpaper => {
+                        background.paint(frame.canvas, frame.res.theme);
+                        frame.area(Rect::new(0.0, 0.0, w, h), Action::Desktop);
+                    }
+                    Role::Taskbar => taskbar::draw(&mut frame, st),
+                    Role::Dismiss => {
+                        frame.area(Rect::new(0.0, 0.0, cw, ch), Action::Dismiss);
+                    }
+                    Role::Smoke => {
+                        let smoke = tokens().material(frame.res.theme.scheme, "smoke");
+                        frame.canvas.clear(smoke.tint.alpha(smoke.tint_opacity));
+                        frame.area(Rect::new(0.0, 0.0, cw, ch), Action::None);
+                    }
+                    Role::Flyout => match st.flyout {
+                        Some(state::Flyout::Start) => start::draw(&mut frame, st, panel),
+                        Some(state::Flyout::Quick) => quick::draw(&mut frame, st, panel),
+                        Some(state::Flyout::Notifications) => notify::draw_centre(&mut frame, st, panel),
+                        Some(state::Flyout::TrayOverflow) => taskbar::draw_overflow(&mut frame, st, panel),
+                        None => {}
                     },
-                    &model,
-                );
-                Hits::Panel(hits)
+                    Role::Menu(level) => {
+                        if let Some(menu) = st.menus.get(level) {
+                            menu.draw(&mut frame, (PAD, PAD), level);
+                        }
+                    }
+                    Role::Toasts => notify::draw_toasts(&mut frame, st, now),
+                    Role::Osd => {
+                        if let Some(osd) = &st.osd {
+                            osd::draw(&mut frame, osd, panel);
+                        }
+                    }
+                    Role::Tooltip => {
+                        if let Some(tooltip) = &st.tooltip {
+                            desk::draw_tooltip(&mut frame, &tooltip.text, panel);
+                        }
+                    }
+                    Role::Preview => {
+                        if let Some(preview) = &st.preview {
+                            taskbar::draw_preview(&mut frame, st, preview, panel);
+                        }
+                    }
+                    Role::Dialog => {
+                        if let Some(dialog) = &st.dialog {
+                            dialogs::draw(&mut frame, st, dialog, panel);
+                        }
+                    }
+                    Role::Capture => {
+                        if let Some(capture) = &st.capture {
+                            capture::draw(&mut frame, capture);
+                        }
+                    }
+                    Role::Auth => {
+                        background.paint(frame.canvas, frame.res.theme);
+                        lock::draw(&mut frame, st, first_auth);
+                    }
+                }
             }
-            Role::Launcher => {
-                let mut hits = Vec::new();
-                launcher::draw(
-                    &mut Frame {
-                        canvas: &mut canvas,
-                        res,
-                        pointer,
-                        hits: &mut hits,
-                    },
-                    launcher,
-                    apps,
-                    user_name,
-                );
-                Hits::Launcher(hits)
+            // A stretched surface reacts over its whole area.
+            if stretched {
+                for hit in &mut hits {
+                    hit.rect = Rect::new(0.0, 0.0, w, h);
+                }
             }
-            Role::Auth => {
-                let mut hits = Vec::new();
-                lock::draw(
-                    &mut Frame {
-                        canvas: &mut canvas,
-                        res,
-                        pointer,
-                        hits: &mut hits,
-                    },
-                    auth,
-                    status,
-                    background,
-                    is_first_auth,
-                );
-                Hits::Auth(hits)
+            surface.hover = surface.pointer.and_then(|p| ui::hit_at(&hits, p));
+            surface.hits = hits;
+        }
+        if animating {
+            // Slide and fade: the finished content is kept and composed.
+            if !reuse {
+                surface.snapshot = Some(canvas.pixmap().clone());
             }
-        };
+            if let (Some(snapshot), Some(mut composed)) = (&surface.snapshot, Canvas::new(cw, ch, scale)) {
+                let offset = (1.0 - presence) * 10.0;
+                composed.draw_pixmap(snapshot, 0.0, offset, cw, ch, presence);
+                canvas = composed;
+            }
+        } else {
+            surface.snapshot = None;
+        }
 
         let (pw, ph) = canvas.pixel_size();
         let bytes = pw as usize * ph as usize * 4;
@@ -583,7 +881,13 @@ impl Shell {
         };
         canvas.write_argb8888(data);
         let wl = surface.wl_surface().clone();
-        wl.set_buffer_scale(surface.scale);
+        match &surface.viewport {
+            Some(viewport) => {
+                wl.set_buffer_scale(1);
+                viewport.set_destination(surface.width as i32, surface.height as i32);
+            }
+            None => wl.set_buffer_scale(scale.ceil().max(1.0) as i32),
+        }
         wl.damage_buffer(0, 0, pw as i32, ph as i32);
         wl.frame(qh, wl.clone());
         if buffer.attach_to(&wl).is_err() {
@@ -591,177 +895,127 @@ impl Shell {
         }
         wl.commit();
         surface.frame_pending = true;
-        surface.dirty = false;
+        surface.dirty = animating;
     }
 
-    fn surface_index(&self, wl: &wl_surface::WlSurface) -> Option<usize> {
+    pub fn surface_index(&self, wl: &wl_surface::WlSurface) -> Option<usize> {
         self.surfaces.iter().position(|s| s.wl_surface() == wl)
     }
 
-    // ---------------------------------------------------------------------
-    // Desktop: panel and launcher
-    // ---------------------------------------------------------------------
-
-    fn control_event(&mut self, event: ControlEvent) {
-        match event {
-            ControlEvent::Windows(windows) => {
-                if self.windows != windows {
-                    self.windows = windows;
-                    self.mark(Role::Panel);
-                }
+    fn set_scale(&mut self, wl: &wl_surface::WlSurface, scale: f32, from_fractional: bool) {
+        if let Some(index) = self.surface_index(wl) {
+            let surface = &mut self.surfaces[index];
+            // Once the compositor sends fractional scales, they win over
+            // the integer scale.
+            if !from_fractional && surface.fractional.is_some() && surface.scale.fract() != 0.0 {
+                return;
             }
-            ControlEvent::Workspace { active, .. } => {
-                self.workspace = active;
-                self.mark(Role::Panel);
-            }
-            ControlEvent::Launcher => self.toggle_launcher(),
-            ControlEvent::Lock(true) => self.close_launcher(),
-            ControlEvent::Lock(false) => {}
-            ControlEvent::Appearance { light, wallpaper } => {
-                let scheme = if light { Scheme::Light } else { Scheme::Dark };
-                if self.res.theme.scheme != scheme {
-                    self.res = Resources::new(Theme::of(scheme));
-                }
-                self.background.load_picture(&wallpaper);
-                for surface in &mut self.surfaces {
-                    surface.dirty = true;
-                }
+            let scale = scale.clamp(1.0, 4.0);
+            if (surface.scale - scale).abs() > 1e-3 {
+                surface.scale = scale;
+                surface.touch();
             }
         }
     }
 
-    fn toggle_launcher(&mut self) {
-        if self.mode != Mode::Desktop {
-            return;
-        }
-        if self.launcher.open {
-            return self.close_launcher();
-        }
-        // Applications may have been installed since the shell started.
-        let locale = std::env::var("LC_MESSAGES").or_else(|_| std::env::var("LANG")).unwrap_or_default();
-        self.apps = apps::load_apps(&apps::application_dirs(), &locale);
-        self.pinned = PINNED.iter().filter_map(|id| self.apps.iter().position(|a| a.id == *id)).collect();
-        self.launcher.show(&self.apps, &self.usage.counts);
-        let output = self.surfaces.iter().find(|s| s.role == Role::Panel).map(|s| s.output.clone());
-        if let Some(output) = output {
-            self.create_layer(Role::Launcher, &output);
-        }
-        self.mark(Role::Panel);
-    }
-
-    fn close_launcher(&mut self) {
-        if !self.launcher.open {
-            return;
-        }
-        self.launcher.hide();
-        self.surfaces.retain(|s| s.role != Role::Launcher);
-        self.mark(Role::Panel);
-    }
-
-    fn launch(&mut self, index: usize) {
-        let Some(app) = self.apps.get(index).cloned() else {
+    fn configured(&mut self, wl: &wl_surface::WlSurface, size: (u32, u32)) {
+        let Some(index) = self.surface_index(wl) else {
             return;
         };
-        match apps::launch(&app) {
-            Ok(()) => self.usage.record(&app.id),
-            Err(err) => warn!("could not start {}: {err}", app.name),
+        let (w, h) = size;
+        if w == 0 || h == 0 {
+            return;
         }
-        self.close_launcher();
-    }
-
-    fn power(&mut self, power: Power) {
-        if !self.launcher.power_clicked(power, Instant::now()) {
-            return self.mark(Role::Launcher);
+        let surface = &mut self.surfaces[index];
+        if (surface.width, surface.height) != (w, h) || !surface.configured {
+            surface.width = w;
+            surface.height = h;
+            surface.configured = true;
+            surface.frame_pending = false;
+            surface.touch();
         }
-        self.close_launcher();
-        match power {
-            Power::Lock => self.send_control("lock"),
-            Power::LogOut => self.send_control("quit"),
-            Power::Restart => self.systemctl("reboot"),
-            Power::ShutDown => self.systemctl("poweroff"),
+        // The taskbar sits at the bottom edge of its output.
+        if surface.role == Role::Taskbar {
+            let output = surface.output.clone();
+            let height = self.output_size(&output).1;
+            self.surfaces[index].origin = (0.0, height - h as f32);
         }
-    }
-
-    fn send_control(&mut self, cmd: &str) {
-        if let Some(control) = &mut self.control {
-            control.send(cmd, serde_json::json!({}));
-        }
-    }
-
-    fn systemctl(&mut self, verb: &str) {
-        if let Err(err) = apps::spawn(&["systemctl".into(), verb.into()]) {
-            warn!("systemctl {verb}: {err}");
-        }
-    }
-
-    fn panel_action(&mut self, action: PanelAction) {
-        match action {
-            PanelAction::Launcher => self.toggle_launcher(),
-            PanelAction::Window(id) => {
-                self.close_launcher();
-                if let Some(control) = &mut self.control {
-                    control.window("toggle-minimize", id);
+        let surface = &mut self.surfaces[index];
+        // Full-screen surfaces tell the size of their output.
+        if matches!(surface.role, Role::Wallpaper | Role::Auth) {
+            let output = surface.output.clone();
+            let size = (w as f32, h as f32);
+            match self.output_sizes.iter_mut().find(|(o, _)| *o == output) {
+                Some(entry) if entry.1 != size => {
+                    entry.1 = size;
+                    self.res.backdrop = None;
                 }
+                Some(_) => return,
+                None => self.output_sizes.push((output.clone(), size)),
             }
-            PanelAction::Launch(index) => self.launch(index),
+            for taskbar in self.surfaces.iter_mut().filter(|s| s.role == Role::Taskbar && s.output == output) {
+                taskbar.origin = (0.0, size.1 - taskbar.height as f32);
+            }
+            self.mark_all();
         }
     }
 
-    fn launcher_action(&mut self, action: LauncherAction) {
-        match action {
-            LauncherAction::Launch(index) => self.launch(index),
-            LauncherAction::Power(power) => self.power(power),
-            LauncherAction::Dismiss => self.close_launcher(),
-            LauncherAction::Nothing => {}
+    /// The first moment something has to happen without an event.
+    fn next_deadline(&self, now: Instant) -> Option<Instant> {
+        let mut soonest: Option<Instant> = None;
+        let mut consider = |at: Option<Instant>| {
+            if let Some(at) = at {
+                soonest = Some(soonest.map_or(at, |s| s.min(at)));
+            }
+        };
+        consider(self.st.tooltip.as_ref().filter(|t| !t.shown).map(|t| t.due));
+        consider(self.st.osd.as_ref().map(|o| o.until));
+        consider(self.st.notes.next_deadline(now));
+        consider(self.st.preview.as_ref().and_then(|p| p.left_at).map(|at| at + desk::PREVIEW_GRACE));
+        consider(self.slider_pending.as_ref().map(|_| self.slider_sent + desk::SLIDER_INTERVAL));
+        // Finished transitions are cleaned up promptly.
+        if self.surfaces.iter().any(|s| s.anim.is_some()) {
+            consider(Some(now + Duration::from_millis(16)));
         }
-    }
-
-    fn tick(&mut self) {
-        let status = Status::read();
-        if status != self.status {
-            self.status = status;
-            self.mark(Role::Panel);
-            self.mark(Role::Auth);
-        }
-        if self.launcher.expire(Instant::now()) {
-            self.mark(Role::Launcher);
-        }
+        soonest
     }
 
     // ---------------------------------------------------------------------
     // Lock screen and greeter
     // ---------------------------------------------------------------------
 
-    fn submit(&mut self) {
-        if self.auth.state == AuthState::Checking {
+    pub fn submit(&mut self) {
+        use lock::AuthState;
+        if self.st.auth.state == AuthState::Checking {
             return;
         }
-        if self.auth.editing_user {
+        if self.st.auth.editing_user {
             // Enter in the user name field moves on to the password.
-            self.auth.editing_user = false;
+            self.st.auth.editing_user = false;
             return self.mark(Role::Auth);
         }
-        if self.auth.password.is_empty() {
+        if self.st.auth.password.is_empty() {
             return;
         }
-        let password = self.auth.password.take();
-        self.auth.state = AuthState::Checking;
+        let password = self.st.auth.password.take();
+        self.st.auth.state = AuthState::Checking;
+        self.st.auth.reveal = false;
         self.mark(Role::Auth);
         let sender = self.auth_sender.clone();
-        let spawned = match self.mode {
+        let spawned = match self.st.mode {
             Mode::Lock => {
-                let user = self.user.clone();
+                let user = self.st.user.clone();
                 std::thread::Builder::new().name("auth".into()).spawn(move || {
                     let result = if pam::authenticate(PAM_SERVICE, &user, password) {
                         AuthResult::Unlocked
                     } else {
-                        AuthResult::Failed("Incorrect password".into())
+                        AuthResult::Failed("The password is incorrect. Try again.".into())
                     };
                     let _ = sender.send(result);
                 })
             }
             _ => {
-                let user = self.auth.user_field.as_ref().map(|f| f.text().to_owned()).unwrap_or_default();
+                let user = self.st.auth.login_name();
                 let socket = std::env::var_os("GREETD_SOCK").map(PathBuf::from);
                 std::thread::Builder::new().name("auth".into()).spawn(move || {
                     let result = match socket {
@@ -776,7 +1030,7 @@ impl Shell {
             }
         };
         if spawned.is_err() {
-            self.auth.state = AuthState::Failed("Could not check the password; try again".into());
+            self.st.auth.state = AuthState::Failed("Could not check the password; try again".into());
         }
     }
 
@@ -798,82 +1052,10 @@ impl Shell {
                 self.exit = Some(0);
             }
             AuthResult::Failed(message) => {
-                self.auth.state = AuthState::Failed(message);
+                self.st.auth.state = lock::AuthState::Failed(message);
                 self.mark(Role::Auth);
             }
         }
-    }
-
-    fn auth_action(&mut self, action: LockAction) {
-        match action {
-            LockAction::Submit => self.submit(),
-            LockAction::FocusUser => self.auth.editing_user = self.auth.user_field.is_some(),
-            LockAction::FocusPassword => self.auth.editing_user = false,
-        }
-        self.mark(Role::Auth);
-    }
-
-    // ---------------------------------------------------------------------
-    // Keyboard
-    // ---------------------------------------------------------------------
-
-    fn key_pressed(&mut self, event: KeyEvent) {
-        let ctrl = self.modifiers.ctrl;
-        if self.mode == Mode::Desktop {
-            if !self.launcher.open {
-                return;
-            }
-            let key = match event.keysym {
-                Keysym::Escape => Some(Key::Escape),
-                Keysym::Return | Keysym::KP_Enter => Some(Key::Enter),
-                Keysym::BackSpace => Some(Key::Backspace),
-                Keysym::Left => Some(Key::Left),
-                Keysym::Right => Some(Key::Right),
-                Keysym::Up => Some(Key::Up),
-                Keysym::Down => Some(Key::Down),
-                Keysym::u if ctrl => Some(Key::ClearLine),
-                _ => None,
-            };
-            let outcome = match (key, &event.utf8) {
-                (Some(key), _) => self.launcher.key(key, &self.apps, &self.usage.counts),
-                (None, Some(text)) if !ctrl && !self.modifiers.alt => {
-                    self.launcher.typed(text, &self.apps, &self.usage.counts)
-                }
-                _ => KeyOutcome::Ignored,
-            };
-            match outcome {
-                KeyOutcome::Redraw => self.mark(Role::Launcher),
-                KeyOutcome::Launch(index) => self.launch(index),
-                KeyOutcome::Dismiss => self.close_launcher(),
-                KeyOutcome::Ignored => {}
-            }
-            return;
-        }
-
-        if self.auth.state == AuthState::Checking {
-            return;
-        }
-        match event.keysym {
-            Keysym::Return | Keysym::KP_Enter => return self.submit(),
-            Keysym::Tab | Keysym::ISO_Left_Tab if self.auth.user_field.is_some() => {
-                self.auth.editing_user = !self.auth.editing_user;
-            }
-            Keysym::BackSpace => {
-                self.auth.field().backspace();
-            }
-            Keysym::Escape => self.auth.field().clear(),
-            Keysym::u if ctrl => self.auth.field().clear(),
-            _ => match &event.utf8 {
-                Some(text) if !ctrl && !self.modifiers.alt => {
-                    self.auth.field().insert(text);
-                }
-                _ => return,
-            },
-        }
-        if matches!(self.auth.state, AuthState::Failed(_)) {
-            self.auth.state = AuthState::Idle;
-        }
-        self.mark(Role::Auth);
     }
 }
 
@@ -883,14 +1065,7 @@ impl Shell {
 
 impl CompositorHandler for Shell {
     fn scale_factor_changed(&mut self, _: &Connection, _: &QueueHandle<Self>, surface: &wl_surface::WlSurface, factor: i32) {
-        if let Some(index) = self.surface_index(surface) {
-            let surface = &mut self.surfaces[index];
-            let factor = factor.clamp(1, 4);
-            if surface.scale != factor {
-                surface.scale = factor;
-                surface.dirty = true;
-            }
-        }
+        self.set_scale(surface, factor as f32, false);
     }
 
     fn transform_changed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_surface::WlSurface, _: wl_output::Transform) {}
@@ -906,6 +1081,18 @@ impl CompositorHandler for Shell {
     fn surface_leave(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_surface::WlSurface, _: &wl_output::WlOutput) {}
 }
 
+impl Dispatch<WpFractionalScaleV1, wl_surface::WlSurface> for Shell {
+    fn event(shell: &mut Self, _: &WpFractionalScaleV1, event: wp_fractional_scale_v1::Event, surface: &wl_surface::WlSurface, _: &Connection, _: &QueueHandle<Self>) {
+        if let wp_fractional_scale_v1::Event::PreferredScale { scale } = event {
+            shell.set_scale(surface, scale as f32 / 120.0, true);
+        }
+    }
+}
+
+delegate_noop!(Shell: WpViewporter);
+delegate_noop!(Shell: WpViewport);
+delegate_noop!(Shell: WpFractionalScaleManagerV1);
+
 impl OutputHandler for Shell {
     fn output_state(&mut self) -> &mut OutputState {
         &mut self.output_state
@@ -918,45 +1105,27 @@ impl OutputHandler for Shell {
     fn update_output(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {}
 
     fn output_destroyed(&mut self, _: &Connection, _: &QueueHandle<Self>, output: wl_output::WlOutput) {
+        let lost_flyout = self.surfaces.iter().any(|s| s.output == output && s.role == Role::Flyout);
         self.surfaces.retain(|s| s.output != output);
-        if !self.surfaces.iter().any(|s| s.role == Role::Launcher) && self.launcher.open {
-            self.launcher.hide();
+        self.output_sizes.retain(|(o, _)| *o != output);
+        if lost_flyout {
+            self.drop_overlays();
         }
     }
 }
 
 impl LayerShellHandler for Shell {
     fn closed(&mut self, _: &Connection, _: &QueueHandle<Self>, layer: &LayerSurface) {
-        let closed_launcher = self
-            .surfaces
-            .iter()
-            .any(|s| s.role == Role::Launcher && matches!(&s.handle, Handle::Layer(l) if l == layer));
+        let role = self.surfaces.iter().find(|s| matches!(&s.handle, Handle::Layer(l) if l == layer)).map(|s| s.role);
         self.surfaces.retain(|s| !matches!(&s.handle, Handle::Layer(l) if l == layer));
-        if closed_launcher {
-            self.launcher.hide();
-            self.mark(Role::Panel);
+        if matches!(role, Some(Role::Flyout | Role::Menu(_) | Role::Dialog | Role::Capture | Role::Dismiss | Role::Smoke)) {
+            self.drop_overlays();
         }
     }
 
     fn configure(&mut self, _: &Connection, _: &QueueHandle<Self>, layer: &LayerSurface, configure: LayerSurfaceConfigure, _serial: u32) {
-        let Some(surface) = self
-            .surfaces
-            .iter_mut()
-            .find(|s| matches!(&s.handle, Handle::Layer(l) if l == layer))
-        else {
-            return;
-        };
-        let (w, h) = configure.new_size;
-        if w == 0 || h == 0 {
-            return;
-        }
-        if (surface.width, surface.height) != (w, h) || !surface.configured {
-            surface.width = w;
-            surface.height = h;
-            surface.configured = true;
-            surface.dirty = true;
-            surface.frame_pending = false;
-        }
+        let wl = layer.wl_surface().clone();
+        self.configured(&wl, configure.new_size);
     }
 }
 
@@ -966,7 +1135,7 @@ impl SessionLockHandler for Shell {
         for output in outputs {
             let surface = self.compositor_state.create_surface(qh);
             let lock_surface = session_lock.create_lock_surface(surface, &output, qh);
-            self.push_lock_surface(lock_surface, &output);
+            self.new_surface(Role::Auth, Handle::Lock(lock_surface), &output, (0.0, 0.0), false);
         }
     }
 
@@ -977,20 +1146,8 @@ impl SessionLockHandler for Shell {
     }
 
     fn configure(&mut self, _: &Connection, _: &QueueHandle<Self>, lock_surface: SessionLockSurface, configure: SessionLockSurfaceConfigure, _serial: u32) {
-        let target = lock_surface.wl_surface().clone();
-        let Some(index) = self.surface_index(&target) else {
-            return;
-        };
-        let surface = &mut self.surfaces[index];
-        let (w, h) = configure.new_size;
-        if w == 0 || h == 0 {
-            return;
-        }
-        surface.width = w;
-        surface.height = h;
-        surface.configured = true;
-        surface.dirty = true;
-        surface.frame_pending = false;
+        let wl = lock_surface.wl_surface().clone();
+        self.configured(&wl, configure.new_size);
     }
 }
 
@@ -1021,6 +1178,9 @@ impl SeatHandler for Shell {
                 Err(err) => warn!("no pointer: {err}"),
             }
         }
+        if self.data_device.is_none() && self.st.mode == Mode::Desktop {
+            self.data_device = self.data_devices.as_ref().map(|manager| manager.get_data_device(qh, &seat));
+        }
     }
 
     fn remove_capability(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_seat::WlSeat, capability: Capability) {
@@ -1044,7 +1204,8 @@ impl KeyboardHandler for Shell {
 
     fn leave(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: &wl_surface::WlSurface, _: u32) {}
 
-    fn press_key(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: u32, event: KeyEvent) {
+    fn press_key(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, serial: u32, event: KeyEvent) {
+        self.serial = serial;
         self.key_pressed(event);
     }
 
@@ -1052,8 +1213,8 @@ impl KeyboardHandler for Shell {
 
     fn update_modifiers(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: u32, modifiers: Modifiers, _: u32) {
         self.modifiers = modifiers;
-        if self.mode != Mode::Desktop && self.auth.caps_lock != modifiers.caps_lock {
-            self.auth.caps_lock = modifiers.caps_lock;
+        if self.st.mode != Mode::Desktop && self.st.auth.caps_lock != modifiers.caps_lock {
+            self.st.auth.caps_lock = modifiers.caps_lock;
             self.mark(Role::Auth);
         }
     }
@@ -1061,79 +1222,64 @@ impl KeyboardHandler for Shell {
 
 impl PointerHandler for Shell {
     fn pointer_frame(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_pointer::WlPointer, events: &[PointerEvent]) {
-        const BTN_LEFT: u32 = 0x110;
         for event in events {
-            let Some(index) = self.surface_index(&event.surface) else {
-                continue;
-            };
-            let position = (event.position.0 as f32, event.position.1 as f32);
-            match event.kind {
-                PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => {
-                    let surface = &mut self.surfaces[index];
-                    // Redraw only when the pointer moves onto or off a
-                    // control, not for every motion event.
-                    let before = surface.pointer.and_then(|p| hit_index(&surface.hits, p));
-                    let after = hit_index(&surface.hits, position);
-                    surface.pointer = Some(position);
-                    if before != after {
-                        surface.dirty = true;
-                    }
-                }
-                PointerEventKind::Leave { .. } => {
-                    let surface = &mut self.surfaces[index];
-                    surface.pointer = None;
-                    surface.dirty = true;
-                }
-                PointerEventKind::Press { button, .. } if button == BTN_LEFT => {
-                    let surface = &mut self.surfaces[index];
-                    surface.pointer = Some(position);
-                    match &surface.hits {
-                        Hits::Panel(hits) => {
-                            if let Some(action) = action_at(hits, position) {
-                                self.panel_action(action);
-                            }
-                        }
-                        Hits::Launcher(hits) => {
-                            if let Some(action) = action_at(hits, position) {
-                                self.launcher_action(action);
-                            }
-                        }
-                        Hits::Auth(hits) => {
-                            if let Some(action) = action_at(hits, position) {
-                                self.auth_action(action);
-                            }
-                        }
-                        Hits::None => {}
-                    }
-                }
-                PointerEventKind::Axis { vertical, .. } => {
-                    if self.surfaces[index].role == Role::Launcher {
-                        let rows = if vertical.discrete != 0 {
-                            vertical.discrete
-                        } else {
-                            (vertical.absolute / 40.0).round() as i32
-                        };
-                        if rows != 0 && self.launcher.scroll_by(rows) {
-                            self.mark(Role::Launcher);
-                        }
-                    }
-                }
-                _ => {}
-            }
+            self.pointer_event(event);
         }
     }
 }
 
-/// Index of the topmost hit rectangle under a point, for hover tracking.
-fn hit_index(hits: &Hits, point: (f32, f32)) -> Option<usize> {
-    fn find<A>(hits: &[(Rect, A)], point: (f32, f32)) -> Option<usize> {
-        hits.iter().rposition(|(rect, _)| rect.contains(point))
+impl DataDeviceHandler for Shell {
+    fn enter(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice, _: f64, _: f64, _: &wl_surface::WlSurface) {}
+    fn leave(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice) {}
+    fn motion(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice, _: f64, _: f64) {}
+    fn selection(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice) {}
+    fn drop_performed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice) {}
+}
+
+impl DataOfferHandler for Shell {
+    fn source_actions(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &mut DragOffer, _: DndAction) {}
+    fn selected_action(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &mut DragOffer, _: DndAction) {}
+}
+
+impl DataSourceHandler for Shell {
+    fn accept_mime(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource, _: Option<String>) {}
+
+    fn send_request(&mut self, _: &Connection, _: &QueueHandle<Self>, source: &WlDataSource, mime: String, mut pipe: WritePipe) {
+        let Some((own, bytes)) = &self.clipboard else {
+            return;
+        };
+        if own.inner() != source || mime != "image/png" {
+            return;
+        }
+        // Written on a thread: the reader may be slow, the shell must not wait.
+        let bytes = bytes.clone();
+        let _ = std::thread::Builder::new().name("clipboard".into()).spawn(move || {
+            use std::io::Write;
+            let _ = pipe.write_all(&bytes);
+        });
     }
-    match hits {
-        Hits::None => None,
-        Hits::Panel(hits) => find(hits, point),
-        Hits::Launcher(hits) => find(hits, point),
-        Hits::Auth(hits) => find(hits, point),
+
+    fn cancelled(&mut self, _: &Connection, _: &QueueHandle<Self>, source: &WlDataSource) {
+        // Another program took the clipboard: the picture can be freed.
+        if self.clipboard.as_ref().is_some_and(|(own, _)| own.inner() == source) {
+            self.clipboard = None;
+        }
+    }
+
+    fn dnd_dropped(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource) {}
+    fn dnd_finished(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource) {}
+    fn action(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource, _: DndAction) {}
+}
+
+impl Shell {
+    /// Puts a PNG on the clipboard.
+    pub fn copy_png(&mut self, bytes: Vec<u8>) {
+        let (Some(manager), Some(device)) = (&self.data_devices, &self.data_device) else {
+            return;
+        };
+        let source = manager.create_copy_paste_source(&self.qh, ["image/png"]);
+        source.set_selection(device, self.serial);
+        self.clipboard = Some((source, Arc::new(bytes)));
     }
 }
 
@@ -1158,4 +1304,5 @@ delegate_keyboard!(Shell);
 delegate_pointer!(Shell);
 delegate_layer!(Shell);
 delegate_session_lock!(Shell);
+delegate_data_device!(Shell);
 delegate_registry!(Shell);

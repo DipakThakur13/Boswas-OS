@@ -313,10 +313,38 @@ pub fn decode_image(data: &[u8]) -> Option<Pixmap> {
     Some(pixmap)
 }
 
+/// Encodes a pixmap as PNG (straight alpha).
+#[cfg(feature = "images")]
+pub fn encode_png(pixmap: &Pixmap) -> Option<Vec<u8>> {
+    use image::ImageEncoder;
+    let mut straight = Vec::with_capacity(pixmap.data().len());
+    for p in pixmap.data().chunks_exact(4) {
+        let a = u32::from(p[3]);
+        let un = |c: u8| (u32::from(c) * 255 + a / 2).checked_div(a).unwrap_or(0).min(255) as u8;
+        straight.extend_from_slice(&[un(p[0]), un(p[1]), un(p[2]), p[3]]);
+    }
+    let mut out = Vec::new();
+    image::codecs::png::PngEncoder::new(&mut out)
+        .write_image(&straight, pixmap.width(), pixmap.height(), image::ExtendedColorType::Rgba8)
+        .ok()?;
+    Some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs;
+
+    #[cfg(feature = "images")]
+    #[test]
+    fn png_round_trips() {
+        let mut pixmap = Pixmap::new(3, 2).unwrap();
+        pixmap.fill(tiny_skia::Color::from_rgba8(10, 200, 30, 255));
+        let png = encode_png(&pixmap).unwrap();
+        let back = decode_image(&png).unwrap();
+        assert_eq!((back.width(), back.height()), (3, 2));
+        assert_eq!(back.data(), pixmap.data());
+    }
 
     const SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256"><rect x="8" y="8" width="240" height="240" fill="#7C5CFF"/></svg>"##;
 

@@ -2,6 +2,7 @@
 //!
 //! * [`tokens`]: colours, radii, type and motion from `desktop/ui/tokens.json`
 //! * [`canvas`]: software drawing in logical pixels
+//! * [`material`]: mica, acrylic and chrome drawn from the wallpaper
 //! * [`text`]: text shaping and rasterisation (feature `text`)
 //! * [`icons`]: icon theme lookup and SVG rasterisation (feature `icons`)
 //!
@@ -11,6 +12,7 @@
 pub mod canvas;
 #[cfg(feature = "icons")]
 pub mod icons;
+pub mod material;
 #[cfg(feature = "text")]
 pub mod text;
 pub mod tokens;

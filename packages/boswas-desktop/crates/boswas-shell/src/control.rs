@@ -25,6 +25,8 @@ pub struct WindowInfo {
     pub active: bool,
     pub minimized: bool,
     pub workspace: usize,
+    /// The window asks for attention.
+    pub urgent: bool,
 }
 
 /// Something the compositor told the shell.
@@ -37,7 +39,25 @@ pub enum ControlEvent {
     Lock(bool),
     /// The session's look: sent at start and when the configuration is
     /// reloaded.
-    Appearance { light: bool, wallpaper: String },
+    Appearance { light: bool, wallpaper: String, reduced_motion: bool },
+    /// Super+A.
+    QuickSettings,
+    /// Super+N.
+    Notifications,
+    /// Super+R.
+    Run,
+    /// Print, Super+Shift+S or the public `capture` command.
+    Capture { whole_screen: bool },
+    /// A volume, brightness or media key (`volume-up`, `media-play`, ...).
+    MediaKey(String),
+    /// Super+1..9: the nth application on the taskbar.
+    TaskbarApp { index: usize, new_instance: bool },
+    NightLight { enabled: bool },
+    Layout { layouts: Vec<String>, active: usize },
+    /// Task View opened or closed.
+    Overview(bool),
+    /// The answer to a request sent with [`Control::send`].
+    Reply { id: u64, ok: bool, data: Value },
 }
 
 pub struct Control {
@@ -86,8 +106,9 @@ impl Control {
         self.stream.try_clone()
     }
 
-    /// Sends a request; replies are not awaited (state arrives as events).
-    pub fn send(&mut self, cmd: &str, mut arguments: Value) {
+    /// Sends a request and returns its id. Nothing waits for the reply: it
+    /// arrives later as [`ControlEvent::Reply`] with the same id.
+    pub fn send(&mut self, cmd: &str, mut arguments: Value) -> u64 {
         let id = self.next_id;
         self.next_id += 1;
         if let Some(map) = arguments.as_object_mut() {
@@ -99,14 +120,11 @@ impl Control {
         // The socket is non-blocking; requests are tiny, so a full buffer
         // means the compositor is gone and the read side will notice.
         let _ = self.stream.write_all(line.as_bytes());
+        id
     }
 
     pub fn subscribe(&mut self) {
         self.send("subscribe", json!({}));
-    }
-
-    pub fn window(&mut self, cmd: &str, id: u64) {
-        self.send(cmd, json!({ "window": id }));
     }
 
     /// Reads what is available. `Err` means the compositor closed the
@@ -151,6 +169,7 @@ fn parse_windows(value: &Value) -> Vec<WindowInfo> {
                         active: w.get("active")?.as_bool()?,
                         minimized: w.get("minimized")?.as_bool()?,
                         workspace: w.get("workspace")?.as_u64()? as usize,
+                        urgent: w.get("urgent").and_then(Value::as_bool).unwrap_or(false),
                     })
                 })
                 .collect()
@@ -169,6 +188,33 @@ fn parse_appearance(value: &Value) -> Option<ControlEvent> {
     Some(ControlEvent::Appearance {
         light: value.get("scheme")?.as_str()? == "light",
         wallpaper: value.get("wallpaper").and_then(Value::as_str).unwrap_or_default().to_owned(),
+        reduced_motion: value.get("reduced_motion").and_then(Value::as_bool).unwrap_or(false),
+    })
+}
+
+fn parse_night_light(value: &Value) -> Option<ControlEvent> {
+    Some(ControlEvent::NightLight {
+        enabled: value.get("enabled")?.as_bool()?,
+    })
+}
+
+fn parse_layout(value: &Value) -> Option<ControlEvent> {
+    // The compositor sends the short codes ("us", "in") next to the full
+    // names; the indicator shows the codes.
+    let layouts: Vec<String> = value
+        .get("codes")
+        .filter(|codes| codes.as_array().is_some_and(|c| !c.is_empty()))
+        .or_else(|| value.get("layouts"))?
+        .as_array()?
+        .iter()
+        .filter_map(|l| l.as_str())
+        .take(16)
+        .map(|l| l.chars().take(12).collect())
+        .collect();
+    let active = value.get("active").and_then(Value::as_u64).unwrap_or(0) as usize;
+    Some(ControlEvent::Layout {
+        active: active.min(layouts.len().saturating_sub(1)),
+        layouts,
     })
 }
 
@@ -182,13 +228,50 @@ pub fn parse_message(message: &Value) -> Vec<ControlEvent> {
         Some("launcher") => vec![ControlEvent::Launcher],
         Some("lock") => data.get("locked").and_then(Value::as_bool).map(ControlEvent::Lock).into_iter().collect(),
         Some("config") => parse_appearance(data).into_iter().collect(),
+        Some("quick-settings") => vec![ControlEvent::QuickSettings],
+        Some("notifications") => vec![ControlEvent::Notifications],
+        Some("run") => vec![ControlEvent::Run],
+        Some("capture") => vec![ControlEvent::Capture {
+            whole_screen: data.get("mode").and_then(Value::as_str) == Some("screen"),
+        }],
+        Some("media-key") => data
+            .get("key")
+            .and_then(Value::as_str)
+            .map(|key| ControlEvent::MediaKey(key.chars().take(32).collect()))
+            .into_iter()
+            .collect(),
+        Some("taskbar-app") => data
+            .get("index")
+            .and_then(Value::as_u64)
+            .filter(|index| (1..=9).contains(index))
+            .map(|index| ControlEvent::TaskbarApp {
+                index: index as usize,
+                new_instance: data.get("shift").and_then(Value::as_bool).unwrap_or(false),
+            })
+            .into_iter()
+            .collect(),
+        Some("night-light") => parse_night_light(data).into_iter().collect(),
+        Some("layout") => parse_layout(data).into_iter().collect(),
+        Some("overview") => data.get("active").and_then(Value::as_bool).map(ControlEvent::Overview).into_iter().collect(),
         Some(_) => Vec::new(),
         None => {
             let mut events = Vec::new();
             if data.get("windows").is_some() {
+                // The reply to `subscribe`: the whole initial state.
                 events.push(ControlEvent::Windows(parse_windows(&data["windows"])));
                 events.extend(parse_workspace(&data["workspaces"]));
                 events.extend(parse_appearance(&data["appearance"]));
+                events.extend(parse_night_light(&data["night_light"]));
+                events.extend(parse_layout(&data["layout"]));
+                if let Some(locked) = data.get("locked").and_then(Value::as_bool) {
+                    events.push(ControlEvent::Lock(locked));
+                }
+            } else if let (Some(id), Some(ok)) = (message.get("id").and_then(Value::as_u64), message.get("ok").and_then(Value::as_bool)) {
+                events.push(ControlEvent::Reply {
+                    id,
+                    ok,
+                    data: data.clone(),
+                });
             }
             events
         }
@@ -210,6 +293,7 @@ mod tests {
             active: true,
             minimized: false,
             workspace: 1,
+            urgent: false,
         };
         assert_eq!(
             parse_message(&json!({"event": "windows", "data": [window.clone()]})),
@@ -218,15 +302,56 @@ mod tests {
         assert_eq!(
             parse_message(&json!({"id": 1, "ok": true, "data": {"windows": [window], "workspaces": {"active": 1, "count": 4},
                 "outputs": [], "locked": false}})),
-            [ControlEvent::Windows(vec![expected]), ControlEvent::Workspace { active: 1, count: 4 }]
+            [ControlEvent::Windows(vec![expected]), ControlEvent::Workspace { active: 1, count: 4 }, ControlEvent::Lock(false)]
         );
         assert_eq!(
             parse_message(&json!({"event": "config", "data": {"scheme": "light", "wallpaper": "/usr/share/x.png"}})),
-            [ControlEvent::Appearance { light: true, wallpaper: "/usr/share/x.png".into() }]
+            [ControlEvent::Appearance { light: true, wallpaper: "/usr/share/x.png".into(), reduced_motion: false }]
         );
         assert_eq!(parse_message(&json!({"event": "config", "data": {"wallpaper": 3}})), []);
         assert_eq!(parse_message(&json!({"event": "launcher", "data": {}})), [ControlEvent::Launcher]);
         assert_eq!(parse_message(&json!({"event": "lock", "data": {"locked": true}})), [ControlEvent::Lock(true)]);
+    }
+
+    #[test]
+    fn round_two_events_and_replies_are_understood() {
+        let ev = |name: &str, data: Value| parse_message(&json!({"event": name, "data": data}));
+        assert_eq!(ev("quick-settings", json!({})), [ControlEvent::QuickSettings]);
+        assert_eq!(ev("notifications", json!({})), [ControlEvent::Notifications]);
+        assert_eq!(ev("run", json!({})), [ControlEvent::Run]);
+        assert_eq!(ev("capture", json!({"mode": "screen"})), [ControlEvent::Capture { whole_screen: true }]);
+        assert_eq!(ev("capture", json!({})), [ControlEvent::Capture { whole_screen: false }]);
+        assert_eq!(ev("media-key", json!({"key": "volume-up"})), [ControlEvent::MediaKey("volume-up".into())]);
+        assert_eq!(ev("media-key", json!({"key": 3})), []);
+        assert_eq!(
+            ev("taskbar-app", json!({"index": 3, "shift": true})),
+            [ControlEvent::TaskbarApp { index: 3, new_instance: true }]
+        );
+        assert_eq!(ev("taskbar-app", json!({"index": 0})), []);
+        assert_eq!(ev("taskbar-app", json!({"index": 10})), []);
+        assert_eq!(ev("night-light", json!({"enabled": true, "temperature": 4000})), [ControlEvent::NightLight { enabled: true }]);
+        assert_eq!(
+            ev("layout", json!({"layouts": ["us", "in"], "active": 7})),
+            [ControlEvent::Layout { layouts: vec!["us".into(), "in".into()], active: 1 }]
+        );
+        assert_eq!(
+            ev("layout", json!({"layouts": ["English (US)", "Hindi"], "codes": ["us", "in"], "active": 1})),
+            [ControlEvent::Layout { layouts: vec!["us".into(), "in".into()], active: 1 }]
+        );
+        assert_eq!(ev("overview", json!({"active": true})), [ControlEvent::Overview(true)]);
+        assert_eq!(
+            parse_message(&json!({"id": 9, "ok": false, "error": "unknown command"})),
+            [ControlEvent::Reply { id: 9, ok: false, data: Value::Null }]
+        );
+        assert_eq!(
+            parse_message(&json!({"id": 4, "ok": true, "data": {"width": 240, "height": 150}})),
+            [ControlEvent::Reply { id: 4, ok: true, data: json!({"width": 240, "height": 150}) }]
+        );
+        let urgent = json!({"id": 1, "title": "t", "app_id": "a", "active": false, "minimized": false, "workspace": 0, "urgent": true});
+        match &ev("windows", json!([urgent]))[..] {
+            [ControlEvent::Windows(list)] => assert!(list[0].urgent),
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]
@@ -241,7 +366,9 @@ mod tests {
         ] {
             let events = parse_message(&message);
             assert!(
-                events.is_empty() || events == [ControlEvent::Windows(Vec::new())],
+                events.is_empty()
+                    || events == [ControlEvent::Windows(Vec::new())]
+                    || matches!(&events[..], [ControlEvent::Reply { .. }]),
                 "{message} gave {events:?}"
             );
         }
