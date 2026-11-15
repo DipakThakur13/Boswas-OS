@@ -33,7 +33,14 @@ use smithay::{
 };
 
 use crate::{
-    shell::{decoration::Button, grabs::ResizeEdge, overview::OverviewKey, wm::snap_step},
+    shell::{
+        decoration::Button,
+        element::Tile,
+        grabs::ResizeEdge,
+        overview::OverviewKey,
+        windowmenu::{AdjustKey, MenuKey},
+        wm::snap_step,
+    },
     state::{root_surface, Boswas, Under},
 };
 
@@ -146,6 +153,12 @@ pub enum Action {
     Switcher(SwitcherKey),
     /// A key for Task View while it is open.
     TaskView(OverviewKey),
+    /// Alt+Space: the focused window's menu.
+    WindowMenu,
+    /// A key for the window menu while it is open.
+    MenuKey(MenuKey),
+    /// A key while a window is moved or resized from the keyboard.
+    Adjust(AdjustKey),
 }
 
 /// What a key does while the window switcher is open.
@@ -166,6 +179,31 @@ fn switcher_key(sym: Keysym) -> Option<SwitcherKey> {
         keysyms::KEY_Escape => SwitcherKey::Cancel,
         _ => return None,
     })
+}
+
+/// The key bindings of the window menu.
+fn menu_key(sym: Keysym) -> Option<MenuKey> {
+    Some(match sym.raw() {
+        keysyms::KEY_Up => MenuKey::Step(-1),
+        keysyms::KEY_Down => MenuKey::Step(1),
+        keysyms::KEY_Return | keysyms::KEY_KP_Enter | keysyms::KEY_space => MenuKey::Accept,
+        keysyms::KEY_Escape => MenuKey::Cancel,
+        _ => return None,
+    })
+}
+
+/// The keys that move or resize a window after Move or Size was chosen from
+/// its menu: arrows (Ctrl for single pixels), Enter or Escape to finish.
+fn adjust_key(sym: Keysym, ctrl: bool) -> Option<AdjustKey> {
+    let direction = match sym.raw() {
+        keysyms::KEY_Left => Direction::Left,
+        keysyms::KEY_Right => Direction::Right,
+        keysyms::KEY_Up => Direction::Up,
+        keysyms::KEY_Down => Direction::Down,
+        keysyms::KEY_Return | keysyms::KEY_KP_Enter | keysyms::KEY_Escape => return Some(AdjustKey::Finish),
+        _ => return None,
+    };
+    Some(AdjustKey::Nudge { direction, fine: ctrl })
 }
 
 /// The key bindings of Task View.
@@ -224,6 +262,7 @@ pub fn shortcut(mods: &ModifiersState, sym: Keysym, modified: Keysym, locked: bo
                 return Some(Action::CycleWindows { backwards: mods.shift });
             }
             keysyms::KEY_F4 if !mods.shift => return Some(Action::Close),
+            keysyms::KEY_space if !mods.shift => return Some(Action::WindowMenu),
             _ => {}
         }
     }
@@ -294,6 +333,20 @@ pub fn shortcut(mods: &ModifiersState, sym: Keysym, modified: Keysym, locked: bo
     None
 }
 
+/// The arrangement at the opposite side of a monitor: a window that leaves
+/// one monitor through its left edge arrives at the right of the next.
+pub fn facing_tile(tile: Tile) -> Option<Tile> {
+    Some(match tile {
+        Tile::Left => Tile::Right,
+        Tile::Right => Tile::Left,
+        Tile::TopLeft => Tile::TopRight,
+        Tile::TopRight => Tile::TopLeft,
+        Tile::BottomLeft => Tile::BottomRight,
+        Tile::BottomRight => Tile::BottomLeft,
+        Tile::Floating | Tile::Maximized | Tile::Fullscreen => return None,
+    })
+}
+
 /// How far three fingers must travel for a swipe to count, in the
 /// touchpad's (unaccelerated, roughly millimetre-like) units.
 const SWIPE_THRESHOLD: f64 = 80.0;
@@ -318,6 +371,23 @@ pub fn swipe_action(distance: Point<f64, Logical>) -> Option<Action> {
 
 fn is_logo(sym: Keysym) -> bool {
     matches!(sym.raw(), keysyms::KEY_Super_L | keysyms::KEY_Super_R)
+}
+
+/// Shift, Ctrl, Alt, Super and the lock keys: keys that only change what
+/// other keys mean.
+fn is_modifier(sym: Keysym) -> bool {
+    is_logo(sym)
+        || is_alt(sym)
+        || matches!(
+            sym.raw(),
+            keysyms::KEY_Shift_L
+                | keysyms::KEY_Shift_R
+                | keysyms::KEY_Control_L
+                | keysyms::KEY_Control_R
+                | keysyms::KEY_Caps_Lock
+                | keysyms::KEY_Num_Lock
+                | keysyms::KEY_ISO_Level3_Shift
+        )
 }
 
 fn is_alt(sym: Keysym) -> bool {
@@ -533,7 +603,7 @@ impl Boswas {
             return;
         };
         let serial = SERIAL_COUNTER.next_serial();
-        let ui = !self.lock.locked && (self.overview_active() || self.switcher.is_some());
+        let ui = !self.lock.locked && (self.overview_active() || self.switcher.is_some() || self.on_window_menu(pos));
         let under = if ui { None } else { self.under(pos) };
         match under {
             Some(Under::Surface(surface, origin)) => {
@@ -741,6 +811,26 @@ impl Boswas {
                     return FilterResult::Intercept(Action::Switcher(key));
                 }
             }
+            // The window menu and a keyboard move or resize take their
+            // keys; any other key ends them and is handled as usual.
+            if data.window_menu.is_some() && !locked {
+                if let Some(key) = menu_key(modified).filter(|_| !mods.logo && !mods.alt && !mods.ctrl) {
+                    data.suppressed_keys.insert(keycode);
+                    return FilterResult::Intercept(Action::MenuKey(key));
+                }
+                if !is_modifier(modified) {
+                    data.close_window_menu();
+                }
+            }
+            if data.key_adjust.is_some() && !locked {
+                if let Some(key) = adjust_key(modified, mods.ctrl).filter(|_| !mods.logo && !mods.alt) {
+                    data.suppressed_keys.insert(keycode);
+                    return FilterResult::Intercept(Action::Adjust(key));
+                }
+                if !is_modifier(modified) {
+                    data.finish_key_adjust();
+                }
+            }
             if data.overview_active() && !locked {
                 if let Some(key) = overview_key(modified, mods.shift).filter(|_| !mods.logo && !mods.alt && !mods.ctrl) {
                     data.suppressed_keys.insert(keycode);
@@ -774,6 +864,9 @@ impl Boswas {
             Action::Switcher(SwitcherKey::Accept) => self.finish_switcher(false),
             Action::Switcher(SwitcherKey::Cancel) => self.finish_switcher(true),
             Action::TaskView(key) => self.overview_key(key),
+            Action::WindowMenu => self.open_focused_window_menu(),
+            Action::MenuKey(key) => self.window_menu_key(key),
+            Action::Adjust(key) => self.key_adjust_key(key),
             Action::SwitchVt(vt) => self.backend.switch_vt(vt),
             Action::Lock => self.lock_session(),
             Action::Launcher => event(self, "launcher"),
@@ -796,7 +889,20 @@ impl Boswas {
             Action::CycleWindows { backwards } => self.cycle_windows(backwards),
             Action::Snap(direction) => {
                 if let Some(window) = focused {
-                    match snap_step(window.data().tile.get(), direction) {
+                    let current = window.data().tile.get();
+                    match snap_step(current, direction) {
+                        // Already at that side: on to the next monitor, at
+                        // the side facing the one it left.
+                        Some(tile) if tile == current && matches!(direction, Direction::Left | Direction::Right) => {
+                            let before = self.window_rect(&window).and_then(|rect| self.output_for_rect(rect));
+                            self.move_to_next_output(&window, direction);
+                            let after = self.window_rect(&window).and_then(|rect| self.output_for_rect(rect));
+                            if before != after {
+                                if let Some(tile) = facing_tile(current) {
+                                    self.set_tile(&window, tile);
+                                }
+                            }
+                        }
                         Some(tile) => self.set_tile(&window, tile),
                         None => self.minimize_window(&window),
                     }
@@ -987,7 +1093,7 @@ impl Boswas {
         // The snap layouts flyout takes the pointer while it is over it.
         let on_maximize = matches!(&under, Some(Under::TitleBar(window, Some(Button::Maximize)))
             if self.snap_flyout.as_ref().is_some_and(|flyout| flyout.window == window.id()));
-        let on_flyout = !pointer.is_grabbed() && self.snap_flyout_motion(pos, on_maximize);
+        let on_flyout = !pointer.is_grabbed() && (self.window_menu_motion(pos) || self.snap_flyout_motion(pos, on_maximize));
         let under = if on_flyout { None } else { under };
         if !pointer.is_grabbed() {
             self.update_frame_hover(under.as_ref());
@@ -1057,6 +1163,16 @@ impl Boswas {
                 }
                 return;
             }
+            if self.on_window_menu(pos) {
+                if state == ButtonState::Released && button == BTN_LEFT {
+                    self.window_menu_click(pos);
+                }
+                return;
+            }
+            // A click anywhere else closes the window menu.
+            if state == ButtonState::Pressed {
+                self.close_window_menu();
+            }
             if self.snap_flyout.as_ref().is_some_and(|flyout| flyout.rect.to_f64().contains(pos)) {
                 if state == ButtonState::Released && button == BTN_LEFT {
                     self.snap_flyout_click(pos);
@@ -1099,6 +1215,10 @@ impl Boswas {
                         self.last_titlebar_click = Some((window.id(), Instant::now()));
                         self.start_move(&window, start_data, serial);
                     }
+                    return;
+                }
+                Some(Under::TitleBar(window, _)) if button == BTN_RIGHT => {
+                    self.open_window_menu(&window, pos.to_i32_round());
                     return;
                 }
                 Some(Under::Resize(window, edge)) if button == BTN_LEFT => {
@@ -1244,6 +1364,51 @@ mod tests {
 
     fn press(m: &ModifiersState, sym: u32) -> Option<Action> {
         shortcut(m, Keysym::new(sym), Keysym::new(sym), false, false)
+    }
+
+    #[test]
+    fn the_window_menu_keys() {
+        let alt = mods(false, true, false, false);
+        assert_eq!(press(&alt, keysyms::KEY_space), Some(Action::WindowMenu));
+        assert_eq!(press(&mods(false, true, false, true), keysyms::KEY_space), None);
+        assert_eq!(press(&mods(false, false, false, false), keysyms::KEY_space), None);
+        // A remote desktop window that took the shortcuts keeps Alt+Space.
+        assert_eq!(shortcut(&alt, Keysym::new(keysyms::KEY_space), Keysym::new(keysyms::KEY_space), false, true), None);
+
+        assert_eq!(menu_key(Keysym::new(keysyms::KEY_Down)), Some(MenuKey::Step(1)));
+        assert_eq!(menu_key(Keysym::new(keysyms::KEY_Up)), Some(MenuKey::Step(-1)));
+        assert_eq!(menu_key(Keysym::new(keysyms::KEY_Return)), Some(MenuKey::Accept));
+        assert_eq!(menu_key(Keysym::new(keysyms::KEY_Escape)), Some(MenuKey::Cancel));
+        assert_eq!(menu_key(Keysym::new(keysyms::KEY_a)), None);
+
+        assert_eq!(
+            adjust_key(Keysym::new(keysyms::KEY_Left), false),
+            Some(AdjustKey::Nudge { direction: Direction::Left, fine: false })
+        );
+        assert_eq!(
+            adjust_key(Keysym::new(keysyms::KEY_Down), true),
+            Some(AdjustKey::Nudge { direction: Direction::Down, fine: true })
+        );
+        assert_eq!(adjust_key(Keysym::new(keysyms::KEY_Escape), false), Some(AdjustKey::Finish));
+        assert_eq!(adjust_key(Keysym::new(keysyms::KEY_Return), false), Some(AdjustKey::Finish));
+        assert_eq!(adjust_key(Keysym::new(keysyms::KEY_x), false), None);
+        assert!(is_modifier(Keysym::new(keysyms::KEY_Alt_L)));
+        assert!(is_modifier(Keysym::new(keysyms::KEY_Shift_R)));
+        assert!(!is_modifier(Keysym::new(keysyms::KEY_space)));
+    }
+
+    #[test]
+    fn a_snapped_window_arrives_at_the_facing_side_of_the_next_monitor() {
+        assert_eq!(facing_tile(Tile::Left), Some(Tile::Right));
+        assert_eq!(facing_tile(Tile::Right), Some(Tile::Left));
+        assert_eq!(facing_tile(Tile::TopLeft), Some(Tile::TopRight));
+        assert_eq!(facing_tile(Tile::BottomRight), Some(Tile::BottomLeft));
+        assert_eq!(facing_tile(Tile::Maximized), None);
+        assert_eq!(facing_tile(Tile::Floating), None);
+        // Every snapped arrangement comes back after two crossings.
+        for tile in [Tile::Left, Tile::Right, Tile::TopLeft, Tile::TopRight, Tile::BottomLeft, Tile::BottomRight] {
+            assert_eq!(facing_tile(tile).and_then(facing_tile), Some(tile));
+        }
     }
 
     #[test]

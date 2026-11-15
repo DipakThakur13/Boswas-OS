@@ -19,7 +19,7 @@ use smithay::{
             Resource,
         },
     },
-    utils::Serial,
+    utils::{Logical, Point, Serial},
     wayland::shell::xdg::{
         decoration::XdgDecorationHandler, PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler,
         XdgShellState,
@@ -74,6 +74,25 @@ impl XdgShellHandler for Boswas {
         if let Some(start_data) = self.check_grab(&seat, surface.wl_surface(), serial) {
             self.start_move(&window, start_data, serial);
         }
+    }
+
+    /// An application that draws its own title bar asks for the window
+    /// menu (a right-click on that title bar). `location` is relative to
+    /// the window's content.
+    fn show_window_menu(&mut self, surface: ToplevelSurface, _seat: WlSeat, _serial: Serial, location: Point<i32, Logical>) {
+        let Some(window) = self.window_for_surface(surface.wl_surface()) else {
+            return;
+        };
+        let Some(frame) = self.window_rect(&window) else {
+            return;
+        };
+        // Only for the window the pointer is on: a window in the background
+        // cannot put a menu on the screen.
+        if !frame.to_f64().contains(self.pointer.current_location()) {
+            return;
+        }
+        let at = frame.loc + Point::from((0, window.titlebar_height())) + location;
+        self.open_window_menu(&window, at);
     }
 
     fn resize_request(&mut self, surface: ToplevelSurface, seat: WlSeat, serial: Serial, edges: xdg_toplevel::ResizeEdge) {

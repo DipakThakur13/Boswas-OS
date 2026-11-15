@@ -131,6 +131,7 @@ impl Boswas {
         }
 
         self.switcher_elements(renderer, output, scale, &mut elements);
+        self.window_menu_elements(renderer, output, scale, &mut elements);
         self.snap_flyout_elements(renderer, output, scale, &mut elements);
 
         if let Some(rect) = self.snap_preview.filter(|rect| rect.overlaps(output_geo)) {

@@ -7,4 +7,5 @@ pub mod grabs;
 pub mod overview;
 pub mod snapflyout;
 pub mod switcher;
+pub mod windowmenu;
 pub mod wm;

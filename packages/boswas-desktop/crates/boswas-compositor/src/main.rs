@@ -45,8 +45,9 @@ Options:
                        connections (tests only)
   --print-env          print WAYLAND_DISPLAY and BOSWAS_COMPOSITOR_SOCKET
                        once the compositor is ready
-  --send COMMAND       send a command (version, lock, reload-config) to a
-                       running compositor, print its reply and exit
+  --send COMMAND       send a command (version, lock, reload-config, outputs,
+                       capture) to a running compositor, print its reply
+                       and exit
   --control-socket PATH
                        the control socket --send talks to (default: the one
                        of WAYLAND_DISPLAY in XDG_RUNTIME_DIR)

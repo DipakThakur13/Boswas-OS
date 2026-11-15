@@ -74,6 +74,8 @@ impl Boswas {
             self.ipc_event("lock", serde_json::json!({ "locked": true }));
         }
         self.switcher = None;
+        self.window_menu = None;
+        self.key_adjust = None;
         self.overview = None;
         self.ghosts.clear();
         self.snap_preview = None;

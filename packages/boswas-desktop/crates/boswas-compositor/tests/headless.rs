@@ -599,6 +599,77 @@ fn the_switcher_task_view_and_snap_keys_manage_windows() {
     assert_eq!(active(&windows), "First");
 }
 
+const KEY_SPACE: u32 = 57;
+const KEY_RIGHT: u32 = 106;
+const KEY_LEFTCTRL: u32 = 29;
+
+#[test]
+fn the_window_menu_maximizes_restores_and_moves_with_the_keyboard() {
+    let config = "[shell]\ncommand = []\n[lock]\nidle_seconds = 0\ncommand = []\n[appearance]\nreduced_motion = true\n[policy]\nlock_idle_max_seconds = 0\nprivileged_protocols = \"all\"\n";
+    let compositor = Compositor::start(config, "none");
+    let mut control = compositor.control();
+    let conn = compositor.wayland();
+    let (mut queue, mut client, _toplevel) = open_window(&conn, "Menu", 0xFF40_4040);
+    let mut window = |control: &mut Control| -> Option<Value> {
+        queue.roundtrip(&mut client).unwrap();
+        control.ok(json!({"cmd": "windows"})).as_array().unwrap().first().cloned()
+    };
+    wait_for("the window", || window(&mut control));
+    let alt_space = |control: &mut Control| {
+        key(control, KEY_LEFTALT, true);
+        tap(control, KEY_SPACE);
+        key(control, KEY_LEFTALT, false);
+    };
+
+    // A floating window's menu starts at Move (Restore is not available):
+    // three rows down is Maximize.
+    alt_space(&mut control);
+    for _ in 0..3 {
+        tap(&mut control, KEY_DOWN);
+    }
+    tap(&mut control, KEY_ENTER);
+    assert_eq!(window(&mut control).unwrap()["tile"], "maximized");
+    // The menu's picture is drawn without trouble.
+    alt_space(&mut control);
+    let shot = compositor.runtime.path().join("window-menu.png");
+    control.ok(json!({"cmd": "screenshot", "path": shot}));
+    // Now Restore is the first row.
+    tap(&mut control, KEY_ENTER);
+    assert_eq!(window(&mut control).unwrap()["tile"], "floating");
+
+    // Escape closes the menu and nothing happens; Enter then belongs to
+    // the application again.
+    alt_space(&mut control);
+    tap(&mut control, KEY_ESC);
+    tap(&mut control, KEY_ENTER);
+    let before = window(&mut control).unwrap();
+    assert_eq!(before["tile"], "floating");
+    assert_eq!(before["minimized"], false);
+
+    // Move: the arrow keys move the window, Ctrl for single pixels, and
+    // Enter finishes.
+    alt_space(&mut control);
+    tap(&mut control, KEY_ENTER);
+    tap(&mut control, KEY_RIGHT);
+    tap(&mut control, KEY_DOWN);
+    key(&mut control, KEY_LEFTCTRL, true);
+    tap(&mut control, KEY_LEFT);
+    key(&mut control, KEY_LEFTCTRL, false);
+    tap(&mut control, KEY_ENTER);
+    let after = window(&mut control).unwrap();
+    assert_eq!(after["x"].as_i64().unwrap() - before["x"].as_i64().unwrap(), 23);
+    assert_eq!(after["y"].as_i64().unwrap() - before["y"].as_i64().unwrap(), 24);
+    tap(&mut control, KEY_RIGHT);
+    assert_eq!(window(&mut control).unwrap()["x"], after["x"], "the move is over");
+
+    // Minimize from the menu: Move, Size, Minimize.
+    alt_space(&mut control);
+    tap(&mut control, KEY_DOWN);
+    tap(&mut control, KEY_DOWN);
+    tap(&mut control, KEY_ENTER);
+    assert_eq!(window(&mut control).unwrap()["minimized"], true);
+}
+
 /// Whether a program is on the PATH.
 fn installed(program: &str) -> bool {
     std::env::var_os("PATH")

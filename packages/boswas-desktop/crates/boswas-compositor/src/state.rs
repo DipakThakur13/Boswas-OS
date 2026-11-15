@@ -86,6 +86,7 @@ use crate::{
         overview::Overview,
         snapflyout::SnapFlyout,
         switcher::Switcher,
+        windowmenu::{KeyAdjust, WindowMenu},
     },
 };
 
@@ -226,6 +227,10 @@ pub struct Boswas {
     pub overview: Option<Overview>,
     /// The snap layouts flyout of a maximize button, while it is open.
     pub snap_flyout: Option<SnapFlyout>,
+    /// The window menu (Restore, Move, Size, ...), while it is open.
+    pub window_menu: Option<WindowMenu>,
+    /// The window being moved or resized with the arrow keys.
+    pub key_adjust: Option<KeyAdjust>,
     /// The window whose maximize button the pointer rests on, and since
     /// when.
     pub maximize_hover: Option<(u64, Instant)>,
@@ -418,6 +423,8 @@ impl Boswas {
             layouts: (Vec::new(), 0),
             overview: None,
             snap_flyout: None,
+            window_menu: None,
+            key_adjust: None,
             maximize_hover: None,
             rounds_corners: false,
             ghosts: Vec::new(),
