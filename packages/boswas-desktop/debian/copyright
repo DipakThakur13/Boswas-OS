@@ -1,0 +1,41 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: boswas-desktop
+Upstream-Contact: Boswas OS Platform Team <os-platform@boswas.invalid>
+Source: Boswas OS source repository (Boswas Group internal)
+
+Files: *
+Copyright: 2026 Boswas Group
+License: LicenseRef-Boswas-Internal
+
+Files: Cargo.lock
+Copyright: 2026 Boswas Group
+License: LicenseRef-Boswas-Internal
+Comment: This file pins the Rust crates the build downloads from crates.io.
+ boswas-compositor and boswas-shell are linked statically with those crates
+ and with the Rust standard library. Each crate is copyright its authors and
+ is used under the licence it is published with; "cargo tree --locked
+ --format '{p} {l}'" in this directory prints the complete list. The main
+ ones:
+ .
+  * Smithay and smithay-client-toolkit (the Smithay project), calloop,
+    wayland-rs, drm-rs, gbm.rs, input.rs, pixman-rs: MIT
+  * tiny-skia (Yevhenii Reizner): BSD-3-Clause; resvg and usvg: MIT or
+    Apache-2.0
+  * cosmic-text (System76): MIT or Apache-2.0; rustybuzz, ttf-parser,
+    fontdb, swash, zeno: MIT or Apache-2.0 (and Zlib for parts)
+  * winit: Apache-2.0; image, png: MIT or Apache-2.0
+  * serde, serde_json, toml, chrono, rustix, libc, bitflags, tracing,
+    zeroize, xkbcommon-rs, xcursor: MIT or Apache-2.0
+  * unicode data crates: Unicode-3.0 (alongside MIT or Apache-2.0)
+ .
+ The licence texts are in the crates' sources and, for the licences Debian
+ ships, in /usr/share/common-licenses.
+
+License: LicenseRef-Boswas-Internal
+ Copyright Boswas Group. All rights reserved. Internal use by Boswas Group on
+ company-managed devices. See LICENSES/LicenseRef-Boswas-Internal.txt in the
+ Boswas OS source repository.
+ .
+ This licence covers Boswas-authored files only. Debian packages installed
+ alongside Boswas OS keep their own licences, documented in
+ /usr/share/doc/<package>/copyright.

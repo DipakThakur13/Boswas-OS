@@ -1,0 +1,70 @@
+#!/usr/bin/make -f
+# The native Boswas OS desktop: a cargo workspace with the compositor, the
+# shell and the shared design system, built from the committed Cargo.lock,
+# plus the session scripts and configuration. Every file is installed with
+# an explicit mode.
+#
+# cargo downloads the crates named in Cargo.lock from crates.io, so the
+# build needs network access to it (like the image build needs the Debian
+# archive). Its home and the build products stay inside build/.
+#
+# The design tokens are read at build time from the repository's desktop/ui
+# directory, two levels up.
+
+PKG     := debian/boswas-desktop
+SHARE   := $(PKG)/usr/share
+LIBEXEC := $(PKG)/usr/libexec/boswas
+BIN     := build/target/release
+CARGO   := cargo
+FLAGS   := --release --locked
+
+export CARGO_HOME := $(CURDIR)/build/cargo-home
+export CARGO_TARGET_DIR := $(CURDIR)/build/target
+# Keep build paths out of the programs (reproducible builds).
+export RUSTFLAGS := --remap-path-prefix=$(CURDIR)=/usr/src/boswas-desktop --remap-path-prefix=$(CARGO_HOME)=/usr/share/cargo
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+
+override_dh_auto_build:
+	$(CARGO) build $(FLAGS)
+
+override_dh_auto_test:
+ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+	$(CARGO) test $(FLAGS) --workspace --features boswas-ui/text,boswas-ui/icons,boswas-ui/images
+endif
+
+override_dh_auto_install:
+	install -D -m 0755 $(BIN)/boswas-compositor $(PKG)/usr/bin/boswas-compositor
+	install -D -m 0755 $(BIN)/boswas-shell $(LIBEXEC)/boswas-shell
+	# Session: what greetd starts after login, the login screen, and the
+	# hook that publishes the session to systemd and D-Bus
+	install -D -m 0755 session/boswas-session $(PKG)/usr/bin/boswas-session
+	install -D -m 0755 session/boswas-session-ready $(LIBEXEC)/boswas-session-ready
+	install -D -m 0755 session/boswas-greeter $(LIBEXEC)/boswas-greeter
+	install -D -m 0644 session/boswas.desktop $(SHARE)/wayland-sessions/boswas.desktop
+	install -D -m 0644 session/boswas-session.target $(PKG)/usr/lib/systemd/user/boswas-session.target
+	install -D -m 0644 session/boswas-portals.conf $(SHARE)/xdg-desktop-portal/boswas-portals.conf
+	# Login: greetd reads /etc/boswas/greetd.toml (drop-in; greetd's own
+	# configuration file stays untouched); PAM service of the lock screen
+	install -D -m 0644 session/greetd.toml $(PKG)/etc/boswas/greetd.toml
+	install -D -m 0644 session/greetd-boswas.conf $(PKG)/usr/lib/systemd/system/greetd.service.d/10-boswas.conf
+	install -D -m 0644 session/boswas-lock.pam $(PKG)/etc/pam.d/boswas-lock
+	# Lock before suspend and hibernate
+	install -D -m 0755 session/boswas-lock-on-sleep $(PKG)/usr/lib/systemd/system-sleep/boswas-lock
+	# Compositor defaults (/etc/boswas/compositor.toml and the user's file
+	# override them)
+	install -D -m 0644 config/compositor.toml $(SHARE)/boswas/compositor/compositor.toml
+	install -D -m 0644 config/greeter.toml $(SHARE)/boswas/compositor/greeter.toml
+	# The package version, for Control Center's About page
+	install -d -m 0755 $(SHARE)/boswas/compositor
+	dpkg-parsechangelog -S Version > $(SHARE)/boswas/compositor/version
+	chmod 0644 $(SHARE)/boswas/compositor/version
+
+override_dh_strip:
+	dh_strip --no-automatic-dbgsym
+
+override_dh_auto_clean:
+	rm -rf build

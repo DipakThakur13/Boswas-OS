@@ -1,0 +1,43 @@
+.TH BOSWAS-SESSION 1 "November 2026" "Boswas OS" "User Commands"
+.SH NAME
+boswas-session \- start the Boswas OS desktop session
+.SH SYNOPSIS
+.B boswas-session
+[\fICOMPOSITOR-OPTIONS\fR]
+.SH DESCRIPTION
+.B boswas-session
+is the program
+.BR greetd (1)
+starts after a successful login. It
+.IP \(bu 2
+reads the login profile (\fI/etc/profile\fR, \fI~/.profile\fR),
+.IP \(bu 2
+sets the session's environment (\fBXDG_CURRENT_DESKTOP=Boswas\fR, Wayland
+for Qt, GTK, SDL and Firefox, the Boswas defaults for KDE applications),
+.IP \(bu 2
+starts
+.BR boswas-compositor (1),
+which starts the shell,
+.IP \(bu 2
+publishes the session to the user's systemd manager and D-Bus and starts
+\fBboswas\-session.target\fR (and with it \fBgraphical\-session.target\fR:
+the device session agent, the authentication agent, portals, autostart
+entries),
+.IP \(bu 2
+stops that target when the compositor exits.
+.PP
+Options are passed on to the compositor.
+.SH FILES
+.TP
+.I /usr/share/wayland\-sessions/boswas.desktop
+The session entry.
+.TP
+.I /etc/boswas/greetd.toml
+The login configuration greetd reads on Boswas OS.
+.TP
+.I /usr/lib/systemd/user/boswas\-session.target
+The session target.
+.SH SEE ALSO
+.BR boswas-compositor (1),
+.BR boswas-shell (1),
+.BR greetd (1)

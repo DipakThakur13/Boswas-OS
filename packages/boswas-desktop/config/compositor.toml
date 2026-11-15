@@ -1,0 +1,42 @@
+# Boswas OS compositor defaults.
+#
+# Installed as /usr/share/boswas/compositor/compositor.toml. Do not edit
+# this file: an administrator overrides values in /etc/boswas/compositor.toml
+# and a user in ~/.config/boswas/compositor.toml. boswas-compositor(1)
+# describes every key.
+
+[keyboard]
+layout = "us"
+repeat_delay = 400
+repeat_rate = 30
+
+[pointer]
+tap_to_click = true
+natural_scroll = false
+cursor_theme = "breeze_cursors"
+cursor_size = 24
+
+[output]
+scale = 1.0
+
+[lock]
+# The session locks after ten minutes without input.
+idle_seconds = 600
+command = ["/usr/libexec/boswas/boswas-shell", "--lock"]
+
+[shell]
+command = ["/usr/libexec/boswas/boswas-shell"]
+
+[apps]
+terminal = ["konsole"]
+files = ["dolphin"]
+
+[appearance]
+scheme = "dark"
+
+[policy]
+# Users may shorten the lock timeout but not lengthen or disable it.
+lock_idle_max_seconds = 600
+# Panels, the lock screen, the window list and clipboard control are
+# offered only to the programs the compositor starts itself.
+privileged_protocols = "shell"

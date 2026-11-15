@@ -1,0 +1,21 @@
+#!/bin/sh
+# Lock every Boswas desktop session before the system sleeps, so a resumed
+# laptop never shows an open session. Installed as
+# /usr/lib/systemd/system-sleep/boswas-lock; systemd runs it with
+# "pre <action>" before suspend or hibernate and waits for it.
+#
+# Locking is the one control command every connection may send; the
+# compositor blanks its outputs at once and then starts the lock screen.
+case "$1" in
+	pre)
+		locked=no
+		for socket in /run/user/*/boswas-*.sock; do
+			[ -S "$socket" ] || continue
+			/usr/bin/boswas-compositor --send lock --control-socket "$socket" >/dev/null 2>&1 && locked=yes
+		done
+		# Let the compositors draw the locked screen before the display
+		# goes dark, so it is what shows first on resume.
+		[ "$locked" = yes ] && sleep 0.5
+		;;
+esac
+exit 0

@@ -1,0 +1,62 @@
+#!/bin/sh
+# boswas-session: the Boswas OS desktop session.
+#
+# Started by greetd after a successful login (and by the live session's
+# automatic login). It prepares the environment, starts the compositor,
+# which starts the shell, and ends the session when the compositor exits.
+#
+# This replaces startplasma-wayland.
+
+# The login profile, as a display manager would source it. Errors in a
+# user's profile must not prevent login.
+if [ -z "${BOSWAS_SESSION_PROFILE:-}" ]; then
+	export BOSWAS_SESSION_PROFILE=1
+	for profile in /etc/profile "$HOME/.profile"; do
+		# shellcheck disable=SC1090
+		[ -r "$profile" ] && . "$profile" 2>/dev/null
+	done
+fi
+
+export XDG_CURRENT_DESKTOP=Boswas
+export XDG_SESSION_DESKTOP=boswas
+export XDG_SESSION_TYPE=wayland
+
+# Toolkits: draw on Wayland directly.
+export QT_QPA_PLATFORM="wayland;xcb"
+export GDK_BACKEND=wayland
+export MOZ_ENABLE_WAYLAND=1
+export SDL_VIDEODRIVER=wayland
+export CLUTTER_BACKEND=wayland
+export _JAVA_AWT_WM_NONREPARENTING=1
+export XCURSOR_THEME="${XCURSOR_THEME:-breeze_cursors}"
+export XCURSOR_SIZE="${XCURSOR_SIZE:-24}"
+
+# Boswas defaults for KDE applications (colour scheme, icon theme). The
+# directory is appended, so /etc/xdg and the user's own settings win.
+case ":${XDG_CONFIG_DIRS:-}:" in
+	*:/usr/share/boswas/kde-settings:*) ;;
+	*) XDG_CONFIG_DIRS="${XDG_CONFIG_DIRS:-/etc/xdg}:/usr/share/boswas/kde-settings" ;;
+esac
+export XDG_CONFIG_DIRS
+
+# A session bus is needed by nearly every application. With
+# dbus-user-session the user manager provides it; otherwise start one.
+if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && [ ! -S "${XDG_RUNTIME_DIR:-/nonexistent}/bus" ] &&
+	[ -z "${BOSWAS_SESSION_BUS:-}" ] && command -v dbus-run-session >/dev/null 2>&1; then
+	export BOSWAS_SESSION_BUS=1
+	exec dbus-run-session -- "$0" "$@"
+fi
+
+compositor=/usr/bin/boswas-compositor
+ready=/usr/libexec/boswas/boswas-session-ready
+
+"$compositor" "$@" -- "$ready"
+status=$?
+
+# The session is over: stop what was started for it.
+if command -v systemctl >/dev/null 2>&1; then
+	systemctl --user stop boswas-session.target 2>/dev/null
+	systemctl --user unset-environment WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP \
+		XDG_SESSION_TYPE QT_QPA_PLATFORM GDK_BACKEND MOZ_ENABLE_WAYLAND 2>/dev/null
+fi
+exit "$status"

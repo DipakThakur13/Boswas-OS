@@ -1,0 +1,5 @@
+#%PAM-1.0
+# Boswas OS lock screen: verify the password of the user who locked the
+# session. No session is opened and nothing is changed.
+@include common-auth
+@include common-account

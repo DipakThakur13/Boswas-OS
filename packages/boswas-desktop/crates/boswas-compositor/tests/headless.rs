@@ -1,0 +1,519 @@
+//! End-to-end tests: the real compositor binary on its headless backend,
+//! driven by real Wayland clients and the control socket.
+//!
+//! What they pin down:
+//!
+//! * an ordinary client is offered the application protocols and none of
+//!   the privileged ones; a program the compositor starts itself is
+//! * the public control socket answers `version`, `lock` and
+//!   `reload-config` and refuses everything else
+//! * a window is mapped, listed, tiled, drawn (checked in a screenshot) and
+//!   closed
+//! * a locked session stays locked when the lock screen dies, and unlocks
+//!   only when a lock client says so
+
+use std::{
+    io::{BufRead, BufReader, Write},
+    os::unix::net::UnixStream,
+    path::{Path, PathBuf},
+    process::{Child, Command, Stdio},
+    time::{Duration, Instant},
+};
+
+use serde_json::{json, Value};
+use wayland_client::{
+    delegate_noop,
+    globals::{registry_queue_init, GlobalListContents},
+    protocol::{wl_buffer, wl_compositor, wl_registry, wl_shm, wl_shm_pool, wl_surface},
+    Connection, Dispatch, QueueHandle,
+};
+use wayland_protocols::{
+    ext::session_lock::v1::client::{ext_session_lock_manager_v1, ext_session_lock_v1},
+    xdg::shell::client::{xdg_surface, xdg_toplevel, xdg_wm_base},
+};
+
+const PRIVILEGED: &[&str] = &[
+    "zwlr_layer_shell_v1",
+    "ext_session_lock_manager_v1",
+    "ext_foreign_toplevel_list_v1",
+    "zwlr_data_control_manager_v1",
+];
+const APPLICATION: &[&str] = &[
+    "wl_compositor",
+    "wl_shm",
+    "wl_seat",
+    "wl_output",
+    "wl_data_device_manager",
+    "xdg_wm_base",
+    "zxdg_decoration_manager_v1",
+    "xdg_activation_v1",
+    "wp_viewporter",
+    "wp_fractional_scale_manager_v1",
+    "wp_presentation",
+    "wp_cursor_shape_manager_v1",
+    "zwp_pointer_constraints_v1",
+    "zwp_relative_pointer_manager_v1",
+    "zwp_idle_inhibit_manager_v1",
+    "wp_security_context_manager_v1",
+];
+
+/// A compositor process with its own runtime directory.
+struct Compositor {
+    child: Child,
+    /// Kept open: programs the compositor starts inherit this pipe as their
+    /// standard output and would die writing to a closed one.
+    _stdout: BufReader<std::process::ChildStdout>,
+    runtime: tempfile::TempDir,
+    display: String,
+    control: PathBuf,
+}
+
+impl Compositor {
+    /// Starts the compositor with `config` (TOML). `role` names the helper
+    /// (see `trusted_helper`) that programs started by the compositor run.
+    fn start(config: &str, role: &str) -> Self {
+        // Unix socket paths are short; keep the directory name short too.
+        let runtime = tempfile::Builder::new().prefix("bw").tempdir_in("/tmp").unwrap();
+        let config_path = runtime.path().join("compositor.toml");
+        std::fs::write(&config_path, config.replace("@HELPER@", &helper_command())).unwrap();
+        let mut child = Command::new(env!("CARGO_BIN_EXE_boswas-compositor"))
+            .args(["--backend", "headless", "--headless-size", "800x600", "--test-input", "--print-env"])
+            .arg("--config")
+            .arg(&config_path)
+            .env("XDG_RUNTIME_DIR", runtime.path())
+            .env("BOSWAS_TEST_ROLE", role)
+            .env("BOSWAS_TEST_OUT", runtime.path().join("helper.out"))
+            .env_remove("WAYLAND_DISPLAY")
+            .env_remove("WAYLAND_SOCKET")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("the compositor starts");
+        let mut stdout = BufReader::new(child.stdout.take().unwrap());
+        let mut display = String::new();
+        let mut control = PathBuf::new();
+        for _ in 0..2 {
+            let mut line = String::new();
+            stdout.read_line(&mut line).expect("the compositor prints its environment");
+            match line.trim_end().split_once('=') {
+                Some(("WAYLAND_DISPLAY", value)) => display = value.to_owned(),
+                Some(("BOSWAS_COMPOSITOR_SOCKET", value)) => control = PathBuf::from(value),
+                _ => panic!("unexpected line: {line}"),
+            }
+        }
+        Self {
+            child,
+            _stdout: stdout,
+            runtime,
+            display,
+            control,
+        }
+    }
+
+    fn wayland(&self) -> Connection {
+        let stream = UnixStream::connect(self.runtime.path().join(&self.display)).expect("the Wayland socket");
+        Connection::from_socket(stream).unwrap()
+    }
+
+    fn control(&self) -> Control {
+        Control::connect(&self.control)
+    }
+
+    fn helper_output(&self) -> String {
+        std::fs::read_to_string(self.runtime.path().join("helper.out")).unwrap_or_default()
+    }
+}
+
+impl Drop for Compositor {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+/// A control-socket connection.
+struct Control {
+    reader: BufReader<UnixStream>,
+}
+
+impl Control {
+    fn connect(path: &Path) -> Self {
+        let stream = UnixStream::connect(path).expect("the control socket");
+        stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        Self {
+            reader: BufReader::new(stream),
+        }
+    }
+
+    fn raw(&mut self, line: &str) -> Option<Value> {
+        self.reader.get_mut().write_all(line.as_bytes()).ok()?;
+        let mut reply = String::new();
+        self.reader.read_line(&mut reply).ok().filter(|n| *n > 0)?;
+        serde_json::from_str(&reply).ok()
+    }
+
+    fn call(&mut self, request: Value) -> Value {
+        self.raw(&(request.to_string() + "\n")).expect("a reply")
+    }
+
+    fn ok(&mut self, request: Value) -> Value {
+        let reply = self.call(request.clone());
+        assert_eq!(reply["ok"], true, "{request} -> {reply}");
+        reply["data"].clone()
+    }
+}
+
+fn wait_for<T>(what: &str, mut probe: impl FnMut() -> Option<T>) -> T {
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        if let Some(value) = probe() {
+            return value;
+        }
+        assert!(Instant::now() < deadline, "timed out waiting for {what}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// This test binary, run as a helper program: `trusted_helper` below.
+fn helper_command() -> String {
+    let exe = std::env::current_exe().unwrap();
+    format!("[{:?}, \"trusted_helper\", \"--exact\", \"--ignored\", \"--nocapture\"]", exe.to_str().unwrap())
+}
+
+// ---------------------------------------------------------------------------
+// A minimal Wayland client
+// ---------------------------------------------------------------------------
+
+#[derive(Default)]
+struct Client {
+    configured: bool,
+    closed: bool,
+    locked: Option<bool>,
+}
+
+impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for Client {
+    fn event(_: &mut Self, _: &wl_registry::WlRegistry, _: wl_registry::Event, _: &GlobalListContents, _: &Connection, _: &QueueHandle<Self>) {}
+}
+
+impl Dispatch<xdg_wm_base::XdgWmBase, ()> for Client {
+    fn event(_: &mut Self, base: &xdg_wm_base::XdgWmBase, event: xdg_wm_base::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        if let xdg_wm_base::Event::Ping { serial } = event {
+            base.pong(serial);
+        }
+    }
+}
+
+impl Dispatch<xdg_surface::XdgSurface, ()> for Client {
+    fn event(state: &mut Self, surface: &xdg_surface::XdgSurface, event: xdg_surface::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        if let xdg_surface::Event::Configure { serial } = event {
+            surface.ack_configure(serial);
+            state.configured = true;
+        }
+    }
+}
+
+impl Dispatch<xdg_toplevel::XdgToplevel, ()> for Client {
+    fn event(state: &mut Self, _: &xdg_toplevel::XdgToplevel, event: xdg_toplevel::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        if let xdg_toplevel::Event::Close = event {
+            state.closed = true;
+        }
+    }
+}
+
+impl Dispatch<ext_session_lock_v1::ExtSessionLockV1, ()> for Client {
+    fn event(state: &mut Self, _: &ext_session_lock_v1::ExtSessionLockV1, event: ext_session_lock_v1::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        match event {
+            ext_session_lock_v1::Event::Locked => state.locked = Some(true),
+            ext_session_lock_v1::Event::Finished => state.locked = Some(false),
+            _ => {}
+        }
+    }
+}
+
+delegate_noop!(Client: ignore wl_compositor::WlCompositor);
+delegate_noop!(Client: ignore wl_surface::WlSurface);
+delegate_noop!(Client: ignore wl_shm::WlShm);
+delegate_noop!(Client: ignore wl_shm_pool::WlShmPool);
+delegate_noop!(Client: ignore wl_buffer::WlBuffer);
+delegate_noop!(Client: ignore ext_session_lock_manager_v1::ExtSessionLockManagerV1);
+
+/// The interfaces a connection is offered.
+fn globals_of(conn: &Connection) -> Vec<String> {
+    let (globals, _queue) = registry_queue_init::<Client>(conn).unwrap();
+    globals.contents().with_list(|list| list.iter().map(|g| g.interface.clone()).collect())
+}
+
+/// Opens a 320x200 toplevel filled with one opaque colour (ARGB).
+fn open_window(conn: &Connection, title: &str, argb: u32) -> (wayland_client::EventQueue<Client>, Client, xdg_toplevel::XdgToplevel) {
+    let (globals, mut queue) = registry_queue_init::<Client>(conn).unwrap();
+    let qh = queue.handle();
+    let compositor: wl_compositor::WlCompositor = globals.bind(&qh, 1..=4, ()).unwrap();
+    let shm: wl_shm::WlShm = globals.bind(&qh, 1..=1, ()).unwrap();
+    let wm: xdg_wm_base::XdgWmBase = globals.bind(&qh, 1..=3, ()).unwrap();
+    let surface = compositor.create_surface(&qh, ());
+    let xdg = wm.get_xdg_surface(&surface, &qh, ());
+    let toplevel = xdg.get_toplevel(&qh, ());
+    toplevel.set_title(title.into());
+    toplevel.set_app_id("com.boswas.test".into());
+    surface.commit();
+    let mut client = Client::default();
+    while !client.configured {
+        queue.blocking_dispatch(&mut client).unwrap();
+    }
+    let (w, h) = (320i32, 200i32);
+    let mut file = tempfile::tempfile().unwrap();
+    for _ in 0..(w * h) {
+        file.write_all(&argb.to_le_bytes()).unwrap();
+    }
+    file.flush().unwrap();
+    use std::os::fd::AsFd;
+    let pool = shm.create_pool(file.as_fd(), w * h * 4, &qh, ());
+    let buffer = pool.create_buffer(0, w, h, w * 4, wl_shm::Format::Argb8888, &qh, ());
+    surface.attach(Some(&buffer), 0, 0);
+    surface.damage_buffer(0, 0, w, h);
+    surface.commit();
+    queue.roundtrip(&mut client).unwrap();
+    (queue, client, toplevel)
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+const LOCKED_DOWN: &str = "[shell]\ncommand = []\n[lock]\nidle_seconds = 0\ncommand = []\n[policy]\nlock_idle_max_seconds = 0\n";
+
+#[test]
+fn ordinary_clients_get_application_protocols_only() {
+    let compositor = Compositor::start(LOCKED_DOWN, "none");
+    let globals = globals_of(&compositor.wayland());
+    for interface in APPLICATION {
+        assert!(globals.iter().any(|g| g == interface), "{interface} is missing from {globals:?}");
+    }
+    for interface in PRIVILEGED {
+        assert!(!globals.iter().any(|g| g == interface), "{interface} is offered to an ordinary client");
+    }
+}
+
+#[test]
+fn the_public_control_socket_is_limited() {
+    let compositor = Compositor::start(LOCKED_DOWN, "none");
+    let mut control = compositor.control();
+    let version = control.ok(json!({"cmd": "version"}));
+    assert_eq!(version["name"], "boswas-compositor");
+    assert_eq!(version["trusted"], false);
+    assert_eq!(version["locked"], false);
+    for cmd in ["windows", "outputs", "subscribe", "workspaces", "quit", "screenshot", "activate", "close", "tile", "pointer", "key", "button"] {
+        let reply = control.call(json!({"cmd": cmd, "id": 7, "path": "/tmp/boswas-test-shot.png", "window": 1}));
+        assert_eq!(reply["ok"], false, "{cmd} must be refused on a public connection: {reply}");
+        assert_eq!(reply["id"], 7);
+    }
+    control.ok(json!({"cmd": "reload-config"}));
+    for garbage in ["not json\n", "[1, 2]\n", "{}\n", "{\"cmd\": 5}\n", "\"version\"\n"] {
+        let reply = control.raw(garbage).expect("garbage gets an error reply, not a hang-up");
+        assert_eq!(reply["ok"], false, "{garbage:?}");
+    }
+    // Still alive and answering after the garbage.
+    control.ok(json!({"cmd": "version"}));
+    // An endless line is cut off instead of being buffered.
+    let mut flood = compositor.control();
+    let chunk = "x".repeat(8192);
+    let mut refused = false;
+    for _ in 0..64 {
+        if flood.reader.get_mut().write_all(chunk.as_bytes()).is_err() {
+            refused = true;
+            break;
+        }
+    }
+    let mut line = String::new();
+    let ended = matches!(flood.reader.read_line(&mut line), Ok(0) | Err(_));
+    assert!(refused || ended, "an oversized request must close the connection");
+    compositor.control().ok(json!({"cmd": "version"}));
+}
+
+#[test]
+fn a_program_the_compositor_starts_is_trusted() {
+    let config = "[shell]\ncommand = @HELPER@\n[lock]\nidle_seconds = 0\ncommand = []\n[policy]\nlock_idle_max_seconds = 0\n";
+    let compositor = Compositor::start(config, "shell");
+    let report = wait_for("the helper's report", || {
+        let text = compositor.helper_output();
+        text.contains("done").then_some(text)
+    });
+    for interface in PRIVILEGED {
+        assert!(report.contains(&format!("global {interface}\n")), "{interface} is not offered to the shell:\n{report}");
+    }
+    assert!(report.contains("ipc version trusted=true"), "{report}");
+    assert!(report.contains("ipc windows ok=true"), "{report}");
+    assert!(report.contains("ipc subscribe ok=true"), "{report}");
+    // The same compositor still refuses the public socket.
+    let reply = compositor.control().call(json!({"cmd": "windows"}));
+    assert_eq!(reply["ok"], false);
+    // And an ordinary client still sees no privileged global.
+    let globals = globals_of(&compositor.wayland());
+    assert!(!globals.iter().any(|g| PRIVILEGED.contains(&g.as_str())), "{globals:?}");
+}
+
+#[test]
+fn a_window_is_mapped_listed_tiled_drawn_and_closed() {
+    // Development policy: the public control socket is trusted, so the test
+    // can drive the window manager and take screenshots.
+    let config = "[shell]\ncommand = []\n[lock]\nidle_seconds = 0\ncommand = []\n[policy]\nlock_idle_max_seconds = 0\nprivileged_protocols = \"all\"\n";
+    let compositor = Compositor::start(config, "none");
+    let mut control = compositor.control();
+    assert_eq!(control.ok(json!({"cmd": "version"}))["trusted"], true);
+    assert_eq!(control.ok(json!({"cmd": "windows"})), json!([]));
+
+    let conn = compositor.wayland();
+    let (mut queue, mut client, _toplevel) = open_window(&conn, "Integration test", 0xFF00_C000);
+    let window = wait_for("the window in the list", || {
+        control.ok(json!({"cmd": "windows"})).as_array().and_then(|list| list.first().cloned())
+    });
+    assert_eq!(window["title"], "Integration test");
+    assert_eq!(window["app_id"], "com.boswas.test");
+    assert_eq!(window["active"], true);
+    assert_eq!(window["tile"], "floating");
+    assert_eq!((window["width"].as_i64(), window["height"].as_i64()), (Some(320), Some(200)));
+    let (x, y) = (window["x"].as_i64().unwrap(), window["y"].as_i64().unwrap());
+    assert!((0..800 - 320).contains(&x) && (0..600 - 200).contains(&y), "placed on screen: {x},{y}");
+
+    // The screenshot shows the client's pixels where the window is.
+    let shot = compositor.runtime.path().join("shot.png");
+    control.ok(json!({"cmd": "screenshot", "path": shot}));
+    let decoder = png::Decoder::new(std::io::BufReader::new(std::fs::File::open(&shot).unwrap()));
+    let mut reader = decoder.read_info().unwrap();
+    let mut pixels = vec![0u8; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut pixels).unwrap();
+    assert_eq!((info.width, info.height), (800, 600));
+    let pixel = |px: i64, py: i64| {
+        let i = ((py * 800 + px) * 4) as usize;
+        (pixels[i], pixels[i + 1], pixels[i + 2])
+    };
+    assert_eq!(pixel(x + 160, y + 100), (0x00, 0xC0, 0x00), "the window's own colour at its centre");
+    let corner = pixel(799, 599);
+    assert_ne!(corner, (0x00, 0xC0, 0x00));
+    assert!(corner.0 < 40 && corner.1 < 40 && corner.2 < 60, "the background is the dark theme colour: {corner:?}");
+
+    // Snap to the left half through the control socket.
+    let id = window["id"].clone();
+    control.ok(json!({"cmd": "tile", "window": id, "tile": "left"}));
+    let tiled = wait_for("the window to be tiled", || {
+        queue.roundtrip(&mut client).ok()?;
+        let w = control.ok(json!({"cmd": "windows"}))[0].clone();
+        (w["tile"] == "left").then_some(w)
+    });
+    assert_eq!((tiled["x"].as_i64(), tiled["y"].as_i64()), (Some(0), Some(0)));
+    assert_eq!(control.call(json!({"cmd": "tile", "window": id, "tile": "sideways"}))["ok"], false);
+    assert_eq!(control.call(json!({"cmd": "activate", "window": 999}))["ok"], false);
+
+    // Workspaces: the window stays on the first one.
+    assert_eq!(control.ok(json!({"cmd": "workspace", "index": 1}))["active"], 1);
+    assert_eq!(control.ok(json!({"cmd": "windows"}))[0]["workspace"], 0);
+    assert_eq!(control.ok(json!({"cmd": "workspace", "index": 0}))["active"], 0);
+    assert_eq!(control.ok(json!({"cmd": "workspace", "index": 99}))["active"], 0, "an unknown workspace is ignored");
+
+    // Closing asks the client; when it goes, the list is empty again.
+    control.ok(json!({"cmd": "close", "window": id}));
+    wait_for("the close request", || {
+        queue.roundtrip(&mut client).ok()?;
+        client.closed.then_some(())
+    });
+    drop((queue, conn));
+    wait_for("the window to disappear", || {
+        (control.ok(json!({"cmd": "windows"})) == json!([])).then_some(())
+    });
+}
+
+#[test]
+fn a_locked_session_stays_locked_when_the_lock_screen_dies() {
+    // The lock program takes the lock and exits without unlocking, every
+    // time it is started.
+    let config = "[shell]\ncommand = []\n[lock]\nidle_seconds = 0\ncommand = @HELPER@\n[policy]\nlock_idle_max_seconds = 0\n";
+    let compositor = Compositor::start(config, "lock-and-die");
+    let mut control = compositor.control();
+    assert_eq!(control.ok(json!({"cmd": "version"}))["locked"], false);
+    control.ok(json!({"cmd": "lock"}));
+    // From the reply on, and across at least two crashed lock screens, the
+    // session is never unlocked.
+    let started = Instant::now();
+    let mut samples = 0;
+    while compositor.helper_output().matches("locked").count() < 2 {
+        assert_eq!(control.ok(json!({"cmd": "version"}))["locked"], true, "unlocked after {:?}", started.elapsed());
+        samples += 1;
+        assert!(started.elapsed() < Duration::from_secs(30), "the lock screen was not restarted");
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    assert!(samples > 10, "only {samples} samples");
+    assert_eq!(control.ok(json!({"cmd": "version"}))["locked"], true);
+    assert!(!compositor.helper_output().contains("finished"), "a new lock screen must be able to take over");
+}
+
+#[test]
+fn only_a_lock_client_unlocks_the_session() {
+    let config = "[shell]\ncommand = []\n[lock]\nidle_seconds = 0\ncommand = @HELPER@\n[policy]\nlock_idle_max_seconds = 0\n";
+    let compositor = Compositor::start(config, "lock-and-unlock");
+    let mut control = compositor.control();
+    control.ok(json!({"cmd": "lock"}));
+    assert_eq!(control.ok(json!({"cmd": "version"}))["locked"], true, "locked before the lock screen is even up");
+    wait_for("the lock screen to unlock", || {
+        (control.ok(json!({"cmd": "version"}))["locked"] == false).then_some(())
+    });
+    assert!(compositor.helper_output().contains("locked"));
+}
+
+/// Not a test of its own: the body of the helper program the compositor
+/// starts in the tests above (this binary with `--ignored --exact`).
+#[test]
+#[ignore = "helper program for the tests above"]
+fn trusted_helper() {
+    let Ok(role) = std::env::var("BOSWAS_TEST_ROLE") else {
+        return;
+    };
+    let out = PathBuf::from(std::env::var("BOSWAS_TEST_OUT").unwrap());
+    let report = |line: &str| {
+        let mut file = std::fs::OpenOptions::new().create(true).append(true).open(&out).unwrap();
+        writeln!(file, "{line}").unwrap();
+    };
+    // The trusted Wayland connection the compositor handed over.
+    let conn = Connection::connect_to_env().expect("WAYLAND_SOCKET");
+    match role.as_str() {
+        "shell" => {
+            for interface in globals_of(&conn) {
+                report(&format!("global {interface}"));
+            }
+            use std::os::fd::FromRawFd;
+            let fd: i32 = std::env::var("BOSWAS_COMPOSITOR_FD").unwrap().parse().unwrap();
+            // SAFETY: the descriptor was passed to this process by the
+            // compositor for exactly this use.
+            let stream = unsafe { UnixStream::from_raw_fd(fd) };
+            stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+            let mut control = Control {
+                reader: BufReader::new(stream),
+            };
+            let version = control.call(json!({"cmd": "version"}));
+            report(&format!("ipc version trusted={}", version["data"]["trusted"]));
+            for cmd in ["windows", "subscribe"] {
+                report(&format!("ipc {cmd} ok={}", control.call(json!({"cmd": cmd}))["ok"]));
+            }
+            report("done");
+            // Stay alive like a shell would; the compositor is killed by the test.
+            std::thread::sleep(Duration::from_secs(60));
+        }
+        "lock-and-die" | "lock-and-unlock" => {
+            let (globals, mut queue) = registry_queue_init::<Client>(&conn).unwrap();
+            let qh = queue.handle();
+            let manager: ext_session_lock_manager_v1::ExtSessionLockManagerV1 = globals.bind(&qh, 1..=1, ()).unwrap();
+            let lock = manager.lock(&qh, ());
+            let mut client = Client::default();
+            while client.locked.is_none() {
+                queue.blocking_dispatch(&mut client).unwrap();
+            }
+            report(if client.locked == Some(true) { "locked" } else { "finished" });
+            if role == "lock-and-unlock" && client.locked == Some(true) {
+                std::thread::sleep(Duration::from_millis(300));
+                lock.unlock_and_destroy();
+                queue.roundtrip(&mut client).unwrap();
+            }
+            // "lock-and-die": exit here, holding the lock, like a crash.
+        }
+        _ => {}
+    }
+}

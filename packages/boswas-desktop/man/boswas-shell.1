@@ -1,0 +1,58 @@
+.TH BOSWAS-SHELL 1 "November 2026" "Boswas OS" "User Commands"
+.SH NAME
+boswas-shell \- the Boswas OS desktop shell, lock screen and login screen
+.SH SYNOPSIS
+.B /usr/libexec/boswas/boswas-shell
+[\fB\-\-lock\fR | \fB\-\-greeter\fR]
+.SH DESCRIPTION
+.B boswas-shell
+draws the parts of the desktop that are not application windows. It is
+started by
+.BR boswas-compositor (1),
+which gives it a trusted Wayland connection; it is not meant to be started
+by hand. It is an ordinary, unprivileged process: if it exits, the
+compositor starts it again and open windows are not affected.
+.TP
+(no option)
+The desktop: the background, the panel along the bottom edge (launcher
+button, pinned and running applications, network and battery status, clock)
+and the launcher (search, all applications, lock, log out, restart, shut
+down). Search is local: it matches installed applications and ranks them by
+how often they were started. Restart, shut down and log out ask for a
+second click.
+.TP
+.B \-\-lock
+The lock screen. It shows the clock and asks for the password of the user
+who owns the session, checked through PAM (service \fBboswas\-lock\fR). The
+session is unlocked only after PAM accepts the password.
+.TP
+.B \-\-greeter
+The login screen, run by
+.BR greetd (1).
+After a successful login greetd starts
+.BR boswas-session (1)
+for the user.
+.TP
+.BR \-h ", " \-\-help
+Show a summary of the options.
+.TP
+.BR \-V ", " \-\-version
+Show the version.
+.SH FILES
+.TP
+.I ~/.local/state/boswas/launcher\-usage.json
+How often each application was started from the launcher; used to rank
+search results. It never leaves the device.
+.TP
+.I /etc/pam.d/boswas\-lock
+PAM service of the lock screen.
+.SH ENVIRONMENT
+.TP
+.B BOSWAS_LOG
+Log filter (for example \fBdebug\fR). Messages go to standard error.
+.TP
+.B GREETD_SOCK
+Set by greetd for the login screen.
+.SH SEE ALSO
+.BR boswas-compositor (1),
+.BR boswas-session (1)

@@ -1,0 +1,38 @@
+# Boswas Desktop: the native Boswas OS desktop session.
+#
+#   boswas-ui          design tokens (desktop/ui/tokens.json), software drawing, text
+#   boswas-compositor  the Wayland compositor: display server, window manager, effects
+#   boswas-shell       panel, launcher, lock screen and login greeter
+#
+# Debian 13 ships rustc and cargo 1.85; `rust-version` and resolver 3 keep
+# every dependency in Cargo.lock buildable with that toolchain.
+[workspace]
+resolver = "3"
+members = ["crates/boswas-ui", "crates/boswas-compositor", "crates/boswas-shell"]
+
+[workspace.package]
+version = "1.0.0-alpha.3"
+edition = "2021"
+rust-version = "1.85"
+license = "LicenseRef-Boswas-Internal"
+authors = ["Boswas OS Platform Team"]
+publish = false
+
+[workspace.dependencies]
+boswas-ui = { path = "crates/boswas-ui" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tiny-skia = { version = "0.11", default-features = false, features = ["std", "simd"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "std"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+panic = "abort"
+strip = "debuginfo"
+overflow-checks = true
+
+[profile.dev]
+opt-level = 1

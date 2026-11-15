@@ -1,0 +1,59 @@
+Source: boswas-desktop
+Section: x11
+Priority: optional
+Maintainer: Boswas OS Platform Team <os-platform@boswas.invalid>
+Build-Depends: debhelper-compat (= 13),
+               cargo,
+               libgbm-dev,
+               libinput-dev,
+               libpam0g-dev,
+               libpixman-1-dev,
+               libseat-dev,
+               libudev-dev,
+               libxkbcommon-dev,
+               pkgconf,
+               rustc (>= 1.85)
+Standards-Version: 4.7.2
+Rules-Requires-Root: no
+
+Package: boswas-desktop
+Architecture: amd64
+Depends: dbus-user-session,
+         greetd,
+         libegl1,
+         libgl1-mesa-dri,
+         libgles2,
+         libpam-runtime,
+         xkb-data,
+         ${misc:Depends},
+         ${shlibs:Depends}
+Recommends: boswas-branding,
+            breeze-cursor-theme,
+            fonts-inter,
+            polkit-kde-agent-1,
+            qt6-wayland,
+            xdg-desktop-portal-gtk
+Suggests: libxkbcommon-x11-0
+Description: Boswas OS desktop: compositor, shell and session
+ The native Boswas OS desktop, written in Rust. It takes the place of KWin,
+ the Plasma shell and the Plasma session; applications keep working because
+ it speaks the standard Wayland protocols.
+ .
+  * boswas-compositor: the Wayland compositor (on the Smithay library): the
+    display server, window manager and effects engine. Floating windows with
+    Boswas frames, snap layouts, workspaces, Alt+Tab, fractional scaling;
+    DRM/KMS with OpenGL ES on real hardware, a software renderer for tests
+  * boswas-shell: wallpaper, panel and launcher, the lock screen and the
+    login screen
+  * boswas-session: the session greetd starts after login
+ .
+ Security model: ordinary applications cannot read the screen, other
+ windows or global key strokes. Panels, the lock screen, the window list and
+ clipboard control are offered only to the programs the compositor starts
+ itself; sandboxed applications never see them. The compositor owns the
+ session lock: a locked screen stays blank even if the lock screen crashes.
+ The session locks after ten minutes without input, and a user cannot
+ lengthen that.
+ .
+ greetd is pointed at /etc/boswas/greetd.toml by a systemd drop-in; its own
+ configuration file is not modified.

@@ -1,0 +1,7 @@
+boswas-desktop (1.0~alpha3) trixie; urgency=medium
+
+  * Initial release: the native Boswas OS desktop (boswas-compositor,
+    boswas-shell, boswas-session). Replaces KWin, the Plasma shell and the
+    Plasma session.
+
+ -- Boswas OS Platform Team <os-platform@boswas.invalid>  Sun, 15 Nov 2026 12:00:00 +0000

@@ -1,0 +1,47 @@
+[package]
+name = "boswas-compositor"
+description = "The Boswas OS Wayland compositor"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[features]
+default = ["udev", "winit"]
+# Real hardware: DRM/KMS, GBM, EGL/GLES, libinput, libseat.
+udev = [
+    "smithay/backend_drm",
+    "smithay/backend_gbm",
+    "smithay/backend_egl",
+    "smithay/backend_libinput",
+    "smithay/backend_udev",
+    "smithay/backend_session_libseat",
+    "smithay/renderer_gl",
+]
+# Nested in a window on a developer machine.
+winit = ["smithay/backend_winit", "smithay/renderer_gl"]
+
+[dependencies]
+boswas-ui = { workspace = true, features = ["text"] }
+serde.workspace = true
+serde_json.workspace = true
+tiny-skia.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+bitflags = "2"
+toml = { version = "0.8", default-features = false, features = ["parse"] }
+png = "0.17"
+xcursor = "0.3"
+rustix = { version = "1", features = ["fs", "net", "process", "time"] }
+
+[dependencies.smithay]
+version = "0.7"
+default-features = false
+features = ["desktop", "wayland_frontend", "renderer_pixman"]
+
+[dev-dependencies]
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client", "staging", "unstable"] }
+tempfile = "3"

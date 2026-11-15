@@ -1,0 +1,23 @@
+# Boswas OS compositor configuration for the login screen.
+#
+# Installed as /usr/share/boswas/compositor/greeter.toml and used by
+# boswas-greeter. The only program on this compositor is the greeter.
+
+[pointer]
+cursor_theme = "breeze_cursors"
+
+[lock]
+# Nobody is logged in: there is no session to lock.
+idle_seconds = 0
+command = []
+
+[shell]
+command = ["/usr/libexec/boswas/boswas-shell", "--greeter"]
+
+[apps]
+terminal = []
+files = []
+
+[policy]
+lock_idle_max_seconds = 0
+privileged_protocols = "shell"

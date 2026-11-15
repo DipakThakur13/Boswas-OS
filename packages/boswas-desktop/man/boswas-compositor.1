@@ -1,0 +1,172 @@
+.TH BOSWAS-COMPOSITOR 1 "November 2026" "Boswas OS" "User Commands"
+.SH NAME
+boswas-compositor \- the Boswas OS Wayland compositor
+.SH SYNOPSIS
+.B boswas-compositor
+[\fIOPTIONS\fR] [\fB\-\-\fR \fICOMMAND\fR [\fIARGS\fR...]]
+.SH DESCRIPTION
+.B boswas-compositor
+is the display server, window manager and effects engine of the Boswas OS
+desktop. It draws every window, routes all input, and decides which program
+may see or control what. Applications connect to it with the standard
+Wayland protocols.
+.PP
+It is normally started by
+.BR boswas-session (1).
+Once it accepts clients it starts the shell
+.RB ( boswas-shell (1))
+as a trusted client and restarts it if it exits.
+.SH OPTIONS
+.TP
+.BI \-\-backend " KIND"
+\fBudev\fR: real hardware (DRM/KMS, libinput, libseat); the default on a
+virtual terminal.
+\fBwinit\fR: a window inside another Wayland or X11 session; the default
+there.
+\fBheadless\fR: one output rendered in software into memory, for tests.
+.TP
+.BI \-\-headless\-size " WIDTH" x HEIGHT
+Size of the headless output (default 1920x1080).
+.TP
+.BI \-\-socket " NAME"
+Wayland socket name (default: the first free \fBwayland\-\fIN\fR).
+.TP
+.BI \-\-config " FILE"
+Read only this configuration file instead of the three layers below.
+.TP
+.B \-\-no\-shell
+Do not start the shell.
+.TP
+.B \-\-test\-input
+Accept input-injection commands on trusted control connections. For tests.
+.TP
+.B \-\-print\-env
+Print \fBWAYLAND_DISPLAY\fR and \fBBOSWAS_COMPOSITOR_SOCKET\fR on standard
+output once the compositor is ready.
+.TP
+.BI \-\-send " COMMAND"
+Send a command to a running compositor's control socket, print the reply
+and exit: \fBversion\fR, \fBlock\fR or \fBreload\-config\fR. With
+\fB\-\-control\-socket\fR \fIPATH\fR another compositor's socket is used.
+.TP
+.BR \-h ", " \-\-help
+Show a summary of the options.
+.TP
+.BR \-V ", " \-\-version
+Show the version.
+.SH KEYBOARD AND POINTER
+.TS
+tab(|);
+l l.
+Super|open or close the launcher
+Super+L|lock the session
+Alt+Tab, Alt+Shift+Tab|switch windows, most recently used first
+Alt+F4|close the window
+Super+Up|maximize
+Super+Down|restore; minimize a floating window
+Super+Left, Super+Right|snap to the left or right half
+Super+F11|fullscreen
+Super+1 ... Super+4|switch workspace
+Super+Shift+1 ... 4|move the window to a workspace
+Super+E|file manager
+Ctrl+Alt+T|terminal
+Ctrl+Alt+F1 ... F12|switch virtual terminal
+.TE
+.PP
+Drag a title bar to move a window; drag it to a screen edge for a snap
+layout (top: maximize; sides: halves; the outer quarter of a side: that
+corner). Double-click a title bar to maximize. Drag the border to resize.
+Super+left drag moves and Super+right drag resizes from anywhere on a
+window. Shortcuts use the key's position on the Latin layout, so they work
+the same while another layout is active.
+.SH CONFIGURATION
+TOML files, later ones overriding earlier ones key by key:
+.PP
+.nf
+/usr/share/boswas/compositor/compositor.toml   shipped defaults
+/etc/boswas/compositor.toml                    the administrator
+~/.config/boswas/compositor.toml               the user
+~/.config/boswas/appearance.toml               written by boswas\-preset
+.fi
+.PP
+A file that does not parse, or that contains an unknown key, is reported and
+ignored as a whole. \fIappearance.toml\fR may contain the [appearance] table
+only.
+.TP
+.B [keyboard]
+\fBlayout\fR, \fBvariant\fR, \fBmodel\fR, \fBoptions\fR (XKB names, for
+example layout "us,in" with options "grp:alt_shift_toggle");
+\fBrepeat_delay\fR (milliseconds), \fBrepeat_rate\fR (per second).
+.TP
+.B [pointer]
+\fBnatural_scroll\fR, \fBtap_to_click\fR, \fBaccel_speed\fR (\-1.0 to 1.0),
+\fBcursor_theme\fR, \fBcursor_size\fR.
+.TP
+.B [output]
+\fBscale\fR: 1.0, 1.25, 1.5, 1.75 or 2.0, for every output.
+.TP
+.B [lock]
+\fBidle_seconds\fR: time without input before the session locks (0: never,
+if the policy allows it). \fBcommand\fR: the lock screen program (read
+from the first two files only).
+.TP
+.B [shell]
+\fBcommand\fR: the shell program (read from the first two files only).
+These two programs are started as trusted clients, so a user's file cannot
+name them.
+.TP
+.B [apps]
+\fBterminal\fR and \fBfiles\fR: the programs of Ctrl+Alt+T and Super+E.
+.TP
+.B [appearance]
+\fBscheme\fR ("dark" or "light"), \fBreduced_motion\fR, \fBwallpaper\fR (a
+PNG or JPEG file shown by the shell instead of the default background).
+.TP
+.B [policy]
+Read from the first two files only; ignored in a user's file.
+\fBlock_idle_max_seconds\fR: the longest lock timeout a user may choose (0:
+no limit). \fBprivileged_protocols\fR: "shell" (default) or "all" (see
+SECURITY).
+.SH SECURITY
+Ordinary clients get the application protocols only: they cannot read the
+screen, other windows or global key strokes.
+.PP
+The privileged protocols (layer shell for panels and overlays, session
+lock, the window list, clipboard control) are offered only to programs the
+compositor started itself, over a connection it created for them. Clients
+that connect through a security context (Flatpak and other sandboxes) never
+get them. \fBprivileged_protocols = "all"\fR offers them to every client
+outside a sandbox; it exists for development and must not be set on a
+managed device.
+.PP
+The compositor owns the session lock. Locking blanks every output and takes
+input away from applications before the lock screen is started; only a lock
+client's unlock request ends it. If the lock screen exits without
+unlocking, the outputs stay blank and it is started again. The session is
+also locked before the system suspends or hibernates
+(\fI/usr/lib/systemd/system\-sleep/boswas\-lock\fR).
+.PP
+The compositor runs as the logged-in user. Device access comes from the
+login session (libseat, logind); it has no setuid bit and needs no
+capability.
+.SH CONTROL SOCKET
+\fB$XDG_RUNTIME_DIR/boswas\-\fIWAYLAND_DISPLAY\fB.sock\fR accepts one JSON
+object per line. Connections to this socket may ask for \fBversion\fR,
+\fBlock\fR and \fBreload\-config\fR. The window list, window control, workspaces, screenshots and
+\fBquit\fR are available to the shell only, on the descriptor the
+compositor hands it.
+.SH ENVIRONMENT
+.TP
+.B BOSWAS_LOG
+Log filter (for example \fBdebug\fR or \fBboswas_compositor=trace\fR).
+Messages go to standard error.
+.TP
+.B XCURSOR_THEME
+Cursor theme when \fBpointer.cursor_theme\fR is empty.
+.SH EXIT STATUS
+0 when the session ended normally, 1 when the compositor could not start or
+failed, 2 for a usage error.
+.SH SEE ALSO
+.BR boswas-session (1),
+.BR boswas-shell (1),
+.BR greetd (1)

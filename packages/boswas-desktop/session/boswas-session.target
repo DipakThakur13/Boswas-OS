@@ -1,0 +1,6 @@
+[Unit]
+Description=Boswas OS desktop session
+Documentation=man:boswas-session(1)
+BindsTo=graphical-session.target
+Wants=graphical-session-pre.target xdg-desktop-autostart.target plasma-polkit-agent.service
+After=graphical-session-pre.target
