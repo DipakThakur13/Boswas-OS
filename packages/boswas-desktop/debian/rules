@@ -39,6 +39,8 @@ endif
 override_dh_auto_install:
 	install -D -m 0755 $(BIN)/boswas-compositor $(PKG)/usr/bin/boswas-compositor
 	install -D -m 0755 $(BIN)/boswas-shell $(LIBEXEC)/boswas-shell
+	# The service backends for the Settings application (Control Center)
+	install -D -m 0755 $(BIN)/boswas-services-bridge $(LIBEXEC)/boswas-services-bridge
 	# Session: what greetd starts after login, the login screen, and the
 	# hook that publishes the session to systemd and D-Bus
 	install -D -m 0755 session/boswas-session $(PKG)/usr/bin/boswas-session

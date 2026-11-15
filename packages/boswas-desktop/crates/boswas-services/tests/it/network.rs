@@ -249,6 +249,11 @@ fn a_failed_attempt_is_reported_once_and_leaves_no_profile() {
     nm.peer.wait_call("AddAndActivateConnection");
     harness.events.latest("connecting", network, |state| ap(state, "Home").connecting);
     assert_eq!(nm.profile_paths().len(), 1);
+    // What the device reports before it starts on this attempt (the end
+    // of something earlier) is not this attempt's end.
+    nm.device_state(WIFI, 120, 53);
+    nm.device_state(WIFI, 30, 0);
+    nm.device_state(WIFI, 40, 0);
     nm.device_state(WIFI, 50, 0);
     nm.device_state(WIFI, 60, 0);
     nm.device_state(WIFI, 120, 7);
@@ -264,6 +269,7 @@ fn a_failed_attempt_is_reported_once_and_leaves_no_profile() {
     assert_eq!(state.wifi_connected, None);
     let reported = harness.events.count(|event| network(event).is_some_and(|state| state.error.as_deref().is_some_and(|error| error.contains("missing or wrong"))));
     assert_eq!(reported, 1);
+    assert_eq!(harness.events.count(|event| network(event).is_some_and(|state| state.error.as_deref().is_some_and(|error| error.contains("out of range")))), 0);
     // Refresh does not bring it back.
     let before = harness.events.len();
     services.send(Command::Refresh(Service::Network));
@@ -301,6 +307,7 @@ fn a_new_passphrase_for_a_known_network_updates_its_profile() {
     assert_eq!(text(&settings, "connection", "id").as_deref(), Some("saved"));
     assert_eq!(nm.profile_paths().len(), 1);
     // A failure of a profile that existed before does not delete it.
+    nm.device_state(WIFI, 40, 0);
     nm.device_state(WIFI, 120, 8);
     harness.events.wait("the failure", |events| events.iter().filter_map(network).find(|state| state.error.is_some()).cloned());
     harness.events.latest("still known", network, |state| state.error.is_none() && ap(state, "Home").known);

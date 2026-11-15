@@ -1,0 +1,24 @@
+[package]
+name = "boswas-services-bridge"
+description = "Network, Bluetooth, sound, power and brightness for the Boswas OS Settings application: the shell's service backends as JSON lines on standard input and output"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "boswas-services-bridge"
+path = "src/main.rs"
+
+[dependencies]
+boswas-services.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+zeroize = "1"
+
+[dev-dependencies]
+serde_json.workspace = true
+tempfile = "3"

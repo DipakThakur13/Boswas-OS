@@ -4,6 +4,8 @@
 #   boswas-compositor  the Wayland compositor: display server, window manager, effects
 #   boswas-services    what the shell shows and controls: notifications, tray,
 #                      network, Bluetooth, audio, power, session, authentication
+#   boswas-services-bridge  the same backends for the Settings application
+#                      (JSON lines on standard input and output)
 #   boswas-shell       taskbar, Start, quick settings, notifications, lock screen
 #                      and login greeter
 #
@@ -11,7 +13,13 @@
 # every dependency in Cargo.lock buildable with that toolchain.
 [workspace]
 resolver = "3"
-members = ["crates/boswas-ui", "crates/boswas-compositor", "crates/boswas-services", "crates/boswas-shell"]
+members = [
+    "crates/boswas-ui",
+    "crates/boswas-compositor",
+    "crates/boswas-services",
+    "crates/boswas-services-bridge",
+    "crates/boswas-shell",
+]
 
 [workspace.package]
 version = "1.0.0-alpha.3"

@@ -334,6 +334,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "boswas-services-bridge"
+version = "1.0.0-alpha.3"
+dependencies = [
+ "boswas-services",
+ "serde_json",
+ "tempfile",
+ "tracing",
+ "tracing-subscriber",
+ "zeroize",
+]
+
+[[package]]
 name = "boswas-shell"
 version = "1.0.0-alpha.3"
 dependencies = [

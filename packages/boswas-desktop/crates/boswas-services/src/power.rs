@@ -118,11 +118,13 @@ impl Power {
                     force = true;
                     debounce.trigger_now();
                 }
-                Wake::Command(Command::SetPowerProfile(profile)) => {
+                // The lock screen and the greeter show the state and
+                // change nothing.
+                Wake::Command(Command::SetPowerProfile(profile)) if !self.ctx.restricted => {
                     self.set_profile(conn, profile).await;
                     debounce.trigger();
                 }
-                Wake::Command(Command::Power(action)) => self.act(conn, action),
+                Wake::Command(Command::Power(action)) if !self.ctx.restricted => self.act(conn, action),
                 Wake::Command(_) => {}
                 Wake::Timer => {
                     if debounce.take_due() {

@@ -121,8 +121,16 @@ impl Setup {
 
     /// Waits until `cookie` has `count` progress events and returns them.
     fn progress_of(&self, cookie: &str, count: usize) -> Vec<AuthProgress> {
-        self.harness.events.wait("authentication progress", |_| None::<()>.or_else(|| (self.progress_count(cookie) >= count).then_some(())));
-        self.progress(cookie)
+        self.harness.events.wait("authentication progress", |events| {
+            let progress: Vec<AuthProgress> = events
+                .iter()
+                .filter_map(|event| match event {
+                    Event::AuthProgress { cookie: of, progress } if of == cookie => Some(progress.clone()),
+                    _ => None,
+                })
+                .collect();
+            (progress.len() >= count).then_some(progress)
+        })
     }
 
     fn progress_count(&self, cookie: &str) -> usize {
@@ -181,7 +189,7 @@ fn a_wrong_password_can_be_retried_and_the_right_one_authorizes() {
             users: vec!["tester".into(), "ada".into()],
         }
     );
-    assert_eq!(setup.progress_of("cookie-1", 1), [prompt("Password: ", false)]);
+    assert_eq!(setup.progress_of("cookie-1", 1), [prompt("Password:", false)]);
 
     setup.respond("cookie-1", "wrong");
     let progress = setup.progress_of("cookie-1", 4);
@@ -192,7 +200,7 @@ fn a_wrong_password_can_be_retried_and_the_right_one_authorizes() {
             // The attempt failed and the request is still open: the
             // helper asks again.
             AuthProgress::Failed("Sorry, try again.".into()),
-            prompt("Password: ", false),
+            prompt("Password:", false),
         ]
     );
     assert!(!call.is_finished(), "polkit's call returns only when the attempt is over");
@@ -234,6 +242,54 @@ fn the_shell_can_cancel_and_the_helper_is_killed() {
     assert_eq!(setup.progress_of("cookie-c", 2)[1], AuthProgress::Done { authorized: false });
     eventually("the helper to be killed", || !alive(helper));
     assert_eq!(setup.helper_log(), ["user=tester cookie=cookie-c"]);
+}
+
+#[test]
+fn the_person_can_choose_which_of_the_offered_users_authenticates() {
+    let setup = Setup::new(None);
+    let call = setup.begin("cookie-u");
+    assert_eq!(setup.request("cookie-u").users, ["tester", "ada"]);
+    assert_eq!(setup.progress_of("cookie-u", 1), [prompt("Password:", false)]);
+    let first = setup.helper_pids()[0];
+    assert!(alive(first));
+
+    // Another of the offered users: the helper for the first is killed
+    // and one for the chosen user asks anew, for the same request.
+    setup.services().send(Command::AuthChooseUser { cookie: "cookie-u".into(), user: "ada".into() });
+    assert_eq!(setup.progress_of("cookie-u", 2), [prompt("Password:", false), prompt("Password:", false)]);
+    eventually("the first helper to be killed", || !alive(first));
+    assert_eq!(setup.helper_log(), ["user=tester cookie=cookie-u", "user=ada cookie=cookie-u"]);
+    assert!(!call.is_finished());
+
+    // A user polkit did not offer, a user name that is an option, and a
+    // request that is not the one shown: nothing is started for them.
+    setup.services().send(Command::AuthChooseUser { cookie: "cookie-u".into(), user: "root".into() });
+    setup.services().send(Command::AuthChooseUser { cookie: "cookie-u".into(), user: "--help".into() });
+    setup.services().send(Command::AuthChooseUser { cookie: "cookie-u".into(), user: String::new() });
+    setup.services().send(Command::AuthChooseUser { cookie: "another".into(), user: "tester".into() });
+    // The answer still goes to the helper of the chosen user.
+    setup.respond("cookie-u", "right");
+    assert_eq!(call.join().unwrap(), Ok(()));
+    assert_eq!(setup.progress_of("cookie-u", 3)[2], AuthProgress::Done { authorized: true });
+    assert_eq!(setup.helper_log(), ["user=tester cookie=cookie-u", "user=ada cookie=cookie-u", "answer=right"]);
+    assert_eq!(setup.helper_pids().len(), 2);
+
+    // Choosing back and forth, and choosing after a failed attempt.
+    let call = setup.begin("cookie-v");
+    setup.request("cookie-v");
+    setup.progress_of("cookie-v", 1);
+    setup.respond("cookie-v", "wrong");
+    setup.progress_of("cookie-v", 4);
+    setup.services().send(Command::AuthChooseUser { cookie: "cookie-v".into(), user: "ada".into() });
+    setup.progress_of("cookie-v", 5);
+    setup.services().send(Command::AuthChooseUser { cookie: "cookie-v".into(), user: "tester".into() });
+    setup.progress_of("cookie-v", 6);
+    setup.respond("cookie-v", "right");
+    assert_eq!(call.join().unwrap(), Ok(()));
+    let log = setup.helper_log();
+    assert_eq!(log[log.len() - 2..], ["user=tester cookie=cookie-v", "answer=right"]);
+    // After the end the command does nothing.
+    setup.services().send(Command::AuthChooseUser { cookie: "cookie-v".into(), user: "ada".into() });
 }
 
 #[test]
@@ -306,13 +362,11 @@ fn only_polkit_may_ask_for_a_password() {
 
 #[test]
 fn prompts_with_echo_and_messages_are_passed_on_and_answers_are_one_line() {
-    let dir_holder = Harness::new();
-    drop(dir_holder);
     let helper = |dir: &str| {
         format!(
             r#"read cookie
-echo "PAM_TEXT_INFO Touch the\\nsensor"
-echo "PAM_PROMPT_ECHO_ON Code\\tfor caf\\303\\251: "
+printf '%s\n' 'PAM_TEXT_INFO Touch the\nsensor'
+printf '%s\n' 'PAM_PROMPT_ECHO_ON Code\tfor caf\303\251: '
 read answer
 echo "first=$answer" >> {dir}/helper.log
 echo "PAM_PROMPT_ECHO_OFF Password: "
@@ -329,13 +383,13 @@ echo "SUCCESS""#
     let call = setup.begin("cookie-e");
     setup.request("cookie-e");
     let progress = setup.progress_of("cookie-e", 2);
-    assert_eq!(progress, [AuthProgress::Info("Touch the\nsensor".into()), prompt("Code for café: ", true)]);
+    assert_eq!(progress, [AuthProgress::Info("Touch the\nsensor".into()), prompt("Code for café:", true)]);
     // Before the helper asked again, a second answer is not taken as the
     // answer to the next question; neither is the rest of a multi-line one.
     setup.respond("cookie-e", "123456\nSUCCESS\nhunter2");
     setup.respond("cookie-e", "too early");
     let progress = setup.progress_of("cookie-e", 3);
-    assert_eq!(progress[2], prompt("Password: ", false));
+    assert_eq!(progress[2], prompt("Password:", false));
     eventually("the early answer to be dropped", || setup.helper_log() == ["first=123456"]);
     setup.respond("wrong-cookie", "not for you");
     setup.respond("cookie-e", "pass word with spaces ");

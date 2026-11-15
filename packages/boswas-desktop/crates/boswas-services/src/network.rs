@@ -132,6 +132,10 @@ struct Attempt {
     /// The profile this attempt created; deleted again if it fails, so a
     /// wrong passphrase does not leave a "known" network behind.
     created: Option<String>,
+    /// The device has started activating since the attempt began. A
+    /// "failed" or "activated" seen before that is the end of whatever the
+    /// device did before, not of this attempt.
+    activating: bool,
 }
 
 struct Restore {
@@ -567,7 +571,7 @@ impl Network {
         };
         match started {
             Ok(created) => {
-                self.attempt = Some(Attempt { ssid: name, device: net.device, started: Instant::now(), created });
+                self.attempt = Some(Attempt { ssid: name, device: net.device, started: Instant::now(), created, activating: false });
                 if self.attempt.as_ref().is_some_and(|attempt| attempt.created.is_some()) {
                     self.profiles_stale = true;
                 }
@@ -579,18 +583,20 @@ impl Network {
     /// A device changed state: the end of our connection attempt shows
     /// here, with NetworkManager's reason when it failed.
     async fn device_state(&mut self, conn: &Connection, path: &str, new: u32, reason: u32) {
-        let Some(created) = self.attempt.as_ref().filter(|attempt| attempt.device == path).map(|attempt| attempt.created.clone()) else {
+        let Some(attempt) = self.attempt.as_mut().filter(|attempt| attempt.device == path) else {
             return;
         };
         match new {
-            STATE_ACTIVATED => self.attempt = None,
-            STATE_FAILED => {
+            STATE_PREPARE..=STATE_SECONDARIES => attempt.activating = true,
+            STATE_ACTIVATED if attempt.activating => self.attempt = None,
+            STATE_FAILED if attempt.activating => {
+                let created = attempt.created.clone();
                 self.error = Some(failure_text(reason).into());
+                self.attempt = None;
                 if let Some(created) = created {
                     log(call_raw(conn, CALL_TIMEOUT, NM, &created, NM_CONNECTION, "Delete", &()).await, "removing the failed profile");
                     self.profiles_stale = true;
                 }
-                self.attempt = None;
             }
             _ => {}
         }

@@ -123,10 +123,6 @@ pub(crate) async fn timeout<T>(limit: Duration, work: impl Future<Output = T>) -
     .await
 }
 
-pub(crate) async fn sleep(duration: Duration) {
-    Timer::after(duration).await;
-}
-
 /// The earlier of two optional deadlines.
 pub(crate) fn earliest(a: Option<Instant>, b: Option<Instant>) -> Option<Instant> {
     match (a, b) {
@@ -338,23 +334,6 @@ impl CallError {
             _ => None,
         }
     }
-
-    /// The text of the error for people, when the peer gave one.
-    pub fn text(&self) -> Option<&str> {
-        match self {
-            CallError::Bus(zbus::Error::MethodError(_, text, _)) => text.as_deref(),
-            _ => None,
-        }
-    }
-
-    /// The peer does not exist (not running, or it left).
-    pub fn is_absent(&self) -> bool {
-        matches!(
-            self.name(),
-            Some("org.freedesktop.DBus.Error.ServiceUnknown")
-                | Some("org.freedesktop.DBus.Error.NameHasNoOwner")
-        )
-    }
 }
 
 impl std::fmt::Display for CallError {
@@ -442,11 +421,6 @@ impl Bus {
         })
         .detach();
         Ok(Bus { conn, _open: open })
-    }
-
-    /// Our unique name on this bus.
-    pub fn unique_name(&self) -> String {
-        self.conn.unique_name().map(|name| name.to_string()).unwrap_or_default()
     }
 }
 
@@ -607,6 +581,17 @@ impl Flag {
 
     pub fn clear(&self) {
         self.0.set(false);
+    }
+}
+
+/// A child process that is killed (if it still runs) and reaped when
+/// dropped, so that a task that is abandoned leaves no process behind.
+pub(crate) struct Reaped(pub std::process::Child);
+
+impl Drop for Reaped {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
     }
 }
 

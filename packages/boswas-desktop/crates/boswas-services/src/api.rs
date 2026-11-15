@@ -451,4 +451,8 @@ pub enum Command {
     /// Answer the current prompt of an authentication request.
     AuthRespond { cookie: String, response: Secret },
     AuthCancel { cookie: String },
+    /// Authenticate as another of the request's `users`: the attempt starts
+    /// over for that user and a new [`AuthProgress::Prompt`] follows. A
+    /// user that is not among the request's `users` is ignored.
+    AuthChooseUser { cookie: String, user: String },
 }

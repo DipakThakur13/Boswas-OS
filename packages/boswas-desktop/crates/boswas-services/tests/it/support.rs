@@ -37,7 +37,7 @@ pub const OBJECT_MANAGER: &str = "org.freedesktop.DBus.ObjectManager";
 pub struct TestBus {
     daemon: Child,
     pub address: String,
-    _dir: tempfile::TempDir,
+    dir: tempfile::TempDir,
 }
 
 impl TestBus {
@@ -69,6 +69,11 @@ impl TestBus {
             ),
         )
         .unwrap();
+        let (daemon, address) = Self::launch(&config);
+        Self { daemon, address, dir }
+    }
+
+    fn launch(config: &Path) -> (Child, String) {
         let mut daemon = Process::new("dbus-daemon")
             .arg(format!("--config-file={}", config.display()))
             .arg("--print-address")
@@ -80,9 +85,20 @@ impl TestBus {
             .expect("dbus-daemon is installed");
         let mut address = String::new();
         BufReader::new(daemon.stdout.take().unwrap()).read_line(&mut address).unwrap();
-        let address = address.trim().to_owned();
-        assert!(address.starts_with("unix:"), "dbus-daemon printed {address:?}");
-        Self { daemon, address, _dir: dir }
+        assert!(address.starts_with("unix:path="), "dbus-daemon printed {address:?}");
+        // Without the daemon's id, as the well-known addresses of the real
+        // buses are: the address stays good when the daemon is restarted.
+        let address = address.trim().split(',').next().unwrap_or_default().to_owned();
+        (daemon, address)
+    }
+
+    /// Starts the daemon again after `stop`, at the same address: the bus
+    /// is back, with nobody on it.
+    pub fn restart(&mut self) {
+        self.stop();
+        let (daemon, address) = Self::launch(&self.dir.path().join("bus.conf"));
+        assert_eq!(address, self.address);
+        self.daemon = daemon;
     }
 
     pub fn connect(&self) -> Connection {
@@ -233,17 +249,12 @@ pub fn write_script(path: &Path, body: &str) -> PathBuf {
     path.to_owned()
 }
 
-/// Only the status services, unrestricted (the desktop without the
-/// session-bus services).
+/// Only the status services, with every command obeyed.
 pub fn status_config() -> Config {
-    let mut config = Config::status_only();
-    // Any other service makes the instance unrestricted; the session
-    // listener is the quietest.
-    config.session = true;
-    config
+    Config::settings()
 }
 
-/// A configuration that runs exactly one of the session-bus services.
+/// A configuration that runs exactly the services `pick` switches on.
 pub fn only(pick: impl FnOnce(&mut Config)) -> Config {
     let mut config = Config {
         notifications: false,
@@ -252,6 +263,7 @@ pub fn only(pick: impl FnOnce(&mut Config)) -> Config {
         media: false,
         status: false,
         session: false,
+        restricted: false,
     };
     pick(&mut config);
     config

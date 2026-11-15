@@ -13,7 +13,6 @@ use std::{
     os::unix::fs::MetadataExt,
     path::Path,
     process::{Child, ChildStdin, Command as Process, Stdio},
-    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
@@ -28,7 +27,7 @@ use zeroize::Zeroizing;
 
 use crate::{
     logind::{own_session, OwnSession, LOGIN1},
-    runtime::{call_raw, idle, name_owner, owner_rule, subscribe, wake, Backoff, Bus, BusKind, CallResult, Ctx, Exec, IdleEnd, Service, Wake, CALL_TIMEOUT},
+    runtime::{call_raw, idle, name_owner, owner_rule, subscribe, wake, Backoff, Bus, BusKind, CallResult, Ctx, Exec, IdleEnd, Reaped, Service, Wake, CALL_TIMEOUT},
     var::{as_u32, clean},
     AuthProgress, AuthRequest, Command, Event, Secret,
 };
@@ -55,8 +54,9 @@ pub(crate) struct Auth {
     bus: Option<Bus>,
     session: Option<OwnSession>,
     registered: bool,
-    /// The connection of polkit: only it may call the agent.
-    authority: Arc<Mutex<Option<String>>>,
+    /// The connection of polkit when the agent was registered; a new one
+    /// knows nothing of the agent or of the requests of the old one.
+    authority: Option<String>,
     current: Option<Active>,
     queue: VecDeque<Request>,
     /// Counts the helpers started, to tell an old one's output from the
@@ -85,6 +85,9 @@ enum Outcome {
 /// The request the shell shows.
 struct Active {
     request: Request,
+    /// The user the helper authenticates: the first of the request's
+    /// users until the shell chooses another.
+    user: String,
     helper: Option<Helper>,
     /// The helper asked something and waits for the answer.
     awaiting: bool,
@@ -121,7 +124,6 @@ enum Msg {
 
 struct Agent {
     inbox: Sender<Msg>,
-    authority: Arc<Mutex<Option<String>>>,
     users_file: std::path::PathBuf,
 }
 
@@ -135,19 +137,21 @@ enum AgentError {
     NotAuthorized(String),
 }
 
-impl Agent {
-    /// A request to type a password is only believed from polkit itself.
-    fn from_authority(&self, header: &Header<'_>) -> Result<(), AgentError> {
-        let trusted = match (header.sender(), self.authority.lock()) {
-            (Some(sender), Ok(authority)) => authority.as_deref() == Some(sender.as_str()),
-            _ => false,
-        };
-        if trusted {
-            Ok(())
-        } else {
-            tracing::warn!("auth: an authentication request that does not come from polkit was refused");
-            Err(AgentError::NotAuthorized("only the polkit authority may call the agent".into()))
-        }
+/// A request to type a password is only believed from polkit itself: the
+/// caller must be the connection that owns polkit's name right now (the
+/// bus is asked each time, so there is no moment in which an old answer
+/// is trusted).
+async fn from_authority(conn: &Connection, header: &Header<'_>) -> Result<(), AgentError> {
+    let authority = name_owner(conn, AUTHORITY).await;
+    let trusted = match (header.sender(), authority) {
+        (Some(sender), Some(authority)) => sender.as_str() == authority,
+        _ => false,
+    };
+    if trusted {
+        Ok(())
+    } else {
+        tracing::warn!("auth: an authentication request that does not come from polkit was refused");
+        Err(AgentError::NotAuthorized("only the polkit authority may call the agent".into()))
     }
 }
 
@@ -164,8 +168,9 @@ impl Agent {
         cookie: String,
         identities: Vec<(String, HashMap<String, OwnedValue>)>,
         #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] conn: &Connection,
     ) -> Result<(), AgentError> {
-        self.from_authority(&header)?;
+        from_authority(conn, &header).await?;
         // The cookie goes to the helper as one line.
         if cookie.is_empty() || cookie.len() > 1024 || cookie.chars().any(char::is_control) {
             return Err(AgentError::Failed("the cookie is not usable".into()));
@@ -198,8 +203,13 @@ impl Agent {
         }
     }
 
-    async fn cancel_authentication(&self, cookie: String, #[zbus(header)] header: Header<'_>) -> Result<(), AgentError> {
-        self.from_authority(&header)?;
+    async fn cancel_authentication(
+        &self,
+        cookie: String,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] conn: &Connection,
+    ) -> Result<(), AgentError> {
+        from_authority(conn, &header).await?;
         let _ = self.inbox.send(Msg::Cancel { cookie }).await;
         Ok(())
     }
@@ -215,7 +225,7 @@ impl Service for Auth {
             bus: None,
             session: None,
             registered: false,
-            authority: Arc::default(),
+            authority: None,
             current: None,
             queue: VecDeque::new(),
             generation: 0,
@@ -266,7 +276,7 @@ impl Auth {
         conn.object_server()
             .at(
                 AGENT_PATH,
-                Agent { inbox: inbox.clone(), authority: self.authority.clone(), users_file: self.ctx.env.users_file.clone() },
+                Agent { inbox: inbox.clone(), users_file: self.ctx.env.users_file.clone() },
             )
             .await?;
         self.register(conn).await;
@@ -280,8 +290,7 @@ impl Auth {
                     // (or a session that only now exists) needs the agent
                     // registered again.
                     let authority = name_owner(conn, AUTHORITY).await;
-                    let same = self.authority.lock().map(|known| *known == authority).unwrap_or(false);
-                    if !same {
+                    if self.authority != authority {
                         self.abandon_all();
                         self.registered = false;
                     }
@@ -304,6 +313,7 @@ impl Auth {
                 }
                 Wake::Command(Command::AuthRespond { cookie, response }) => self.respond(&cookie, &response),
                 Wake::Command(Command::AuthCancel { cookie }) => self.cancel(&cookie, &inbox),
+                Wake::Command(Command::AuthChooseUser { cookie, user }) => self.choose_user(&cookie, &user, &inbox),
                 Wake::Command(_) => {}
             }
         }
@@ -318,6 +328,9 @@ impl Auth {
             return;
         };
         let subject = ("unix-session", HashMap::from([("session-id", Value::from(session.id.as_str()))]));
+        // Set before the answer is in: if the service is stopped while it
+        // waits, the agent is unregistered all the same.
+        self.registered = true;
         let registration = call_raw(
             conn,
             CALL_TIMEOUT,
@@ -330,17 +343,12 @@ impl Auth {
         .await;
         match registration {
             Ok(_) => {
-                let authority = name_owner(conn, AUTHORITY).await;
-                if let Ok(mut known) = self.authority.lock() {
-                    *known = authority;
-                }
-                self.registered = true;
+                self.authority = name_owner(conn, AUTHORITY).await;
                 tracing::debug!("auth: registered as the session's authentication agent");
             }
             Err(error) => {
-                if let Ok(mut known) = self.authority.lock() {
-                    *known = None;
-                }
+                self.registered = false;
+                self.authority = None;
                 tracing::debug!(%error, "auth: polkit did not take the agent");
             }
         }
@@ -394,15 +402,17 @@ impl Auth {
                 icon_name: request.icon_name.clone(),
                 users: request.users.clone(),
             }));
-            self.current = Some(Active { request, helper: None, awaiting: false, attempts: 0, last_error: None });
+            let user = request.users.first().cloned().unwrap_or_default();
+            self.current = Some(Active { request, user, helper: None, awaiting: false, attempts: 0, last_error: None });
             if !self.start_helper(inbox) {
                 self.finish(Outcome::Failed, inbox);
             }
         }
     }
 
-    /// Starts the helper for the first user of the current request and
-    /// gives it the cookie. False when it could not be started.
+    /// Starts the helper for the current request's user and gives it the
+    /// cookie; a helper that still runs is killed. False when it could not
+    /// be started.
     fn start_helper(&mut self, inbox: &Sender<Msg>) -> bool {
         self.generation += 1;
         let generation = self.generation;
@@ -410,9 +420,11 @@ impl Auth {
         active.helper = None;
         active.awaiting = false;
         active.last_error = None;
-        let Some(user) = active.request.users.first() else { return false };
+        if !plausible_user(&active.user) {
+            return false;
+        }
         let spawned = Process::new(&self.ctx.env.polkit_helper)
-            .arg(user)
+            .arg(&active.user)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -506,6 +518,24 @@ impl Auth {
         if helper.input.write_all(&line).and_then(|()| helper.input.flush()).is_err() {
             // The helper is gone; its end is reported by the reader.
             tracing::debug!("auth: the helper did not take the answer");
+        }
+    }
+
+    /// The person wants to authenticate as another of the users polkit
+    /// offered: the running helper is killed and one for that user asks
+    /// anew. Anybody polkit did not offer is refused.
+    fn choose_user(&mut self, cookie: &str, user: &str, inbox: &Sender<Msg>) {
+        let Some(active) = &mut self.current else { return };
+        if active.request.cookie != cookie {
+            return;
+        }
+        if !active.request.users.iter().any(|offered| offered == user) {
+            tracing::warn!("auth: a user polkit did not offer was chosen; ignored");
+            return;
+        }
+        active.user = user.to_owned();
+        if !self.start_helper(inbox) {
+            self.finish(Outcome::Failed, inbox);
         }
     }
 
@@ -671,7 +701,7 @@ async fn user_names(users_file: &Path, uids: &[u32], own: Option<u32>) -> Vec<St
 
 /// Asks the name service switch for a user (`getent passwd UID`).
 async fn getent(uid: u32) -> Option<String> {
-    let mut child = Process::new("/usr/bin/getent")
+    let child = Process::new("/usr/bin/getent")
         .arg("passwd")
         .arg(uid.to_string())
         .stdin(Stdio::null())
@@ -679,22 +709,19 @@ async fn getent(uid: u32) -> Option<String> {
         .stderr(Stdio::null())
         .spawn()
         .ok()?;
+    let mut child = Reaped(child);
     let started = Instant::now();
     loop {
-        match child.try_wait() {
+        match child.0.try_wait() {
             Ok(Some(_)) => break,
             Ok(None) if started.elapsed() < Duration::from_secs(2) => {
                 Timer::after(Duration::from_millis(5)).await;
             }
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
+            _ => return None,
         }
     }
     let mut output = String::new();
-    child.stdout.take()?.take(4096).read_to_string(&mut output).ok()?;
+    child.0.stdout.take()?.take(4096).read_to_string(&mut output).ok()?;
     name_in(&output, uid)
 }
 

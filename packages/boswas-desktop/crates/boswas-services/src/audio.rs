@@ -23,7 +23,7 @@ use async_io::Timer;
 use serde_json::Value;
 
 use crate::{
-    runtime::{earliest, wake, Backoff, Ctx, Debounce, Exec, Latest, Service, Wake},
+    runtime::{earliest, wake, Backoff, Ctx, Debounce, Exec, Latest, Reaped, Service, Wake},
     var::clean,
     AudioDevice, AudioState, Command, Event, Service as Which,
 };
@@ -311,11 +311,12 @@ impl Audio {
     }
 }
 
-/// Runs a program to its end, killing it when it takes too long.
+/// Runs a program to its end, killing it when it takes too long or when
+/// the task is abandoned.
 async fn run_tool(program: &Path, arguments: &[String]) {
     let spawned = Process::new(program).args(arguments).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
     let mut child = match spawned {
-        Ok(child) => child,
+        Ok(child) => Reaped(child),
         Err(error) => {
             tracing::debug!(%error, "audio: wpctl could not be started");
             return;
@@ -323,7 +324,7 @@ async fn run_tool(program: &Path, arguments: &[String]) {
     };
     let started = Instant::now();
     loop {
-        match child.try_wait() {
+        match child.0.try_wait() {
             Ok(Some(status)) => {
                 if !status.success() {
                     tracing::debug!(%status, "audio: wpctl failed");
@@ -333,11 +334,7 @@ async fn run_tool(program: &Path, arguments: &[String]) {
             Ok(None) if started.elapsed() < SET_TIMEOUT => {
                 Timer::after(Duration::from_millis(4)).await;
             }
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return;
-            }
+            _ => return,
         }
     }
 }

@@ -46,6 +46,11 @@ pub struct Config {
     pub status: bool,
     /// Listen to logind (lock, unlock, sleep).
     pub session: bool,
+    /// Show the state of the machine and change nothing but the volume
+    /// and the brightness: every other command is dropped, and the
+    /// instance registers no Bluetooth pairing agent. The lock screen and
+    /// the greeter run like this ([`Config::status_only`]).
+    pub restricted: bool,
 }
 
 impl Config {
@@ -58,11 +63,13 @@ impl Config {
             media: true,
             status: true,
             session: true,
+            restricted: false,
         }
     }
 
     /// Status only (network, audio, power): the lock screen and the greeter,
-    /// which must not show notifications or take over authentication.
+    /// which must not show notifications or take over authentication, and
+    /// which may change nothing but the volume and the brightness.
     pub fn status_only() -> Self {
         Self {
             notifications: false,
@@ -71,14 +78,20 @@ impl Config {
             media: false,
             status: true,
             session: false,
+            restricted: true,
         }
     }
 
-    /// Nothing but status services runs: the instance shows the state of
-    /// the machine and may change the volume and the brightness, nothing
-    /// else.
-    fn restricted(&self) -> bool {
-        !(self.notifications || self.tray || self.auth_agent || self.media || self.session)
+    /// The status services (network, Bluetooth, audio, power, brightness)
+    /// with every one of their commands obeyed, and nothing else: a
+    /// settings application, which connects to networks and pairs devices
+    /// but is not the session's notification server, tray or
+    /// authentication agent.
+    pub fn settings() -> Self {
+        Self {
+            restricted: false,
+            ..Self::status_only()
+        }
     }
 }
 
@@ -180,7 +193,7 @@ impl Routes {
                 self.tray.as_ref()
             }
             MediaPlayPause { .. } | MediaNext { .. } | MediaPrevious { .. } => self.media.as_ref(),
-            AuthRespond { .. } | AuthCancel { .. } => self.auth.as_ref(),
+            AuthRespond { .. } | AuthCancel { .. } | AuthChooseUser { .. } => self.auth.as_ref(),
         }
     }
 }
@@ -221,27 +234,26 @@ impl Services {
         let ctx = runtime::Ctx {
             sink: Arc::new(sink),
             env: Arc::new(environment),
-            restricted: config.restricted(),
+            restricted: config.restricted,
         };
         let (stop, stopped) = async_channel::bounded::<()>(1);
         let mut threads = Vec::new();
-        let mut start = |name: &str, run: &dyn Fn(&str, async_channel::Receiver<Command>) -> std::io::Result<JoinHandle<()>>| {
-            let (sender, receiver) = async_channel::unbounded::<Command>();
-            match run(name, receiver) {
-                Ok(thread) => {
-                    threads.push(thread);
-                    Some(sender)
-                }
-                Err(error) => {
-                    tracing::error!(service = name, %error, "could not start the service thread");
-                    None
-                }
-            }
-        };
+        // Starts one service on its thread; its command channel, or `None`
+        // when the thread could not be started.
         macro_rules! service {
-            ($name:literal, $type:ty) => {
-                start($name, &|name, receiver| runtime::spawn::<$type>(name, ctx.clone(), receiver, stopped.clone()))
-            };
+            ($name:literal, $type:ty) => {{
+                let (sender, receiver) = async_channel::unbounded::<Command>();
+                match runtime::spawn::<$type>($name, ctx.clone(), receiver, stopped.clone()) {
+                    Ok(thread) => {
+                        threads.push(thread);
+                        Some(sender)
+                    }
+                    Err(error) => {
+                        tracing::error!(service = $name, %error, "could not start the service thread");
+                        None
+                    }
+                }
+            }};
         }
 
         let mut routes = Routes::default();
@@ -270,7 +282,7 @@ impl Services {
 
         Self {
             routes,
-            restricted: config.restricted(),
+            restricted: config.restricted,
             stop: Some(stop),
             threads,
         }
@@ -306,15 +318,117 @@ impl Drop for Services {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::*;
 
     #[test]
-    fn status_only_is_restricted_and_desktop_is_not() {
-        assert!(Config::status_only().restricted());
-        assert!(!Config::desktop().restricted());
-        let mut lock_screen_with_session = Config::status_only();
-        lock_screen_with_session.session = true;
-        assert!(!lock_screen_with_session.restricted());
+    fn only_the_lock_screen_configuration_is_restricted() {
+        assert!(Config::status_only().restricted);
+        assert!(!Config::desktop().restricted);
+        assert!(!Config::settings().restricted);
+        // The settings configuration runs what the lock screen runs.
+        let (settings, lock) = (Config::settings(), Config::status_only());
+        assert!(settings.status && lock.status);
+        for config in [settings, lock] {
+            assert!(!(config.notifications || config.tray || config.auth_agent || config.media || config.session));
+        }
+        // A lock screen that also listens to logind stays restricted.
+        let mut listening = Config::status_only();
+        listening.session = true;
+        assert!(listening.restricted);
+    }
+
+    /// The services as `start_with` builds them for `config`, with the
+    /// receiving ends of the command channels instead of service threads.
+    fn routed(config: &Config) -> (Services, HashMap<&'static str, async_channel::Receiver<Command>>) {
+        let mut receivers = HashMap::new();
+        let mut route = |name: &'static str, runs: bool| {
+            runs.then(|| {
+                let (sender, receiver) = async_channel::unbounded();
+                receivers.insert(name, receiver);
+                sender
+            })
+        };
+        let routes = Routes {
+            network: route("network", config.status),
+            bluetooth: route("bluetooth", config.status),
+            audio: route("audio", config.status),
+            power: route("power", config.status),
+            brightness: route("brightness", config.status),
+            notifications: route("notifications", config.notifications),
+            tray: route("tray", config.tray),
+            media: route("media", config.media),
+            auth: route("auth", config.auth_agent),
+            session: route("session", config.session),
+        };
+        (Services { routes, restricted: config.restricted, stop: None, threads: Vec::new() }, receivers)
+    }
+
+    #[test]
+    fn a_settings_instance_obeys_what_the_lock_screen_drops() {
+        let commands = || {
+            [
+                ("network", Command::WifiConnect { ssid: "Home".into(), passphrase: Some(Secret::new("a passphrase".into())) }),
+                ("network", Command::WifiForget { ssid: "Home".into() }),
+                ("network", Command::AirplaneMode(true)),
+                ("bluetooth", Command::BluetoothConnect { address: "AA:BB:CC:DD:EE:FF".into() }),
+                ("bluetooth", Command::BluetoothForget { address: "AA:BB:CC:DD:EE:FF".into() }),
+                ("audio", Command::SetDefaultOutput { id: 7 }),
+                ("power", Command::SetPowerProfile(PowerProfile::PowerSaver)),
+            ]
+        };
+
+        let (settings, receivers) = routed(&Config::settings());
+        for (service, command) in commands() {
+            settings.send(command.clone());
+            assert_eq!(receivers[service].try_recv().ok(), Some(command), "the {service} service did not get its command");
+        }
+
+        let (lock_screen, receivers) = routed(&Config::status_only());
+        for (_, command) in commands() {
+            lock_screen.send(command);
+        }
+        assert!(receivers.values().all(|receiver| receiver.is_empty()), "the lock screen passed a command on");
+        // What the lock screen may do still arrives.
+        lock_screen.send(Command::SetVolume(0.4));
+        lock_screen.send(Command::SetBrightness(0.6));
+        lock_screen.send(Command::Refresh(Service::Network));
+        assert_eq!(receivers["audio"].try_recv().ok(), Some(Command::SetVolume(0.4)));
+        assert_eq!(receivers["brightness"].try_recv().ok(), Some(Command::SetBrightness(0.6)));
+        assert_eq!(receivers["network"].try_recv().ok(), Some(Command::Refresh(Service::Network)));
+
+        // Neither runs the session-bus services: their commands go nowhere.
+        for config in [Config::settings(), Config::status_only()] {
+            let (services, receivers) = routed(&config);
+            services.send(Command::NotificationDismiss { id: 1 });
+            services.send(Command::TrayMenu { key: "k".into() });
+            services.send(Command::MediaNext { key: "k".into() });
+            services.send(Command::AuthCancel { cookie: "c".into() });
+            assert!(receivers.values().all(|receiver| receiver.is_empty()));
+        }
+    }
+
+    #[test]
+    fn the_desktop_routes_every_command_to_its_service() {
+        let (desktop, receivers) = routed(&Config::desktop());
+        let cases = [
+            ("network", Command::WifiScan),
+            ("bluetooth", Command::BluetoothDiscover(true)),
+            ("audio", Command::SetInputMuted(true)),
+            ("brightness", Command::SetBrightness(0.5)),
+            ("power", Command::Power(PowerAction::Suspend)),
+            ("notifications", Command::SetDoNotDisturb(true)),
+            ("tray", Command::TrayScroll { key: "k".into(), delta: 1, horizontal: false }),
+            ("media", Command::MediaPrevious { key: "k".into() }),
+            ("auth", Command::AuthChooseUser { cookie: "c".into(), user: "u".into() }),
+            ("auth", Command::AuthRespond { cookie: "c".into(), response: Secret::new("pw".into()) }),
+        ];
+        for (service, command) in cases {
+            desktop.send(command.clone());
+            assert_eq!(receivers[service].try_recv().ok(), Some(command));
+            assert!(receivers.values().all(|receiver| receiver.is_empty()), "a command reached two services");
+        }
     }
 
     #[test]
@@ -344,6 +458,7 @@ mod tests {
             Command::SetDefaultInput { id: 1 },
             Command::SetPowerProfile(PowerProfile::Balanced),
             Command::Power(PowerAction::PowerOff),
+            Command::AuthChooseUser { cookie: "c".into(), user: "root".into() },
         ];
         assert!(!refused.iter().any(allowed_when_restricted));
     }

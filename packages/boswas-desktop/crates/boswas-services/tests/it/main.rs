@@ -9,6 +9,7 @@ mod support;
 mod audio;
 mod auth;
 mod bluetooth;
+mod lifecycle;
 mod media;
 mod network;
 mod notifications;

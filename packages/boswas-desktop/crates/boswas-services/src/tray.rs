@@ -837,10 +837,12 @@ fn convert_pixmap(raw: &RawPixmap<'_>) -> Pixmap {
                     count += 1;
                 }
             }
-            if alpha == 0 {
-                rgba.extend_from_slice(&[0, 0, 0, 0]);
-            } else {
-                rgba.extend_from_slice(&[(red / alpha) as u8, (green / alpha) as u8, (blue / alpha) as u8, (alpha / count.max(1)) as u8]);
+            match (red.checked_div(alpha), green.checked_div(alpha), blue.checked_div(alpha)) {
+                (Some(red), Some(green), Some(blue)) => {
+                    rgba.extend_from_slice(&[red as u8, green as u8, blue as u8, (alpha / count.max(1)) as u8]);
+                }
+                // A block that is transparent throughout.
+                _ => rgba.extend_from_slice(&[0, 0, 0, 0]),
             }
         }
     }

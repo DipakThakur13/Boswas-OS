@@ -107,7 +107,7 @@ impl Media {
         let mut order: Vec<&Player> = self.players.iter().filter(|player| player.shown.is_some()).collect();
         // Most recently active first; players that never played keep the
         // order they appeared in.
-        order.sort_by(|a, b| b.active.cmp(&a.active));
+        order.sort_by_key(|player| std::cmp::Reverse(player.active));
         let list: Vec<MediaPlayer> = order.into_iter().filter_map(|player| player.shown.clone()).collect();
         if let Some(list) = self.state.update(list, force) {
             self.ctx.emit(Event::Media(list));
