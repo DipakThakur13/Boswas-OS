@@ -1,0 +1,24 @@
+#!/bin/sh
+# Tell the Boswas OS boot screen that the system is moving to its real root
+# (installed as /usr/share/initramfs-tools/scripts/init-bottom/boswas-bootsplash).
+# The daemon follows, so it can still reach the graphics devices by path
+# after the initramfs is gone. Runs after udev has moved /dev.
+
+# shellcheck disable=SC2034
+OPTION=FRAMEBUFFER
+PREREQ="udev"
+
+prereqs()
+{
+	echo "${PREREQ}"
+}
+
+case "${1}" in
+	prereqs)
+		prereqs
+		exit 0
+		;;
+esac
+
+# shellcheck disable=SC2154
+/usr/bin/boswas-bootsplash new-root "${rootmnt}" || true

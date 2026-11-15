@@ -1,0 +1,52 @@
+#!/bin/sh
+# initramfs-tools hook of the Boswas OS boot screen (installed as
+# /usr/share/initramfs-tools/hooks/boswas-bootsplash).
+#
+# Puts the daemon and its client into the initramfs. The client is also made
+# available there as /bin/plymouth: that is the program Debian's disk-unlock
+# helper (/lib/cryptsetup/askpass) and the initramfs scripts call to ask for
+# a passphrase and to show messages. The link exists only inside the
+# initramfs image; nothing on the root file system is called plymouth, and
+# the package conflicts with plymouth so there is never a second one.
+set -e
+
+# shellcheck disable=SC2034
+OPTION=FRAMEBUFFER
+PREREQ=""
+
+prereqs()
+{
+	echo "${PREREQ}"
+}
+
+case "${1}" in
+	prereqs)
+		prereqs
+		exit 0
+		;;
+esac
+
+# shellcheck source=/dev/null
+. /usr/share/initramfs-tools/hook-functions
+
+copy_exec /usr/libexec/boswas/boswas-bootsplashd
+copy_exec /usr/bin/boswas-bootsplash
+
+# /bin/plymouth, in whichever layout the initramfs uses (merged /usr or not).
+if [ ! -e "${DESTDIR}/usr/bin/plymouth" ] && [ ! -e "${DESTDIR}/bin/plymouth" ]; then
+	ln -s boswas-bootsplash "${DESTDIR}/usr/bin/plymouth"
+	if [ ! -e "${DESTDIR}/bin/plymouth" ]; then
+		mkdir -p "${DESTDIR}/bin"
+		ln -s ../usr/bin/boswas-bootsplash "${DESTDIR}/bin/plymouth"
+	fi
+fi
+
+# Graphics drivers for the earliest moment of boot: the generic frame buffer
+# drivers and the small KMS drivers of virtual machines. initramfs-tools adds
+# its own selection when FRAMEBUFFER=y (see conf-hooks.d/boswas-bootsplash);
+# these are named again here so the boot screen does not depend on that
+# selection. Modules a kernel does not have are skipped. Large drivers
+# (i915, amdgpu, nouveau) are left to initramfs-tools: when they load later,
+# the boot screen moves from the firmware frame buffer to the real driver.
+manual_add_modules simpledrm bochs cirrus-qemu virtio-gpu vboxvideo vmwgfx hyperv_drm qxl \
+	efifb vesafb simplefb

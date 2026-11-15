@@ -1,0 +1,27 @@
+#!/bin/sh
+# Start the Boswas OS boot screen (installed as
+# /usr/share/initramfs-tools/scripts/init-premount/boswas-bootsplash).
+#
+# Runs after udev has loaded the graphics drivers (init-top) and before the
+# root device is unlocked, so the passphrase prompt can use it. The daemon
+# reads the kernel command line itself: without "splash", or with
+# "nosplash", it does not start, and the text console is used as usual.
+# A failure here is never fatal.
+
+# shellcheck disable=SC2034
+OPTION=FRAMEBUFFER
+PREREQ=""
+
+prereqs()
+{
+	echo "${PREREQ}"
+}
+
+case "${1}" in
+	prereqs)
+		prereqs
+		exit 0
+		;;
+esac
+
+/usr/libexec/boswas/boswas-bootsplashd --mode=boot || true

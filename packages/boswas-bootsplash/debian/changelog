@@ -1,0 +1,16 @@
+boswas-bootsplash (1.0~alpha3) trixie; urgency=medium
+
+  * Initial release: the Boswas OS boot, disk-unlock and shutdown screen
+    (boswas-bootsplashd, boswas-bootsplash), written in Rust. It replaces
+    the Plymouth theme of boswas-branding and Plymouth itself.
+  * Damage-tracked software rendering on DRM/KMS dumb buffers, with a
+    legacy frame buffer fallback; artwork, glyphs and colours (Boswas UI
+    tokens) embedded at build time.
+  * Passphrase prompt for encrypted disks: started in the initramfs,
+    called by /lib/cryptsetup/askpass through a Plymouth-compatible client
+    that exists only inside the initramfs; a systemd password agent for
+    later requests; the text console as the fallback in every failure case.
+  * The daemon drops privileges once running (no_new_privs, Landlock,
+    capabilities) and a supervisor restores the console if it dies.
+
+ -- Boswas OS Platform Team <os-platform@boswas.invalid>  Sun, 15 Nov 2026 12:00:00 +0000

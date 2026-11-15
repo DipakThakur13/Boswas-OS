@@ -1,0 +1,99 @@
+.TH BOSWAS-BOOTSPLASHD 8 "November 2026" "boswas-bootsplash 1.0~alpha3" "Boswas OS"
+.SH NAME
+boswas-bootsplashd \- the Boswas OS boot, disk-unlock and shutdown screen
+.SH SYNOPSIS
+.B /usr/libexec/boswas/boswas-bootsplashd
+.RI [ OPTION ...]
+.SH DESCRIPTION
+.B boswas-bootsplashd
+shows the Boswas OS boot screen: the Boswas OS mark and name with a progress
+arc while the system starts, the passphrase prompt for an encrypted disk, and
+the shutdown and restart screens. It is started from the initramfs and by
+systemd units, not by hand.
+.PP
+It draws directly on the display through kernel mode setting (or a legacy
+frame buffer), redraws only the part of the picture that changed, and reads
+the passphrase from the console keyboard with the keymap the console uses.
+Everything it shows is built into the program; it reads no image, font or
+theme file at run time.
+.PP
+The boot screen is shown only when the kernel command line contains
+.BR splash .
+.B nosplash
+(or
+.BR boswas.splash=off )
+turns it off;
+.B boswas.splash=static
+keeps the screen but stops the animation. When the boot screen does not run,
+or cannot start, the disk passphrase is asked for on the text console as
+usual.
+.PP
+The Escape key switches between the boot screen and the text console.
+.SH OPTIONS
+.TP
+.BR \-\-mode= boot | shutdown | reboot
+The screen to show (default:
+.BR boot ).
+.TP
+.B \-\-static
+Do not animate.
+.TP
+.B \-\-force
+Start even if the kernel command line does not ask for the boot screen.
+.TP
+.BI \-\-socket= PATH
+Control socket (default:
+.IR /run/boswas-bootsplash/socket ).
+.TP
+.BI \-\-tty= PATH
+Console to read keys from (default: the virtual console in the foreground).
+.TP
+.BI \-\-wait= MILLISECONDS
+How long to wait for a display to appear (default: 1500).
+.TP
+.BI \-\-headless= WIDTH x HEIGHT
+Draw to memory instead of a display. Frames are saved on request in the
+directory given with
+.BR \-\-out .
+For tests and review; needs no graphics device.
+.TP
+.BI \-\-out= DIRECTORY
+Where headless frames are written.
+.TP
+.B \-\-foreground
+Do not detach; run the boot screen in this process.
+.TP
+.B \-\-no-sandbox
+Keep all privileges. For debugging only.
+.TP
+.B \-\-self-test
+Enter the daemon's sandbox, report what it enforces, and exit: 0 when
+everything is enforced, 3 when the kernel has no Landlock, 1 otherwise.
+.TP
+.BR \-\-help ", " \-\-version
+Print a summary of the options, or the version.
+.SH SECURITY
+The daemon runs as root because it must drive the display and read the
+console before any user exists. Once the display, the console and the
+control socket are open it keeps only what it needs: it sets
+.BR no_new_privs ,
+enters a Landlock domain that allows file access only to the graphics
+devices and its runtime directory and denies TCP, and drops all capabilities
+except three (display master, console mode, following the root switch). It
+has no network code. The passphrase is held in one buffer that is wiped
+after use and is never written to a log. Clients must be root.
+.PP
+A supervising process restores the text console if the boot screen ends
+abnormally.
+.SH FILES
+.TP
+.I /run/boswas-bootsplash/socket
+Control socket.
+.TP
+.I /run/boswas-bootsplash/pid
+Process ID of the boot screen while it runs.
+.TP
+.I /usr/share/initramfs-tools/hooks/boswas-bootsplash
+Puts the boot screen into the initramfs.
+.SH SEE ALSO
+.BR boswas-bootsplash (1)

@@ -1,0 +1,43 @@
+[package]
+name = "boswas-bootsplash"
+version = "1.0.0-alpha.3"
+edition = "2021"
+rust-version = "1.85"
+description = "Boswas OS boot, disk-unlock and shutdown screen"
+license = "LicenseRef-Boswas-Internal"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "boswas_bootsplash"
+path = "src/lib.rs"
+
+[[bin]]
+name = "boswas-bootsplashd"
+path = "src/bin/boswas-bootsplashd.rs"
+
+[[bin]]
+name = "boswas-bootsplash"
+path = "src/bin/boswas-bootsplash.rs"
+
+[dependencies]
+drm = "0.14"
+landlock = "0.4"
+libc = "0.2"
+rustix = { version = "1", features = ["event", "fs", "net", "pipe", "process", "stdio", "termios", "thread", "time"] }
+zeroize = "1.8"
+
+[dev-dependencies]
+rustix = { version = "1", features = ["pty"] }
+
+[build-dependencies]
+fontdue = "=0.9.3"
+resvg = { version = "0.45", default-features = false }
+serde_json = "1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+strip = "debuginfo"
+overflow-checks = true

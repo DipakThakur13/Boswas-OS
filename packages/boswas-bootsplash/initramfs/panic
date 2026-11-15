@@ -1,0 +1,21 @@
+#!/bin/sh
+# Leave the screen to the emergency shell when the initramfs gives up
+# (installed as /usr/share/initramfs-tools/scripts/panic/boswas-bootsplash).
+
+# shellcheck disable=SC2034
+OPTION=FRAMEBUFFER
+PREREQ=""
+
+prereqs()
+{
+	echo "${PREREQ}"
+}
+
+case "${1}" in
+	prereqs)
+		prereqs
+		exit 0
+		;;
+esac
+
+/usr/bin/boswas-bootsplash quit || true

@@ -1,0 +1,5 @@
+# Boswas OS boot screen (installed as
+# /usr/share/initramfs-tools/conf-hooks.d/boswas-bootsplash).
+# Include graphics drivers in the initramfs so the boot screen, and with it
+# the disk passphrase prompt, can be shown as early as possible.
+FRAMEBUFFER=y

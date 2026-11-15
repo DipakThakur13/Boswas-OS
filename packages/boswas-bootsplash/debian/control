@@ -1,0 +1,42 @@
+Source: boswas-bootsplash
+Section: admin
+Priority: optional
+Maintainer: Boswas OS Platform Team <os-platform@boswas.invalid>
+Build-Depends: debhelper-compat (= 13), cargo, rustc (>= 1.85)
+Standards-Version: 4.7.2
+Rules-Requires-Root: no
+
+Package: boswas-bootsplash
+Architecture: amd64
+Depends: initramfs-tools,
+         ${misc:Depends},
+         ${shlibs:Depends}
+Conflicts: plymouth
+Description: Boswas OS boot, disk-unlock and shutdown screen
+ The whole Boswas OS boot screen as one small program written in Rust: the
+ Boswas OS mark and name with a progress arc while the system starts, the
+ passphrase prompt for an encrypted disk, and the shutdown and restart
+ screens. It takes the place of Plymouth.
+ .
+  * boswas-bootsplashd draws directly on the display (kernel mode setting
+    with dumb buffers, or a legacy frame buffer) and redraws only what
+    changed; an animation frame touches a few thousand pixels
+  * the artwork, the typeface and the colours are built into the program:
+    nothing is parsed or loaded at boot
+  * the passphrase is read from the console keyboard with the console's
+    keymap, kept in one buffer that is wiped after use, and never logged
+  * once running, the daemon gives up its privileges: no_new_privs, a
+    Landlock domain limited to the graphics devices and its runtime
+    directory, no TCP, three capabilities
+  * it is started in the initramfs, so the disk passphrase prompt uses it,
+    and it answers later password requests through a systemd password agent
+ .
+ If the boot screen is disabled ("nosplash", or no "splash" on the kernel
+ command line) or cannot start, the passphrase is asked for on the text
+ console as usual; if it ends abnormally, a supervising process restores the
+ text console.
+ .
+ Inside the initramfs the client is also available as /bin/plymouth, the name
+ Debian's disk-unlock helper and the initramfs scripts call. No file named
+ plymouth is installed on the root file system, and this package conflicts
+ with plymouth so that only one boot screen is in the initramfs.
