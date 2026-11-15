@@ -165,7 +165,7 @@ impl Boswas {
     fn switcher_order(&self) -> Vec<u64> {
         let here = |window: &WindowElement| {
             let data = window.data();
-            data.mapped.get() && data.workspace.get() == self.workspace
+            data.mapped.get() && data.workspace.get() == self.workspace && !window.is_override_redirect()
         };
         let mut order: Vec<u64> = self
             .focus_history

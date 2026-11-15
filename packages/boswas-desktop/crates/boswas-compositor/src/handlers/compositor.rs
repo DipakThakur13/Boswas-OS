@@ -15,6 +15,7 @@ use smithay::{
         shell::wlr_layer::LayerSurfaceData,
         shm::{ShmHandler, ShmState},
     },
+    xwayland::XWaylandClientData,
 };
 
 use crate::{
@@ -28,9 +29,13 @@ impl CompositorHandler for Boswas {
     }
 
     fn client_compositor_state<'a>(&self, client: &'a Client) -> &'a CompositorClientState {
+        // The XWayland server is a client the X11 support created.
+        if let Some(xwayland) = client.get_data::<XWaylandClientData>() {
+            return &xwayland.compositor_state;
+        }
         &client
             .get_data::<ClientState>()
-            .expect("every client is inserted with ClientState")
+            .expect("every other client is inserted with ClientState")
             .compositor_state
     }
 

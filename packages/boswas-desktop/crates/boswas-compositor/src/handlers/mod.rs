@@ -4,17 +4,20 @@ mod compositor;
 mod layer_shell;
 mod session_lock;
 mod xdg_shell;
+mod xwayland;
 
 use std::{os::fd::OwnedFd, sync::Arc};
 
 use smithay::{
     backend::input::TabletToolDescriptor,
-    delegate_cursor_shape, delegate_data_control, delegate_data_device, delegate_foreign_toplevel_list,
-    delegate_fractional_scale, delegate_idle_inhibit, delegate_keyboard_shortcuts_inhibit, delegate_output,
-    delegate_pointer_constraints, delegate_pointer_gestures, delegate_presentation, delegate_primary_selection, delegate_relative_pointer,
-    delegate_seat, delegate_security_context, delegate_single_pixel_buffer, delegate_viewporter,
-    delegate_xdg_activation,
-    desktop::utils::surface_primary_scanout_output,
+    delegate_alpha_modifier, delegate_content_type, delegate_cursor_shape, delegate_data_control,
+    delegate_data_device, delegate_foreign_toplevel_list, delegate_fractional_scale, delegate_idle_inhibit,
+    delegate_idle_notify, delegate_input_method_manager, delegate_keyboard_shortcuts_inhibit, delegate_output,
+    delegate_pointer_constraints, delegate_pointer_gestures, delegate_presentation, delegate_primary_selection,
+    delegate_relative_pointer, delegate_seat, delegate_security_context, delegate_single_pixel_buffer,
+    delegate_tablet_manager, delegate_text_input_manager, delegate_viewporter, delegate_virtual_keyboard_manager,
+    delegate_xdg_activation, delegate_xdg_foreign, delegate_xdg_system_bell,
+    desktop::{utils::surface_primary_scanout_output, PopupKind, PopupManager},
     input::{
         pointer::{CursorImageStatus, PointerHandle},
         Seat, SeatHandler, SeatState,
@@ -23,9 +26,13 @@ use smithay::{
         protocol::{wl_data_source::WlDataSource, wl_surface::WlSurface},
         Resource,
     },
-    utils::{Logical, Point},
+    utils::{Logical, Point, Rectangle},
     wayland::{
         compositor::with_states,
+        idle_notify::{IdleNotifierHandler, IdleNotifierState},
+        input_method::{InputMethodHandler, PopupSurface as InputMethodPopup},
+        xdg_foreign::{XdgForeignHandler, XdgForeignState},
+        xdg_system_bell::XdgSystemBellHandler,
         foreign_toplevel_list::{ForeignToplevelListHandler, ForeignToplevelListState},
         fractional_scale::{with_fractional_scale, FractionalScaleHandler},
         idle_inhibit::IdleInhibitHandler,
@@ -42,7 +49,7 @@ use smithay::{
             },
             primary_selection::{set_primary_focus, PrimarySelectionHandler, PrimarySelectionState},
             wlr_data_control::{DataControlHandler, DataControlState},
-            SelectionHandler,
+            SelectionHandler, SelectionSource, SelectionTarget,
         },
         tablet_manager::TabletSeatHandler,
         xdg_activation::{XdgActivationHandler, XdgActivationState, XdgActivationToken, XdgActivationTokenData},
@@ -50,14 +57,17 @@ use smithay::{
 };
 use tracing::warn;
 
-use crate::state::{root_surface, Boswas, ClientState, Trust};
+use crate::{
+    focus::KeyboardFocus,
+    state::{root_surface, Boswas, ClientState, Trust},
+};
 
 // ---------------------------------------------------------------------------
 // Seat, selections
 // ---------------------------------------------------------------------------
 
 impl SeatHandler for Boswas {
-    type KeyboardFocus = WlSurface;
+    type KeyboardFocus = KeyboardFocus;
     type PointerFocus = WlSurface;
     type TouchFocus = WlSurface;
 
@@ -70,9 +80,9 @@ impl SeatHandler for Boswas {
         self.schedule_redraw();
     }
 
-    fn focus_changed(&mut self, seat: &Seat<Self>, focused: Option<&WlSurface>) {
+    fn focus_changed(&mut self, seat: &Seat<Self>, focused: Option<&KeyboardFocus>) {
         let dh = &self.display_handle;
-        let client = focused.and_then(|s| dh.get_client(s.id()).ok());
+        let client = focused.and_then(|focus| dh.get_client(focus.surface().id()).ok());
         set_data_device_focus(dh, seat, client.clone());
         set_primary_focus(dh, seat, client);
     }
@@ -92,6 +102,32 @@ delegate_cursor_shape!(Boswas);
 
 impl SelectionHandler for Boswas {
     type SelectionUserData = ();
+
+    // What Wayland applications copy is offered to X11 applications too,
+    // and read from them through the X11 window manager.
+
+    fn new_selection(&mut self, ty: SelectionTarget, source: Option<SelectionSource>, _seat: Seat<Self>) {
+        if let Some(xwm) = self.xwm.as_mut() {
+            if let Err(err) = xwm.new_selection(ty, source.map(|source| source.mime_types())) {
+                warn!("could not offer the selection to X11 applications: {err}");
+            }
+        }
+    }
+
+    fn send_selection(
+        &mut self,
+        ty: SelectionTarget,
+        mime_type: String,
+        fd: OwnedFd,
+        _seat: Seat<Self>,
+        _user_data: &Self::SelectionUserData,
+    ) {
+        if let Some(xwm) = self.xwm.as_mut() {
+            if let Err(err) = xwm.send_selection(ty, mime_type, fd, self.loop_handle.clone()) {
+                warn!("could not read the selection of an X11 application: {err}");
+            }
+        }
+    }
 }
 
 impl DataDeviceHandler for Boswas {
@@ -212,10 +248,13 @@ impl IdleInhibitHandler for Boswas {
         if !self.idle_inhibitors.contains(&surface) {
             self.idle_inhibitors.push(surface);
         }
+        self.idle_notifier_state.set_is_inhibited(true);
     }
 
     fn uninhibit(&mut self, surface: WlSurface) {
         self.idle_inhibitors.retain(|s| s != &surface);
+        let inhibited = !self.idle_inhibitors.is_empty();
+        self.idle_notifier_state.set_is_inhibited(inhibited);
     }
 }
 delegate_idle_inhibit!(Boswas);
@@ -224,29 +263,40 @@ delegate_idle_inhibit!(Boswas);
 // Activation, window list
 // ---------------------------------------------------------------------------
 
+/// Whether an activation token was made by the client that had the
+/// keyboard, for an input event that client really received.
+struct FromFocusedClient(bool);
+
 impl XdgActivationHandler for Boswas {
     fn activation_state(&mut self) -> &mut XdgActivationState {
         &mut self.xdg_activation_state
     }
 
     fn token_created(&mut self, _token: XdgActivationToken, data: XdgActivationTokenData) -> bool {
-        // A token is only good when it comes from the client the user is
-        // interacting with: its serial must be at least as new as the last
-        // keyboard enter. This is what keeps windows from stealing focus.
-        let Some((serial, seat)) = data.serial else {
-            return false;
-        };
-        Seat::from_resource(&seat).as_ref() == Some(&self.seat)
-            && self
-                .keyboard
-                .last_enter()
-                .is_some_and(|last_enter| serial.is_no_older_than(&last_enter))
+        // A token brings a window to the front only when it comes from the
+        // client the user is interacting with: its serial must be at least
+        // as new as the last keyboard enter. This is what keeps windows
+        // from stealing focus. Any other token still exists, but all it
+        // can do is ask for attention (the taskbar button lights up).
+        let from_focused_client = data.serial.as_ref().is_some_and(|(serial, seat)| {
+            Seat::from_resource(seat).as_ref() == Some(&self.seat)
+                && self
+                    .keyboard
+                    .last_enter()
+                    .is_some_and(|last_enter| serial.is_no_older_than(&last_enter))
+        });
+        data.user_data.insert_if_missing(|| FromFocusedClient(from_focused_client));
+        true
     }
 
     fn request_activation(&mut self, token: XdgActivationToken, data: XdgActivationTokenData, surface: WlSurface) {
-        if data.timestamp.elapsed().as_secs() < 10 {
-            if let Some(window) = self.window_for_surface(&root_surface(&surface)) {
+        let strong = data.user_data.get::<FromFocusedClient>().is_some_and(|valid| valid.0);
+        if let Some(window) = self.window_for_surface(&root_surface(&surface)) {
+            if strong && data.timestamp.elapsed().as_secs() < 10 {
                 self.activate_window(&window);
+            } else if self.focused_window().as_ref() != Some(&window) {
+                window.data().urgent.set(true);
+                self.windows_changed();
             }
         }
         self.xdg_activation_state.remove_token(&token);
@@ -280,3 +330,63 @@ impl SecurityContextHandler for Boswas {
     }
 }
 delegate_security_context!(Boswas);
+
+// ---------------------------------------------------------------------------
+// Text input, input methods, tablets and the rest
+// ---------------------------------------------------------------------------
+
+delegate_text_input_manager!(Boswas);
+delegate_virtual_keyboard_manager!(Boswas);
+delegate_tablet_manager!(Boswas);
+delegate_alpha_modifier!(Boswas);
+delegate_content_type!(Boswas);
+
+impl InputMethodHandler for Boswas {
+    fn new_popup(&mut self, surface: InputMethodPopup) {
+        if let Err(err) = self.popups.track_popup(PopupKind::from(surface)) {
+            warn!("could not track an input method popup: {err}");
+        }
+    }
+
+    fn popup_repositioned(&mut self, _surface: InputMethodPopup) {}
+
+    fn dismiss_popup(&mut self, surface: InputMethodPopup) {
+        if let Some(parent) = surface.get_parent().map(|parent| parent.surface.clone()) {
+            let _ = PopupManager::dismiss_popup(&parent, &PopupKind::from(surface));
+        }
+    }
+
+    fn parent_geometry(&self, parent: &WlSurface) -> Rectangle<i32, Logical> {
+        self.window_for_surface(parent).map(|window| window.0.geometry()).unwrap_or_default()
+    }
+}
+delegate_input_method_manager!(Boswas);
+
+impl IdleNotifierHandler for Boswas {
+    fn idle_notifier_state(&mut self) -> &mut IdleNotifierState<Self> {
+        &mut self.idle_notifier_state
+    }
+}
+delegate_idle_notify!(Boswas);
+
+impl XdgForeignHandler for Boswas {
+    fn xdg_foreign_state(&mut self) -> &mut XdgForeignState {
+        &mut self.xdg_foreign_state
+    }
+}
+delegate_xdg_foreign!(Boswas);
+
+impl XdgSystemBellHandler for Boswas {
+    fn ring(&mut self, surface: Option<WlSurface>) {
+        // The shell decides what a bell is (a sound, a flash); a window
+        // that rings while it is not looked at wants attention.
+        if let Some(window) = surface.as_ref().and_then(|s| self.window_for_surface(&root_surface(s))) {
+            if self.focused_window().as_ref() != Some(&window) {
+                window.data().urgent.set(true);
+                self.windows_changed();
+            }
+        }
+        self.ipc_event("bell", serde_json::json!({}));
+    }
+}
+delegate_xdg_system_bell!(Boswas);

@@ -63,7 +63,12 @@ pub fn init(state: &mut Boswas, width: i32, height: i32) -> Result<(), Box<dyn s
         size,
         refresh: 60_000,
     };
-    let scale = state.config.output.scale;
+    let scale = state
+        .config
+        .outputs
+        .get("HEADLESS-1")
+        .and_then(|settings| settings.scale)
+        .unwrap_or(state.config.output.scale);
     output.create_global::<Boswas>(&state.display_handle);
     output.change_current_state(
         Some(mode),

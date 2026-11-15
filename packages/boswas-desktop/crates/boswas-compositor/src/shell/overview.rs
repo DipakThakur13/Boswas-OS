@@ -449,6 +449,7 @@ impl Boswas {
             .filter(|window| {
                 let data = window.data();
                 data.mapped.get()
+                    && !window.is_override_redirect()
                     && data.workspace.get() == self.workspace
                     && self
                         .output_for_rect(Rectangle::new(data.location.get(), window.frame().size))

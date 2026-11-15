@@ -136,6 +136,8 @@ impl Boswas {
             return;
         }
         self.idle_inhibitors.retain(|surface| surface.alive());
+        let inhibited = !self.idle_inhibitors.is_empty();
+        self.idle_notifier_state.set_is_inhibited(inhibited);
         if !self.idle_inhibitors.is_empty() {
             self.last_input = Instant::now();
             return;

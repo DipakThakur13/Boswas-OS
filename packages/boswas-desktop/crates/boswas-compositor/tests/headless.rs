@@ -37,6 +37,10 @@ const PRIVILEGED: &[&str] = &[
     "ext_session_lock_manager_v1",
     "ext_foreign_toplevel_list_v1",
     "zwlr_data_control_manager_v1",
+    // Being the input method or a virtual keyboard means seeing or making
+    // every key stroke.
+    "zwp_input_method_manager_v2",
+    "zwp_virtual_keyboard_manager_v1",
 ];
 const APPLICATION: &[&str] = &[
     "wl_compositor",
@@ -55,6 +59,14 @@ const APPLICATION: &[&str] = &[
     "zwp_relative_pointer_manager_v1",
     "zwp_idle_inhibit_manager_v1",
     "wp_security_context_manager_v1",
+    "zwp_text_input_manager_v3",
+    "ext_idle_notifier_v1",
+    "zxdg_exporter_v2",
+    "zxdg_importer_v2",
+    "wp_alpha_modifier_v1",
+    "wp_content_type_manager_v1",
+    "zwp_tablet_manager_v2",
+    "xdg_system_bell_v1",
 ];
 
 /// A compositor process with its own runtime directory.
@@ -569,7 +581,7 @@ fn the_switcher_task_view_and_snap_keys_manage_windows() {
         let _ = control;
         windows.as_array().unwrap().iter().find(|w| w["title"] == "Second").unwrap()["tile"].as_str().unwrap().to_owned()
     };
-    let mut press = |control: &mut Control, code: u32| {
+    let press = |control: &mut Control, code: u32| {
         key(control, KEY_LEFTMETA, true);
         tap(control, code);
         // Another key in between, so releasing Super is not a tap (Start).
@@ -585,6 +597,59 @@ fn the_switcher_task_view_and_snap_keys_manage_windows() {
     let second = windows.as_array().unwrap().iter().find(|w| w["title"] == "Second").unwrap().clone();
     assert_eq!(second["minimized"], true, "Super+Down on a floating window minimizes it");
     assert_eq!(active(&windows), "First");
+}
+
+/// Whether a program is on the PATH.
+fn installed(program: &str) -> bool {
+    std::env::var_os("PATH")
+        .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(program).is_file()))
+}
+
+#[test]
+fn an_x11_application_gets_a_window_like_any_other() {
+    // Needs the XWayland server and one small X11 program; without them
+    // (a minimal build environment) there is nothing to test.
+    if !installed("Xwayland") || !installed("xclock") {
+        eprintln!("skipped: Xwayland or xclock is not installed");
+        return;
+    }
+    let config = "[shell]\ncommand = []\n[lock]\nidle_seconds = 0\ncommand = []\n[apps]\nfiles = [\"xclock\"]\n[appearance]\nreduced_motion = true\n[policy]\nlock_idle_max_seconds = 0\nprivileged_protocols = \"all\"\n";
+    let compositor = Compositor::start(config, "none");
+    let mut control = compositor.control();
+    // Super+E starts the "files" program, here an X11 clock. The compositor
+    // gives it DISPLAY; XWayland comes up when the clock connects.
+    const KEY_E: u32 = 18;
+    key(&mut control, KEY_LEFTMETA, true);
+    tap(&mut control, KEY_E);
+    key(&mut control, KEY_LEFTMETA, false);
+    let window = wait_for("the X11 window", || {
+        control
+            .ok(json!({"cmd": "windows"}))
+            .as_array()
+            .and_then(|list| list.first().cloned())
+            .filter(|w| w["active"] == true)
+    });
+    assert_eq!(window["x11"], true);
+    assert_eq!(window["app_id"], "XClock", "the X11 class is the application id");
+    assert_eq!(window["tile"], "floating");
+    let (width, height) = (window["width"].as_i64().unwrap(), window["height"].as_i64().unwrap());
+    assert!(width >= 100 && height >= 132, "the frame adds a title bar: {width}x{height}");
+
+    // It is managed like every window: maximized through the control
+    // socket it fills the screen, and closing it removes it.
+    let id = window["id"].clone();
+    control.ok(json!({"cmd": "tile", "window": id, "tile": "maximized"}));
+    let maximized = wait_for("the X11 window to be maximized", || {
+        let w = control.ok(json!({"cmd": "windows"}))[0].clone();
+        (w["tile"] == "maximized").then_some(w)
+    });
+    assert_eq!((maximized["width"].as_i64(), maximized["height"].as_i64()), (Some(800), Some(600)));
+    let shot = compositor.runtime.path().join("x11.png");
+    control.ok(json!({"cmd": "screenshot", "path": shot}));
+    control.ok(json!({"cmd": "close", "window": id}));
+    wait_for("the X11 window to close", || {
+        (control.ok(json!({"cmd": "windows"})) == json!([])).then_some(())
+    });
 }
 
 #[test]

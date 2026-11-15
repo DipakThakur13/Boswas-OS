@@ -5,10 +5,7 @@ use smithay::{
     desktop::{find_popup_root_surface, get_popup_toplevel_coords, layer_map_for_output, PopupKind},
     output::Output,
     reexports::{
-        wayland_protocols::xdg::{
-            decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode as DecorationMode,
-            shell::server::xdg_toplevel::State as ToplevelState,
-        },
+        wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode as DecorationMode,
         wayland_server::protocol::wl_surface::WlSurface,
     },
     utils::{IsAlive, Logical, Point, Rectangle, Size, SERIAL_COUNTER},
@@ -24,6 +21,7 @@ use super::{
 };
 use crate::{
     animation::{GhostKind, WindowAnimation, DESKTOP_SLIDE},
+    focus::KeyboardFocus,
     input::Direction,
     state::{root_surface, Boswas},
 };
@@ -77,14 +75,19 @@ impl Boswas {
 
     /// Called on every commit of a toplevel's own surface.
     pub fn window_committed(&mut self, window: &WindowElement) {
-        let toplevel = window.toplevel();
-        if !toplevel.is_initial_configure_sent() {
-            let bounds = self
-                .active_output()
-                .map(|output| self.usable_area(&output).size)
-                .map(|size| Size::from((size.w, (size.h - TITLEBAR_HEIGHT).max(1))));
-            toplevel.with_pending_state(|state| state.bounds = bounds);
-            toplevel.send_configure();
+        if let Some(toplevel) = window.toplevel() {
+            if !toplevel.is_initial_configure_sent() {
+                let bounds = self
+                    .active_output()
+                    .map(|output| self.usable_area(&output).size)
+                    .map(|size| Size::from((size.w, (size.h - TITLEBAR_HEIGHT).max(1))));
+                toplevel.with_pending_state(|state| state.bounds = bounds);
+                toplevel.send_configure();
+                return;
+            }
+        }
+        if window.is_x11() {
+            // X11 windows are placed when they ask to be mapped.
             return;
         }
         if !window.data().mapped.get() && !window.0.bbox().is_empty() {
@@ -94,7 +97,7 @@ impl Boswas {
 
     /// Shows a window for the first time: centred on the output under the
     /// pointer, each new window a step down and right of the last.
-    fn place_new_window(&mut self, window: &WindowElement) {
+    pub fn place_new_window(&mut self, window: &WindowElement) {
         let Some(output) = self.active_output() else {
             return;
         };
@@ -122,8 +125,9 @@ impl Boswas {
         data.location.set(location);
         data.animation.set(Some(WindowAnimation::open()));
         self.space.map_element(window.clone(), location, true);
+        window.sync_x11_position(location);
         self.raise_in_stack(window);
-        self.set_keyboard_focus(Some(window.wl_surface().clone()));
+        self.focus_window(window);
         self.windows_changed();
     }
 
@@ -134,15 +138,21 @@ impl Boswas {
             self.space.map_element(window.clone(), location, false);
             self.schedule_redraw();
         }
+        window.sync_x11_position(location);
     }
 
     /// Forgets a window whose toplevel is gone.
     pub fn remove_window(&mut self, surface: &WlSurface) {
-        let Some(window) = self.window_for_surface(surface) else {
-            return;
-        };
+        if let Some(window) = self.window_for_surface(surface) {
+            self.forget_window(&window);
+        }
+    }
+
+    /// Forgets a window that is gone.
+    pub fn forget_window(&mut self, window: &WindowElement) {
+        let window = window.clone();
         let id = window.id();
-        if self.space.element_location(&window).is_some() {
+        if self.space.element_location(&window).is_some() && !window.is_override_redirect() {
             self.leave_ghost(&window, GhostKind::Close);
         }
         self.space.unmap_elem(&window);
@@ -184,28 +194,58 @@ impl Boswas {
             self.space.raise_element(window, true);
         }
         self.raise_in_stack(window);
-        self.set_keyboard_focus(Some(window.wl_surface().clone()));
+        if let Some(x11) = window.x11() {
+            // The X server keeps its own stacking order.
+            if let Some(xwm) = self.xwm.as_mut() {
+                let _ = xwm.raise_window(x11);
+            }
+        }
+        self.focus_window(window);
         self.windows_changed();
+    }
+
+    /// Gives the keyboard to a window.
+    pub fn focus_window(&mut self, window: &WindowElement) {
+        let focus = window.keyboard_focus();
+        // An X11 window without its surface yet gets the keyboard as soon
+        // as it has one.
+        window.data().wants_focus.set(focus.is_none());
+        self.set_focus(focus);
     }
 
     /// Gives the keyboard to a surface and updates which window is drawn as
     /// active.
     pub fn set_keyboard_focus(&mut self, surface: Option<WlSurface>) {
+        // The surface of an X11 window stands for that window.
+        let focus = surface.map(|surface| {
+            match self.window_for_surface(&surface).and_then(|window| window.x11().cloned()) {
+                Some(window) => KeyboardFocus::X11 { window, surface },
+                None => KeyboardFocus::Surface(surface),
+            }
+        });
+        self.set_focus(focus);
+    }
+
+    fn set_focus(&mut self, focus: Option<KeyboardFocus>) {
         let serial = SERIAL_COUNTER.next_serial();
         let keyboard = self.keyboard.clone();
-        if keyboard.current_focus() != surface {
-            keyboard.set_focus(self, surface.clone(), serial);
+        if keyboard.current_focus() != focus {
+            keyboard.set_focus(self, focus.clone(), serial);
         }
-        let focused = surface.as_ref().map(root_surface);
+        let focused = focus
+            .as_ref()
+            .and_then(|focus| self.window_for_surface(&root_surface(focus.surface())))
+            .map(|window| window.id());
         for window in &self.windows {
-            let active = focused.as_ref() == Some(window.wl_surface());
-            if window.0.set_activated(active) || active {
-                window.toplevel().send_pending_configure();
-            }
+            let active = focused == Some(window.id());
+            window.set_activated(active);
             if active {
                 let id = window.id();
                 self.focus_history.retain(|w| *w != id);
                 self.focus_history.push(id);
+                if window.data().urgent.replace(false) {
+                    self.ipc.mark_windows_dirty();
+                }
             }
         }
         self.schedule_redraw();
@@ -240,11 +280,11 @@ impl Boswas {
             return self.set_keyboard_focus(exclusive);
         }
 
-        let current = self.keyboard.current_focus().filter(|s| s.alive());
-        if let Some(surface) = &current {
+        let current = self.keyboard.current_focus().filter(|focus| focus.alive());
+        if let Some(surface) = current.as_ref().map(KeyboardFocus::surface) {
             let root = root_surface(surface);
             let on_window = self
-                .window_for_surface(&root)
+                .focused_window()
                 .is_some_and(|w| self.space.element_location(&w).is_some());
             let on_layer = self.space.outputs().any(|output| {
                 layer_map_for_output(output).layers().any(|l| {
@@ -253,11 +293,15 @@ impl Boswas {
                 })
             });
             if on_window || on_layer {
-                return self.set_keyboard_focus(current);
+                return self.set_focus(current);
             }
         }
-        let top = self.space.elements().next_back().map(|w| w.wl_surface().clone());
-        self.set_keyboard_focus(top);
+        // The top window that is one (not a menu of an X11 application).
+        let top = self.space.elements().rev().find(|w| !w.is_override_redirect()).cloned();
+        match top {
+            Some(window) => self.focus_window(&window),
+            None => self.set_focus(None),
+        }
     }
 
     // ---------------------------------------------------------------------
@@ -286,38 +330,7 @@ impl Boswas {
             Tile::Floating => data.restore.take().or(Some(current)),
             other => area.and_then(|area| other.rect(area)),
         };
-        let toplevel = window.toplevel();
-        let size = target.map(|rect| window.client_size_for_frame(rect.size));
-        toplevel.with_pending_state(|state| {
-            for s in [
-                ToplevelState::Maximized,
-                ToplevelState::Fullscreen,
-                ToplevelState::TiledLeft,
-                ToplevelState::TiledRight,
-                ToplevelState::TiledTop,
-                ToplevelState::TiledBottom,
-            ] {
-                state.states.unset(s);
-            }
-            let tiled: &[ToplevelState] = match tile {
-                Tile::Floating => &[],
-                Tile::Maximized => &[ToplevelState::Maximized],
-                Tile::Fullscreen => &[ToplevelState::Fullscreen],
-                Tile::Left => &[ToplevelState::TiledLeft, ToplevelState::TiledTop, ToplevelState::TiledBottom],
-                Tile::Right => &[ToplevelState::TiledRight, ToplevelState::TiledTop, ToplevelState::TiledBottom],
-                Tile::TopLeft => &[ToplevelState::TiledLeft, ToplevelState::TiledTop],
-                Tile::TopRight => &[ToplevelState::TiledRight, ToplevelState::TiledTop],
-                Tile::BottomLeft => &[ToplevelState::TiledLeft, ToplevelState::TiledBottom],
-                Tile::BottomRight => &[ToplevelState::TiledRight, ToplevelState::TiledBottom],
-            };
-            for s in tiled {
-                state.states.set(*s);
-            }
-            state.size = size;
-        });
-        if toplevel.is_initial_configure_sent() {
-            toplevel.send_pending_configure();
-        }
+        window.configure(target, tile);
         if let Some(rect) = target {
             self.move_window(window, rect.loc);
         }
@@ -411,7 +424,7 @@ impl Boswas {
     }
 
     pub fn close_window(&mut self, window: &WindowElement) {
-        window.toplevel().send_close();
+        window.send_close();
     }
 
     /// Re-fits maximized, tiled and fullscreen windows after an output or a
@@ -555,7 +568,7 @@ impl Boswas {
             let hidden: Vec<u64> = self
                 .space
                 .elements()
-                .filter(|w| w.data().workspace.get() == self.workspace)
+                .filter(|w| w.data().workspace.get() == self.workspace && !w.is_override_redirect())
                 .map(|w| w.id())
                 .collect();
             for id in &hidden {
@@ -646,10 +659,7 @@ impl Boswas {
         if tile == Tile::Floating {
             let moved = relocate(rect);
             if moved.size != rect.size {
-                let toplevel = window.toplevel();
-                let size = window.client_size_for_frame(moved.size);
-                toplevel.with_pending_state(|state| state.size = Some(size));
-                toplevel.send_pending_configure();
+                window.resize_client(window.client_size_for_frame(moved.size), false);
             }
             self.move_window(window, moved.loc);
         } else {

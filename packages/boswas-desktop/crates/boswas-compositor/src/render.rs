@@ -89,6 +89,7 @@ impl Boswas {
         let now = Instant::now();
         self.ghosts.retain(|ghost| !ghost.timeline.finished(now));
         self.overview_tick();
+        self.snap_flyout_tick();
         self.update_decorations();
     }
 
@@ -130,6 +131,7 @@ impl Boswas {
         }
 
         self.switcher_elements(renderer, output, scale, &mut elements);
+        self.snap_flyout_elements(renderer, output, scale, &mut elements);
 
         if let Some(rect) = self.snap_preview.filter(|rect| rect.overlaps(output_geo)) {
             let accent = self.theme.accent;
@@ -395,7 +397,9 @@ impl Boswas {
             }
         } else {
             for window in self.space.elements_for_output(output) {
-                f(window.wl_surface());
+                if let Some(surface) = window.wl_surface() {
+                    f(&surface);
+                }
             }
             for layer in layer_map_for_output(output).layers() {
                 f(layer.wl_surface());
@@ -488,6 +492,7 @@ impl Boswas {
             || self.space.elements().any(|window| window.data().animation.get().is_some())
             || self.switcher_animating()
             || self.overview_animating()
+            || self.snap_flyout_pending()
     }
 }
 

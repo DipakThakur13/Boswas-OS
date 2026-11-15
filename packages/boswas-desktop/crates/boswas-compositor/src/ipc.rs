@@ -79,7 +79,18 @@ pub struct Ipc {
 
 impl Ipc {
     pub fn has_shell(&self) -> bool {
-        self.shell.is_some_and(|id| self.connections.iter().any(|c| c.id == id))
+        self.shell.is_some_and(|id| self.is_open(id))
+    }
+
+    /// Notes that the window list changed (see [`Boswas::windows_changed`]).
+    pub fn mark_windows_dirty(&mut self) {
+        self.windows_dirty = true;
+    }
+
+    /// Whether a control connection is still open. The program a trusted
+    /// connection was handed to holds it for as long as it lives.
+    pub fn is_open(&self, id: u64) -> bool {
+        self.connections.iter().any(|c| c.id == id)
     }
 }
 
@@ -249,7 +260,7 @@ impl Boswas {
         Value::Array(
             self.windows
                 .iter()
-                .filter(|w| w.data().mapped.get())
+                .filter(|w| w.data().mapped.get() && !w.is_override_redirect())
                 .map(|window| {
                     let data = window.data();
                     let size = window.frame().size;

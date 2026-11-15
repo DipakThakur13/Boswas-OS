@@ -8,11 +8,14 @@ use std::time::Instant;
 
 use smithay::{
     backend::input::{
-        AbsolutePositionEvent, Axis, AxisSource, ButtonState, Event, GestureBeginEvent, GestureEndEvent,
-        GesturePinchUpdateEvent as _, GestureSwipeUpdateEvent as _, InputBackend, InputEvent, KeyState,
-        KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent, PointerMotionEvent,
+        AbsolutePositionEvent, Axis, AxisSource, ButtonState, Device, DeviceCapability, Event, GestureBeginEvent,
+        GestureEndEvent, GesturePinchUpdateEvent as _, GestureSwipeUpdateEvent as _, InputBackend, InputEvent,
+        KeyState, KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent, PointerMotionEvent, ProximityState,
+        TabletToolButtonEvent, TabletToolEvent, TabletToolProximityEvent, TabletToolTipEvent,
+        TabletToolTipState, TouchEvent, TouchSlot,
     },
     input::{
+        touch::{DownEvent, UpEvent},
         keyboard::{keysyms, FilterResult, Keysym, ModifiersState},
         pointer::{
             AxisFrame, ButtonEvent, CursorIcon, CursorImageStatus, GestureHoldBeginEvent, GestureHoldEndEvent,
@@ -23,6 +26,7 @@ use smithay::{
     utils::{Logical, Point, SERIAL_COUNTER},
     wayland::{
         keyboard_shortcuts_inhibit::KeyboardShortcutsInhibitorSeat,
+        tablet_manager::{TabletDescriptor, TabletSeatTrait},
         pointer_constraints::{with_pointer_constraint, PointerConstraint},
         shell::wlr_layer::KeyboardInteractivity,
     },
@@ -290,6 +294,28 @@ pub fn shortcut(mods: &ModifiersState, sym: Keysym, modified: Keysym, locked: bo
     None
 }
 
+/// How far three fingers must travel for a swipe to count, in the
+/// touchpad's (unaccelerated, roughly millimetre-like) units.
+const SWIPE_THRESHOLD: f64 = 80.0;
+
+/// What a finished three- or four-finger swipe does: sideways goes to the
+/// next or previous desktop (the content follows the fingers), up opens
+/// Task View and down shows the desktop.
+pub fn swipe_action(distance: Point<f64, Logical>) -> Option<Action> {
+    let (dx, dy) = (distance.x, distance.y);
+    if dx.abs().max(dy.abs()) < SWIPE_THRESHOLD {
+        return None;
+    }
+    Some(if dx.abs() > dy.abs() {
+        // Fingers to the left pull the next desktop in from the right.
+        Action::SwitchDesktop { forward: dx < 0.0 }
+    } else if dy < 0.0 {
+        Action::Overview
+    } else {
+        Action::ShowDesktop
+    })
+}
+
 fn is_logo(sym: Keysym) -> bool {
     matches!(sym.raw(), keysyms::KEY_Super_L | keysyms::KEY_Super_R)
 }
@@ -320,17 +346,29 @@ impl Boswas {
             }
             InputEvent::PointerAxis { event } => self.on_pointer_axis::<B>(&event),
             InputEvent::GestureSwipeBegin { event } => {
+                self.note_activity();
+                // Three and four fingers belong to the desktop: they switch
+                // desktops and open Task View. Applications never see them.
+                let fingers = event.fingers();
+                if self.config.touchpad.gestures && fingers >= 3 && !self.lock.locked {
+                    self.swipe = Some((fingers, Point::from((0.0, 0.0))));
+                    return;
+                }
                 let pointer = self.pointer.clone();
                 pointer.gesture_swipe_begin(
                     self,
                     &GestureSwipeBeginEvent {
                         serial: SERIAL_COUNTER.next_serial(),
                         time: event.time_msec(),
-                        fingers: event.fingers(),
+                        fingers,
                     },
                 );
             }
             InputEvent::GestureSwipeUpdate { event } => {
+                if let Some((_, distance)) = &mut self.swipe {
+                    *distance += event.delta();
+                    return;
+                }
                 let pointer = self.pointer.clone();
                 pointer.gesture_swipe_update(
                     self,
@@ -341,6 +379,14 @@ impl Boswas {
                 );
             }
             InputEvent::GestureSwipeEnd { event } => {
+                if let Some((_, distance)) = self.swipe.take() {
+                    if !event.cancelled() {
+                        if let Some(action) = swipe_action(distance) {
+                            self.run_action(action);
+                        }
+                    }
+                    return;
+                }
                 let pointer = self.pointer.clone();
                 pointer.gesture_swipe_end(
                     self,
@@ -407,12 +453,246 @@ impl Boswas {
                     },
                 );
             }
+            InputEvent::TouchDown { event } => {
+                if let Some(pos) = self.touch_position(&event) {
+                    self.on_touch_down(event.slot(), pos, event.time_msec());
+                }
+            }
+            InputEvent::TouchMotion { event } => {
+                if let Some(pos) = self.touch_position(&event) {
+                    self.on_touch_motion(event.slot(), pos, event.time_msec());
+                }
+            }
+            InputEvent::TouchUp { event } => self.on_touch_up(event.slot(), event.time_msec()),
+            InputEvent::TouchFrame { .. } => {
+                if let Some(touch) = self.seat.get_touch() {
+                    touch.frame(self);
+                }
+            }
+            InputEvent::TouchCancel { .. } => {
+                self.touch_pointer = None;
+                if let Some(touch) = self.seat.get_touch() {
+                    touch.cancel(self);
+                }
+            }
+            InputEvent::TabletToolProximity { event } => self.on_tablet_proximity::<B>(&event),
+            InputEvent::TabletToolAxis { event } => self.on_tablet_axis::<B>(&event),
+            InputEvent::TabletToolTip { event } => self.on_tablet_tip::<B>(&event),
+            InputEvent::TabletToolButton { event } => {
+                if let Some(tool) = self.seat.tablet_seat().get_tool(&event.tool()) {
+                    tool.button(event.button(), event.button_state(), SERIAL_COUNTER.next_serial(), event.time_msec());
+                }
+            }
+            InputEvent::DeviceAdded { device } => {
+                if device.has_capability(DeviceCapability::TabletTool) {
+                    let dh = self.display_handle.clone();
+                    self.seat.tablet_seat().add_tablet::<Self>(&dh, &TabletDescriptor::from(&device));
+                }
+                if device.has_capability(DeviceCapability::Touch) && self.seat.get_touch().is_none() {
+                    self.seat.add_touch();
+                }
+            }
+            InputEvent::DeviceRemoved { device } => {
+                if device.has_capability(DeviceCapability::TabletTool) {
+                    let tablets = self.seat.tablet_seat();
+                    tablets.remove_tablet(&TabletDescriptor::from(&device));
+                    if tablets.count_tablets() == 0 {
+                        tablets.clear_tools();
+                    }
+                }
+            }
             _ => {}
         }
     }
 
     fn note_activity(&mut self) {
         self.last_input = Instant::now();
+        let seat = self.seat.clone();
+        self.idle_notifier_state.notify_activity(&seat);
+        self.wake_outputs();
+    }
+
+    // ---------------------------------------------------------------------
+    // Touch screens
+    // ---------------------------------------------------------------------
+
+    /// Where a touch or pen event is on the desktop: touch screens and pen
+    /// displays are mapped to the first (built-in) output.
+    fn touch_position<E: AbsolutePositionEvent<impl InputBackend>>(&self, event: &E) -> Option<Point<f64, Logical>> {
+        let output = self.space.outputs().next()?;
+        let geo = self.space.output_geometry(output)?;
+        Some(event.position_transformed(geo.size) + geo.loc.to_f64())
+    }
+
+    /// A finger went down. On an application it is a touch point for that
+    /// application; on anything the compositor draws itself (a title bar, a
+    /// resize border, Task View) the finger acts as the pointer.
+    pub fn on_touch_down(&mut self, slot: TouchSlot, pos: Point<f64, Logical>, time: u32) {
+        self.note_activity();
+        let Some(touch) = self.seat.get_touch() else {
+            return;
+        };
+        let serial = SERIAL_COUNTER.next_serial();
+        let ui = !self.lock.locked && (self.overview_active() || self.switcher.is_some());
+        let under = if ui { None } else { self.under(pos) };
+        match under {
+            Some(Under::Surface(surface, origin)) => {
+                let target = Under::Surface(surface.clone(), origin);
+                if !self.lock.locked {
+                    self.focus_for_click(Some(&target));
+                }
+                touch.down(
+                    self,
+                    Some((surface, origin)),
+                    &DownEvent {
+                        slot,
+                        location: pos,
+                        serial,
+                        time,
+                    },
+                );
+            }
+            _ if self.touch_pointer.is_none() => {
+                self.touch_pointer = Some(slot);
+                self.on_pointer_position(pos, time);
+                self.on_pointer_button(BTN_LEFT, ButtonState::Pressed, time);
+            }
+            _ => {}
+        }
+    }
+
+    pub fn on_touch_motion(&mut self, slot: TouchSlot, pos: Point<f64, Logical>, time: u32) {
+        self.note_activity();
+        if self.touch_pointer == Some(slot) {
+            self.on_pointer_position(pos, time);
+            return;
+        }
+        let Some(touch) = self.seat.get_touch() else {
+            return;
+        };
+        let focus = self.under(pos).and_then(|under| under.focus());
+        touch.motion(
+            self,
+            focus,
+            &smithay::input::touch::MotionEvent {
+                slot,
+                location: pos,
+                time,
+            },
+        );
+    }
+
+    pub fn on_touch_up(&mut self, slot: TouchSlot, time: u32) {
+        self.note_activity();
+        if self.touch_pointer == Some(slot) {
+            self.touch_pointer = None;
+            self.on_pointer_button(BTN_LEFT, ButtonState::Released, time);
+            return;
+        }
+        if let Some(touch) = self.seat.get_touch() {
+            touch.up(
+                self,
+                &UpEvent {
+                    slot,
+                    serial: SERIAL_COUNTER.next_serial(),
+                    time,
+                },
+            );
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Drawing tablets
+    // ---------------------------------------------------------------------
+
+    /// The pen moved the pointer; tells the tool where it is and what it
+    /// measures (pressure, tilt and so on).
+    fn on_tablet_axis<B: InputBackend>(&mut self, event: &B::TabletToolAxisEvent) {
+        self.note_activity();
+        let Some(pos) = self.touch_position(event) else {
+            return;
+        };
+        self.on_pointer_position(pos, event.time_msec());
+        let tablets = self.seat.tablet_seat();
+        let (Some(tablet), Some(tool)) = (
+            tablets.get_tablet(&TabletDescriptor::from(&event.device())),
+            tablets.get_tool(&event.tool()),
+        ) else {
+            return;
+        };
+        if event.pressure_has_changed() {
+            tool.pressure(event.pressure());
+        }
+        if event.distance_has_changed() {
+            tool.distance(event.distance());
+        }
+        if event.tilt_has_changed() {
+            tool.tilt(event.tilt());
+        }
+        if event.slider_has_changed() {
+            tool.slider_position(event.slider_position());
+        }
+        if event.rotation_has_changed() {
+            tool.rotation(event.rotation());
+        }
+        if event.wheel_has_changed() {
+            tool.wheel(event.wheel_delta(), event.wheel_delta_discrete());
+        }
+        let focus = self.under(pos).and_then(|under| under.focus());
+        tool.motion(pos, focus, &tablet, SERIAL_COUNTER.next_serial(), event.time_msec());
+    }
+
+    fn on_tablet_proximity<B: InputBackend>(&mut self, event: &B::TabletToolProximityEvent) {
+        self.note_activity();
+        let Some(pos) = self.touch_position(event) else {
+            return;
+        };
+        let dh = self.display_handle.clone();
+        let tablets = self.seat.tablet_seat();
+        tablets.add_tool::<Self>(self, &dh, &event.tool());
+        self.on_pointer_position(pos, event.time_msec());
+        let (Some(tablet), Some(tool)) = (
+            tablets.get_tablet(&TabletDescriptor::from(&event.device())),
+            tablets.get_tool(&event.tool()),
+        ) else {
+            return;
+        };
+        match event.state() {
+            ProximityState::In => {
+                if let Some(focus) = self.under(pos).and_then(|under| under.focus()) {
+                    tool.proximity_in(pos, focus, &tablet, SERIAL_COUNTER.next_serial(), event.time_msec());
+                }
+            }
+            ProximityState::Out => tool.proximity_out(event.time_msec()),
+        }
+    }
+
+    /// The pen's tip touched or left the surface: applications that speak
+    /// the tablet protocol get the tip; the frame and Task View treat it
+    /// as the left mouse button.
+    fn on_tablet_tip<B: InputBackend>(&mut self, event: &B::TabletToolTipEvent) {
+        self.note_activity();
+        let pos = self.pointer.current_location();
+        let on_surface = matches!(self.under(pos), Some(Under::Surface(..)))
+            && !self.overview_active()
+            && self.switcher.is_none();
+        let down = event.tip_state() == TabletToolTipState::Down;
+        if !on_surface || self.pressed_button.is_some() || self.pointer.is_grabbed() {
+            let state = if down { ButtonState::Pressed } else { ButtonState::Released };
+            self.on_pointer_button(BTN_LEFT, state, event.time_msec());
+            return;
+        }
+        if let Some(tool) = self.seat.tablet_seat().get_tool(&event.tool()) {
+            if down {
+                let under = self.under(pos);
+                if !self.lock.locked {
+                    self.focus_for_click(under.as_ref());
+                }
+                tool.tip_down(SERIAL_COUNTER.next_serial(), event.time_msec());
+            } else {
+                tool.tip_up(event.time_msec());
+            }
+        }
     }
 
     // ---------------------------------------------------------------------
@@ -426,8 +706,8 @@ impl Boswas {
         let serial = SERIAL_COUNTER.next_serial();
         let keyboard = self.keyboard.clone();
         let locked = self.lock.locked;
-        let inhibited = keyboard
-            .current_focus()
+        let inhibited = self
+            .keyboard_surface()
             .is_some_and(|focus| self.seat.keyboard_shortcuts_inhibitor_for_surface(&focus).is_some_and(|i| i.is_active()));
         let pressed = state == KeyState::Pressed;
 
@@ -704,8 +984,16 @@ impl Boswas {
             return;
         }
         let under = self.under(pos);
+        // The snap layouts flyout takes the pointer while it is over it.
+        let on_maximize = matches!(&under, Some(Under::TitleBar(window, Some(Button::Maximize)))
+            if self.snap_flyout.as_ref().is_some_and(|flyout| flyout.window == window.id()));
+        let on_flyout = !pointer.is_grabbed() && self.snap_flyout_motion(pos, on_maximize);
+        let under = if on_flyout { None } else { under };
         if !pointer.is_grabbed() {
             self.update_frame_hover(under.as_ref());
+            if on_flyout {
+                self.maximize_hover = None;
+            }
         }
         let focus = under.and_then(|u| u.focus());
         pointer.motion(
@@ -732,6 +1020,14 @@ impl Boswas {
             let mut decoration = window.data().decoration.borrow_mut();
             decoration.hover = if hovered == Some(window.id()) { button } else { None };
         }
+        // Resting on a maximize button opens the snap layouts.
+        self.maximize_hover = match (hovered, button) {
+            (Some(id), Some(Button::Maximize)) => match self.maximize_hover {
+                Some((current, since)) if current == id => Some((current, since)),
+                _ => Some((id, Instant::now())),
+            },
+            _ => None,
+        };
         match under {
             Some(Under::Surface(..)) => {}
             Some(Under::Resize(_, edge)) => self.cursor_status = CursorImageStatus::Named(edge.cursor()),
@@ -760,6 +1056,16 @@ impl Boswas {
                     self.finish_switcher(!on_cell);
                 }
                 return;
+            }
+            if self.snap_flyout.as_ref().is_some_and(|flyout| flyout.rect.to_f64().contains(pos)) {
+                if state == ButtonState::Released && button == BTN_LEFT {
+                    self.snap_flyout_click(pos);
+                }
+                return;
+            }
+            // A click anywhere else closes the snap layouts.
+            if state == ButtonState::Pressed && self.snap_flyout.take().is_some() {
+                self.schedule_redraw();
             }
         }
 
@@ -1013,6 +1319,16 @@ mod tests {
             assert!(!key.name().is_empty());
         }
         assert_eq!(shortcut(&none, Keysym::new(keysyms::KEY_Print), Keysym::new(keysyms::KEY_Print), true, false), None);
+    }
+
+    #[test]
+    fn three_finger_swipes_move_between_desktops_and_open_task_view() {
+        let swipe = |x: f64, y: f64| swipe_action(Point::from((x, y)));
+        assert_eq!(swipe(10.0, -20.0), None, "a short swipe does nothing");
+        assert_eq!(swipe(-200.0, 15.0), Some(Action::SwitchDesktop { forward: true }));
+        assert_eq!(swipe(200.0, -15.0), Some(Action::SwitchDesktop { forward: false }));
+        assert_eq!(swipe(20.0, -150.0), Some(Action::Overview));
+        assert_eq!(swipe(-20.0, 150.0), Some(Action::ShowDesktop));
     }
 
     #[test]

@@ -1,7 +1,5 @@
 //! Interactive move and resize.
 
-use std::cell::RefCell;
-
 use smithay::{
     input::pointer::{
         AxisFrame, ButtonEvent, GestureHoldBeginEvent, GestureHoldEndEvent, GesturePinchBeginEvent,
@@ -11,8 +9,7 @@ use smithay::{
     reexports::{
         wayland_protocols::xdg::shell::server::xdg_toplevel, wayland_server::protocol::wl_surface::WlSurface,
     },
-    utils::{Logical, Point, Rectangle, Size},
-    wayland::{compositor, shell::xdg::SurfaceCachedState},
+    utils::{IsAlive, Logical, Point, Rectangle, Size},
 };
 
 use super::element::{Tile, WindowElement};
@@ -183,7 +180,7 @@ impl PointerGrab<Boswas> for MoveGrab {
     ) {
         // While a window is dragged no client has pointer focus.
         handle.motion(data, None, event);
-        if !self.window.0.toplevel().is_some_and(|t| t.alive()) {
+        if !self.window.alive() {
             return;
         }
 
@@ -239,9 +236,7 @@ impl ResizeGrab {
         edges: ResizeEdge,
         initial_rect: Rectangle<i32, Logical>,
     ) -> Self {
-        ResizeState::with(window.wl_surface(), |state| {
-            *state = ResizeState::Resizing { edges, initial_rect };
-        });
+        window.data().resize.set(ResizeState::Resizing { edges, initial_rect });
         Self {
             start_data,
             window,
@@ -261,9 +256,9 @@ impl PointerGrab<Boswas> for ResizeGrab {
         event: &MotionEvent,
     ) {
         handle.motion(data, None, event);
-        let Some(toplevel) = self.window.0.toplevel().filter(|t| t.alive()) else {
+        if !self.window.alive() {
             return;
-        };
+        }
 
         let delta = event.location - self.start_data.location;
         let (mut width, mut height) = (self.initial_rect.size.w, self.initial_rect.size.h);
@@ -279,11 +274,7 @@ impl PointerGrab<Boswas> for ResizeGrab {
         }
 
         let bar = self.window.titlebar_height();
-        let (min, max) = compositor::with_states(toplevel.wl_surface(), |states| {
-            let mut guard = states.cached_state.get::<SurfaceCachedState>();
-            let cached = guard.current();
-            (cached.min_size, cached.max_size)
-        });
+        let (min, max) = self.window.size_limits();
         let min_w = min.w.max(160);
         let min_h = min.h.max(1) + bar;
         let max_w = if max.w == 0 { i32::MAX } else { max.w.max(min_w) };
@@ -291,11 +282,7 @@ impl PointerGrab<Boswas> for ResizeGrab {
         self.last_size = Size::from((width.clamp(min_w, max_w), height.clamp(min_h, max_h)));
 
         let client_size = self.window.client_size_for_frame(self.last_size);
-        toplevel.with_pending_state(|state| {
-            state.states.set(xdg_toplevel::State::Resizing);
-            state.size = Some(client_size);
-        });
-        toplevel.send_pending_configure();
+        self.window.resize_client(client_size, true);
     }
 
     fn button(&mut self, data: &mut Boswas, handle: &mut PointerInnerHandle<'_, Boswas>, event: &ButtonEvent) {
@@ -305,20 +292,14 @@ impl PointerGrab<Boswas> for ResizeGrab {
             return;
         }
         handle.unset_grab(self, data, event.serial, event.time, true);
-        let Some(toplevel) = self.window.0.toplevel().filter(|t| t.alive()) else {
+        if !self.window.alive() {
             return;
-        };
+        }
         let client_size = self.window.client_size_for_frame(self.last_size);
-        toplevel.with_pending_state(|state| {
-            state.states.unset(xdg_toplevel::State::Resizing);
-            state.size = Some(client_size);
-        });
-        toplevel.send_pending_configure();
-        ResizeState::with(toplevel.wl_surface(), |state| {
-            *state = ResizeState::WaitingForLastCommit {
-                edges: self.edges,
-                initial_rect: self.initial_rect,
-            };
+        self.window.resize_client(client_size, false);
+        self.window.data().resize.set(ResizeState::WaitingForLastCommit {
+            edges: self.edges,
+            initial_rect: self.initial_rect,
         });
     }
 
@@ -327,10 +308,10 @@ impl PointerGrab<Boswas> for ResizeGrab {
     fn unset(&mut self, _data: &mut Boswas) {}
 }
 
-/// Resize bookkeeping kept on the toplevel's surface: resizing from the top
-/// or left edge moves the window as the client commits each new size.
+/// Resize bookkeeping kept with the window: resizing from the top or left
+/// edge moves the window as the client commits each new size.
 #[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
-enum ResizeState {
+pub enum ResizeState {
     #[default]
     Idle,
     Resizing {
@@ -344,17 +325,6 @@ enum ResizeState {
 }
 
 impl ResizeState {
-    fn with<F, T>(surface: &WlSurface, f: F) -> T
-    where
-        F: FnOnce(&mut Self) -> T,
-    {
-        compositor::with_states(surface, |states| {
-            states.data_map.insert_if_missing(RefCell::<Self>::default);
-            let state = states.data_map.get::<RefCell<Self>>().expect("inserted above");
-            f(&mut state.borrow_mut())
-        })
-    }
-
     /// Edges and starting rectangle while a resize is in progress; ends the
     /// resize after the commit that follows the button release.
     fn commit(&mut self) -> Option<(ResizeEdge, Rectangle<i32, Logical>)> {
@@ -375,7 +345,10 @@ pub fn handle_commit(state: &mut Boswas, surface: &WlSurface) {
     let Some(window) = state.window_for_surface(surface) else {
         return;
     };
-    let Some((edges, initial)) = ResizeState::with(surface, ResizeState::commit) else {
+    let mut resize = window.data().resize.get();
+    let committed = resize.commit();
+    window.data().resize.set(resize);
+    let Some((edges, initial)) = committed else {
         return;
     };
     if !edges.intersects(ResizeEdge::TOP | ResizeEdge::LEFT) {

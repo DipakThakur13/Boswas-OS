@@ -40,7 +40,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 [dependencies.smithay]
 version = "0.7"
 default-features = false
-features = ["desktop", "wayland_frontend", "renderer_pixman"]
+features = ["desktop", "wayland_frontend", "renderer_pixman", "xwayland"]
 
 [dev-dependencies]
 wayland-client = "0.31"

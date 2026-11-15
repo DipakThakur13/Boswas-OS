@@ -93,7 +93,7 @@ impl XdgShellHandler for Boswas {
         let Ok(root) = find_popup_root_surface(&kind) else {
             return;
         };
-        let Ok(mut grab) = self.popups.grab_popup(root, kind, &seat, serial) else {
+        let Ok(mut grab) = self.popups.grab_popup(root.into(), kind, &seat, serial) else {
             return;
         };
         if let Some(keyboard) = seat.get_keyboard() {
@@ -217,11 +217,12 @@ impl Boswas {
         let Some(rect) = self.window_rect(window) else {
             return;
         };
-        let toplevel = window.toplevel();
-        toplevel.with_pending_state(|state| {
-            state.states.set(xdg_toplevel::State::Resizing);
-        });
-        toplevel.send_pending_configure();
+        if let Some(toplevel) = window.toplevel() {
+            toplevel.with_pending_state(|state| {
+                state.states.set(xdg_toplevel::State::Resizing);
+            });
+            toplevel.send_pending_configure();
+        }
         let grab = ResizeGrab::start(start_data, window.clone(), edges, rect);
         let pointer = self.pointer.clone();
         pointer.set_grab(self, grab, serial, Focus::Clear);

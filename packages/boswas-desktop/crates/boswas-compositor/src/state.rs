@@ -29,12 +29,16 @@ use smithay::{
     },
     utils::{Logical, Point, Rectangle, Size},
     wayland::{
+        alpha_modifier::AlphaModifierState,
         compositor::{CompositorClientState, CompositorState},
+        content_type::ContentTypeState,
         cursor_shape::CursorShapeManagerState,
         dmabuf::{DmabufGlobal, DmabufState},
         foreign_toplevel_list::ForeignToplevelListState,
         fractional_scale::FractionalScaleManagerState,
         idle_inhibit::IdleInhibitManagerState,
+        idle_notify::IdleNotifierState,
+        input_method::InputMethodManagerState,
         keyboard_shortcuts_inhibit::KeyboardShortcutsInhibitState,
         output::OutputManagerState,
         pointer_constraints::PointerConstraintsState,
@@ -54,9 +58,16 @@ use smithay::{
         shm::ShmState,
         single_pixel_buffer::SinglePixelBufferState,
         socket::ListeningSocketSource,
+        tablet_manager::TabletManagerState,
+        text_input::TextInputManagerState,
         viewporter::ViewporterState,
+        virtual_keyboard::VirtualKeyboardManagerState,
         xdg_activation::XdgActivationState,
+        xdg_foreign::XdgForeignState,
+        xdg_system_bell::XdgSystemBellState,
+        xwayland_shell::XWaylandShellState,
     },
+    xwayland::X11Wm,
 };
 use tracing::{info, warn};
 
@@ -73,6 +84,7 @@ use crate::{
         element::{Tile, WindowElement},
         grabs::ResizeEdge,
         overview::Overview,
+        snapflyout::SnapFlyout,
         switcher::Switcher,
     },
 };
@@ -164,6 +176,13 @@ struct Globals {
     pointer_constraints_state: PointerConstraintsState,
     relative_pointer_state: RelativePointerManagerState,
     pointer_gestures_state: PointerGesturesState,
+    text_input_state: TextInputManagerState,
+    input_method_state: InputMethodManagerState,
+    virtual_keyboard_state: VirtualKeyboardManagerState,
+    alpha_modifier_state: AlphaModifierState,
+    content_type_state: ContentTypeState,
+    tablet_manager_state: TabletManagerState,
+    system_bell_state: XdgSystemBellState,
 }
 
 pub struct Boswas {
@@ -205,6 +224,11 @@ pub struct Boswas {
     pub layouts: (Vec<String>, u32),
     /// Task View, while it is open.
     pub overview: Option<Overview>,
+    /// The snap layouts flyout of a maximize button, while it is open.
+    pub snap_flyout: Option<SnapFlyout>,
+    /// The window whose maximize button the pointer rests on, and since
+    /// when.
+    pub maximize_hover: Option<(u64, Instant)>,
     /// Whether the backend's renderer clips window content to rounded
     /// corners (the GL renderer does). Frames draw their border to match.
     pub rounds_corners: bool,
@@ -215,6 +239,8 @@ pub struct Boswas {
     pub app_icons: AppIcons,
     /// Connected outputs the configuration turned off.
     pub disabled_outputs: Vec<String>,
+    /// The screens are turned off for idleness; any input turns them on.
+    pub outputs_off: bool,
 
     // Protocol state
     _globals: Globals,
@@ -232,6 +258,13 @@ pub struct Boswas {
     pub data_control_state: DataControlState,
     pub foreign_toplevel_state: ForeignToplevelListState,
     pub shortcuts_inhibit_state: KeyboardShortcutsInhibitState,
+    pub xdg_foreign_state: XdgForeignState,
+    pub idle_notifier_state: IdleNotifierState<Boswas>,
+    pub xwayland_shell_state: XWaylandShellState,
+    /// The X11 window manager, while XWayland runs.
+    pub xwm: Option<X11Wm>,
+    /// The X display applications reach XWayland on.
+    pub x_display: Option<u32>,
 
     // Seat
     pub seat: Seat<Boswas>,
@@ -258,6 +291,15 @@ pub struct Boswas {
     pub ipc: Ipc,
     pub children: Vec<Child>,
     shell_started: Vec<Instant>,
+    /// The input method's control connection (its liveness) and when it
+    /// was last started.
+    input_method: (Option<u64>, Vec<Instant>),
+    /// A three- or four-finger swipe on the touchpad the compositor is
+    /// following: finger count and the distance so far.
+    pub swipe: Option<(u32, Point<f64, Logical>)>,
+    /// The touch points that act as the pointer, because they went down on
+    /// something the compositor draws itself.
+    pub touch_pointer: Option<smithay::backend::input::TouchSlot>,
     /// Outputs that need a new frame.
     pub redraw: bool,
 }
@@ -309,6 +351,20 @@ impl Boswas {
         let pointer_constraints_state = PointerConstraintsState::new::<Self>(&dh);
         let relative_pointer_state = RelativePointerManagerState::new::<Self>(&dh);
         let pointer_gestures_state = PointerGesturesState::new::<Self>(&dh);
+        // Text input is for every application. Being the input method, or a
+        // virtual keyboard, means seeing or making key strokes for all of
+        // them: that is for the program the administrator configured, which
+        // the compositor starts itself.
+        let text_input_state = TextInputManagerState::new::<Self>(&dh);
+        let input_method_state = InputMethodManagerState::new::<Self, _>(&dh, privileged);
+        let virtual_keyboard_state = VirtualKeyboardManagerState::new::<Self, _>(&dh, privileged);
+        let alpha_modifier_state = AlphaModifierState::new::<Self>(&dh);
+        let content_type_state = ContentTypeState::new::<Self>(&dh);
+        let tablet_manager_state = TabletManagerState::new::<Self>(&dh);
+        let system_bell_state = XdgSystemBellState::new::<Self>(&dh);
+        let xdg_foreign_state = XdgForeignState::new::<Self>(&dh);
+        let idle_notifier_state = IdleNotifierState::new(&dh, loop_handle.clone());
+        let xwayland_shell_state = XWaylandShellState::new::<Self>(&dh);
         let shortcuts_inhibit_state = KeyboardShortcutsInhibitState::new::<Self>(&dh);
 
         let mut seat: Seat<Self> = seat_state.new_wl_seat(&dh, "seat0");
@@ -361,10 +417,13 @@ impl Boswas {
             night_light_applied: None,
             layouts: (Vec::new(), 0),
             overview: None,
+            snap_flyout: None,
+            maximize_hover: None,
             rounds_corners: false,
             ghosts: Vec::new(),
             app_icons: AppIcons::new(config.appearance.scheme == "light"),
             disabled_outputs: Vec::new(),
+            outputs_off: false,
             _globals: Globals {
                 xdg_decoration_state,
                 output_manager_state,
@@ -378,6 +437,13 @@ impl Boswas {
                 pointer_constraints_state,
                 relative_pointer_state,
                 pointer_gestures_state,
+                text_input_state,
+                input_method_state,
+                virtual_keyboard_state,
+                alpha_modifier_state,
+                content_type_state,
+                tablet_manager_state,
+                system_bell_state,
             },
             compositor_state,
             xdg_shell_state,
@@ -393,6 +459,11 @@ impl Boswas {
             data_control_state,
             foreign_toplevel_state,
             shortcuts_inhibit_state,
+            xdg_foreign_state,
+            idle_notifier_state,
+            xwayland_shell_state,
+            xwm: None,
+            x_display: None,
             seat,
             pointer,
             keyboard,
@@ -410,6 +481,9 @@ impl Boswas {
             ipc: Ipc::default(),
             children: Vec::new(),
             shell_started: Vec::new(),
+            input_method: (None, Vec::new()),
+            swipe: None,
+            touch_pointer: None,
             redraw: true,
             config,
         })
@@ -554,14 +628,18 @@ impl Boswas {
 
     /// The window a surface belongs to (its toplevel surface only).
     pub fn window_for_surface(&self, surface: &WlSurface) -> Option<WindowElement> {
-        self.windows.iter().find(|w| w.wl_surface() == surface).cloned()
+        self.windows.iter().find(|w| w.wl_surface().as_ref() == Some(surface)).cloned()
+    }
+
+    /// The surface the keyboard is on.
+    pub fn keyboard_surface(&self) -> Option<WlSurface> {
+        self.keyboard.current_focus().map(|focus| focus.surface().clone())
     }
 
     /// The focused window, if the keyboard focus is on a window.
     pub fn focused_window(&self) -> Option<WindowElement> {
         let focus = self.keyboard.current_focus()?;
-        let root = root_surface(&focus);
-        self.window_for_surface(&root)
+        self.window_for_surface(&root_surface(focus.surface()))
     }
 
     /// Global position of a window's element origin (where the space draws
@@ -698,6 +776,7 @@ impl Boswas {
             .env("WAYLAND_DISPLAY", &self.socket_name)
             .env("XDG_CURRENT_DESKTOP", "Boswas")
             .stdin(std::process::Stdio::null());
+        self.x11_environment(&mut cmd);
         let child = cmd.spawn().map_err(|e| format!("{program}: {e}"))?;
         drop((wl_theirs, ipc_theirs));
         self.display_handle
@@ -708,19 +787,30 @@ impl Boswas {
         Ok(connection)
     }
 
+    /// Points a program at this session's X server, or at none: a stale
+    /// `DISPLAY` from the environment the session was started in must not
+    /// reach applications.
+    fn x11_environment(&self, command: &mut std::process::Command) {
+        match self.x_display {
+            Some(display) => command.env("DISPLAY", format!(":{display}")),
+            None => command.env_remove("DISPLAY"),
+        };
+    }
+
     /// Starts an ordinary program on this compositor's socket.
     pub fn spawn(&mut self, command: &[String]) {
         let Some((program, args)) = command.split_first() else {
             return;
         };
-        let result = std::process::Command::new(program)
-            .args(args)
+        let mut cmd = std::process::Command::new(program);
+        cmd.args(args)
             .env("WAYLAND_DISPLAY", &self.socket_name)
             .env("XDG_CURRENT_DESKTOP", "Boswas")
             .env_remove("WAYLAND_SOCKET")
             .env_remove("BOSWAS_COMPOSITOR_FD")
-            .stdin(std::process::Stdio::null())
-            .spawn();
+            .stdin(std::process::Stdio::null());
+        self.x11_environment(&mut cmd);
+        let result = cmd.spawn();
         match result {
             Ok(child) => self.children.push(child),
             Err(err) => warn!("could not start {program}: {err}"),
@@ -749,11 +839,37 @@ impl Boswas {
         }
     }
 
-    /// Collects exited children; restarts the shell when it is gone.
+    /// Starts the configured input method, unless it has been restarting
+    /// in a loop.
+    pub fn start_input_method(&mut self) {
+        let command = self.config.input_method.command.clone();
+        if command.is_empty() {
+            return;
+        }
+        let now = Instant::now();
+        self.input_method.1.retain(|t| now.duration_since(*t) < Duration::from_secs(60));
+        if self.input_method.1.len() >= 3 {
+            return;
+        }
+        self.input_method.1.push(now);
+        match self.spawn_trusted(&command) {
+            Ok(connection) => {
+                self.input_method.0 = connection;
+                info!("started the input method: {}", command.join(" "));
+            }
+            Err(err) => warn!("could not start the input method: {err}"),
+        }
+    }
+
+    /// Collects exited children; restarts the shell and the input method
+    /// when they are gone.
     pub fn reap_children(&mut self) {
         self.children.retain_mut(|child| !matches!(child.try_wait(), Ok(Some(_)) | Err(_)));
         if !self.config.shell.command.is_empty() && !self.ipc.has_shell() {
             self.start_shell();
+        }
+        if !self.config.input_method.command.is_empty() && !self.input_method.0.is_some_and(|id| self.ipc.is_open(id)) {
+            self.start_input_method();
         }
     }
 }
@@ -789,9 +905,11 @@ impl Boswas {
         }
         // The shell command and the trust policy are fixed for the session.
         let shell = std::mem::take(&mut self.config.shell);
+        let input_method = std::mem::take(&mut self.config.input_method);
         let policy = std::mem::take(&mut self.config.policy.privileged_protocols);
         self.config = config;
         self.config.shell = shell;
+        self.config.input_method = input_method;
         self.config.policy.privileged_protocols = policy;
         let config = self.config.clone();
         self.backend.config_changed(&config);
@@ -807,6 +925,29 @@ impl Boswas {
 }
 
 impl Boswas {
+    /// Turns the screens back on after they were turned off for idleness.
+    pub fn wake_outputs(&mut self) {
+        if std::mem::take(&mut self.outputs_off) {
+            self.backend.set_outputs_powered(true);
+            self.schedule_redraw();
+        }
+    }
+
+    /// Turns the screens off after the configured time without input,
+    /// unless something on screen asks them to stay on (a video, a
+    /// presentation). Called once a second.
+    pub fn check_screen_off(&mut self) {
+        let limit = self.config.power.screen_off_seconds;
+        if limit == 0 || self.outputs_off || !self.idle_inhibitors.is_empty() {
+            return;
+        }
+        if self.last_input.elapsed() >= Duration::from_secs(u64::from(limit)) {
+            info!("idle for {limit} s; turning the screens off");
+            self.outputs_off = true;
+            self.backend.set_outputs_powered(false);
+        }
+    }
+
     /// Re-reads the layout names from the keymap (after it was set) and
     /// tells the shell when the list or the active layout changed.
     pub fn refresh_layouts(&mut self) {

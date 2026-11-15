@@ -39,6 +39,8 @@ pub struct Config {
     pub power: Power,
     pub lock: Lock,
     pub shell: Shell,
+    pub input_method: InputMethod,
+    pub xwayland: Xwayland,
     pub apps: Apps,
     pub appearance: Appearance,
     pub policy: Policy,
@@ -153,6 +155,28 @@ pub struct Shell {
     pub command: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Deserialize, Default)]
+#[serde(default, deny_unknown_fields)]
+pub struct InputMethod {
+    /// The input method program (for example `["fcitx5"]`); empty for none.
+    /// It is started as a trusted client, because an input method sees
+    /// what is typed and may type itself: only the system files may name it.
+    pub command: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Xwayland {
+    /// Run an X server for X11 applications.
+    pub enabled: bool,
+}
+
+impl Default for Xwayland {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Apps {
@@ -202,6 +226,8 @@ impl Default for Config {
             power: Power::default(),
             lock: Lock::default(),
             shell: Shell::default(),
+            input_method: InputMethod::default(),
+            xwayland: Xwayland::default(),
             apps: Apps::default(),
             appearance: Appearance::default(),
             policy: Policy::default(),
@@ -321,7 +347,7 @@ impl Default for Policy {
 
 /// Tables whose `command` names a program the compositor starts as a
 /// trusted client. Only the system files may set them.
-const TRUSTED_PROGRAM_SECTIONS: &[&str] = &["shell", "lock"];
+const TRUSTED_PROGRAM_SECTIONS: &[&str] = &["shell", "lock", "input_method"];
 
 impl Config {
     /// Loads the three layers. Unreadable or invalid files are reported and
@@ -712,7 +738,7 @@ mod tests {
         let user = file(
             dir.path(),
             "user.toml",
-            "[shell]\ncommand = [\"/home/u/evil\"]\n[lock]\nidle_seconds = 60\ncommand = [\"/home/u/evil\", \"--lock\"]\n[apps]\nterminal = [\"foot\"]\n",
+            "[shell]\ncommand = [\"/home/u/evil\"]\n[lock]\nidle_seconds = 60\ncommand = [\"/home/u/evil\", \"--lock\"]\n[input_method]\ncommand = [\"/home/u/keylogger\"]\n[apps]\nterminal = [\"foot\"]\n",
         );
         let (c, warnings) = Config::load_from(&[&sys], Some(&user));
         assert_eq!(c.shell.command, ["/usr/libexec/boswas/boswas-shell"]);
@@ -721,6 +747,8 @@ mod tests {
         assert_eq!(c.apps.terminal, ["foot"], "ordinary programs stay the user's choice");
         assert!(warnings.iter().any(|w| w.contains("[shell] command")), "{warnings:?}");
         assert!(warnings.iter().any(|w| w.contains("[lock] command")), "{warnings:?}");
+        assert!(c.input_method.command.is_empty(), "a user file cannot install an input method");
+        assert!(warnings.iter().any(|w| w.contains("[input_method] command")), "{warnings:?}");
     }
 
     #[test]

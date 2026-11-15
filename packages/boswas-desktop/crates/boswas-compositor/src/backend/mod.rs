@@ -4,6 +4,8 @@
 //! * `winit`: a window on a developer's desktop
 //! * `headless`: an in-memory output for tests and CI
 
+#[cfg(any(feature = "udev", test))]
+pub mod edid;
 pub mod headless;
 #[cfg(feature = "udev")]
 pub mod udev;
@@ -112,6 +114,17 @@ impl Backend {
             #[cfg(feature = "udev")]
             Backend::Udev(udev) => udev.snapshot(state, window),
             Backend::None => None,
+        }
+    }
+
+    /// Turns every screen off (and stops rendering to them) or back on.
+    pub fn set_outputs_powered(&mut self, on: bool) {
+        match self {
+            #[cfg(feature = "udev")]
+            Backend::Udev(udev) => udev.set_outputs_powered(on),
+            _ => {
+                let _ = on;
+            }
         }
     }
 

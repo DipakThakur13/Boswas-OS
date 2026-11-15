@@ -310,13 +310,12 @@ impl Decoration {
             }
             let location = frame_origin + Point::<i32, Logical>::from((x, y)).to_physical_precise_round(scale);
             let buffer = &pieces[piece];
-            let src = piece_source_size(piece);
             if let Ok(element) = MemoryRenderBufferRenderElement::from_buffer(
                 renderer,
                 location.to_f64(),
                 buffer,
                 Some(alpha),
-                Some(Rectangle::from_size(src.to_f64())),
+                Some(piece_source(piece).to_f64()),
                 Some(Size::from((pw, ph))),
                 Kind::Unspecified,
             ) {
@@ -333,14 +332,29 @@ impl Decoration {
     }
 }
 
-/// Source size (logical = buffer pixels) of a shadow piece: four corners,
-/// then the top, bottom, left and right edge strips.
-fn piece_source_size(piece: usize) -> Size<i32, Logical> {
+/// Extra pixels each shadow piece's buffer has around the part that is
+/// drawn. A piece is sampled with filtering when it is stretched or drawn
+/// at a fractional scale; without neighbours to sample, its edges would
+/// fade and show as seams between the pieces.
+const APRON: i32 = 2;
+
+/// The part of a shadow piece's buffer that is drawn (buffer pixels): four
+/// corners, then the top, bottom, left and right edge strips. See
+/// `shadow_pieces` for how the buffers are cut.
+fn piece_source(piece: usize) -> Rectangle<i32, Logical> {
     let k = SHADOW_MARGIN + SHADOW_INSET;
+    let m = SHADOW_MARGIN;
+    let a = APRON;
+    let rect = |x, y, w, h| Rectangle::new(Point::from((x, y)), Size::from((w, h)));
     match piece {
-        0..=3 => Size::from((k, k)),
-        4 | 5 => Size::from((2, SHADOW_MARGIN)),
-        _ => Size::from((SHADOW_MARGIN, 2)),
+        0 => rect(0, 0, k, k),
+        1 => rect(a, 0, k, k),
+        2 => rect(0, a, k, k),
+        3 => rect(a, a, k, k),
+        4 => rect(a, 0, 2, m),
+        5 => rect(a, a, 2, m),
+        6 => rect(0, a, m, 2),
+        _ => rect(a, a, m, 2),
     }
 }
 
@@ -389,15 +403,18 @@ fn shadow_pieces() -> [MemoryRenderBuffer; 8] {
         }
         MemoryRenderBuffer::from_slice(&bytes, Fourcc::Argb8888, (w, h), 1, Transform::Normal, None)
     };
+    // Each piece is cut with an apron towards the middle of the tile (the
+    // outer edges of the tile are transparent anyway).
+    let a = APRON;
     [
-        cut(0, 0, k, k),
-        cut(side - k, 0, k, k),
-        cut(0, side - k, k, k),
-        cut(side - k, side - k, k, k),
-        cut(k, 0, 2, m),
-        cut(k, side - m, 2, m),
-        cut(0, k, m, 2),
-        cut(side - m, k, m, 2),
+        cut(0, 0, k + a, k + a),
+        cut(side - k - a, 0, k + a, k + a),
+        cut(0, side - k - a, k + a, k + a),
+        cut(side - k - a, side - k - a, k + a, k + a),
+        cut(k - a, 0, 2 + 2 * a, m + a),
+        cut(k - a, side - m - a, 2 + 2 * a, m + a),
+        cut(0, k - a, m + a, 2 + 2 * a),
+        cut(side - m - a, k - a, m + a, 2 + 2 * a),
     ]
 }
 
@@ -576,9 +593,17 @@ mod tests {
         assert!(alpha(side / 2, side - 4) >= alpha(side / 2, 3), "the shadow falls downwards");
         let pieces = shadow_pieces();
         assert_eq!(pieces.len(), 8);
+        let k = SHADOW_MARGIN + SHADOW_INSET;
         for piece in 0..8 {
-            let size = piece_source_size(piece);
-            assert!(size.w > 0 && size.h > 0);
+            let source = piece_source(piece);
+            assert!(source.size.w > 0 && source.size.h > 0);
+            assert!(source.loc.x >= 0 && source.loc.y >= 0);
+            let expected = match piece {
+                0..=3 => Size::from((k, k)),
+                4 | 5 => Size::from((2, SHADOW_MARGIN)),
+                _ => Size::from((SHADOW_MARGIN, 2)),
+            };
+            assert_eq!(source.size, expected, "piece {piece}");
         }
     }
 

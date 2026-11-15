@@ -8,6 +8,7 @@ mod backend;
 mod config;
 mod cursor;
 mod effects;
+mod focus;
 mod handlers;
 mod input;
 mod ipc;
@@ -226,7 +227,10 @@ fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
     state.refresh_layouts();
     state.apply_night_light();
+    // Before the shell, so that everything it starts knows the X display.
+    state.start_xwayland();
     state.start_shell();
+    state.start_input_method();
     if !args.command.is_empty() {
         state.spawn(&args.command);
     }
@@ -240,6 +244,7 @@ fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             state.supervise_lock();
             // The night light schedule.
             state.apply_night_light();
+            state.check_screen_off();
             state.reap_children();
             TimeoutAction::ToDuration(Duration::from_secs(1))
         })?;

@@ -48,7 +48,10 @@ use smithay::{
             timer::{TimeoutAction, Timer},
             RegistrationToken,
         },
-        drm::control::{connector, crtc, Device as ControlDevice, ModeTypeFlags},
+        drm::{
+            self,
+            control::{connector, crtc, Device as ControlDevice, ModeTypeFlags},
+        },
         input::{DeviceCapability, Libinput},
         rustix::fs::OFlags,
         wayland_protocols::wp::presentation_time::server::wp_presentation_feedback,
@@ -83,6 +86,8 @@ struct Surface {
     output: Output,
     global: GlobalId,
     connector: connector::Handle,
+    /// The modes the monitor offers.
+    modes: Vec<drm::control::Mode>,
     drm_output: KmsOutput,
     /// A frame is queued and its vblank has not arrived yet.
     pending: bool,
@@ -109,6 +114,10 @@ pub struct Udev {
     active: bool,
     /// The night light colour temperature the outputs should show.
     temperature: Option<u32>,
+    /// The screens are on (they are turned off after a time without input).
+    powered: bool,
+    /// The output settings changed; they are applied before the next frame.
+    outputs_changed: bool,
 }
 
 /// Opens the session, the primary GPU and the input devices.
@@ -133,6 +142,8 @@ pub fn init(state: &mut Boswas) -> Result<(), Box<dyn std::error::Error>> {
         inputs: Vec::new(),
         active: true,
         temperature: None,
+        powered: true,
+        outputs_changed: false,
     }));
     with_udev(state, |udev, state| udev.add_device(state, &gpu))?;
 
@@ -248,8 +259,11 @@ pub fn tick(state: &mut Boswas) {
         return;
     }
     let _ = with_udev(state, |udev, state| {
-        if !udev.active {
+        if !udev.active || !udev.powered {
             return Ok(());
+        }
+        if std::mem::take(&mut udev.outputs_changed) {
+            udev.apply_output_settings(state);
         }
         state.redraw = false;
         let crtcs: Vec<crtc::Handle> = udev.device.iter().flat_map(|d| d.surfaces.keys().copied()).collect();
@@ -352,6 +366,23 @@ impl Udev {
     pub fn config_changed(&mut self, config: &crate::config::Config) {
         for device in &mut self.inputs {
             configure_input_device(device, config);
+        }
+        self.outputs_changed = true;
+    }
+
+    /// Turns every screen off, or lets the next frame turn them on again.
+    pub fn set_outputs_powered(&mut self, on: bool) {
+        self.powered = on;
+        if on {
+            return;
+        }
+        if let Some(device) = &mut self.device {
+            for surface in device.surfaces.values_mut() {
+                surface.pending = false;
+                if let Err(err) = surface.drm_output.with_compositor(|compositor| compositor.clear()) {
+                    warn!("could not turn {} off: {err}", surface.output.name());
+                }
+            }
         }
     }
 
@@ -494,11 +525,46 @@ impl Udev {
             }
         }
 
+        // Monitors the configuration turns off are known but not driven.
+        state.disabled_outputs.clear();
+        let mut off: Vec<connector::Handle> = Vec::new();
+        for info in &connected {
+            let name = connector_name(info);
+            if state.config.outputs.get(&name).and_then(|settings| settings.enabled) == Some(false) {
+                state.disabled_outputs.push(name);
+                off.push(info.handle());
+            }
+        }
+        // Never turn the last monitor off: there would be no way back.
+        if off.len() == connected.len() {
+            if let Some(first) = off.first().copied() {
+                off.retain(|handle| *handle != first);
+                state.disabled_outputs.remove(0);
+                warn!("every monitor is turned off in the configuration; keeping one on");
+            }
+        }
+        let turned_off: Vec<crtc::Handle> = device
+            .surfaces
+            .iter()
+            .filter(|(_, surface)| off.contains(&surface.connector))
+            .map(|(crtc, _)| *crtc)
+            .collect();
+        for crtc in turned_off {
+            if let Some(surface) = device.surfaces.remove(&crtc) {
+                info!("output {} turned off", surface.output.name());
+                state.space.unmap_output(&surface.output);
+                state.display_handle.remove_global::<Boswas>(surface.global);
+            }
+        }
+
         // New monitors: each takes the first free CRTC one of its encoders
         // can drive.
         let mut taken: Vec<crtc::Handle> = device.surfaces.keys().copied().collect();
         let mut assignments = Vec::new();
         for info in connected {
+            if off.contains(&info.handle()) {
+                continue;
+            }
             if device.surfaces.values().any(|surface| surface.connector == info.handle()) {
                 continue;
             }
@@ -522,7 +588,55 @@ impl Udev {
             }
         }
         arrange_outputs(device, state);
+        let outputs = state.outputs_json();
+        state.ipc_event("outputs", outputs);
         state.schedule_redraw();
+    }
+
+    /// Brings the outputs in line with a changed configuration: turns
+    /// monitors on and off, and sets mode, scale, rotation and position of
+    /// the ones that stay.
+    fn apply_output_settings(&mut self, state: &mut Boswas) {
+        if let Some(device) = &mut self.device {
+            let crtcs: Vec<crtc::Handle> = device.surfaces.keys().copied().collect();
+            for crtc in crtcs {
+                let Some(surface) = device.surfaces.get_mut(&crtc) else {
+                    continue;
+                };
+                let name = surface.output.name();
+                let settings = state.config.outputs.get(&name).cloned().unwrap_or_default();
+                // Mode.
+                let wanted = settings
+                    .mode
+                    .as_deref()
+                    .and_then(crate::config::parse_mode)
+                    .and_then(|wanted| pick_mode(&surface.modes, wanted))
+                    .or_else(|| preferred_mode(&surface.modes));
+                if let Some(mode) = wanted {
+                    if surface.output.current_mode() != Some(OutputMode::from(mode)) {
+                        let result = surface.drm_output.use_mode::<_, OutputRenderElement<GlesRenderer>>(
+                            mode,
+                            &mut device.renderer,
+                            &DrmOutputRenderElements::default(),
+                        );
+                        match result {
+                            Ok(()) => {
+                                surface.pending = false;
+                                surface.output.change_current_state(Some(OutputMode::from(mode)), None, None, None);
+                                info!("output {name}: mode {}x{}", mode.size().0, mode.size().1);
+                            }
+                            Err(err) => warn!("output {name}: could not set the mode: {err}"),
+                        }
+                    }
+                }
+                // Scale and rotation.
+                let scale = settings.scale.unwrap_or(state.config.output.scale);
+                let transform = rotation(settings.rotation.as_deref());
+                surface.output.change_current_state(None, Some(transform), Some(Scale::Fractional(scale)), None);
+            }
+        }
+        // Monitors turned on or off, and everything placed again.
+        self.scan_connectors(state);
     }
 
     fn render(&mut self, state: &mut Boswas, crtc: crtc::Handle) {
@@ -651,30 +765,40 @@ fn connect(
     info: &connector::Info,
     crtc: crtc::Handle,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let name = format!("{}-{}", info.interface().as_str(), info.interface_id());
-    let mode = info
-        .modes()
-        .iter()
-        .find(|mode| mode.mode_type().contains(ModeTypeFlags::PREFERRED))
-        .or_else(|| info.modes().first())
-        .copied()
+    let name = connector_name(info);
+    let settings = state.config.outputs.get(&name).cloned().unwrap_or_default();
+    let modes: Vec<drm::control::Mode> = info.modes().to_vec();
+    let mode = settings
+        .mode
+        .as_deref()
+        .and_then(crate::config::parse_mode)
+        .and_then(|wanted| pick_mode(&modes, wanted))
+        .or_else(|| preferred_mode(&modes))
         .ok_or("the monitor reports no mode")?;
     let (width_mm, height_mm) = info.size().unwrap_or((0, 0));
+    let (make, model) = read_edid(device.manager.device(), info)
+        .map(|edid| super::edid::make_and_model(&edid))
+        .unwrap_or((None, None));
     let output = Output::new(
         name.clone(),
         PhysicalProperties {
             size: (width_mm as i32, height_mm as i32).into(),
             subpixel: info.subpixel().into(),
-            make: "Unknown".into(),
-            model: "Unknown".into(),
+            make: make.unwrap_or_else(|| "Unknown".into()),
+            model: model.unwrap_or_else(|| "Unknown".into()),
         },
     );
+    for offered in &modes {
+        output.add_mode(OutputMode::from(*offered));
+    }
     let output_mode = OutputMode::from(mode);
-    output.set_preferred(output_mode);
+    if let Some(preferred) = preferred_mode(&modes) {
+        output.set_preferred(OutputMode::from(preferred));
+    }
     output.change_current_state(
         Some(output_mode),
-        None,
-        Some(Scale::Fractional(state.config.output.scale)),
+        Some(rotation(settings.rotation.as_deref())),
+        Some(Scale::Fractional(settings.scale.unwrap_or(state.config.output.scale))),
         None,
     );
 
@@ -702,6 +826,7 @@ fn connect(
             output,
             global,
             connector: info.handle(),
+            modes,
             drm_output,
             pending: false,
             idle_callback_armed: false,
@@ -710,17 +835,94 @@ fn connect(
     Ok(())
 }
 
-/// Places the outputs side by side, left to right, in connector order.
+/// The connector's name as the desktop knows the output: `eDP-1`.
+fn connector_name(info: &connector::Info) -> String {
+    format!("{}-{}", info.interface().as_str(), info.interface_id())
+}
+
+/// The mode a monitor prefers, else its first.
+fn preferred_mode(modes: &[drm::control::Mode]) -> Option<drm::control::Mode> {
+    modes
+        .iter()
+        .find(|mode| mode.mode_type().contains(ModeTypeFlags::PREFERRED))
+        .or_else(|| modes.first())
+        .copied()
+}
+
+/// The offered mode of the wanted size whose refresh rate is nearest the
+/// wanted one (the highest, when none is asked for).
+fn pick_mode(modes: &[drm::control::Mode], wanted: (i32, i32, Option<i32>)) -> Option<drm::control::Mode> {
+    let (width, height, refresh) = wanted;
+    modes
+        .iter()
+        .filter(|mode| (i32::from(mode.size().0), i32::from(mode.size().1)) == (width, height))
+        .min_by_key(|mode| {
+            let millihertz = OutputMode::from(**mode).refresh;
+            match refresh {
+                Some(wanted) => (millihertz - wanted).abs(),
+                None => -millihertz,
+            }
+        })
+        .copied()
+}
+
+/// The output transform of a configured rotation.
+fn rotation(setting: Option<&str>) -> smithay::utils::Transform {
+    use smithay::utils::Transform;
+    match setting {
+        Some("90") => Transform::_90,
+        Some("180") => Transform::_180,
+        Some("270") => Transform::_270,
+        _ => Transform::Normal,
+    }
+}
+
+/// Reads a connector's EDID property.
+fn read_edid(drm: &DrmDevice, info: &connector::Info) -> Option<Vec<u8>> {
+    let properties = drm.get_properties(info.handle()).ok()?;
+    let (handles, values) = properties.as_props_and_values();
+    for (handle, value) in handles.iter().zip(values) {
+        let property = drm.get_property(*handle).ok()?;
+        if property.name().to_str() == Ok("EDID") && *value != 0 {
+            return drm.get_property_blob(*value).ok();
+        }
+    }
+    None
+}
+
+/// Places the outputs: at their configured position, and those without one
+/// side by side, left to right, in connector order, after the others.
 fn arrange_outputs(device: &Device, state: &mut Boswas) {
     let mut surfaces: Vec<&Surface> = device.surfaces.values().collect();
     surfaces.sort_by_key(|surface| surface.output.name());
-    let mut x = 0;
-    let mut changed = Vec::new();
-    for surface in surfaces {
-        let position = (x, 0);
+    let configured = |surface: &Surface| {
+        state
+            .config
+            .outputs
+            .get(&surface.output.name())
+            .and_then(|settings| settings.position)
+            .map(|[x, y]| (x, y))
+    };
+    // First the outputs with a position, then the rest to the right of
+    // everything placed so far.
+    let mut placed: Vec<(Output, (i32, i32))> = Vec::new();
+    let mut right_edge = 0;
+    for surface in surfaces.iter().filter(|surface| configured(surface).is_some()) {
+        let position = configured(surface).unwrap_or_default();
+        placed.push((surface.output.clone(), position));
+    }
+    for (output, position) in &placed {
+        output.change_current_state(None, None, None, Some((*position).into()));
+        state.space.map_output(output, *position);
+        let width = state.space.output_geometry(output).map_or(0, |geo| geo.size.w);
+        right_edge = right_edge.max(position.0 + width);
+    }
+    let mut changed: Vec<Output> = placed.into_iter().map(|(output, _)| output).collect();
+    for surface in surfaces.iter().filter(|surface| configured(surface).is_none()) {
+        let position = (right_edge, 0);
         surface.output.change_current_state(None, None, None, Some(position.into()));
         state.space.map_output(&surface.output, position);
-        x += state.space.output_geometry(&surface.output).map_or(0, |geo| geo.size.w);
+        right_edge += state.space.output_geometry(&surface.output).map_or(0, |geo| geo.size.w);
         changed.push(surface.output.clone());
     }
     for output in changed {
