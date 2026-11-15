@@ -755,6 +755,7 @@ impl Shell {
             shm,
             qh,
             st,
+            compositor_state,
             ..
         } = self;
         let surface = &mut surfaces[index];
@@ -887,6 +888,16 @@ impl Shell {
                 viewport.set_destination(surface.width as i32, surface.height as i32);
             }
             None => wl.set_buffer_scale(scale.ceil().max(1.0) as i32),
+        }
+        if matches!(role, Role::Toasts | Role::Preview) {
+            // Only what is drawn takes the pointer: clicks in the gaps
+            // between toasts and around a preview reach the windows below.
+            if let Ok(region) = Region::new(&*compositor_state) {
+                for (x, y, w, h) in ui::input_rects(&surface.hits) {
+                    region.add(x, y, w, h);
+                }
+                wl.set_input_region(Some(region.wl_region()));
+            }
         }
         wl.damage_buffer(0, 0, pw as i32, ph as i32);
         wl.frame(qh, wl.clone());

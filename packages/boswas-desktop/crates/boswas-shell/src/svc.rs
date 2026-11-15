@@ -285,7 +285,10 @@ pub mod fake {
                     action_id: "org.boswas.sysops.packages.install".into(),
                     message: "Authentication is required to install software".into(),
                     icon_name: String::new(),
-                    users: vec!["asha".into()],
+                    users: match value.get("users").and_then(|v| v.as_array()) {
+                        Some(users) => users.iter().filter_map(|u| u.as_str().map(str::to_owned)).collect(),
+                        None => vec!["asha".into()],
+                    },
                 }),
                 Event::AuthProgress { cookie: format!("debug-{id}"), progress: AuthProgress::Prompt { text: "Password: ".into(), echo: false } },
             ],
@@ -462,6 +465,9 @@ pub mod fake {
                 }
                 Command::AuthCancel { cookie } => {
                     vec![Event::AuthProgress { cookie: cookie.clone(), progress: AuthProgress::Done { authorized: false } }]
+                }
+                Command::AuthChooseUser { cookie, .. } => {
+                    vec![Event::AuthProgress { cookie: cookie.clone(), progress: AuthProgress::Prompt { text: "Password: ".into(), echo: false } }]
                 }
                 _ => Vec::new(),
             }

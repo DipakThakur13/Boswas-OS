@@ -19,6 +19,8 @@ pub enum Act {
     /// The text field (puts the keyboard focus there).
     Field,
     Reveal,
+    /// Authenticate as this one of the request's users (an index).
+    User(usize),
 }
 
 /// Ways of leaving the session that are confirmed first.
@@ -47,8 +49,16 @@ impl Leave {
     }
 }
 
+/// Users offered side by side in one row of the authentication dialog.
+const USERS_PER_ROW: usize = 3;
+/// Most users offered; a request rarely names more than one or two
+/// administrators.
+const MAX_USERS: usize = 9;
+
 pub struct AuthDialog {
     pub request: AuthRequest,
+    /// Which of the request's users is authenticating.
+    pub user: usize,
     /// The helper's current prompt ("Password:"); empty until it asks.
     pub prompt: String,
     /// The prompt's answer may be shown as typed.
@@ -65,6 +75,7 @@ impl AuthDialog {
     pub fn new(request: AuthRequest) -> Self {
         Self {
             request,
+            user: 0,
             prompt: String::new(),
             echo: false,
             field: TextField::default(),
@@ -99,6 +110,37 @@ impl AuthDialog {
     /// Whether an answer can be sent now.
     pub fn ready(&self) -> bool {
         !self.busy && !self.prompt.is_empty() && !self.field.is_empty()
+    }
+
+    /// The users that can be chosen (none when there is no choice).
+    pub fn choices(&self) -> &[String] {
+        if self.request.users.len() > 1 {
+            &self.request.users[..self.request.users.len().min(MAX_USERS)]
+        } else {
+            &[]
+        }
+    }
+
+    /// Rows the user chooser takes.
+    fn choice_rows(&self) -> usize {
+        self.choices().len().div_ceil(USERS_PER_ROW)
+    }
+
+    /// Switches to another of the request's users. Returns the name to tell
+    /// the authentication service, or `None` when nothing changes. The
+    /// attempt starts over: what was typed is wiped and the dialog waits
+    /// for that user's prompt.
+    pub fn choose(&mut self, index: usize) -> Option<String> {
+        if self.busy || index == self.user {
+            return None;
+        }
+        let name = self.choices().get(index)?.clone();
+        self.user = index;
+        self.prompt.clear();
+        self.field.clear();
+        self.reveal = false;
+        self.message = None;
+        Some(name)
     }
 }
 
@@ -157,7 +199,7 @@ impl Dialog {
     /// The dialog's panel size.
     pub fn size(&self) -> (f32, f32) {
         match self {
-            Dialog::Auth(auth) => (440.0, 300.0 + if auth.request.users.len() > 1 { 22.0 } else { 0.0 }),
+            Dialog::Auth(auth) => (440.0, 300.0 + 38.0 * auth.choice_rows() as f32),
             Dialog::Confirm { .. } => (400.0, 176.0),
             Dialog::Run(_) => (420.0, 204.0),
         }
@@ -247,13 +289,22 @@ pub fn draw(f: &mut Frame, st: &State, dialog: &Dialog, panel: Rect) {
             // The action that is being authorised, as polkit names it.
             f.text_left(&auth.request.action_id, Rect::new(x, y + 2.0, w, 18.0), &ramp("caption", theme.text_muted));
             y += 26.0;
-            let user = auth.request.users.first().map_or(st.user.as_str(), String::as_str);
+            let user = auth.request.users.get(auth.user).map_or(st.user.as_str(), String::as_str);
             f.text_left(&format!("Authenticating as {user}"), Rect::new(x, y, w, 18.0), &ramp("caption", theme.text_secondary));
             y += 22.0;
-            if auth.request.users.len() > 1 {
-                let others = auth.request.users[1..].join(", ");
-                f.text_left(&format!("Also allowed: {others}"), Rect::new(x, y, w, 18.0), &ramp("caption", theme.text_muted));
-                y += 22.0;
+            // Several administrators may authorise this: choose who types
+            // a password.
+            let choices = auth.choices();
+            if !choices.is_empty() {
+                let gap = 8.0;
+                let width = (w - gap * (USERS_PER_ROW as f32 - 1.0)) / USERS_PER_ROW as f32;
+                for (index, name) in choices.iter().enumerate() {
+                    let (row, column) = (index / USERS_PER_ROW, index % USERS_PER_ROW);
+                    let rect = Rect::new(x + column as f32 * (width + gap), y + 2.0 + row as f32 * 38.0, width, 32.0);
+                    let kind = if index == auth.user { ButtonKind::Accent } else { ButtonKind::Standard };
+                    f.button(rect, name, kind, !auth.busy, Action::Dialog(Act::User(index)));
+                }
+                y += 38.0 * auth.choice_rows() as f32;
             }
             let field = Rect::new(x, y + 4.0, w, 32.0);
             f.area(field, Action::Dialog(Act::Field));
@@ -345,6 +396,39 @@ mod tests {
         assert!(auth.progress(AuthProgress::Done { authorized: true }));
         let mut dialog = Dialog::Auth(AuthDialog::new(request()));
         assert!(dialog.field().is_none(), "typing goes nowhere until there is a prompt");
+    }
+
+    #[test]
+    fn another_administrator_can_be_chosen() {
+        let single = AuthDialog::new(request());
+        assert!(single.choices().is_empty(), "one user: nothing to choose");
+        assert_eq!(Dialog::Auth(single).size(), (440.0, 300.0));
+
+        let mut several = request();
+        several.users = vec!["asha".into(), "ravi".into(), "meera".into(), "root".into()];
+        let mut auth = AuthDialog::new(several);
+        assert_eq!(auth.choices().len(), 4);
+        auth.progress(AuthProgress::Prompt { text: "Password: ".into(), echo: false });
+        auth.field.insert("half typed");
+        auth.reveal = true;
+        assert_eq!(auth.choose(0), None, "already that user");
+        assert_eq!(auth.choose(9), None, "not one of the request's users");
+        assert_eq!(auth.choose(1).as_deref(), Some("ravi"));
+        assert_eq!(auth.user, 1);
+        assert!(auth.field.is_empty(), "what was typed for the other user is wiped");
+        assert!(!auth.reveal);
+        assert!(!auth.ready(), "waits for the new user's prompt");
+        auth.progress(AuthProgress::Prompt { text: "Password: ".into(), echo: false });
+        auth.field.insert("secret");
+        auth.busy = true;
+        assert_eq!(auth.choose(2), None, "not while an answer is being checked");
+        // Two rows of users make the dialog taller.
+        assert_eq!(Dialog::Auth(auth).size(), (440.0, 300.0 + 2.0 * 38.0));
+
+        let mut many = request();
+        many.users = (0..40).map(|i| format!("admin{i}")).collect();
+        let auth = AuthDialog::new(many);
+        assert_eq!(auth.choices().len(), MAX_USERS);
     }
 
     #[test]

@@ -367,6 +367,7 @@ impl Shell {
                     }
                     self.mark(Role::Dialog);
                 }
+                dialogs::Act::User(user) => self.dialog_choose_user(user),
             },
             Action::Capture(_) => {}
             Action::Lock(act) => self.lock_action(act, index),

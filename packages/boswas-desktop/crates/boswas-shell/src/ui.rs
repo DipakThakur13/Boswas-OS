@@ -120,6 +120,20 @@ pub struct Hit {
     pub drag: bool,
 }
 
+/// The rectangles of a surface that react to the pointer, in whole surface
+/// pixels (grown outwards): the input region of a surface that is partly
+/// empty.
+pub fn input_rects(hits: &[Hit]) -> Vec<(i32, i32, i32, i32)> {
+    hits.iter()
+        .filter(|hit| hit.rect.w > 0.0 && hit.rect.h > 0.0)
+        .map(|hit| {
+            let (left, top) = (hit.rect.x.floor() as i32, hit.rect.y.floor() as i32);
+            let (right, bottom) = ((hit.rect.x + hit.rect.w).ceil() as i32, (hit.rect.y + hit.rect.h).ceil() as i32);
+            (left, top, right - left, bottom - top)
+        })
+        .collect()
+}
+
 /// How the pointer and the keyboard relate to a control right now.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Touch {
@@ -807,6 +821,16 @@ pub mod testing {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_input_region_covers_what_reacts_and_nothing_else() {
+        let mut card = hit(12.5, 40.25, 0);
+        card.rect = Rect::new(12.5, 40.25, 300.0, 80.5);
+        let mut empty = hit(0.0, 0.0, 1);
+        empty.rect = Rect::new(5.0, 5.0, 0.0, 10.0);
+        assert_eq!(input_rects(&[card, empty, hit(400.0, 8.0, 2)]), [(12, 40, 301, 81), (400, 8, 20, 20)]);
+        assert!(input_rects(&[]).is_empty(), "nothing drawn: every click passes through");
+    }
 
     fn hit(x: f32, y: f32, id: usize) -> Hit {
         Hit {

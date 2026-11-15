@@ -934,6 +934,19 @@ impl Shell {
         self.close_dialog();
     }
 
+    /// Another of the administrators a request names authenticates.
+    pub fn dialog_choose_user(&mut self, index: usize) {
+        let Some(Dialog::Auth(auth)) = self.st.dialog.as_mut() else {
+            return;
+        };
+        if let Some(user) = auth.choose(index) {
+            let cookie = auth.request.cookie.clone();
+            self.service(Command::AuthChooseUser { cookie, user });
+            self.st.focus = None;
+            self.mark(Role::Dialog);
+        }
+    }
+
     pub fn dialog_primary(&mut self) {
         match self.st.dialog.as_mut() {
             Some(Dialog::Auth(auth)) => {
