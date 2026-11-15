@@ -31,8 +31,9 @@ use crate::{effects::BoswasRenderer, render::OutputRenderElement, state::Boswas}
 pub const HOVER_DELAY: Duration = Duration::from_millis(450);
 /// How long the flyout stays after the pointer has left it and the button.
 const LEAVE_GRACE: Duration = Duration::from_millis(300);
-/// Size of one layout picture.
-const LAYOUT: (i32, i32) = (96, 60);
+/// Size of one layout picture: odd, so that two halves and the gap between
+/// them fill it exactly.
+const LAYOUT: (i32, i32) = (97, 61);
 const GAP: i32 = 12;
 const PADDING: i32 = 12;
 /// Space between the zones of a layout picture.
