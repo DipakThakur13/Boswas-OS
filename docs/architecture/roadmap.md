@@ -87,7 +87,7 @@ children). Screen capture through a portal with a visible indicator is open.
 | Password and permission prompts | polkit agent of KDE (`polkit-kde-agent-1`) and the GTK portal; Boswas dialogs are open |
 | Boswas UI tokens | **Implemented**: `desktop/ui/tokens.json`, version 2 (ADR-0031). The plan's navy and gold token sets were replaced by the Prism palette, as requested |
 | Boswas UI delivery | In Rust (`boswas-ui`), not the Qt Quick style and QML module of the plan (ADR-0027). KDE colour schemes are generated; a Qt Widgets style and a GTK theme are open |
-| Icons | **Implemented**: Boswas Prism and Boswas Prism Light, 178 designs (ADR-0031) |
+| Icons | **Implemented**: Boswas Prism and Boswas Prism Light, 254 designs (ADR-0031) |
 | Boot screen | **Implemented, not boot-tested**: `boswas-bootsplash` (ADR-0029) |
 
 ### Planned work on the native desktop

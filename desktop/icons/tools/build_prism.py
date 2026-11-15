@@ -1104,6 +1104,495 @@ def doc(glyph, text: str):
 
 
 # ---------------------------------------------------------------------------
+# More symbolic icons: media controls, editing, views, devices and power
+# profiles. Applications and tray menus ask the theme for these by name.
+# ---------------------------------------------------------------------------
+def mirrored(d_points):
+    """The same points mirrored left to right on the 256 grid."""
+    return tuple((256 - x, y) for x, y in d_points)
+
+
+def a_play():
+    """Filled triangle pointing right."""
+    return [y_fs(poly((76, 44), (204, 128), (76, 212)), 16)]
+
+
+def a_pause():
+    """Two upright bars."""
+    return [y_f(rr(60, 44, 48, 168, 12) + rr(148, 44, 48, 168, 12))]
+
+
+def a_stop():
+    """Filled square."""
+    return [y_f(rr(56, 56, 144, 144, 18))]
+
+
+def a_record():
+    """Filled disc."""
+    return [y_f(circle(128, 128, 76))]
+
+
+SKIP = ((48, 52), (160, 128), (48, 204))
+SEEK_A = ((32, 60), (120, 128), (32, 196))
+SEEK_B = ((136, 60), (224, 128), (136, 196))
+
+
+def a_skip_forward():
+    """Triangle pointing right against a bar."""
+    return [y_fs(poly(*SKIP), 14), y_f(rr(180, 44, 32, 168, 10))]
+
+
+def a_skip_backward():
+    """Triangle pointing left against a bar."""
+    return [y_fs(poly(*mirrored(SKIP)), 14), y_f(rr(44, 44, 32, 168, 10))]
+
+
+def a_seek_forward():
+    """Two triangles pointing right."""
+    return [y_fs(poly(*SEEK_A) + poly(*SEEK_B), 12)]
+
+
+def a_seek_backward():
+    """Two triangles pointing left."""
+    return [y_fs(poly(*mirrored(SEEK_A)) + poly(*mirrored(SEEK_B)), 12)]
+
+
+def a_eject():
+    """Triangle pointing up above a bar."""
+    return [y_fs(poly((128, 44), (212, 144), (44, 144)), 14), y_f(rr(44, 176, 168, 32, 10))]
+
+
+def a_shuffle():
+    """Two arrows crossing each other."""
+    head = lambda y: arrowhead((228, y), (1, 0), 36, 44)  # noqa: E731
+    return [y_s("M28 84H64Q90 84 106 106L150 150Q166 172 192 172H224" + head(172), 20),
+            y_s("M28 172H64Q90 172 106 150L112 142M144 114L150 106Q166 84 192 84H224" + head(84), 20)]
+
+
+def a_repeat():
+    """Two arrows following each other around a loop."""
+    return [y_s("M48 124V104Q48 72 80 72H204" + arrowhead((212, 72), (1, 0), 36, 44), 20),
+            y_s("M208 132V152Q208 184 176 184H52" + arrowhead((44, 184), (-1, 0), 36, 44), 20)]
+
+
+def a_task_view():
+    """Two overlapping windows."""
+    return [y_s("M84 52H204Q220 52 220 68V148", 20), y_s(rr(36, 92, 144, 112, 14), 20)]
+
+
+def a_copy():
+    """Sheet in front of a second one."""
+    return [y_s("M100 36H200Q216 36 216 52V176", 20), y_s(rr(40, 76, 132, 148, 16), 20)]
+
+
+def a_cut():
+    """Scissors."""
+    return [y_s(circle(68, 192, 30), 20), y_s(circle(188, 192, 30), 20),
+            y_s(line((86, 168), (184, 36)) + line((170, 168), (72, 36)), 20)]
+
+
+def a_paste():
+    """Clipboard."""
+    return [y_s("M92 56H68Q52 56 52 72V208Q52 224 68 224H188Q204 224 204 208V72Q204 56 188 56H164", 20),
+            y_fs(rr(92, 32, 72, 48, 12), 8)]
+
+
+def a_undo():
+    """Arrow turning back to the left."""
+    return [y_s("M52 100H152A56 56 0 0 1 152 212H100" + arrowhead((44, 100), (-1, 0), 44, 44))]
+
+
+def a_redo():
+    """Arrow turning forward to the right."""
+    return [y_s("M204 100H104A56 56 0 0 0 104 212H156" + arrowhead((212, 100), (1, 0), 44, 44))]
+
+
+def a_clear():
+    """Backspace key: a tag pointing left with a cross."""
+    return [y_s("M100 52H204Q224 52 224 72V184Q224 204 204 204H100L28 128Z", 20),
+            y_s(line((124, 100), (180, 156)) + line((180, 100), (124, 156)), 20)]
+
+
+SHEET = "M72 32H148L204 88V208Q204 224 188 224H72Q56 224 56 208V48Q56 32 72 32Z"
+SHEET_FOLD = "M148 32V72Q148 88 164 88H204"
+
+
+def a_new_document():
+    """Sheet with a folded corner."""
+    return [y_s(SHEET, 20), y_s(SHEET_FOLD, 16)]
+
+
+def a_save():
+    """Floppy disk."""
+    return [y_s("M60 40H172L216 84V196Q216 216 196 216H60Q40 216 40 196V60Q40 40 60 40Z", 20),
+            y_s("M88 44V88H156V44", 18), y_s(rr(84, 140, 88, 76, 10), 18)]
+
+
+def a_print():
+    """Printer with paper in and out."""
+    return [y_s("M76 180H52Q36 180 36 164V108Q36 92 52 92H204Q220 92 220 108V164Q220 180 204 180H180", 20),
+            y_s("M76 92V52Q76 40 88 40H168Q180 40 180 52V92", 20), y_s(rr(76, 144, 104, 76, 10), 20)]
+
+
+def a_edit():
+    """Pencil."""
+    return [y_s(poly((44, 212), (56, 160), (164, 52), (204, 92), (96, 200)), 20),
+            y_s(line((136, 80), (176, 120)), 18)]
+
+
+FOLDER_OUTLINE = "M52 52H100L124 76H204Q224 76 224 96V188Q224 208 204 208H52Q32 208 32 188V72Q32 52 52 52Z"
+
+
+def a_folder():
+    """Folder outline."""
+    return [y_s(FOLDER_OUTLINE, 20)]
+
+
+def a_folder_new():
+    """Folder outline with a plus."""
+    return [y_s(FOLDER_OUTLINE, 20), y_s(line((128, 112), (128, 176)) + line((96, 144), (160, 144)), 18)]
+
+
+def a_home():
+    """House."""
+    return [y_s(line((32, 124), (128, 36), (224, 124)), 20),
+            y_s("M60 112V200Q60 216 76 216H180Q196 216 196 200V112", 20),
+            y_s("M108 216V160H148V216", 18)]
+
+
+def a_download():
+    """Arrow pointing down into a tray."""
+    return [y_s(line((128, 32), (128, 156)) + line((76, 108), (128, 160), (180, 108))),
+            y_s("M40 176V200Q40 220 60 220H196Q216 220 216 200V176")]
+
+
+def a_upload():
+    """Arrow pointing up out of a tray."""
+    return [y_s(line((128, 164), (128, 40)) + line((76, 88), (128, 36), (180, 88))),
+            y_s("M40 176V200Q40 220 60 220H196Q216 220 216 200V176")]
+
+
+def a_list_view():
+    """Three lines with bullets."""
+    return [y_f("".join(circle(48, y, 15) for y in (64, 128, 192))),
+            y_s("".join(line((96, y), (220, y)) for y in (64, 128, 192)))]
+
+
+def a_grid_view():
+    """Two-by-two grid of squares."""
+    return [y_s("".join(rr(x, y, 72, 72, 14) for y in (40, 144) for x in (40, 144)), 20)]
+
+
+def a_zoom(plus: bool):
+    def build():
+        sign = line((76, 108), (140, 108)) + (line((108, 76), (108, 140)) if plus else "")
+        return [y_s(circle(108, 108, 72), 20), y_s(line((164, 164), (224, 224)), 26), y_s(sign, 18)]
+    build.__doc__ = f"Magnifying glass with a {'plus' if plus else 'minus'}."
+    return build
+
+
+def corners(inward: bool) -> str:
+    out = ""
+    for sx, sy in ((1, 1), (-1, 1), (-1, -1), (1, -1)):
+        x, y = 128 - sx * 88, 128 - sy * 88
+        if inward:
+            cx, cy = x + sx * 56, y + sy * 56
+            out += line((cx, y), (cx, cy), (x, cy))
+        else:
+            out += line((x, y + sy * 56), (x, y), (x + sx * 56, y))
+    return out
+
+
+def a_fullscreen():
+    """Four corners pointing outwards."""
+    return [y_s(corners(False))]
+
+
+def a_leave_fullscreen():
+    """Four corners pointing inwards."""
+    return [y_s(corners(True))]
+
+
+def a_pin():
+    """Pushpin."""
+    return [y_s("M92 36H164L156 108L192 152H64L100 108Z", 20), y_s(line((128, 152), (128, 228)), 20)]
+
+
+def a_more(vertical: bool):
+    def build():
+        return [y_f("".join(circle(128, c, 20) if vertical else circle(c, 128, 20) for c in (52, 128, 204)))]
+    build.__doc__ = f"Three dots in a {'column' if vertical else 'row'}."
+    return build
+
+
+def a_help():
+    """Ring with a question mark."""
+    return [y_s(circle(128, 128, 96), 20), y_s("M96 104A32 32 0 1 1 128 136V148", 20), y_f(circle(128, 182, 13))]
+
+
+def star() -> str:
+    points = [polar(128, 136, 104 if i % 2 == 0 else 44, i * 36) for i in range(10)]
+    return poly(*points)
+
+
+def a_star():
+    """Five-pointed star, filled."""
+    return [y_fs(star(), 14)]
+
+
+def a_star_outline():
+    """Five-pointed star, outlined."""
+    return [y_s(star(), 18)]
+
+
+def a_location():
+    """Map pin."""
+    return [y_s("M128 28A72 72 0 0 1 200 100Q200 152 128 228Q56 152 56 100A72 72 0 0 1 128 28Z", 20),
+            y_f(circle(128, 100, 26))]
+
+
+def a_bookmark():
+    """Ribbon."""
+    return [y_s("M76 36H180Q196 36 196 52V220L128 172L60 220V52Q60 36 76 36Z", 20)]
+
+
+def a_sidebar():
+    """Window with a side pane."""
+    return [y_s(rr(32, 48, 192, 160, 18), 20), y_s(line((100, 48), (100, 208)), 18)]
+
+
+def a_sort(ascending: bool):
+    def build():
+        widths = (60, 100, 140) if ascending else (140, 100, 60)
+        rows = "".join(line((36, y), (36 + w, y)) for y, w in zip((64, 128, 192), widths))
+        return [y_s(rows)]
+    build.__doc__ = f"Three lines growing {'longer' if ascending else 'shorter'} downwards."
+    return build
+
+
+def a_mail():
+    """Envelope."""
+    return [y_s(rr(28, 56, 200, 144, 18), 20), y_s(line((40, 76), (128, 144), (216, 76)), 18)]
+
+
+def a_unlock():
+    """Padlock with an open shackle."""
+    return [y_s("M82 116V84A46 46 0 0 1 172 72"), y_fs(rr(52, 116, 152, 108, 18), 12)]
+
+
+def a_camera():
+    """Photo camera."""
+    return [y_s("M52 72H84L100 48H156L172 72H204Q220 72 220 88V188Q220 204 204 204H52Q36 204 36 188V88"
+                "Q36 72 52 72Z", 20), y_s(circle(128, 136, 36), 20)]
+
+
+def a_video_camera():
+    """Video camera."""
+    return [y_s(rr(24, 72, 140, 112, 18), 20), y_s(poly((164, 116), (232, 80), (232, 176), (164, 140)), 18)]
+
+
+def a_picture():
+    """Framed picture: hills and a sun."""
+    return [y_s(rr(32, 48, 192, 160, 18), 20), y_s(line((44, 188), (100, 132), (140, 172), (168, 144), (212, 188)), 18),
+            y_f(circle(168, 96, 16))]
+
+
+def a_clock():
+    """Clock face with two hands."""
+    return [y_s(circle(128, 128, 96), 20), y_s(line((128, 72), (128, 128), (168, 152)), 20)]
+
+
+def a_calendar():
+    """Calendar sheet with two rings."""
+    return [y_s(rr(36, 52, 184, 168, 18), 20), y_s(line((36, 104), (220, 104)), 18),
+            y_s(line((84, 32), (84, 72)) + line((172, 32), (172, 72)), 20)]
+
+
+def a_accessibility():
+    """Person with open arms in a ring."""
+    return [y_s(circle(128, 128, 100), 18), y_f(circle(128, 76, 15)),
+            y_s(line((72, 108), (184, 108)) + line((128, 108), (128, 152)) +
+                line((96, 200), (128, 152), (160, 200)), 18)]
+
+
+def a_keyboard():
+    """Keyboard."""
+    keys = "".join(circle(x, y, 10) for y in (104, 136) for x in (64, 96, 128, 160, 192))
+    return [y_s(rr(24, 64, 208, 128, 18), 20), y_f(keys), y_s(line((88, 164), (168, 164)), 16)]
+
+
+def a_mouse():
+    """Mouse."""
+    return [y_s(rr(72, 28, 112, 200, 56), 20), y_s(line((128, 32), (128, 108)), 18)]
+
+
+def a_display():
+    """Monitor on a stand."""
+    return [y_s(rr(28, 40, 200, 136, 16), 20), y_s(line((128, 176), (128, 212)) + line((84, 216), (172, 216)), 20)]
+
+
+def a_drive():
+    """Drive with an activity light."""
+    return [y_s(rr(32, 76, 192, 104, 18), 20), y_f(circle(180, 128, 14)), y_s(line((64, 128), (124, 128)), 18)]
+
+
+def a_usb():
+    """USB stick."""
+    return [y_s(rr(76, 100, 104, 128, 16), 20), y_s("M96 100V40H160V100", 20),
+            y_f(circle(116, 68, 8) + circle(140, 68, 8))]
+
+
+def mic(dim: bool = False) -> list[str]:
+    return [y_s(rr(96, 28, 64, 120, 32), 20, dim), y_s("M60 124A68 68 0 0 0 196 124", 20, dim),
+            y_s(line((128, 192), (128, 228)) + line((92, 228), (164, 228)), 20, dim)]
+
+
+def s_microphone():
+    """Microphone."""
+    return mic()
+
+
+def s_microphone_muted():
+    """Microphone dimmed under a slash."""
+    return mic(dim=True) + [y_s(SLASH)]
+
+
+def s_headphones():
+    """Headphones."""
+    return [y_s("M44 168V128A84 84 0 0 1 212 128V168", 20),
+            y_f(rr(32, 148, 48, 76, 16) + rr(176, 148, 48, 76, 16))]
+
+
+def s_question():
+    """Ring with a question mark."""
+    return a_help()
+
+
+def s_leaf():
+    """Leaf: the power saver profile."""
+    return [y_s("M48 208Q32 96 132 56Q180 36 220 40Q224 84 204 132Q160 220 48 208Z", 20),
+            y_s(line((48, 208), (156, 104)), 18)]
+
+
+def s_gauge():
+    """Gauge with its needle in the middle: the balanced profile."""
+    return [y_s(arc(128, 152, 96, 270, 90), 20), y_s(line((128, 152), (128, 92)), 20), y_f(circle(128, 152, 18))]
+
+
+def s_bolt():
+    """Lightning bolt: the performance profile."""
+    return [y_fs(poly((148, 24), (56, 144), (116, 144), (100, 232), (200, 108), (136, 108)), 12)]
+
+
+def s_battery_missing():
+    """Battery outline under a slash."""
+    return battery(0.0, False) + [y_s(SLASH)]
+
+
+def s_wifi_generic():
+    """Wireless fan (dot and three arcs), all parts lit."""
+    return wifi(4)
+
+
+def s_vpn():
+    """Shield with a keyhole."""
+    return [y_s(shield(128, 28, 88, 200), 20), y_f(circle(128, 108, 20)), y_s(line((128, 116), (128, 160)), 18)]
+
+
+def s_update():
+    """Ring with an arrow pointing up."""
+    return [y_s(circle(128, 128, 96), 20), y_s(line((128, 180), (128, 80)) + line((88, 116), (128, 76), (168, 116)), 20)]
+
+
+def s_user_ok():
+    """Disc with a check mark."""
+    return [y_s(circle(128, 128, 96), 20), y_s(line((84, 132), (116, 164), (176, 96)), 22)]
+
+
+MORE_STATUS_ICONS = [
+    ("network-wireless-symbolic", "Wireless Network", s_wifi_generic),
+    ("network-vpn-symbolic", "VPN", s_vpn),
+    ("audio-input-microphone-symbolic", "Microphone", s_microphone),
+    ("microphone-sensitivity-muted-symbolic", "Microphone Off", s_microphone_muted),
+    ("audio-headphones-symbolic", "Headphones", s_headphones),
+    ("battery-missing-symbolic", "No Battery", s_battery_missing),
+    ("dialog-question-symbolic", "Question", s_question),
+    ("power-profile-power-saver-symbolic", "Power Saver", s_leaf),
+    ("power-profile-balanced-symbolic", "Balanced", s_gauge),
+    ("power-profile-performance-symbolic", "Performance", s_bolt),
+    ("software-update-available-symbolic", "Update Available", s_update),
+    ("emblem-default-symbolic", "Default", s_user_ok),
+]
+
+MORE_ACTION_ICONS = [
+    ("media-playback-start-symbolic", "Play", a_play),
+    ("media-playback-pause-symbolic", "Pause", a_pause),
+    ("media-playback-stop-symbolic", "Stop", a_stop),
+    ("media-record-symbolic", "Record", a_record),
+    ("media-skip-forward-symbolic", "Next Track", a_skip_forward),
+    ("media-skip-backward-symbolic", "Previous Track", a_skip_backward),
+    ("media-seek-forward-symbolic", "Fast Forward", a_seek_forward),
+    ("media-seek-backward-symbolic", "Rewind", a_seek_backward),
+    ("media-eject-symbolic", "Eject", a_eject),
+    ("media-playlist-shuffle-symbolic", "Shuffle", a_shuffle),
+    ("media-playlist-repeat-symbolic", "Repeat", a_repeat),
+    ("view-task-symbolic", "Task View", a_task_view),
+    ("object-select-symbolic", "Selected", doc(lambda: a_ok(), "Check mark.")),
+    ("edit-copy-symbolic", "Copy", a_copy),
+    ("edit-cut-symbolic", "Cut", a_cut),
+    ("edit-paste-symbolic", "Paste", a_paste),
+    ("edit-undo-symbolic", "Undo", a_undo),
+    ("edit-redo-symbolic", "Redo", a_redo),
+    ("edit-clear-symbolic", "Clear", a_clear),
+    ("edit-find-symbolic", "Find", doc(lambda: a_search(), "Magnifying glass.")),
+    ("document-new-symbolic", "New Document", a_new_document),
+    ("document-save-symbolic", "Save", a_save),
+    ("document-print-symbolic", "Print", a_print),
+    ("document-edit-symbolic", "Edit", a_edit),
+    ("folder-symbolic", "Folder", a_folder),
+    ("folder-new-symbolic", "New Folder", a_folder_new),
+    ("go-home-symbolic", "Home", a_home),
+    ("user-home-symbolic", "Home Folder", doc(lambda: a_home(), "House.")),
+    ("user-trash-symbolic", "Trash", doc(lambda: a_delete(), "Waste bin.")),
+    ("folder-download-symbolic", "Downloads", a_download),
+    ("document-send-symbolic", "Upload", a_upload),
+    ("view-list-symbolic", "List View", a_list_view),
+    ("view-grid-symbolic", "Grid View", a_grid_view),
+    ("zoom-in-symbolic", "Zoom In", a_zoom(True)),
+    ("zoom-out-symbolic", "Zoom Out", a_zoom(False)),
+    ("view-fullscreen-symbolic", "Full Screen", a_fullscreen),
+    ("view-restore-symbolic", "Leave Full Screen", a_leave_fullscreen),
+    ("view-pin-symbolic", "Pin", a_pin),
+    ("view-more-symbolic", "More", a_more(True)),
+    ("view-more-horizontal-symbolic", "More Options", a_more(False)),
+    ("help-browser-symbolic", "Help", a_help),
+    ("help-about-symbolic", "About", doc(lambda: s_information(), "Ring with the letter i.")),
+    ("starred-symbolic", "Favourite", a_star),
+    ("non-starred-symbolic", "Not a Favourite", a_star_outline),
+    ("mark-location-symbolic", "Location", a_location),
+    ("user-bookmarks-symbolic", "Bookmarks", a_bookmark),
+    ("sidebar-show-symbolic", "Side Pane", a_sidebar),
+    ("view-sort-ascending-symbolic", "Sort Ascending", a_sort(True)),
+    ("view-sort-descending-symbolic", "Sort Descending", a_sort(False)),
+    ("mail-unread-symbolic", "Mail", a_mail),
+    ("changes-allow-symbolic", "Unlocked", a_unlock),
+    ("changes-prevent-symbolic", "Locked", doc(lambda: a_lock(), "Padlock.")),
+    ("tab-new-symbolic", "New Tab", doc(lambda: a_add(), "Plus.")),
+    ("camera-photo-symbolic", "Camera", a_camera),
+    ("camera-video-symbolic", "Video Camera", a_video_camera),
+    ("image-x-generic-symbolic", "Picture", a_picture),
+    ("preferences-system-time-symbolic", "Clock", a_clock),
+    ("x-office-calendar-symbolic", "Calendar", a_calendar),
+    ("preferences-desktop-accessibility-symbolic", "Accessibility", a_accessibility),
+    ("input-keyboard-symbolic", "Keyboard", a_keyboard),
+    ("input-mouse-symbolic", "Mouse", a_mouse),
+    ("video-display-symbolic", "Display", a_display),
+    ("drive-harddisk-symbolic", "Drive", a_drive),
+    ("drive-removable-media-symbolic", "Removable Drive", a_usb),
+]
+
+
+# ---------------------------------------------------------------------------
 # The icon list: (context, file name, title, glyph, aliases, hue).
 # Aliases are written as real files (same drawing, own id prefix).
 # ---------------------------------------------------------------------------
@@ -1261,8 +1750,8 @@ def icons() -> list[tuple]:
     rows += [(DEVICES, name, title, glyph, aliases, "slate") for name, title, glyph, aliases in DEVICE_ICONS]
     rows += [(MIME, name, title, glyph, aliases, hue_name) for name, title, glyph, aliases, hue_name in MIME_ICONS]
     rows += [(MIME, "inode-directory", "Folder", p_folder, (), "azure")]
-    rows += [(STATUS, name, title, glyph, (), None) for name, title, glyph in STATUS_ICONS]
-    rows += [(ACTIONS, name, title, glyph, (), None) for name, title, glyph in ACTION_ICONS]
+    rows += [(STATUS, name, title, glyph, (), None) for name, title, glyph in STATUS_ICONS + MORE_STATUS_ICONS]
+    rows += [(ACTIONS, name, title, glyph, (), None) for name, title, glyph in ACTION_ICONS + MORE_ACTION_ICONS]
     return rows
 
 

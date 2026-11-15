@@ -95,6 +95,10 @@ bluetooth-active-symbolic bluetooth-disabled-symbolic notification-symbolic
 notification-disabled-symbolic dialog-warning-symbolic dialog-error-symbolic
 dialog-information-symbolic dialog-password-symbolic security-high-symbolic caps-lock-symbolic
 avatar-default-symbolic display-brightness-symbolic night-light-symbolic airplane-mode-symbolic
+network-wireless-symbolic network-vpn-symbolic audio-input-microphone-symbolic
+microphone-sensitivity-muted-symbolic audio-headphones-symbolic battery-missing-symbolic
+dialog-question-symbolic power-profile-power-saver-symbolic power-profile-balanced-symbolic
+power-profile-performance-symbolic software-update-available-symbolic emblem-default-symbolic
 """.split(),
     "actions": """
 window-close-symbolic window-maximize-symbolic window-minimize-symbolic window-restore-symbolic
@@ -104,6 +108,24 @@ go-next-symbolic go-previous-symbolic go-up-symbolic go-down-symbolic open-menu-
 list-add-symbolic list-remove-symbolic edit-delete-symbolic emblem-ok-symbolic
 view-refresh-symbolic document-open-symbolic preferences-system-symbolic pan-down-symbolic
 pan-up-symbolic eye-open-symbolic eye-closed-symbolic
+media-playback-start-symbolic media-playback-pause-symbolic media-playback-stop-symbolic
+media-record-symbolic media-skip-forward-symbolic media-skip-backward-symbolic
+media-seek-forward-symbolic media-seek-backward-symbolic media-eject-symbolic
+media-playlist-shuffle-symbolic media-playlist-repeat-symbolic view-task-symbolic
+object-select-symbolic edit-copy-symbolic edit-cut-symbolic edit-paste-symbolic edit-undo-symbolic
+edit-redo-symbolic edit-clear-symbolic edit-find-symbolic document-new-symbolic
+document-save-symbolic document-print-symbolic document-edit-symbolic folder-symbolic
+folder-new-symbolic go-home-symbolic user-home-symbolic user-trash-symbolic
+folder-download-symbolic document-send-symbolic view-list-symbolic view-grid-symbolic
+zoom-in-symbolic zoom-out-symbolic view-fullscreen-symbolic view-restore-symbolic view-pin-symbolic
+view-more-symbolic view-more-horizontal-symbolic help-browser-symbolic help-about-symbolic
+starred-symbolic non-starred-symbolic mark-location-symbolic user-bookmarks-symbolic
+sidebar-show-symbolic view-sort-ascending-symbolic view-sort-descending-symbolic
+mail-unread-symbolic changes-allow-symbolic changes-prevent-symbolic tab-new-symbolic
+camera-photo-symbolic camera-video-symbolic image-x-generic-symbolic
+preferences-system-time-symbolic x-office-calendar-symbolic
+preferences-desktop-accessibility-symbolic input-keyboard-symbolic input-mouse-symbolic
+video-display-symbolic drive-harddisk-symbolic drive-removable-media-symbolic
 """.split(),
 }
 

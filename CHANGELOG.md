@@ -85,7 +85,7 @@ Verification status of the native desktop:
   the default) and `BoswasPrismLight` are generated from it
   ([desktop/ui](desktop/ui/README.md)).
 - **Boswas Prism icon pack** *(native desktop)*: the themes `Boswas-Prism`
-  and `Boswas-Prism-Light`, 178 designs in 289 SVG files (applications,
+  and `Boswas-Prism-Light`, 254 designs in 441 SVG files (applications,
   places, devices, mimetypes, and symbolic status and action icons in a
   light and a dark variant), every colour taken from the tokens. It is the
   default icon theme; the earlier `Boswas` and `Boswas-Light` themes stay

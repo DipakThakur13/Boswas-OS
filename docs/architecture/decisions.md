@@ -1109,7 +1109,7 @@ list), or if greetd leaves Debian.
     schemes `BoswasPrism` and `BoswasPrismLight`, so KDE applications
     match;
   - `desktop/icons/tools/build_prism.py` generates the icon themes
-    `Boswas-Prism` (default) and `Boswas-Prism-Light`: 178 designs, 289
+    `Boswas-Prism` (default) and `Boswas-Prism-Light`: 254 designs, 441
     SVG files;
   - `boswas-branding` installs the file as
     `/usr/share/boswas/ui/tokens.json` for other tools.

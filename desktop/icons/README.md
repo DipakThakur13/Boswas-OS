@@ -115,8 +115,8 @@ PDF), Orchid (audio, fonts), Iris (software packages, JSON), Sky (Windows).
 
 ### Icons
 
-178 designs, written as 289 files: 226 in `Boswas-Prism/` (95 applications,
-19 places, 17 devices, 32 mimetypes, 36 status, 27 actions) and the 63
+254 designs, written as 441 files: 302 in `Boswas-Prism/` (95 applications,
+19 places, 17 devices, 32 mimetypes, 48 status, 91 actions) and the 139
 symbolic icons again in `Boswas-Prism-Light/`. Aliases are separate files
 with the same drawing and their own id prefix. This table is printed by
 `tools/build_prism.py --table`; the tests check that it matches.
@@ -275,6 +275,18 @@ with the same drawing and their own id prefix. This table is printed by
 | status | Brightness | symbolic | Sun with eight rays. | `display-brightness-symbolic` |
 | status | Night Light | symbolic | Crescent moon with two stars. | `night-light-symbolic` |
 | status | Airplane Mode | symbolic | Airplane seen from above. | `airplane-mode-symbolic` |
+| status | Wireless Network | symbolic | Wireless fan (dot and three arcs), all parts lit. | `network-wireless-symbolic` |
+| status | VPN | symbolic | Shield with a keyhole. | `network-vpn-symbolic` |
+| status | Microphone | symbolic | Microphone. | `audio-input-microphone-symbolic` |
+| status | Microphone Off | symbolic | Microphone dimmed under a slash. | `microphone-sensitivity-muted-symbolic` |
+| status | Headphones | symbolic | Headphones. | `audio-headphones-symbolic` |
+| status | No Battery | symbolic | Battery outline under a slash. | `battery-missing-symbolic` |
+| status | Question | symbolic | Ring with a question mark. | `dialog-question-symbolic` |
+| status | Power Saver | symbolic | Leaf: the power saver profile. | `power-profile-power-saver-symbolic` |
+| status | Balanced | symbolic | Gauge with its needle in the middle: the balanced profile. | `power-profile-balanced-symbolic` |
+| status | Performance | symbolic | Lightning bolt: the performance profile. | `power-profile-performance-symbolic` |
+| status | Update Available | symbolic | Ring with an arrow pointing up. | `software-update-available-symbolic` |
+| status | Default | symbolic | Disc with a check mark. | `emblem-default-symbolic` |
 | actions | Close Window | symbolic | Cross. | `window-close-symbolic` |
 | actions | Maximize Window | symbolic | Square. | `window-maximize-symbolic` |
 | actions | Minimize Window | symbolic | Horizontal line. | `window-minimize-symbolic` |
@@ -302,6 +314,70 @@ with the same drawing and their own id prefix. This table is printed by
 | actions | Collapse | symbolic | Filled triangle pointing up. | `pan-up-symbolic` |
 | actions | Show | symbolic | Eye. | `eye-open-symbolic` |
 | actions | Hide | symbolic | Eye dimmed under a slash. | `eye-closed-symbolic` |
+| actions | Play | symbolic | Filled triangle pointing right. | `media-playback-start-symbolic` |
+| actions | Pause | symbolic | Two upright bars. | `media-playback-pause-symbolic` |
+| actions | Stop | symbolic | Filled square. | `media-playback-stop-symbolic` |
+| actions | Record | symbolic | Filled disc. | `media-record-symbolic` |
+| actions | Next Track | symbolic | Triangle pointing right against a bar. | `media-skip-forward-symbolic` |
+| actions | Previous Track | symbolic | Triangle pointing left against a bar. | `media-skip-backward-symbolic` |
+| actions | Fast Forward | symbolic | Two triangles pointing right. | `media-seek-forward-symbolic` |
+| actions | Rewind | symbolic | Two triangles pointing left. | `media-seek-backward-symbolic` |
+| actions | Eject | symbolic | Triangle pointing up above a bar. | `media-eject-symbolic` |
+| actions | Shuffle | symbolic | Two arrows crossing each other. | `media-playlist-shuffle-symbolic` |
+| actions | Repeat | symbolic | Two arrows following each other around a loop. | `media-playlist-repeat-symbolic` |
+| actions | Task View | symbolic | Two overlapping windows. | `view-task-symbolic` |
+| actions | Selected | symbolic | Check mark. | `object-select-symbolic` |
+| actions | Copy | symbolic | Sheet in front of a second one. | `edit-copy-symbolic` |
+| actions | Cut | symbolic | Scissors. | `edit-cut-symbolic` |
+| actions | Paste | symbolic | Clipboard. | `edit-paste-symbolic` |
+| actions | Undo | symbolic | Arrow turning back to the left. | `edit-undo-symbolic` |
+| actions | Redo | symbolic | Arrow turning forward to the right. | `edit-redo-symbolic` |
+| actions | Clear | symbolic | Backspace key: a tag pointing left with a cross. | `edit-clear-symbolic` |
+| actions | Find | symbolic | Magnifying glass. | `edit-find-symbolic` |
+| actions | New Document | symbolic | Sheet with a folded corner. | `document-new-symbolic` |
+| actions | Save | symbolic | Floppy disk. | `document-save-symbolic` |
+| actions | Print | symbolic | Printer with paper in and out. | `document-print-symbolic` |
+| actions | Edit | symbolic | Pencil. | `document-edit-symbolic` |
+| actions | Folder | symbolic | Folder outline. | `folder-symbolic` |
+| actions | New Folder | symbolic | Folder outline with a plus. | `folder-new-symbolic` |
+| actions | Home | symbolic | House. | `go-home-symbolic` |
+| actions | Home Folder | symbolic | House. | `user-home-symbolic` |
+| actions | Trash | symbolic | Waste bin. | `user-trash-symbolic` |
+| actions | Downloads | symbolic | Arrow pointing down into a tray. | `folder-download-symbolic` |
+| actions | Upload | symbolic | Arrow pointing up out of a tray. | `document-send-symbolic` |
+| actions | List View | symbolic | Three lines with bullets. | `view-list-symbolic` |
+| actions | Grid View | symbolic | Two-by-two grid of squares. | `view-grid-symbolic` |
+| actions | Zoom In | symbolic | Magnifying glass with a plus. | `zoom-in-symbolic` |
+| actions | Zoom Out | symbolic | Magnifying glass with a minus. | `zoom-out-symbolic` |
+| actions | Full Screen | symbolic | Four corners pointing outwards. | `view-fullscreen-symbolic` |
+| actions | Leave Full Screen | symbolic | Four corners pointing inwards. | `view-restore-symbolic` |
+| actions | Pin | symbolic | Pushpin. | `view-pin-symbolic` |
+| actions | More | symbolic | Three dots in a column. | `view-more-symbolic` |
+| actions | More Options | symbolic | Three dots in a row. | `view-more-horizontal-symbolic` |
+| actions | Help | symbolic | Ring with a question mark. | `help-browser-symbolic` |
+| actions | About | symbolic | Ring with the letter i. | `help-about-symbolic` |
+| actions | Favourite | symbolic | Five-pointed star, filled. | `starred-symbolic` |
+| actions | Not a Favourite | symbolic | Five-pointed star, outlined. | `non-starred-symbolic` |
+| actions | Location | symbolic | Map pin. | `mark-location-symbolic` |
+| actions | Bookmarks | symbolic | Ribbon. | `user-bookmarks-symbolic` |
+| actions | Side Pane | symbolic | Window with a side pane. | `sidebar-show-symbolic` |
+| actions | Sort Ascending | symbolic | Three lines growing longer downwards. | `view-sort-ascending-symbolic` |
+| actions | Sort Descending | symbolic | Three lines growing shorter downwards. | `view-sort-descending-symbolic` |
+| actions | Mail | symbolic | Envelope. | `mail-unread-symbolic` |
+| actions | Unlocked | symbolic | Padlock with an open shackle. | `changes-allow-symbolic` |
+| actions | Locked | symbolic | Padlock. | `changes-prevent-symbolic` |
+| actions | New Tab | symbolic | Plus. | `tab-new-symbolic` |
+| actions | Camera | symbolic | Photo camera. | `camera-photo-symbolic` |
+| actions | Video Camera | symbolic | Video camera. | `camera-video-symbolic` |
+| actions | Picture | symbolic | Framed picture: hills and a sun. | `image-x-generic-symbolic` |
+| actions | Clock | symbolic | Clock face with two hands. | `preferences-system-time-symbolic` |
+| actions | Calendar | symbolic | Calendar sheet with two rings. | `x-office-calendar-symbolic` |
+| actions | Accessibility | symbolic | Person with open arms in a ring. | `preferences-desktop-accessibility-symbolic` |
+| actions | Keyboard | symbolic | Keyboard. | `input-keyboard-symbolic` |
+| actions | Mouse | symbolic | Mouse. | `input-mouse-symbolic` |
+| actions | Display | symbolic | Monitor on a stand. | `video-display-symbolic` |
+| actions | Drive | symbolic | Drive with an activity light. | `drive-harddisk-symbolic` |
+| actions | Removable Drive | symbolic | USB stick. | `drive-removable-media-symbolic` |
 <!-- END PRISM ICON TABLE -->
 
 Notes on names:
