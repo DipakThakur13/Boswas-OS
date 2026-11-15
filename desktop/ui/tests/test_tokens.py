@@ -64,7 +64,29 @@ class Tokens(unittest.TestCase):
         self.assertEqual(self.tokens["type"]["scale"], [12, 14, 16, 20, 28, 40])
         for key in ("fast-ms", "normal-ms", "slow-ms"):
             self.assertTrue(150 <= self.tokens["motion"][key] <= 250, key)
-        self.assertEqual(set(self.tokens["elevation"]), {"desktop", "window", "flyout", "dialog"})
+        self.assertLessEqual({"desktop", "window", "flyout", "dialog"}, set(self.tokens["elevation"]))
+
+    def test_the_fluent_geometry(self):
+        """Overlays share the window radius; the shell's fixed sizes are whole logical pixels."""
+        radius = self.tokens["radius"]
+        self.assertEqual(radius["flyout"], radius["window"])
+        self.assertEqual(radius["card"], radius["control"])
+        shell = self.tokens["shell"]
+        self.assertEqual(shell["taskbar-height"], 48)
+        self.assertEqual(shell["titlebar-height"], 32)
+        self.assertEqual(shell["caption-button"], [46, 32])
+        for scheme in ("dark", "light"):
+            for group in ("stroke", "fill"):
+                values = self.tokens[group][scheme]
+                self.assertIn(values["color"], ("white", "black"))
+                for key, value in values.items():
+                    if key != "color":
+                        self.assertTrue(0 < value <= 0.25, f"{group}.{scheme}.{key}")
+        for name, material in self.tokens["material"].items():
+            if name == "comment":
+                continue
+            self.assertTrue(0 < material["tint-opacity"] <= 1, name)
+            self.assertRegex(self.generator.resolve(self.tokens, "dark", material["tint"]), HEX, name)
 
     def test_icon_tiles_keep_their_glyphs_readable(self):
         for hue, parts in self.tokens["icon"]["hues"].items():

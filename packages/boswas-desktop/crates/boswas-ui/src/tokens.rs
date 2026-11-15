@@ -138,6 +138,8 @@ pub struct Theme {
     pub surface: Rgba,
     pub surface_raised: Rgba,
     pub surface_hover: Rgba,
+    /// The tint of the taskbar and of window chrome.
+    pub chrome: Rgba,
     pub border: Rgba,
     pub text: Rgba,
     pub text_secondary: Rgba,
@@ -168,6 +170,39 @@ impl Theme {
             Scheme::Light => Theme::light(),
         }
     }
+
+    fn of_tokens(tokens: &Tokens, scheme: Scheme) -> &Theme {
+        match scheme {
+            Scheme::Dark => &tokens.dark,
+            Scheme::Light => &tokens.light,
+        }
+    }
+}
+
+/// A translucent surface drawn from the blurred wallpaper under a tint.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Material {
+    /// The tint colour (opaque).
+    pub tint: Rgba,
+    /// How much of the tint covers the blurred wallpaper (0.0 to 1.0).
+    pub tint_opacity: f32,
+    /// Blur radius of the wallpaper in logical pixels.
+    pub blur: f32,
+}
+
+impl Material {
+    /// The colour to use where no wallpaper is available.
+    pub fn fallback(&self) -> Rgba {
+        self.tint
+    }
+}
+
+/// One step of the type ramp.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TypeStyle {
+    pub size: f32,
+    pub line_height: f32,
+    pub weight: u16,
 }
 
 /// Shadow of one elevation level.
@@ -190,8 +225,10 @@ pub struct Tokens {
     pub radius_control: f32,
     /// Corner radius of cards and highlighted items.
     pub radius_card: f32,
-    /// Corner radius of flyouts (launcher, menus).
+    /// Corner radius of flyouts (Start, menus, quick settings).
     pub radius_flyout: f32,
+    /// Corner radius of tooltips.
+    pub radius_tooltip: f32,
     /// The spacing grid unit.
     pub spacing: f32,
     pub motion_fast_ms: u32,
@@ -234,6 +271,7 @@ impl Tokens {
                 surface: get("surface")?,
                 surface_raised: get("surface-raised")?,
                 surface_hover: get("surface-hover")?,
+                chrome: get("chrome")?,
                 border: get("border")?,
                 text: get("text")?,
                 text_secondary: get("text-secondary")?,
@@ -261,6 +299,7 @@ impl Tokens {
             radius_control: number(&["radius", "control"])? as f32,
             radius_card: number(&["radius", "card"])? as f32,
             radius_flyout: number(&["radius", "flyout"])? as f32,
+            radius_tooltip: number(&["radius", "tooltip"])? as f32,
             spacing: number(&["spacing", "unit"])? as f32,
             motion_fast_ms: number(&["motion", "fast-ms"])? as u32,
             motion_normal_ms: number(&["motion", "normal-ms"])? as u32,
@@ -290,6 +329,81 @@ impl Tokens {
         }
     }
 
+    /// A one-pixel outline colour: `control`, `surface`, `divider` or
+    /// `window`. Translucent, to be drawn over the surface it outlines.
+    pub fn stroke(&self, scheme: Scheme, kind: &str) -> Rgba {
+        self.layer("stroke", scheme, kind)
+    }
+
+    /// A state layer of a control: `control`, `control-hover`,
+    /// `control-pressed`, `subtle-hover`, `subtle-pressed` or `disabled`.
+    /// Translucent, to be drawn over the surface the control sits on.
+    pub fn fill(&self, scheme: Scheme, kind: &str) -> Rgba {
+        self.layer("fill", scheme, kind)
+    }
+
+    fn layer(&self, group: &str, scheme: Scheme, kind: &str) -> Rgba {
+        let values = &self.raw[group][scheme.key()];
+        let color = values["color"].as_str().and_then(|r| self.color(r)).unwrap_or(Rgba::WHITE);
+        color.alpha(values[kind].as_f64().unwrap_or(0.0) as f32)
+    }
+
+    /// A material: `mica`, `acrylic`, `chrome` or `smoke`.
+    pub fn material(&self, scheme: Scheme, name: &str) -> Material {
+        let m = &self.raw["material"][name];
+        let theme = Theme::of_tokens(self, scheme);
+        let tint = match m["tint"].as_str() {
+            Some("@background") => theme.background,
+            Some("@surface") => theme.surface,
+            Some("@surface-raised") => theme.surface_raised,
+            Some("@chrome") => theme.chrome,
+            Some(reference) => self.color(reference).unwrap_or(theme.background),
+            None => theme.background,
+        };
+        Material {
+            tint,
+            tint_opacity: m["tint-opacity"].as_f64().unwrap_or(1.0) as f32,
+            blur: m["blur"].as_f64().unwrap_or(0.0) as f32,
+        }
+    }
+
+    /// A fixed size of the shell or the window frames (`shell` section),
+    /// in logical pixels: `taskbar-height`, `titlebar-height`, ...
+    pub fn shell(&self, key: &str) -> f32 {
+        self.raw["shell"][key].as_f64().unwrap_or(0.0) as f32
+    }
+
+    /// A `[width, height]` size of the `shell` section: `caption-button`,
+    /// `taskbar-indicator`, ...
+    pub fn shell_size(&self, key: &str) -> (f32, f32) {
+        let v = &self.raw["shell"][key];
+        (v[0].as_f64().unwrap_or(0.0) as f32, v[1].as_f64().unwrap_or(0.0) as f32)
+    }
+
+    /// A colour of the `shell` section (`caption-close-hover`, ...).
+    pub fn shell_color(&self, key: &str) -> Rgba {
+        self.raw["shell"][key].as_str().and_then(|r| self.color(r)).unwrap_or(Rgba::BLACK)
+    }
+
+    /// A step of the type ramp: `caption`, `body`, `body-strong`,
+    /// `body-large`, `subtitle`, `title` or `title-large`.
+    pub fn type_style(&self, name: &str) -> TypeStyle {
+        let v = &self.raw["type"]["ramp"][name];
+        TypeStyle {
+            size: v[0].as_f64().unwrap_or(14.0) as f32,
+            line_height: v[1].as_f64().unwrap_or(20.0) as f32,
+            weight: v[2].as_u64().unwrap_or(400) as u16,
+        }
+    }
+
+    /// The control points of a motion curve: `decelerate` (things that
+    /// enter), `accelerate` (things that leave) or `standard`.
+    pub fn curve(&self, name: &str) -> [f32; 4] {
+        let v = &self.raw["motion"]["curves"][name];
+        let at = |i: usize| v[i].as_f64().unwrap_or(if i == 3 { 1.0 } else { 0.0 }) as f32;
+        [at(0), at(1), at(2), at(3)]
+    }
+
     /// Tile gradient, glyph and accent colours of an icon hue.
     pub fn icon_hue(&self, hue: &str) -> Option<[Rgba; 4]> {
         let h = &self.raw["icon"]["hues"][hue];
@@ -308,6 +422,28 @@ fn resolve(raw: &Value, reference: &str) -> Option<Rgba> {
         None => &colors[reference],
     };
     Rgba::from_hex(value.as_str()?)
+}
+
+/// A CSS-style cubic Bézier easing: the curve through (0,0), (x1,y1),
+/// (x2,y2) and (1,1), evaluated at time `t` (0.0 to 1.0).
+pub fn cubic_bezier(points: [f32; 4], t: f32) -> f32 {
+    let [x1, y1, x2, y2] = points;
+    let t = t.clamp(0.0, 1.0);
+    let bezier = |a: f32, b: f32, s: f32| {
+        let inv = 1.0 - s;
+        3.0 * inv * inv * s * a + 3.0 * inv * s * s * b + s * s * s
+    };
+    // Solve x(s) = t by bisection: x is monotonic for x1, x2 in 0..=1.
+    let (mut lo, mut hi) = (0.0f32, 1.0f32);
+    for _ in 0..24 {
+        let mid = (lo + hi) / 2.0;
+        if bezier(x1, x2, mid) < t {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    bezier(y1, y2, (lo + hi) / 2.0)
 }
 
 /// Ease-out cubic, the Boswas UI motion curve (`t` from 0.0 to 1.0).
@@ -334,6 +470,52 @@ mod tests {
         assert!((150..=250).contains(&t.motion_slow_ms));
         assert!(t.icon_hue("iris").is_some());
         assert!(!t.font_families.is_empty());
+    }
+
+    #[test]
+    fn fluent_layers_materials_and_geometry_resolve() {
+        let t = tokens();
+        for scheme in [Scheme::Dark, Scheme::Light] {
+            for kind in ["control", "surface", "divider", "window"] {
+                let stroke = t.stroke(scheme, kind);
+                assert!(stroke.a > 0 && stroke.a < 80, "{scheme:?} stroke {kind}: {stroke:?}");
+            }
+            for kind in ["control", "control-hover", "control-pressed", "subtle-hover", "subtle-pressed", "disabled"] {
+                assert!(t.fill(scheme, kind).a > 0, "{scheme:?} fill {kind}");
+            }
+            for name in ["mica", "acrylic", "chrome", "smoke"] {
+                let m = t.material(scheme, name);
+                assert_eq!(m.tint.a, 255, "{name}");
+                assert!(m.tint_opacity > 0.0 && m.tint_opacity <= 1.0, "{name}");
+            }
+            assert_eq!(t.material(scheme, "mica").tint, Theme::of(scheme).background);
+            assert_eq!(t.material(scheme, "chrome").tint, Theme::of(scheme).chrome);
+        }
+        assert_eq!(t.shell("taskbar-height"), 48.0);
+        assert_eq!(t.shell("titlebar-height"), 32.0);
+        assert_eq!(t.shell_size("caption-button"), (46.0, 32.0));
+        assert_eq!(t.shell_color("caption-close-hover"), Rgba::rgb(0xC4, 0x2B, 0x1C));
+        assert_eq!(t.radius_flyout, t.radius_window);
+        assert_eq!(t.type_style("body"), TypeStyle { size: 14.0, line_height: 20.0, weight: 400 });
+        assert_eq!(t.type_style("subtitle").weight, 600);
+    }
+
+    #[test]
+    fn bezier_curves_run_from_zero_to_one() {
+        for name in ["decelerate", "accelerate", "standard"] {
+            let curve = tokens().curve(name);
+            assert!(cubic_bezier(curve, 0.0).abs() < 0.01, "{name}");
+            assert!((cubic_bezier(curve, 1.0) - 1.0).abs() < 0.01, "{name}");
+            let mut last = -0.01;
+            for i in 0..=50 {
+                let v = cubic_bezier(curve, i as f32 / 50.0);
+                assert!(v >= last - 0.001, "{name} is monotonic");
+                last = v;
+            }
+        }
+        // Things that enter move fast first; things that leave move fast last.
+        assert!(cubic_bezier(tokens().curve("decelerate"), 0.3) > 0.6);
+        assert!(cubic_bezier(tokens().curve("accelerate"), 0.5) < 0.3);
     }
 
     #[test]

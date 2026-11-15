@@ -46,7 +46,7 @@ SCHEMES = {
 # scheme; anything else is a palette reference.
 FOREGROUND = {
     "dark": {"ForegroundNormal": "@text", "ForegroundInactive": "@text-muted", "ForegroundActive": "iris.300",
-             "ForegroundLink": "azure.400", "ForegroundVisited": "orchid.400", "ForegroundNegative": "coral.400",
+             "ForegroundLink": "azure.300", "ForegroundVisited": "orchid.300", "ForegroundNegative": "coral.300",
              "ForegroundNeutral": "sun.400", "ForegroundPositive": "mint.400",
              "DecorationFocus": "iris.400", "DecorationHover": "iris.300"},
     "light": {"ForegroundNormal": "@text", "ForegroundInactive": "@text-muted", "ForegroundActive": "iris.700",
