@@ -15,7 +15,7 @@ set -uo pipefail
 export QT_QPA_PLATFORM=offscreen
 for dir in packages/boswas-compat packages/boswas-device-agent packages/boswas-compat-manager \
 	packages/boswas-control-center packages/boswas-sysops packages/boswas-android control-plane \
-	desktop/ui desktop/presets desktop/icons; do
+	desktop/ui desktop/ui/qt desktop/presets desktop/icons; do
 	name="$(basename "$dir")"
 	out="$(cd "$BOSWAS_REPO_ROOT/$dir" && python3 -B -m unittest discover -s tests 2>&1)"
 	count="$(grep -oE '^Ran [0-9]+ tests?' <<<"$out" | grep -oE '[0-9]+')"

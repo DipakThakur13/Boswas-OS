@@ -28,7 +28,10 @@ USER = Qt.ItemDataRole.UserRole
 
 def _button(text: str, description: str, slot, icon_name: str, parent) -> QPushButton:
     button = QPushButton(text, parent)
-    button.setIcon(icon(icon_name, fallback=SP.SP_CommandLink))
+    # An icon of the Boswas icon theme, or none: a button reads well without one.
+    found = icon("system-search", icon_name) if icon_name == "edit-find" else icon(icon_name)
+    if not found.isNull():
+        button.setIcon(found)
     button.setAccessibleDescription(description)
     button.clicked.connect(slot)
     return button

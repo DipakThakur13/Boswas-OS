@@ -239,9 +239,12 @@ assert c["lock"]["idle_seconds"] == c["policy"]["lock_idle_max_seconds"] == 600
 assert c["policy"]["privileged_protocols"] == "shell"
 g = tomllib.load(open("packages/boswas-desktop/config/greeter.toml", "rb"))
 assert g["policy"]["privileged_protocols"] == "shell" and g["shell"]["command"][-1] == "--greeter"'
-check "compositor: public control connections get version, lock and reload-config only" \
+# "outputs" tells what every client already sees as wl_output (plus the modes
+# Settings offers); "capture" only opens the capture screen, where the user
+# chooses and confirms. Windows, input and screenshots stay with the shell.
+check "compositor: public control connections get version, lock, reload-config, the monitor list and the capture screen only" \
 	bash -c "ipc=packages/boswas-desktop/crates/boswas-compositor/src/ipc.rs
-		awk '/Available to every connection/,/if !trusted/' \$ipc | grep -oE '^            \"[a-z-]+\" =>' | tr -d ' \"=>' | sort | tr '\n' ' ' | grep -qx 'lock reload-config version '"
+		awk '/Available to every connection/,/if !trusted/' \$ipc | grep -oE '^            \"[a-z-]+\" =>' | tr -d ' \"=>' | sort | tr '\n' ' ' | grep -qx 'capture lock outputs reload-config version '"
 # unsafe is confined to the files that need it (a foreign library, a raw
 # descriptor, an EGL context); everything else is safe Rust. This covers the
 # code that is shipped (src/); test programs are not part of any package.

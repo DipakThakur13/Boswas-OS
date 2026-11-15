@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import boswas_fluent as fluent
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, QSortFilterProxyModel, Qt, Signal
-from PySide6.QtWidgets import (QAbstractItemView, QHBoxLayout, QHeaderView, QLineEdit, QStackedWidget, QTabBar,
-                               QTableView, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QAbstractItemView, QHBoxLayout, QHeaderView, QStackedWidget, QTabBar, QTableView,
+                               QVBoxLayout, QWidget)
 
 from .. import viewmodel as vm
-from .common import SP, button, heading, icon, plain_label, status_dot, windows_app_icon
+from .common import muted_label, plain_label, status_dot, windows_app_icon
+from .dashboard import PAGE_MARGINS
 
 COLUMNS = ("Name", "Version", "Publisher", "Architecture", "State", "Running", "Compatibility", "Last launch")
 ID_ROLE = Qt.ItemDataRole.UserRole
@@ -66,15 +68,10 @@ class LibraryPage(QWidget):
 
     action_requested = Signal(str, str)
 
-    BUTTONS = (
-        ("launch", "Launch", ("media-playback-start",), SP.SP_MediaPlay),
-        ("stop", "Stop", ("media-playback-stop", "process-stop"), SP.SP_MediaStop),
-        ("repair", "Repair", ("tools-wizard", "run-build-configure", "configure"), SP.SP_BrowserReload),
-        ("update", "Update…", ("system-software-update", "update-none"), SP.SP_ArrowUp),
-        ("remove", "Remove", ("edit-delete", "list-remove"), SP.SP_TrashIcon),
-        ("logs", "Logs", ("text-x-log", "utilities-log-viewer", "view-list-text"), SP.SP_FileDialogContentsView),
-        ("details", "Details", ("documentinfo", "dialog-information"), SP.SP_FileDialogInfoView),
-    )
+    # The commands of the selected application. Boswas Prism has no icon for most of them yet, so the
+    # bar shows words only rather than icons from another style.
+    BUTTONS = (("launch", "Launch"), ("stop", "Stop"), ("repair", "Repair"), ("update", "Update…"),
+               ("remove", "Remove"), ("logs", "Logs"), ("details", "Details"))
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -82,7 +79,8 @@ class LibraryPage(QWidget):
         self.filter_key = "all"
 
         layout = QVBoxLayout(self)
-        layout.addWidget(heading("Windows Applications"))
+        layout.setContentsMargins(*PAGE_MARGINS)
+        layout.setSpacing(8)
 
         self.tabs = QTabBar(self)
         self.tabs.setExpanding(False)
@@ -91,27 +89,25 @@ class LibraryPage(QWidget):
             index = self.tabs.addTab(label)
             self.tabs.setTabData(index, key)
         self.tabs.currentChanged.connect(self._tab_changed)
-        self.search = QLineEdit(self)
-        self.search.setPlaceholderText("Search applications")
-        self.search.setClearButtonEnabled(True)
-        self.search.addAction(icon("edit-find", "search", fallback=SP.SP_FileDialogContentsView),
-                              QLineEdit.ActionPosition.LeadingPosition)
+        self.search = fluent.SearchBox(self, placeholder="Search applications")
+        self.search.setMinimumWidth(240)
         self.search.textChanged.connect(self.apply_filter)
         top = QHBoxLayout()
         top.addWidget(self.tabs, 1)
         top.addWidget(self.search)
         layout.addLayout(top)
 
+        # A CommandBar: what does not fit moves into its "More" menu. buttons[key] is the command's button.
+        self.command_bar = fluent.CommandBar(self)
+        self.commands = {}
         self.buttons = {}
-        actions = QHBoxLayout()
-        for key, text, names, fallback in self.BUTTONS:
-            widget = button(text, icon(*names, fallback=fallback), self)
-            widget.clicked.connect(lambda _checked=False, k=key: self._request(k))
-            self.buttons[key] = widget
-            actions.addWidget(widget)
-            if key == "remove":
-                actions.addStretch(1)
-        layout.addLayout(actions)
+        for key, text in self.BUTTONS:
+            if key == "logs":
+                self.command_bar.add_separator()
+            action = self.command_bar.add_command(text, triggered=lambda k=key: self._request(k))
+            self.commands[key] = action
+            self.buttons[key] = self.command_bar.button(action)
+        layout.addWidget(self.command_bar)
 
         self.model = AppTableModel(self)
         self.proxy = QSortFilterProxyModel(self)
@@ -129,13 +125,15 @@ class LibraryPage(QWidget):
         self.table.setWordWrap(False)
         self.table.verticalHeader().hide()
         header = self.table.horizontalHeader()
+        # Every column as wide as its content (names are never cut to a stub); the last one takes the rest.
         header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setMaximumSectionSize(360)
+        header.setStretchLastSection(True)
         header.setHighlightSections(False)
         self.table.selectionModel().selectionChanged.connect(self.update_actions)
         self.table.doubleClicked.connect(lambda _index: self._request("details"))
 
-        self.empty = plain_label("", wrap=True)
+        self.empty = muted_label("")
         self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.stack = QStackedWidget(self)
         self.stack.addWidget(self.table)
@@ -144,6 +142,7 @@ class LibraryPage(QWidget):
 
         # Why the selected application is in its state (plain text, below the table).
         self.reason = plain_label("", wrap=True, selectable=True)
+        self.reason.set_tone("secondary")
         layout.addWidget(self.reason)
         self.update_actions()
 
@@ -212,7 +211,7 @@ class LibraryPage(QWidget):
     def update_actions(self, *_args) -> None:
         row = self.selected_row()
         for key, enabled in vm.available_actions(row).items():
-            self.buttons[key].setEnabled(enabled)
+            self.commands[key].setEnabled(enabled)
         if row is None:
             self.reason.clear()
         elif row.update_version:

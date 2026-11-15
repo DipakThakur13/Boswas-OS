@@ -379,14 +379,11 @@ class DataTest(unittest.TestCase):
                 teal = 160 <= hue * 360 <= 200 and saturation > 0.2 and 0.1 < lightness < 0.9
                 self.assertFalse(teal, f"{rel(path)} uses the teal colour #{value}")
 
-    def test_hard_coded_colours_are_only_status_tints(self):
-        allowed = {"boswas_control_center/ui/common.py"}
+    def test_no_hard_coded_colours(self):
+        """Every colour is a Boswas UI token, taken through boswas_fluent; the status icons included."""
         for path in CODE:
             colours = HEX_COLOUR.findall(path.read_text(encoding="utf-8"))
-            if rel(path) not in allowed:
-                self.assertEqual(colours, [], rel(path))
-        common = (PACKAGE / "boswas_control_center" / "ui" / "common.py").read_text(encoding="utf-8")
-        self.assertEqual(len(HEX_COLOUR.findall(common)), 6)          # five status tints and the glyph colour
+            self.assertEqual(colours, [], rel(path))
 
 
 class SourceHygieneTest(unittest.TestCase):

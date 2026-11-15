@@ -15,11 +15,22 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve()
 PACKAGE = HERE.parents[1]
-for path in (PACKAGE.parent / "boswas-compat", PACKAGE.parent / "boswas-device-agent", PACKAGE):
+# The sibling packages of the monorepo, and the Boswas UI toolkit the widgets are built on.
+for path in (PACKAGE.parent / "boswas-compat", PACKAGE.parent / "boswas-device-agent",
+             PACKAGE.parents[1] / "desktop" / "ui" / "qt", PACKAGE):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
 from boswas_manager.backend import BackendRefused, BackendUnavailable  # noqa: E402
+
+# The toolkit writes the images of its style sheet to the user's cache; in a test run they go to a
+# temporary directory instead (boswas_fluent.assets needs no Qt).
+import tempfile  # noqa: E402
+
+from boswas_fluent import assets as _fluent_assets  # noqa: E402
+
+_FLUENT_IMAGES = tempfile.TemporaryDirectory(prefix="fluent-test-images-")
+_fluent_assets.set_cache_root(_FLUENT_IMAGES.name)
 
 THIRTY_TWO_BIT = ("This application requires 32-bit Windows compatibility, which is not installed on this system.")
 

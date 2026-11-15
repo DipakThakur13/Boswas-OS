@@ -206,7 +206,7 @@ class ApplicationsPage(Page):
         self.search.setPlaceholderText("Search applications (Ctrl+F)")
         self.search.setClearButtonEnabled(True)
         self.search.setAccessibleName("Search applications")
-        self.search.addAction(icon("search", "edit-find", fallback=SP.SP_FileDialogContentsView),
+        self.search.addAction(icon("system-search", "search", "edit-find", fallback=SP.SP_FileDialogContentsView),
                               QLineEdit.ActionPosition.LeadingPosition)
         self.count = muted_label("", wrap=False, parent=installed)
         self.updates_button = QPushButton("Check for Updates", installed)

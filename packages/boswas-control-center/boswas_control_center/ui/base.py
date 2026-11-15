@@ -1,8 +1,11 @@
-"""The page frame: heading, description, scrollable content, module tiles.
+"""The page frame: description, scrollable content, module rows.
 
 A page is built the first time it is shown (MainWindow builds pages lazily)
 and declares the data keys it shows; the store loads them on the Runner's
 thread pool and the page redraws in render() whenever one of them changes.
+The page title is shown by the window's NavigationView, above the page;
+``heading`` holds the same text for assistive technology and is not shown
+a second time.
 """
 
 from __future__ import annotations
@@ -14,7 +17,7 @@ from ..catalog import PageInfo
 from .common import heading, muted_label
 from .tiles import ModuleGroup
 
-CONTENT_MAX_WIDTH = 980
+CONTENT_MAX_WIDTH = 1000
 
 
 class Page(QWidget):
@@ -36,7 +39,6 @@ class Page(QWidget):
         self.content.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
-        row.addStretch(0)
         row.addWidget(self.content, 1)
         row.addStretch(0)
         holder_layout = QVBoxLayout(holder)
@@ -46,15 +48,12 @@ class Page(QWidget):
         self.scroll.setWidget(holder)
         outer.addWidget(self.scroll)
         self.body = QVBoxLayout(self.content)
-        self.body.setContentsMargins(32, 24, 32, 28)
+        self.body.setContentsMargins(32, 0, 32, 28)
         self.body.setSpacing(16)
         self.heading = heading(info.heading, parent=self.content)
+        self.heading.hide()                       # the NavigationView shows the title above the page
         self.description = muted_label(info.description, parent=self.content)
-        header = QVBoxLayout()
-        header.setSpacing(4)
-        header.addWidget(self.heading)
-        header.addWidget(self.description)
-        self.body.addLayout(header)
+        self.body.addWidget(self.description)
         self.modules: ModuleGroup | None = None
         self.build()
         self.body.addStretch(1)

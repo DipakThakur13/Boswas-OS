@@ -10,6 +10,12 @@ Package: boswas-branding
 Architecture: all
 Depends: libkf6config-bin,
          python3,
+         python3-pyside6.qtcore,
+         python3-pyside6.qtdbus,
+         python3-pyside6.qtgui,
+         python3-pyside6.qtnetwork,
+         python3-pyside6.qtsvg,
+         python3-pyside6.qtwidgets,
          ${misc:Depends}
 Recommends: breeze-icon-theme, fonts-inter, fonts-lato, konsole
 Description: Boswas OS visual identity
@@ -27,6 +33,9 @@ Description: Boswas OS visual identity
     wallpapers and Konsole profiles, and boswas-preset to switch between
     them
   * the Boswas terminal prompt and welcome (boswas-welcome)
+  * boswas_fluent, the Qt (PySide6) toolkit that gives the Boswas
+    applications the Boswas UI look: theme, widgets and helpers, from the
+    same design tokens
  .
  The desktop that uses them is the package boswas-desktop; the boot screen
  is boswas-bootsplash.

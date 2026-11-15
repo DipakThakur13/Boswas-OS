@@ -1,4 +1,9 @@
-"""Main window: header, sidebar (Dashboard, Applications, Install, System Status) and pages.
+"""Main window: a navigation pane (Dashboard, Applications, Install, System Status) and the pages.
+
+The window is a FluentWindow of the Boswas UI toolkit with a NavigationView;
+the device and Control Plane state stand beside the page title, messages
+appear as InfoBars between title and page, and questions are asked in a
+ContentDialog inside the window.
 
 State shown here is refreshed every 5 seconds from the session agent
 (applications, activity) and the device agent (device and Control Plane
@@ -13,14 +18,13 @@ from __future__ import annotations
 
 import os
 
+import boswas_fluent as fluent
 from PySide6.QtCore import QSize, Qt, QTimer
-from PySide6.QtGui import QKeySequence, QShortcut
-from PySide6.QtWidgets import (QDialog, QFrame, QHBoxLayout, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
-                               QStackedWidget, QToolButton, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import QDialog, QHBoxLayout, QWidget
 
 from .. import viewmodel as vm
 from ..backend import BackendRefused, BackendUnavailable
-from .common import SP, MessageBanner, app_icon, dot_label, icon, message_box, plain_label, set_dot
+from .common import SP, MessageBanner, app_icon, dot_label, icon, plain_label, set_dot
 from .dashboard import DashboardPage
 from .details import DetailsDialog
 from .install import InstallDialog, InstallFlowWidget
@@ -29,21 +33,25 @@ from .remove import RemoveDialog
 from .system import SystemPage
 from .worker import Runner
 
+APP_ID = "com.boswas.CompatibilityManager"
 PAGES = (
-    ("dashboard", "Dashboard", ("go-home", "user-home"), SP.SP_DirHomeIcon),
-    ("applications", "Applications", ("applications-other", "view-list-icons"), SP.SP_FileDialogListView),
-    ("install", "Install", ("list-add", "system-software-install"), SP.SP_FileDialogNewFolder),
+    ("dashboard", "Dashboard", ("user-home", "go-home"), SP.SP_DirHomeIcon),
+    ("applications", "Applications", ("boswas-windows-application", "applications-other"),
+     SP.SP_FileDialogListView),
+    ("install", "Install", ("boswas-windows-installer", "list-add"), SP.SP_FileDialogNewFolder),
     ("system", "System Status", ("computer", "dialog-information"), SP.SP_ComputerIcon),
 )
+HEADINGS = {"applications": "Windows Applications"}
 REFRESH_MS = 5000
 SLOW_EVERY = 6            # catalog and runtime: every 6th refresh (30 s)
 JOB_POLL_MS = 500
 
 
-class MainWindow(QMainWindow):
+class MainWindow(fluent.FluentWindow):
     def __init__(self, backend, *, runner: Runner | None = None, environ=None, refresh_ms: int = REFRESH_MS,
                  start: bool = True, parent: QWidget | None = None):
-        super().__init__(parent)
+        super().__init__(APP_ID, "Boswas Compatibility Manager", parent, navigation={"compact_below": 860, "pane_width": 232},
+                         icon=app_icon(), size=(1240, 760), minimum_size=(760, 520))
         self.backend = backend
         self.runner = runner or Runner(self)
         self.environ = os.environ if environ is None else environ
@@ -65,9 +73,6 @@ class MainWindow(QMainWindow):
         self.ask = self._ask
         self.notify_error = self._notify_error
 
-        self.setWindowTitle("Boswas Compatibility Manager")
-        self.setWindowIcon(app_icon())
-        self.resize(1120, 720)
         self._build()
 
         self.refresh_timer = QTimer(self)
@@ -76,115 +81,83 @@ class MainWindow(QMainWindow):
         self.job_timer = QTimer(self)
         self.job_timer.setInterval(JOB_POLL_MS)
         self.job_timer.timeout.connect(self.poll_jobs)
-        for key, slot in ((QKeySequence.StandardKey.Refresh, lambda: self.refresh(full=True)),
-                          (QKeySequence.StandardKey.Find, self._focus_search),
-                          (QKeySequence.StandardKey.Quit, self.close)):
-            QShortcut(QKeySequence(key), self).activated.connect(slot)
+        self.add_shortcut("refresh", lambda: self.refresh(full=True))
+        self.add_shortcut("find", self._focus_search)
+        self.add_shortcut("quit", self.close)
         if start:
             self.refresh(full=True)
             self.refresh_timer.start()
 
     # --- layout ---
     def _build(self) -> None:
-        central = QWidget(self)
-        outer = QVBoxLayout(central)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
+        nav = self.navigation
+        self.sidebar = nav.list
+        self.sidebar.setIconSize(QSize(20, 20))
+        self.sidebar.setAccessibleName("Sections")
+        self.stack = nav.stack
 
-        header = QFrame(central)
-        header.setFrameShape(QFrame.Shape.NoFrame)
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(12, 6, 6, 6)
-        self.device_dot = dot_label("neutral", header)
-        self.device_label = plain_label("", parent=header)
-        self.plane_dot = dot_label("neutral", header)
-        self.plane_label = plain_label("", parent=header)
-        header_layout.addWidget(self.device_dot)
-        header_layout.addWidget(self.device_label)
-        header_layout.addSpacing(18)
-        header_layout.addWidget(self.plane_dot)
-        header_layout.addWidget(self.plane_label)
-        header_layout.addStretch(1)
-        self.refresh_button = QToolButton(header)
-        self.refresh_button.setIcon(icon("view-refresh", fallback=SP.SP_BrowserReload))
-        self.refresh_button.setToolTip("Refresh (F5)")
-        self.refresh_button.setAutoRaise(True)
+        status = QWidget()
+        status_layout = QHBoxLayout(status)
+        status_layout.setContentsMargins(0, 0, 0, 0)
+        status_layout.setSpacing(8)
+        self.device_dot = dot_label("neutral", status)
+        self.device_label = plain_label("", parent=status)
+        self.plane_dot = dot_label("neutral", status)
+        self.plane_label = plain_label("", parent=status)
+        self.refresh_button = fluent.IconButton(icon("view-refresh", fallback=SP.SP_BrowserReload), "Refresh (F5)",
+                                                status)
+        self.refresh_button.setAccessibleName("Refresh")
         self.refresh_button.clicked.connect(lambda: self.refresh(full=True))
-        header_layout.addWidget(self.refresh_button)
-        outer.addWidget(header)
-        line = QFrame(central)
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setFrameShadow(QFrame.Shadow.Sunken)
-        outer.addWidget(line)
+        status_layout.addWidget(self.device_dot)
+        status_layout.addWidget(self.device_label)
+        status_layout.addSpacing(12)
+        status_layout.addWidget(self.plane_dot)
+        status_layout.addWidget(self.plane_label)
+        status_layout.addSpacing(8)
+        status_layout.addWidget(self.refresh_button)
+        nav.add_header_widget(status)
 
-        body = QHBoxLayout()
-        body.setContentsMargins(0, 0, 0, 0)
-        self.sidebar = QListWidget(central)
-        self.sidebar.setIconSize(QSize(22, 22))
-        self.sidebar.setFrameShape(QFrame.Shape.NoFrame)
-        self.sidebar.setFixedWidth(200)
-        self.sidebar.setSpacing(2)
-        for key, label, names, fallback in PAGES:
-            item = QListWidgetItem(icon(*names, fallback=fallback), label)
-            item.setData(Qt.ItemDataRole.UserRole, key)
-            item.setSizeHint(QSize(180, 36))
-            self.sidebar.addItem(item)
-        body.addWidget(self.sidebar)
-        separator = QFrame(central)
-        separator.setFrameShape(QFrame.Shape.VLine)
-        separator.setFrameShadow(QFrame.Shadow.Sunken)
-        body.addWidget(separator)
+        self.session_banner = MessageBanner(closable=False)
+        self.message = MessageBanner()
+        nav.add_banner(self.session_banner)
+        nav.add_banner(self.message)
 
-        content = QVBoxLayout()
-        content.setContentsMargins(8, 8, 8, 8)
-        self.session_banner = MessageBanner(closable=False, parent=central)
-        self.message = MessageBanner(parent=central)
-        content.addWidget(self.session_banner)
-        content.addWidget(self.message)
-        self.stack = QStackedWidget(central)
         self.dashboard = DashboardPage()
         self.library = LibraryPage()
         self.install_page = InstallFlowWidget(self.backend, self.runner)
+        self.install_page.setContentsMargins(21, 0, 21, 13)       # with the flow's own margins: the page margins
         self.system_page = SystemPage()
         self.pages = {"dashboard": self.dashboard, "applications": self.library, "install": self.install_page,
                       "system": self.system_page}
-        for key, _label, _names, _fallback in PAGES:
-            self.stack.addWidget(self.pages[key])
-        content.addWidget(self.stack, 1)
-        body.addLayout(content, 1)
-        outer.addLayout(body, 1)
-        self.setCentralWidget(central)
+        for key, label, names, fallback in PAGES:
+            nav.add_page(key, label, self.pages[key], icon=icon(*names, fallback=fallback),
+                         heading=HEADINGS.get(key, label))
 
-        self.sidebar.currentRowChanged.connect(self._page_changed)
+        nav.current_changed.connect(self._page_changed)
         self.dashboard.filter_requested.connect(self.show_filter)
         self.library.action_requested.connect(self.run_action)
         self.install_page.installed.connect(self._installed)
         self.install_page.launch_requested.connect(self.launch_app)
         self.install_page.show_log_requested.connect(lambda app_id, kind: self.open_details(app_id, "logs", kind))
         self.install_page.show_applications_requested.connect(lambda: self.show_page("applications"))
-        self.sidebar.setCurrentRow(0)
         self._update_header()
         self._update_status_rows()
 
     def show_page(self, key: str) -> None:
-        for row in range(self.sidebar.count()):
-            if self.sidebar.item(row).data(Qt.ItemDataRole.UserRole) == key:
-                self.sidebar.setCurrentRow(row)
-                return
-        raise ValueError(f"unknown page {key!r}")
+        if key not in self.pages:
+            raise ValueError(f"unknown page {key!r}")
+        self.navigation.set_current(key)
 
     def current_page(self) -> str:
-        return PAGES[self.stack.currentIndex()][0]
+        return self.navigation.current()
 
     def show_filter(self, key: str) -> None:
         self.library.set_filter(key)
         self.show_page("applications")
 
-    def _page_changed(self, row: int) -> None:
-        if 0 <= row < len(PAGES):
-            self.stack.setCurrentIndex(row)
-            if PAGES[row][0] == "system":
-                self._fetch_system()
+    def _page_changed(self, key: str) -> None:
+        if key == "system":
+            self._fetch_system()
 
     def _focus_search(self) -> None:
         self.show_page("applications")
@@ -311,15 +284,11 @@ class MainWindow(QMainWindow):
         return f"Unexpected error: {vm.one_line(exc, 300)}"
 
     def _notify_error(self, title: str, text: str) -> None:
-        message_box(self, "error", title, text).exec()
+        fluent.message(self, title, text, "Close")
 
     def _ask(self, title: str, text: str, confirm: str) -> bool:
-        box = message_box(self, "question", title, text)
-        yes = box.addButton(confirm, QMessageBox.ButtonRole.DestructiveRole)
-        box.addButton(QMessageBox.StandardButton.Cancel)
-        box.setDefaultButton(QMessageBox.StandardButton.Cancel)
-        box.exec()
-        return box.clickedButton() is yes
+        # A ContentDialog inside the window; Cancel is the default, so Enter never confirms by accident.
+        return fluent.ask(self, title, text, confirm, "Cancel", default="cancel")
 
     def _action_failed(self, title: str, exc: Exception) -> None:
         if isinstance(exc, BackendUnavailable):
