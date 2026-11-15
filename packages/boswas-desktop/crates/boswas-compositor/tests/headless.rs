@@ -302,12 +302,24 @@ fn the_public_control_socket_is_limited() {
     assert_eq!(version["name"], "boswas-compositor");
     assert_eq!(version["trusted"], false);
     assert_eq!(version["locked"], false);
-    for cmd in ["windows", "outputs", "subscribe", "workspaces", "quit", "screenshot", "activate", "close", "tile", "pointer", "key", "button"] {
+    for cmd in [
+        "windows", "subscribe", "workspaces", "quit", "screenshot", "thumbnail", "activate", "close", "tile",
+        "overview", "show-desktop", "night-light", "next-layout", "new-workspace", "close-workspace",
+        "move-to-workspace", "pointer", "key", "button",
+    ] {
         let reply = control.call(json!({"cmd": cmd, "id": 7, "path": "/tmp/boswas-test-shot.png", "window": 1}));
         assert_eq!(reply["ok"], false, "{cmd} must be refused on a public connection: {reply}");
         assert_eq!(reply["id"], 7);
     }
     control.ok(json!({"cmd": "reload-config"}));
+    // The monitors are no secret, and Settings needs their modes.
+    let outputs = control.ok(json!({"cmd": "outputs"}));
+    assert_eq!(outputs[0]["name"], "HEADLESS-1");
+    assert_eq!((outputs[0]["width"].as_i64(), outputs[0]["height"].as_i64()), (Some(800), Some(600)));
+    assert_eq!(outputs[0]["modes"][0]["preferred"], true);
+    // Starting the capture screen is allowed (the user confirms there);
+    // without a shell there is nobody to show it, and nothing is captured.
+    control.ok(json!({"cmd": "capture"}));
     for garbage in ["not json\n", "[1, 2]\n", "{}\n", "{\"cmd\": 5}\n", "\"version\"\n"] {
         let reply = control.raw(garbage).expect("garbage gets an error reply, not a hang-up");
         assert_eq!(reply["ok"], false, "{garbage:?}");
@@ -375,22 +387,30 @@ fn a_window_is_mapped_listed_tiled_drawn_and_closed() {
     let (x, y) = (window["x"].as_i64().unwrap(), window["y"].as_i64().unwrap());
     assert!((0..800 - 320).contains(&x) && (0..600 - 200).contains(&y), "placed on screen: {x},{y}");
 
-    // The screenshot shows the client's pixels where the window is.
+    // The screenshot shows the client's pixels where the window is, once
+    // the window has finished appearing (it opens with a short animation,
+    // during which it is translucent).
     let shot = compositor.runtime.path().join("shot.png");
-    control.ok(json!({"cmd": "screenshot", "path": shot}));
-    let decoder = png::Decoder::new(std::io::BufReader::new(std::fs::File::open(&shot).unwrap()));
-    let mut reader = decoder.read_info().unwrap();
-    let mut pixels = vec![0u8; reader.output_buffer_size()];
-    let info = reader.next_frame(&mut pixels).unwrap();
-    assert_eq!((info.width, info.height), (800, 600));
-    let pixel = |px: i64, py: i64| {
+    let screenshot = |control: &mut Control| -> Vec<u8> {
+        let reply = control.ok(json!({"cmd": "screenshot", "path": shot}));
+        assert_eq!((reply["width"].as_i64(), reply["height"].as_i64()), (Some(800), Some(600)));
+        let decoder = png::Decoder::new(std::io::BufReader::new(std::fs::File::open(&shot).unwrap()));
+        let mut reader = decoder.read_info().unwrap();
+        let mut pixels = vec![0u8; reader.output_buffer_size()];
+        reader.next_frame(&mut pixels).unwrap();
+        pixels
+    };
+    let pixel = |pixels: &[u8], px: i64, py: i64| {
         let i = ((py * 800 + px) * 4) as usize;
         (pixels[i], pixels[i + 1], pixels[i + 2])
     };
-    assert_eq!(pixel(x + 160, y + 100), (0x00, 0xC0, 0x00), "the window's own colour at its centre");
-    let corner = pixel(799, 599);
+    let pixels = wait_for("the window to be fully shown", || {
+        let pixels = screenshot(&mut control);
+        (pixel(&pixels, x + 160, y + 100) == (0x00, 0xC0, 0x00)).then_some(pixels)
+    });
+    let corner = pixel(&pixels, 799, 599);
     assert_ne!(corner, (0x00, 0xC0, 0x00));
-    assert!(corner.0 < 40 && corner.1 < 40 && corner.2 < 60, "the background is the dark theme colour: {corner:?}");
+    assert!(corner.0 < 48 && corner.1 < 48 && corner.2 < 60, "the background is the dark theme colour: {corner:?}");
 
     // Snap to the left half through the control socket.
     let id = window["id"].clone();
@@ -404,11 +424,48 @@ fn a_window_is_mapped_listed_tiled_drawn_and_closed() {
     assert_eq!(control.call(json!({"cmd": "tile", "window": id, "tile": "sideways"}))["ok"], false);
     assert_eq!(control.call(json!({"cmd": "activate", "window": 999}))["ok"], false);
 
-    // Workspaces: the window stays on the first one.
+    // A thumbnail of the window: scaled down, never up, with its own colour.
+    let thumb = compositor.runtime.path().join("thumb.png");
+    let reply = control.ok(json!({"cmd": "thumbnail", "window": id, "path": thumb, "width": 100}));
+    assert_eq!(reply["width"], 100);
+    let decoder = png::Decoder::new(std::io::BufReader::new(std::fs::File::open(&thumb).unwrap()));
+    let mut reader = decoder.read_info().unwrap();
+    let mut small = vec![0u8; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut small).unwrap();
+    assert_eq!(info.width, 100);
+    assert_eq!(i64::from(info.height), reply["height"].as_i64().unwrap());
+    let middle = ((info.height / 2 * info.width + info.width / 2) * 4) as usize;
+    assert_eq!(&small[middle..middle + 4], &[0x00, 0xC0, 0x00, 0xFF]);
+    assert_eq!(control.call(json!({"cmd": "thumbnail", "window": 999, "path": thumb}))["ok"], false);
+    assert_eq!(control.call(json!({"cmd": "thumbnail", "window": id, "path": "relative.png"}))["ok"], false);
+
+    // Desktops: a session starts with one; the window stays on it.
+    assert_eq!(control.ok(json!({"cmd": "workspaces"})), json!({"active": 0, "count": 1}));
+    assert_eq!(control.ok(json!({"cmd": "workspace", "index": 1}))["active"], 0, "there is no second desktop yet");
+    assert_eq!(control.ok(json!({"cmd": "new-workspace"}))["count"], 2);
     assert_eq!(control.ok(json!({"cmd": "workspace", "index": 1}))["active"], 1);
     assert_eq!(control.ok(json!({"cmd": "windows"}))[0]["workspace"], 0);
-    assert_eq!(control.ok(json!({"cmd": "workspace", "index": 0}))["active"], 0);
-    assert_eq!(control.ok(json!({"cmd": "workspace", "index": 99}))["active"], 0, "an unknown workspace is ignored");
+    assert_eq!(control.ok(json!({"cmd": "workspace", "index": 99}))["active"], 1, "an unknown desktop is ignored");
+    // Closing the first desktop moves its window to the one that remains.
+    control.ok(json!({"cmd": "move-to-workspace", "window": id, "index": 1}));
+    assert_eq!(control.ok(json!({"cmd": "windows"}))[0]["workspace"], 1);
+    control.ok(json!({"cmd": "move-to-workspace", "window": id, "index": 0}));
+    assert_eq!(control.ok(json!({"cmd": "close-workspace", "index": 0})), json!({"active": 0, "count": 1}));
+    assert_eq!(control.ok(json!({"cmd": "windows"}))[0]["workspace"], 0);
+    assert_eq!(control.ok(json!({"cmd": "close-workspace", "index": 0}))["count"], 1, "the last desktop stays");
+
+    // Show desktop hides the window and brings it back.
+    assert_eq!(control.ok(json!({"cmd": "show-desktop"}))["active"], true);
+    assert_eq!(control.ok(json!({"cmd": "windows"}))[0]["minimized"], true);
+    assert_eq!(control.ok(json!({"cmd": "show-desktop"}))["active"], false);
+    let restored = control.ok(json!({"cmd": "windows"}))[0].clone();
+    assert_eq!((restored["minimized"].clone(), restored["active"].clone()), (json!(false), json!(true)));
+
+    // Night light and the keyboard layout are reported and switchable.
+    let night = control.ok(json!({"cmd": "night-light", "enabled": true, "temperature": 3000}));
+    assert_eq!((night["enabled"].clone(), night["temperature"].clone()), (json!(true), json!(3000)));
+    assert_eq!(control.ok(json!({"cmd": "night-light", "enabled": false}))["enabled"], false);
+    assert_eq!(control.ok(json!({"cmd": "next-layout"}))["active"], 0, "one layout: nothing to switch to");
 
     // Closing asks the client; when it goes, the list is empty again.
     control.ok(json!({"cmd": "close", "window": id}));
@@ -420,6 +477,114 @@ fn a_window_is_mapped_listed_tiled_drawn_and_closed() {
     wait_for("the window to disappear", || {
         (control.ok(json!({"cmd": "windows"})) == json!([])).then_some(())
     });
+}
+
+/// Presses or releases a key by its evdev code.
+fn key(control: &mut Control, code: u32, pressed: bool) {
+    control.ok(json!({"cmd": "key", "keycode": code, "pressed": pressed}));
+}
+
+/// A full key stroke.
+fn tap(control: &mut Control, code: u32) {
+    key(control, code, true);
+    key(control, code, false);
+}
+
+const KEY_ESC: u32 = 1;
+const KEY_TAB: u32 = 15;
+const KEY_ENTER: u32 = 28;
+const KEY_LEFTALT: u32 = 56;
+const KEY_LEFTMETA: u32 = 125;
+const KEY_LEFT: u32 = 105;
+const KEY_UP: u32 = 103;
+const KEY_DOWN: u32 = 108;
+
+#[test]
+fn the_switcher_task_view_and_snap_keys_manage_windows() {
+    let config = "[shell]\ncommand = []\n[lock]\nidle_seconds = 0\ncommand = []\n[appearance]\nreduced_motion = true\n[policy]\nlock_idle_max_seconds = 0\nprivileged_protocols = \"all\"\n";
+    let compositor = Compositor::start(config, "none");
+    let mut control = compositor.control();
+    let conn = compositor.wayland();
+    let (mut first_queue, mut first_client, _first) = open_window(&conn, "First", 0xFF40_4040);
+    let second_conn = compositor.wayland();
+    let (mut second_queue, mut second_client, _second) = open_window(&second_conn, "Second", 0xFF80_8080);
+    let mut pump = |control: &mut Control| {
+        first_queue.roundtrip(&mut first_client).unwrap();
+        second_queue.roundtrip(&mut second_client).unwrap();
+        control.ok(json!({"cmd": "windows"}))
+    };
+    let active = |windows: &Value| -> String {
+        windows
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|w| w["active"] == true)
+            .map(|w| w["title"].as_str().unwrap().to_owned())
+            .unwrap_or_default()
+    };
+    wait_for("both windows", || (pump(&mut control).as_array().unwrap().len() == 2).then_some(()));
+    assert_eq!(active(&pump(&mut control)), "Second", "the newest window has the keyboard");
+
+    // Alt+Tab goes to the window used before; nothing changes until Alt is
+    // released, and Escape leaves everything as it was.
+    key(&mut control, KEY_LEFTALT, true);
+    tap(&mut control, KEY_TAB);
+    assert_eq!(active(&pump(&mut control)), "Second", "still choosing");
+    key(&mut control, KEY_LEFTALT, false);
+    assert_eq!(active(&pump(&mut control)), "First");
+    key(&mut control, KEY_LEFTALT, true);
+    tap(&mut control, KEY_TAB);
+    tap(&mut control, KEY_ESC);
+    key(&mut control, KEY_LEFTALT, false);
+    assert_eq!(active(&pump(&mut control)), "First", "Escape cancels the switcher");
+    // Two steps come back to where it started.
+    key(&mut control, KEY_LEFTALT, true);
+    tap(&mut control, KEY_TAB);
+    tap(&mut control, KEY_TAB);
+    key(&mut control, KEY_LEFTALT, false);
+    assert_eq!(active(&pump(&mut control)), "First");
+
+    // Task View: Super+Tab opens it, applications lose the keyboard, Tab
+    // moves the selection and Enter goes to the selected window.
+    key(&mut control, KEY_LEFTMETA, true);
+    tap(&mut control, KEY_TAB);
+    key(&mut control, KEY_LEFTMETA, false);
+    assert_eq!(control.ok(json!({"cmd": "overview"}))["active"], false, "the command toggled it off again");
+    assert_eq!(control.ok(json!({"cmd": "overview", "active": true}))["active"], true);
+    assert_eq!(active(&pump(&mut control)), "", "no application has the keyboard in Task View");
+    // One frame, so Task View knows where its cells are.
+    let shot = compositor.runtime.path().join("task-view.png");
+    control.ok(json!({"cmd": "screenshot", "path": shot}));
+    tap(&mut control, KEY_TAB);
+    tap(&mut control, KEY_ENTER);
+    assert_eq!(control.ok(json!({"cmd": "overview", "active": false}))["active"], false);
+    assert_eq!(active(&pump(&mut control)), "Second", "Tab then Enter chose the other window");
+    // Escape leaves Task View with the window that was active.
+    control.ok(json!({"cmd": "overview", "active": true}));
+    tap(&mut control, KEY_ESC);
+    assert_eq!(active(&pump(&mut control)), "Second");
+
+    // Super+arrows: left half, upper-left quarter, maximized, and back down.
+    let tile = |control: &mut Control, windows: Value| -> String {
+        let _ = control;
+        windows.as_array().unwrap().iter().find(|w| w["title"] == "Second").unwrap()["tile"].as_str().unwrap().to_owned()
+    };
+    let mut press = |control: &mut Control, code: u32| {
+        key(control, KEY_LEFTMETA, true);
+        tap(control, code);
+        // Another key in between, so releasing Super is not a tap (Start).
+        key(control, KEY_LEFTMETA, false);
+    };
+    for (code, expected) in [(KEY_LEFT, "left"), (KEY_UP, "top-left"), (KEY_UP, "maximized"), (KEY_DOWN, "floating")] {
+        press(&mut control, code);
+        let windows = pump(&mut control);
+        assert_eq!(tile(&mut control, windows), expected);
+    }
+    press(&mut control, KEY_DOWN);
+    let windows = pump(&mut control);
+    let second = windows.as_array().unwrap().iter().find(|w| w["title"] == "Second").unwrap().clone();
+    assert_eq!(second["minimized"], true, "Super+Down on a floating window minimizes it");
+    assert_eq!(active(&windows), "First");
 }
 
 #[test]

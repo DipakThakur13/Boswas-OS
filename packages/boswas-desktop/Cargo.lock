@@ -301,6 +301,7 @@ version = "1.0.0-alpha.3"
 dependencies = [
  "bitflags 2.13.2",
  "boswas-ui",
+ "chrono",
  "png 0.17.16",
  "rustix 1.1.6",
  "serde",
@@ -320,6 +321,10 @@ dependencies = [
 name = "boswas-services"
 version = "1.0.0-alpha.3"
 dependencies = [
+ "async-channel",
+ "async-executor",
+ "async-io",
+ "futures-lite",
  "serde",
  "serde_json",
  "tempfile",
@@ -332,6 +337,7 @@ dependencies = [
 name = "boswas-shell"
 version = "1.0.0-alpha.3"
 dependencies = [
+ "boswas-services",
  "boswas-ui",
  "chrono",
  "libc",
@@ -340,6 +346,7 @@ dependencies = [
  "serde_json",
  "smithay-client-toolkit",
  "tiny-skia",
+ "toml",
  "tracing",
  "tracing-subscriber",
  "wayland-client",

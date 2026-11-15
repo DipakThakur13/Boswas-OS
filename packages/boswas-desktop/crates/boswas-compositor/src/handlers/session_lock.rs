@@ -74,6 +74,8 @@ impl Boswas {
             self.ipc_event("lock", serde_json::json!({ "locked": true }));
         }
         self.switcher = None;
+        self.overview = None;
+        self.ghosts.clear();
         self.snap_preview = None;
         // Drop pointer and keyboard grabs (moves, popups) and all focus.
         let serial = smithay::utils::SERIAL_COUNTER.next_serial();

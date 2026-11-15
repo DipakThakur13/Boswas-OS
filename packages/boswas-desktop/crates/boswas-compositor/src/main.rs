@@ -3,9 +3,11 @@
 //! The display server, window manager and effects engine of the Boswas
 //! desktop. It replaces KWin and, with boswas-shell, the Plasma session.
 
+mod animation;
 mod backend;
 mod config;
 mod cursor;
+mod effects;
 mod handlers;
 mod input;
 mod ipc;
@@ -222,6 +224,8 @@ fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         let _ = std::io::stdout().flush();
     }
 
+    state.refresh_layouts();
+    state.apply_night_light();
     state.start_shell();
     if !args.command.is_empty() {
         state.spawn(&args.command);
@@ -234,6 +238,8 @@ fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         .insert_source(Timer::from_duration(Duration::from_secs(1)), |_, _, state| {
             state.check_idle();
             state.supervise_lock();
+            // The night light schedule.
+            state.apply_night_light();
             state.reap_children();
             TimeoutAction::ToDuration(Duration::from_secs(1))
         })?;

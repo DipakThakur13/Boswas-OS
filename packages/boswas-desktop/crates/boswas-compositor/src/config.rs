@@ -12,7 +12,10 @@
 //! cannot lengthen the automatic lock timeout the administrator enforces,
 //! nor widen which clients may use the privileged protocols.
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+};
 
 use serde::Deserialize;
 use toml::{Table, Value};
@@ -28,7 +31,12 @@ const MAX_CONFIG_BYTES: u64 = 256 * 1024;
 pub struct Config {
     pub keyboard: Keyboard,
     pub pointer: Pointer,
+    pub touchpad: Touchpad,
     pub output: Output,
+    /// Settings of single outputs by connector name (`eDP-1`, `HDMI-A-1`).
+    pub outputs: BTreeMap<String, OutputSettings>,
+    pub night_light: NightLight,
+    pub power: Power,
     pub lock: Lock,
     pub shell: Shell,
     pub apps: Apps,
@@ -49,15 +57,21 @@ pub struct Keyboard {
     pub repeat_delay: i32,
     /// Repeats per second.
     pub repeat_rate: i32,
+    /// Num Lock is on when the session starts.
+    pub numlock: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Pointer {
+    /// Mice and trackballs: content follows the wheel's direction reversed.
     pub natural_scroll: bool,
-    pub tap_to_click: bool,
     /// libinput acceleration speed, -1.0 to 1.0.
     pub accel_speed: f64,
+    /// `adaptive` (speed-dependent) or `flat` (constant).
+    pub accel_profile: String,
+    /// Swaps the left and right buttons.
+    pub left_handed: bool,
     /// XCursor theme name; empty uses `XCURSOR_THEME` or the default theme.
     pub cursor_theme: String,
     pub cursor_size: u32,
@@ -65,9 +79,61 @@ pub struct Pointer {
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+pub struct Touchpad {
+    pub tap_to_click: bool,
+    /// Content follows the fingers.
+    pub natural_scroll: bool,
+    /// libinput acceleration speed, -1.0 to 1.0.
+    pub accel_speed: f64,
+    /// The touchpad ignores touches while keys are being typed.
+    pub disable_while_typing: bool,
+    /// Three and four finger swipes switch desktops and open Task View.
+    pub gestures: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct Output {
-    /// Scale factor for every output: 1.0, 1.25, 1.5, 1.75 or 2.0.
+    /// Scale factor of outputs that have no setting of their own: 1.0,
+    /// 1.25, 1.5, 1.75 or 2.0.
     pub scale: f64,
+}
+
+/// What can be set for one output (`[outputs.NAME]`). Everything is
+/// optional: what is not set is chosen by the compositor.
+#[derive(Debug, Clone, PartialEq, Deserialize, Default)]
+#[serde(default, deny_unknown_fields)]
+pub struct OutputSettings {
+    /// `false` turns the output off.
+    pub enabled: Option<bool>,
+    /// `WIDTHxHEIGHT` or `WIDTHxHEIGHT@HZ`, one of the modes the output
+    /// offers; anything else keeps the preferred mode.
+    pub mode: Option<String>,
+    pub scale: Option<f64>,
+    /// Position of the top-left corner on the desktop, in logical pixels.
+    pub position: Option<[i32; 2]>,
+    /// `normal`, `90`, `180` or `270`.
+    pub rotation: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct NightLight {
+    pub enabled: bool,
+    /// Colour temperature in kelvin while night light is on, 2500 to 6500.
+    pub temperature: u32,
+    /// Turn on and off by the clock instead of staying on.
+    pub scheduled: bool,
+    /// `HH:MM`, local time.
+    pub from: String,
+    pub to: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Power {
+    /// Seconds without input before the screens are turned off; 0 never.
+    pub screen_off_seconds: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -94,6 +160,10 @@ pub struct Apps {
     pub terminal: Vec<String>,
     /// Super+E.
     pub files: Vec<String>,
+    /// Super+I.
+    pub settings: Vec<String>,
+    /// Ctrl+Shift+Esc.
+    pub task_manager: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -125,7 +195,11 @@ impl Default for Config {
         Self {
             keyboard: Keyboard::default(),
             pointer: Pointer::default(),
+            touchpad: Touchpad::default(),
             output: Output::default(),
+            outputs: BTreeMap::new(),
+            night_light: NightLight::default(),
+            power: Power::default(),
             lock: Lock::default(),
             shell: Shell::default(),
             apps: Apps::default(),
@@ -144,6 +218,7 @@ impl Default for Keyboard {
             options: String::new(),
             repeat_delay: 400,
             repeat_rate: 30,
+            numlock: false,
         }
     }
 }
@@ -152,11 +227,42 @@ impl Default for Pointer {
     fn default() -> Self {
         Self {
             natural_scroll: false,
-            tap_to_click: true,
             accel_speed: 0.0,
+            accel_profile: "adaptive".into(),
+            left_handed: false,
             cursor_theme: String::new(),
             cursor_size: 24,
         }
+    }
+}
+
+impl Default for Touchpad {
+    fn default() -> Self {
+        Self {
+            tap_to_click: true,
+            natural_scroll: true,
+            accel_speed: 0.0,
+            disable_while_typing: true,
+            gestures: true,
+        }
+    }
+}
+
+impl Default for NightLight {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            temperature: 4500,
+            scheduled: false,
+            from: "20:00".into(),
+            to: "06:00".into(),
+        }
+    }
+}
+
+impl Default for Power {
+    fn default() -> Self {
+        Self { screen_off_seconds: 300 }
     }
 }
 
@@ -188,6 +294,8 @@ impl Default for Apps {
         Self {
             terminal: vec!["konsole".into()],
             files: vec!["dolphin".into()],
+            settings: vec!["boswas-control-center".into()],
+            task_manager: vec!["boswas-task-manager".into()],
         }
     }
 }
@@ -297,9 +405,59 @@ impl Config {
             0.0
         };
         self.pointer.cursor_size = self.pointer.cursor_size.clamp(16, 96);
-        if ![1.0, 1.25, 1.5, 1.75, 2.0].contains(&self.output.scale) {
+        if self.pointer.accel_profile != "adaptive" && self.pointer.accel_profile != "flat" {
+            warnings.push(format!("pointer.accel_profile \"{}\" is unknown; using adaptive", self.pointer.accel_profile));
+            self.pointer.accel_profile = "adaptive".into();
+        }
+        self.touchpad.accel_speed = if self.touchpad.accel_speed.is_finite() {
+            self.touchpad.accel_speed.clamp(-1.0, 1.0)
+        } else {
+            0.0
+        };
+        if !SCALES.contains(&self.output.scale) {
             warnings.push(format!("output.scale {} is not supported; using 1.0", self.output.scale));
             self.output.scale = 1.0;
+        }
+        self.outputs.retain(|name, settings| {
+            let valid_name = !name.is_empty()
+                && name.len() <= 64
+                && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+            if !valid_name {
+                warnings.push(format!("outputs.\"{name}\" is not an output name; ignored"));
+                return false;
+            }
+            if settings.scale.is_some_and(|scale| !SCALES.contains(&scale)) {
+                warnings.push(format!("outputs.{name}.scale is not supported; ignored"));
+                settings.scale = None;
+            }
+            if settings.mode.as_deref().is_some_and(|mode| parse_mode(mode).is_none()) {
+                warnings.push(format!("outputs.{name}.mode is not WIDTHxHEIGHT[@HZ]; ignored"));
+                settings.mode = None;
+            }
+            if settings.rotation.as_deref().is_some_and(|r| !["normal", "90", "180", "270"].contains(&r)) {
+                warnings.push(format!("outputs.{name}.rotation must be normal, 90, 180 or 270; ignored"));
+                settings.rotation = None;
+            }
+            if let Some([x, y]) = settings.position {
+                if !(-32768..=32767).contains(&x) || !(-32768..=32767).contains(&y) {
+                    warnings.push(format!("outputs.{name}.position is out of range; ignored"));
+                    settings.position = None;
+                }
+            }
+            true
+        });
+        self.night_light.temperature = self.night_light.temperature.clamp(2500, 6500);
+        for (key, value, default) in [
+            ("from", &mut self.night_light.from, "20:00"),
+            ("to", &mut self.night_light.to, "06:00"),
+        ] {
+            if parse_clock(value).is_none() {
+                warnings.push(format!("night_light.{key} is not HH:MM; using {default}"));
+                *value = default.into();
+            }
+        }
+        if self.power.screen_off_seconds != 0 {
+            self.power.screen_off_seconds = self.power.screen_off_seconds.clamp(30, 6 * 3600);
         }
         if self.appearance.scheme != "dark" && self.appearance.scheme != "light" {
             warnings.push(format!("appearance.scheme \"{}\" is unknown; using dark", self.appearance.scheme));
@@ -320,6 +478,57 @@ impl Config {
     /// protocols too.
     pub fn trust_all_clients(&self) -> bool {
         self.policy.privileged_protocols == "all"
+    }
+}
+
+/// The output scales the compositor supports.
+pub const SCALES: [f64; 5] = [1.0, 1.25, 1.5, 1.75, 2.0];
+
+/// Parses `WIDTHxHEIGHT` or `WIDTHxHEIGHT@HZ` into (width, height, millihertz).
+pub fn parse_mode(text: &str) -> Option<(i32, i32, Option<i32>)> {
+    let (size, refresh) = match text.split_once('@') {
+        Some((size, hz)) => {
+            let hz: f64 = hz.parse().ok()?;
+            if !(1.0..=1000.0).contains(&hz) {
+                return None;
+            }
+            (size, Some((hz * 1000.0).round() as i32))
+        }
+        None => (text, None),
+    };
+    let (w, h) = size.split_once('x')?;
+    let (w, h): (i32, i32) = (w.parse().ok()?, h.parse().ok()?);
+    ((1..=16384).contains(&w) && (1..=16384).contains(&h)).then_some((w, h, refresh))
+}
+
+/// Parses `HH:MM` into minutes after midnight.
+pub fn parse_clock(text: &str) -> Option<u32> {
+    let (h, m) = text.split_once(':')?;
+    if h.len() != 2 || m.len() != 2 {
+        return None;
+    }
+    let (h, m): (u32, u32) = (h.parse().ok()?, m.parse().ok()?);
+    (h < 24 && m < 60).then_some(h * 60 + m)
+}
+
+impl NightLight {
+    /// Whether night light is on at `minutes` after local midnight.
+    pub fn active_at(&self, minutes: u32) -> bool {
+        if !self.enabled {
+            return false;
+        }
+        if !self.scheduled {
+            return true;
+        }
+        let (Some(from), Some(to)) = (parse_clock(&self.from), parse_clock(&self.to)) else {
+            return true;
+        };
+        if from <= to {
+            (from..to).contains(&minutes)
+        } else {
+            // Over midnight.
+            minutes >= from || minutes < to
+        }
     }
 }
 
@@ -415,6 +624,81 @@ mod tests {
         let user = file(dir.path(), "user2.toml", "[lock]\nidle_seconds = 120\n");
         let (c, _) = Config::load_from(&[], Some(&user));
         assert_eq!(c.lock.idle_seconds, 120, "a shorter timeout is the user's choice");
+    }
+
+    #[test]
+    fn output_settings_are_validated_one_by_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let user = file(
+            dir.path(),
+            "user.toml",
+            "[outputs.eDP-1]\nscale = 1.5\nmode = \"1920x1080@60\"\nposition = [0, 0]\nrotation = \"90\"\n\
+             [outputs.HDMI-A-1]\nenabled = false\nscale = 3.0\nmode = \"big\"\nrotation = \"sideways\"\nposition = [99999, 0]\n\
+             [outputs.\"bad name!\"]\nscale = 1.0\n",
+        );
+        let (c, warnings) = Config::load_from(&[], Some(&user));
+        let internal = &c.outputs["eDP-1"];
+        assert_eq!(internal.scale, Some(1.5));
+        assert_eq!(internal.mode.as_deref(), Some("1920x1080@60"));
+        assert_eq!(internal.position, Some([0, 0]));
+        assert_eq!(internal.rotation.as_deref(), Some("90"));
+        let external = &c.outputs["HDMI-A-1"];
+        assert_eq!(external.enabled, Some(false));
+        assert_eq!((external.scale, external.mode.clone(), external.rotation.clone(), external.position), (None, None, None, None));
+        assert!(!c.outputs.contains_key("bad name!"));
+        assert_eq!(warnings.len(), 5, "{warnings:?}");
+    }
+
+    #[test]
+    fn modes_and_clock_times_parse_strictly() {
+        assert_eq!(parse_mode("1920x1080"), Some((1920, 1080, None)));
+        assert_eq!(parse_mode("2560x1440@59.951"), Some((2560, 1440, Some(59951))));
+        for bad in ["", "1920", "1920x", "x1080", "0x0", "1920x1080@", "1920x1080@0", "1920x1080@fast", "99999x1"] {
+            assert_eq!(parse_mode(bad), None, "{bad}");
+        }
+        assert_eq!(parse_clock("06:30"), Some(390));
+        assert_eq!(parse_clock("23:59"), Some(1439));
+        for bad in ["", "6:30", "24:00", "12:60", "noon", "12-30"] {
+            assert_eq!(parse_clock(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn night_light_follows_its_schedule() {
+        let mut n = NightLight::default();
+        assert!(!n.active_at(1380), "off unless enabled");
+        n.enabled = true;
+        assert!(n.active_at(720), "without a schedule it is simply on");
+        n.scheduled = true;
+        assert!(n.active_at(22 * 60));
+        assert!(n.active_at(3 * 60), "the default schedule runs over midnight");
+        assert!(!n.active_at(12 * 60));
+        assert!(!n.active_at(6 * 60), "the end is exclusive");
+        n.from = "08:00".into();
+        n.to = "17:00".into();
+        assert!(n.active_at(9 * 60) && !n.active_at(18 * 60) && !n.active_at(7 * 60));
+    }
+
+    #[test]
+    fn input_and_power_settings_are_clamped() {
+        let dir = tempfile::tempdir().unwrap();
+        let user = file(
+            dir.path(),
+            "user.toml",
+            "[pointer]\naccel_profile = \"warp\"\nleft_handed = true\n[touchpad]\naccel_speed = 9.0\ntap_to_click = false\n\
+             [night_light]\ntemperature = 100\nfrom = \"late\"\n[power]\nscreen_off_seconds = 5\n[apps]\nsettings = [\"x\"]\n",
+        );
+        let (c, warnings) = Config::load_from(&[], Some(&user));
+        assert_eq!(c.pointer.accel_profile, "adaptive");
+        assert!(c.pointer.left_handed);
+        assert_eq!(c.touchpad.accel_speed, 1.0);
+        assert!(!c.touchpad.tap_to_click && c.touchpad.natural_scroll && c.touchpad.gestures);
+        assert_eq!(c.night_light.temperature, 2500);
+        assert_eq!(c.night_light.from, "20:00");
+        assert_eq!(c.power.screen_off_seconds, 30);
+        assert_eq!(c.apps.settings, ["x"]);
+        assert_eq!(c.apps.task_manager, ["boswas-task-manager"]);
+        assert_eq!(warnings.len(), 2, "{warnings:?}");
     }
 
     #[test]

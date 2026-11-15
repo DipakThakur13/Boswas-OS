@@ -61,17 +61,25 @@ use smithay::{
 use tracing::{info, warn};
 
 use crate::{
+    animation::{Ghost, GhostKind},
     backend::Backend,
     config::Config,
     cursor::CursorTheme,
     ipc::Ipc,
     render::Overlays,
     shell::{
+        appicon::AppIcons,
         decoration::{Button, Decoration, RESIZE_MARGIN},
         element::{Tile, WindowElement},
         grabs::ResizeEdge,
+        overview::Overview,
+        switcher::Switcher,
     },
 };
+
+/// The most exit animations at once; more (a session closing all its
+/// windows) simply end without one.
+const MAX_GHOSTS: usize = 8;
 
 /// How far a client is trusted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -183,8 +191,30 @@ pub struct Boswas {
     pub(crate) cascade: i32,
     /// Where a dragged window would snap to; drawn as an overlay.
     pub snap_preview: Option<Rectangle<i32, Logical>>,
-    /// Window ids in Alt+Tab order while the switcher is held open.
-    pub switcher: Option<(Vec<u64>, usize)>,
+    /// The window switcher, while Alt is held after Alt+Tab.
+    pub switcher: Option<Switcher>,
+    /// The windows "show desktop" minimized, to bring back on the next
+    /// toggle; `None` while the desktop is not being shown.
+    pub show_desktop: Option<Vec<u64>>,
+    /// Whether night light is switched on (the schedule may still keep the
+    /// screen neutral) and its colour temperature.
+    pub night_light: (bool, u32),
+    /// The colour temperature the outputs currently show (`None`: neutral).
+    pub night_light_applied: Option<u32>,
+    /// The names of the keyboard layouts and the index of the active one.
+    pub layouts: (Vec<String>, u32),
+    /// Task View, while it is open.
+    pub overview: Option<Overview>,
+    /// Whether the backend's renderer clips window content to rounded
+    /// corners (the GL renderer does). Frames draw their border to match.
+    pub rounds_corners: bool,
+    /// Pictures of windows that are on their way out (closing, minimizing,
+    /// the desktop that was left).
+    pub ghosts: Vec<Ghost>,
+    /// Application icons for frames, the switcher and Task View.
+    pub app_icons: AppIcons,
+    /// Connected outputs the configuration turned off.
+    pub disabled_outputs: Vec<String>,
 
     // Protocol state
     _globals: Globals,
@@ -321,11 +351,20 @@ impl Boswas {
             windows: Vec::new(),
             focus_history: Vec::new(),
             workspace: 0,
-            workspace_count: 4,
+            workspace_count: 1,
             next_window_id: 1,
             cascade: 0,
             snap_preview: None,
             switcher: None,
+            show_desktop: None,
+            night_light: (config.night_light.enabled, config.night_light.temperature),
+            night_light_applied: None,
+            layouts: (Vec::new(), 0),
+            overview: None,
+            rounds_corners: false,
+            ghosts: Vec::new(),
+            app_icons: AppIcons::new(config.appearance.scheme == "light"),
+            disabled_outputs: Vec::new(),
             _globals: Globals {
                 xdg_decoration_state,
                 output_manager_state,
@@ -420,6 +459,36 @@ impl Boswas {
     /// The text engine; system fonts are scanned on first use.
     pub fn text(&mut self) -> &mut TextEngine {
         self.text.get_or_insert_with(TextEngine::new)
+    }
+
+    /// Where windows fly to when they are minimized: the middle of the
+    /// taskbar of the output a rectangle is on.
+    pub fn taskbar_point(&self, rect: Rectangle<i32, Logical>) -> Point<f64, Logical> {
+        let Some(output) = self.output_for_rect(rect) else {
+            return Point::from((f64::from(rect.loc.x), f64::from(rect.loc.y + rect.size.h)));
+        };
+        let geo = self.space.output_geometry(&output).unwrap_or_default();
+        let usable = self.usable_area(&output);
+        // The taskbar is whatever the shell reserved at the bottom.
+        let reserved = (geo.loc.y + geo.size.h) - (usable.loc.y + usable.size.h);
+        Point::from((
+            f64::from(geo.loc.x) + f64::from(geo.size.w) / 2.0,
+            f64::from(geo.loc.y + geo.size.h) - f64::from(reserved) / 2.0,
+        ))
+    }
+
+    /// Takes a picture of a window and lets it play an exit animation.
+    pub fn leave_ghost(&mut self, window: &WindowElement, kind: GhostKind) {
+        if self.reduced_motion() || self.lock.locked || self.ghosts.len() >= MAX_GHOSTS {
+            return;
+        }
+        let mut backend = std::mem::take(&mut self.backend);
+        let picture = backend.snapshot(self, window);
+        self.backend = backend;
+        if let Some((buffer, rect)) = picture {
+            self.ghosts.push(Ghost::new(buffer, rect, kind));
+            self.schedule_redraw();
+        }
     }
 
     /// Asks for a new frame on every output.
@@ -712,16 +781,79 @@ impl Boswas {
             Scheme::Dark
         });
         self.cursor_theme = CursorTheme::load(&config.pointer.cursor_theme, config.pointer.cursor_size);
+        if (config.appearance.scheme == "light") != self.app_icons.is_light() {
+            self.app_icons = AppIcons::new(config.appearance.scheme == "light");
+        }
+        if config.night_light != self.config.night_light {
+            self.night_light = (config.night_light.enabled, config.night_light.temperature);
+        }
         // The shell command and the trust policy are fixed for the session.
         let shell = std::mem::take(&mut self.config.shell);
         let policy = std::mem::take(&mut self.config.policy.privileged_protocols);
         self.config = config;
         self.config.shell = shell;
         self.config.policy.privileged_protocols = policy;
+        let config = self.config.clone();
+        self.backend.config_changed(&config);
+        self.apply_night_light();
+        let night_light = self.night_light_json();
+        self.ipc_event("night-light", night_light);
+        self.refresh_layouts();
         self.schedule_redraw();
         let appearance = self.appearance_json();
         self.ipc_event("config", appearance);
         warnings
+    }
+}
+
+impl Boswas {
+    /// Re-reads the layout names from the keymap (after it was set) and
+    /// tells the shell when the list or the active layout changed.
+    pub fn refresh_layouts(&mut self) {
+        let keyboard = self.keyboard.clone();
+        let layouts = keyboard.with_xkb_state(self, |context| {
+            let xkb = context.xkb().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            let names: Vec<String> = xkb.layouts().map(|layout| xkb.layout_name(layout).to_owned()).collect();
+            (names, xkb.active_layout().0)
+        });
+        if layouts != self.layouts {
+            self.layouts = layouts;
+            let layout = self.layout_json();
+            self.ipc_event("layout", layout);
+        }
+    }
+
+    /// Whether the screens are tinted right now: night light is switched on
+    /// and, with a schedule, the clock is inside it.
+    pub fn night_light_active(&self) -> bool {
+        use chrono::Timelike;
+        let now = chrono::Local::now();
+        let settings = crate::config::NightLight {
+            enabled: self.night_light.0,
+            temperature: self.night_light.1,
+            ..self.config.night_light.clone()
+        };
+        settings.active_at(now.hour() * 60 + now.minute())
+    }
+
+    /// Switches night light on or off and sets its colour temperature.
+    pub fn set_night_light(&mut self, enabled: bool, temperature: Option<u32>) {
+        let temperature = temperature.unwrap_or(self.night_light.1).clamp(2500, 6500);
+        self.night_light = (enabled, temperature);
+        self.apply_night_light();
+        let state = self.night_light_json();
+        self.ipc_event("night-light", state);
+    }
+
+    /// Brings the outputs' colour in line with the night light state. Called
+    /// on changes and once a second for the schedule.
+    pub fn apply_night_light(&mut self) {
+        let wanted = self.night_light_active().then_some(self.night_light.1);
+        if wanted != self.night_light_applied {
+            self.night_light_applied = wanted;
+            self.backend.set_color_temperature(wanted);
+            self.schedule_redraw();
+        }
     }
 }
 

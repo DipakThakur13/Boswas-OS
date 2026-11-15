@@ -32,7 +32,11 @@ use smithay::{
         egl::{context::ContextPriority, EGLContext, EGLDisplay},
         input::InputEvent,
         libinput::{LibinputInputBackend, LibinputSessionInterface},
-        renderer::{gles::GlesRenderer, ImportDma, ImportMemWl},
+        renderer::{
+            element::memory::MemoryRenderBuffer,
+            gles::{GlesRenderer, GlesTexture},
+            ImportDma, ImportMemWl,
+        },
         session::{libseat::LibSeatSession, Event as SessionEvent, Session},
         udev::{all_gpus, primary_gpu, UdevBackend, UdevEvent},
     },
@@ -99,8 +103,12 @@ pub struct Udev {
     session: LibSeatSession,
     device: Option<Device>,
     clock: Clock<Monotonic>,
-    keyboards: Vec<smithay::reexports::input::Device>,
+    /// Every input device, to mirror keyboard LEDs and to apply settings
+    /// again when the configuration changes.
+    inputs: Vec<smithay::reexports::input::Device>,
     active: bool,
+    /// The night light colour temperature the outputs should show.
+    temperature: Option<u32>,
 }
 
 /// Opens the session, the primary GPU and the input devices.
@@ -122,8 +130,9 @@ pub fn init(state: &mut Boswas) -> Result<(), Box<dyn std::error::Error>> {
         session: session.clone(),
         device: None,
         clock: Clock::new(),
-        keyboards: Vec::new(),
+        inputs: Vec::new(),
         active: true,
+        temperature: None,
     }));
     with_udev(state, |udev, state| udev.add_device(state, &gpu))?;
 
@@ -136,17 +145,17 @@ pub fn init(state: &mut Boswas) -> Result<(), Box<dyn std::error::Error>> {
     state.loop_handle.insert_source(input_backend, |mut event, _, state| {
         match &mut event {
             InputEvent::DeviceAdded { device } => {
-                configure_input_device(device, state);
+                configure_input_device(device, &state.config);
                 if device.has_capability(DeviceCapability::Keyboard) {
                     device.led_update(state.keyboard.led_state().into());
-                    if let Backend::Udev(udev) = &mut state.backend {
-                        udev.keyboards.push(device.clone());
-                    }
+                }
+                if let Backend::Udev(udev) = &mut state.backend {
+                    udev.inputs.push(device.clone());
                 }
             }
             InputEvent::DeviceRemoved { device } => {
                 if let Backend::Udev(udev) = &mut state.backend {
-                    udev.keyboards.retain(|keyboard| keyboard != device);
+                    udev.inputs.retain(|known| known != device);
                 }
             }
             _ => {}
@@ -252,17 +261,60 @@ pub fn tick(state: &mut Boswas) {
     });
 }
 
-fn configure_input_device(device: &mut smithay::reexports::input::Device, state: &Boswas) {
-    let config = &state.config.pointer;
-    if device.config_tap_finger_count() > 0 {
-        let _ = device.config_tap_set_enabled(config.tap_to_click);
+/// Applies the `[pointer]` or `[touchpad]` settings to a device. A device
+/// that can tap is a touchpad; settings a device does not have are skipped.
+fn configure_input_device(device: &mut smithay::reexports::input::Device, config: &crate::config::Config) {
+    use smithay::reexports::input::AccelProfile;
+    if !device.has_capability(DeviceCapability::Pointer) {
+        return;
     }
+    let touchpad = device.config_tap_finger_count() > 0;
+    let (natural, speed) = if touchpad {
+        (config.touchpad.natural_scroll, config.touchpad.accel_speed)
+    } else {
+        (config.pointer.natural_scroll, config.pointer.accel_speed)
+    };
     if device.config_scroll_has_natural_scroll() {
-        let _ = device.config_scroll_set_natural_scroll_enabled(config.natural_scroll);
+        let _ = device.config_scroll_set_natural_scroll_enabled(natural);
     }
     if device.config_accel_is_available() {
-        let _ = device.config_accel_set_speed(config.accel_speed);
+        let _ = device.config_accel_set_speed(speed);
     }
+    if touchpad {
+        let _ = device.config_tap_set_enabled(config.touchpad.tap_to_click);
+        if device.config_dwt_is_available() {
+            let _ = device.config_dwt_set_enabled(config.touchpad.disable_while_typing);
+        }
+    } else {
+        let profile = if config.pointer.accel_profile == "flat" {
+            AccelProfile::Flat
+        } else {
+            AccelProfile::Adaptive
+        };
+        if device.config_accel_profiles().contains(&profile) {
+            let _ = device.config_accel_set_profile(profile);
+        }
+    }
+    if device.config_left_handed_is_available() {
+        let _ = device.config_left_handed_set(!touchpad && config.pointer.left_handed);
+    }
+}
+
+/// The red, green and blue gains of a colour temperature in kelvin
+/// (6500 K is neutral; lower is warmer), after Tanner Helland's fit of the
+/// black-body curve.
+pub fn temperature_gains(kelvin: u32) -> [f64; 3] {
+    let t = f64::from(kelvin.clamp(1000, 6500)) / 100.0;
+    let green = (99.470_802_586_1 * t.ln() - 161.119_568_166_1) / 255.0;
+    let blue = if t <= 19.0 {
+        0.0
+    } else {
+        (138.517_731_223_1 * (t - 10.0).ln() - 305.044_792_730_7) / 255.0
+    };
+    // Normalise so that 6500 K leaves the picture untouched.
+    let neutral_green = (99.470_802_586_1 * 65f64.ln() - 161.119_568_166_1) / 255.0;
+    let neutral_blue = (138.517_731_223_1 * 55f64.ln() - 305.044_792_730_7) / 255.0;
+    [1.0, (green / neutral_green).clamp(0.0, 1.0), (blue / neutral_blue).clamp(0.0, 1.0)]
 }
 
 impl Udev {
@@ -279,8 +331,39 @@ impl Udev {
     }
 
     pub fn update_leds(&mut self, leds: LedState) {
-        for keyboard in &mut self.keyboards {
-            keyboard.led_update(leds.into());
+        for device in &mut self.inputs {
+            if device.has_capability(DeviceCapability::Keyboard) {
+                device.led_update(leds.into());
+            }
+        }
+    }
+
+    pub fn snapshot(
+        &mut self,
+        state: &Boswas,
+        window: &crate::shell::element::WindowElement,
+    ) -> Option<(MemoryRenderBuffer, smithay::utils::Rectangle<f64, smithay::utils::Logical>)> {
+        let device = self.device.as_mut()?;
+        super::snapshot::<_, GlesTexture>(&mut device.renderer, Fourcc::Abgr8888, state, window)
+    }
+
+    /// Applies the input settings of a changed configuration to the devices
+    /// that are already connected.
+    pub fn config_changed(&mut self, config: &crate::config::Config) {
+        for device in &mut self.inputs {
+            configure_input_device(device, config);
+        }
+    }
+
+    /// Night light: loads a gamma ramp for the colour temperature on every
+    /// output (`None`: the neutral ramp).
+    pub fn set_color_temperature(&mut self, temperature: Option<u32>) {
+        self.temperature = temperature;
+        let Some(device) = &self.device else {
+            return;
+        };
+        for crtc in device.surfaces.keys() {
+            load_gamma(device.manager.device(), *crtc, temperature);
         }
     }
 
@@ -296,11 +379,8 @@ impl Udev {
         let mut outputs: Vec<Output> = device.surfaces.values().map(|s| s.output.clone()).collect();
         outputs.sort_by_key(Output::name);
         for request in requests {
-            let result = match outputs.first() {
-                Some(output) => super::capture_gles(&mut device.renderer, state, output)
-                    .and_then(|(w, h, rgba)| super::write_png(&request.path, w, h, rgba)),
-                None => Err("no output is connected".into()),
-            };
+            let result =
+                super::capture::<_, GlesTexture>(&mut device.renderer, Fourcc::Abgr8888, state, &outputs, &request);
             state.ipc_screenshot_done(request, result);
         }
     }
@@ -321,7 +401,9 @@ impl Udev {
         let context = EGLContext::new_with_priority(&display, ContextPriority::High)?;
         // SAFETY: the context was just created for this thread and is used
         // by this renderer only.
-        let renderer = unsafe { GlesRenderer::new(context)? };
+        let mut renderer = unsafe { GlesRenderer::new(context)? };
+        crate::effects::init_gles(&mut renderer);
+        state.rounds_corners = true;
 
         let token = state.loop_handle.insert_source(notifier, move |event, metadata, state| match event {
             DrmEvent::VBlank(crtc) => {
@@ -456,7 +538,7 @@ impl Udev {
             return;
         }
         let output = surface.output.clone();
-        state.update_decorations();
+        state.prepare_frame();
         let (elements, clear) = state.output_elements(&mut device.renderer, &output);
         let result = surface
             .drm_output
@@ -542,6 +624,26 @@ impl Udev {
     }
 }
 
+/// Loads the gamma ramp of a colour temperature on one CRTC.
+fn load_gamma(drm: &DrmDevice, crtc: crtc::Handle, temperature: Option<u32>) {
+    let size = match drm.get_crtc(crtc) {
+        Ok(info) => info.gamma_length() as usize,
+        Err(err) => return debug!("no gamma information for {crtc:?}: {err}"),
+    };
+    if size < 2 {
+        return debug!("{crtc:?} has no gamma ramp; night light cannot tint this output");
+    }
+    let gains = temperature.map_or([1.0; 3], temperature_gains);
+    let ramp = |gain: f64| -> Vec<u16> {
+        (0..size)
+            .map(|i| (i as f64 / (size - 1) as f64 * gain * f64::from(u16::MAX)).round() as u16)
+            .collect()
+    };
+    if let Err(err) = drm.set_gamma(crtc, &ramp(gains[0]), &ramp(gains[1]), &ramp(gains[2])) {
+        warn!("could not load the night light gamma ramp: {err}");
+    }
+}
+
 /// Creates the output for a newly connected monitor.
 fn connect(
     device: &mut Device,
@@ -590,6 +692,9 @@ fn connect(
         )
         .map_err(|err| format!("{err}"))?;
     let global = output.create_global::<Boswas>(&state.display_handle);
+    if state.night_light_applied.is_some() {
+        load_gamma(device.manager.device(), crtc, state.night_light_applied);
+    }
     info!("output {name}: {}x{} @ {} mHz", output_mode.size.w, output_mode.size.h, output_mode.refresh);
     device.surfaces.insert(
         crtc,

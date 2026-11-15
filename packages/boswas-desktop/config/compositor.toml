@@ -11,10 +11,21 @@ repeat_delay = 400
 repeat_rate = 30
 
 [pointer]
-tap_to_click = true
+# Mice and trackballs.
 natural_scroll = false
+accel_speed = 0.0
+accel_profile = "adaptive"
+left_handed = false
 cursor_theme = "breeze_cursors"
 cursor_size = 24
+
+[touchpad]
+tap_to_click = true
+natural_scroll = true
+accel_speed = 0.0
+disable_while_typing = true
+# Three fingers sideways: the next desktop. Three fingers up: Task View.
+gestures = true
 
 [output]
 scale = 1.0
@@ -30,6 +41,19 @@ command = ["/usr/libexec/boswas/boswas-shell"]
 [apps]
 terminal = ["konsole"]
 files = ["dolphin"]
+settings = ["boswas-control-center"]
+task_manager = ["boswas-task-manager"]
+
+[night_light]
+enabled = false
+temperature = 4500
+scheduled = false
+from = "20:00"
+to = "06:00"
+
+[power]
+# The screens turn off after five minutes without input.
+screen_off_seconds = 300
 
 [appearance]
 scheme = "dark"

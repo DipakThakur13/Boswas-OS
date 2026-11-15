@@ -1,11 +1,12 @@
 //! Assembling the picture of one output.
 //!
-//! Front to back: pointer, drag icon, snap preview, then either the lock
-//! surface (nothing else is drawn while the session is locked), a
-//! fullscreen window under the overlay layer, or the desktop: overlay and
-//! top layers, windows with their frames, bottom and background layers.
+//! Front to back: pointer, drag icon, then either the lock surface (nothing
+//! else is drawn while the session is locked) or the desktop: the window
+//! switcher, the snap preview, the overlay layer, a fullscreen window if
+//! there is one, the top layer (the taskbar), Task View or the windows with
+//! their frames, and the bottom and background layers (the wallpaper).
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use smithay::{
     backend::renderer::{
@@ -13,13 +14,13 @@ use smithay::{
             memory::MemoryRenderBufferRenderElement,
             solid::{SolidColorBuffer, SolidColorRenderElement},
             surface::{render_elements_from_surface_tree, WaylandSurfaceRenderElement},
+            utils::{Relocate, RelocateRenderElement, RescaleRenderElement},
             AsRenderElements, Kind, RenderElement, RenderElementStates, Wrap,
         },
-        Color32F, ImportAll, ImportMem, Renderer, Texture,
+        Color32F, Renderer, Texture,
     },
     desktop::{
         layer_map_for_output,
-        space::{space_render_elements, SpaceRenderElements},
         utils::{
             surface_presentation_feedback_flags_from_states, surface_primary_scanout_output,
             update_surface_primary_scanout_output, OutputPresentationFeedback,
@@ -29,7 +30,7 @@ use smithay::{
     output::Output,
     reexports::wayland_server::protocol::wl_surface::WlSurface,
     render_elements,
-    utils::{IsAlive, Point, Scale},
+    utils::{IsAlive, Logical, Physical, Point, Rectangle, Scale, Size},
     wayland::{
         compositor::{with_states, with_surface_tree_downward, SurfaceAttributes, TraversalAction},
         fractional_scale::with_fractional_scale,
@@ -38,14 +39,18 @@ use smithay::{
 };
 
 use crate::{
+    effects::BoswasRenderer,
     shell::element::{WindowElement, WindowRenderElement},
     state::Boswas,
 };
 
+/// A window drawn somewhere else, or at another size, than where it is.
+pub type MovedElement<E> = RelocateRenderElement<RescaleRenderElement<E>>;
+
 render_elements! {
-    pub OutputElement<R, E> where R: ImportAll + ImportMem;
-    Space=SpaceRenderElements<R, E>,
+    pub OutputElement<R, E> where R: BoswasRenderer;
     Window=Wrap<E>,
+    Moved=MovedElement<E>,
     Surface=WaylandSurfaceRenderElement<R>,
     Memory=MemoryRenderBufferRenderElement<R>,
     Solid=SolidColorRenderElement,
@@ -54,11 +59,14 @@ render_elements! {
 /// The elements of one output.
 pub type OutputRenderElement<R> = OutputElement<R, WindowRenderElement<R>>;
 
-impl<R: Renderer + ImportAll + ImportMem, E: RenderElement<R>> std::fmt::Debug for OutputElement<R, E> {
+impl<R: Renderer + BoswasRenderer, E: RenderElement<R>> std::fmt::Debug for OutputElement<R, E>
+where
+    R::TextureId: Texture + 'static,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
-            Self::Space(_) => "Space",
             Self::Window(_) => "Window",
+            Self::Moved(_) => "Moved",
             Self::Surface(_) => "Surface",
             Self::Memory(_) => "Memory",
             Self::Solid(_) => "Solid",
@@ -74,11 +82,26 @@ pub struct Overlays {
 }
 
 impl Boswas {
+    /// Brings everything the next frame shows up to date: frame artwork,
+    /// and animations that have run their course. Backends call this
+    /// before [`Boswas::output_elements`].
+    pub fn prepare_frame(&mut self) {
+        let now = Instant::now();
+        self.ghosts.retain(|ghost| !ghost.timeline.finished(now));
+        self.overview_tick();
+        self.update_decorations();
+    }
+
+    /// Whether animations are switched off.
+    pub fn reduced_motion(&self) -> bool {
+        self.config.appearance.reduced_motion
+    }
+
     /// The render elements of an output, front to back, and its clear
-    /// colour. Call [`Boswas::update_decorations`] first.
+    /// colour. Call [`Boswas::prepare_frame`] first.
     pub fn output_elements<R>(&mut self, renderer: &mut R, output: &Output) -> (Vec<OutputRenderElement<R>>, Color32F)
     where
-        R: Renderer + ImportAll + ImportMem,
+        R: BoswasRenderer,
         R::TextureId: Clone + Send + Texture + 'static,
     {
         let scale = Scale::from(output.current_scale().fractional_scale());
@@ -106,6 +129,8 @@ impl Boswas {
             return (elements, background);
         }
 
+        self.switcher_elements(renderer, output, scale, &mut elements);
+
         if let Some(rect) = self.snap_preview.filter(|rect| rect.overlaps(output_geo)) {
             let accent = self.theme.accent;
             self.overlays.snap_preview.update(rect.size, Color32F::from(accent.alpha(0.28).to_premultiplied_f32()));
@@ -119,27 +144,15 @@ impl Boswas {
             )));
         }
 
-        if let Some(window) = self.fullscreen_window(output) {
-            let layers = layer_map_for_output(output);
-            for layer in layers.layers_on(Layer::Overlay).rev() {
-                if let Some(geo) = layers.layer_geometry(layer) {
-                    elements.extend(
-                        AsRenderElements::<R>::render_elements::<WaylandSurfaceRenderElement<R>>(
-                            layer,
-                            renderer,
-                            geo.loc.to_physical_precise_round(scale),
-                            scale,
-                            1.0,
-                        )
-                        .into_iter()
-                        .map(OutputRenderElement::Surface),
-                    );
-                }
-            }
+        layer_elements(renderer, output, Layer::Overlay, scale, &mut elements);
+
+        let fullscreen = self.fullscreen_window(output).filter(|_| self.overview.is_none());
+        if let Some(window) = fullscreen {
             if let Some(origin) = self.window_origin(&window) {
                 let location = (origin - output_geo.loc).to_physical_precise_round(scale);
                 elements.extend(
-                    AsRenderElements::<R>::render_elements::<WindowRenderElement<R>>(&window, renderer, location, scale, 1.0)
+                    window
+                        .elements(renderer, location, scale, 1.0, false)
                         .into_iter()
                         .map(|e| OutputRenderElement::Window(Wrap::from(e))),
                 );
@@ -147,11 +160,85 @@ impl Boswas {
             return (elements, Color32F::BLACK);
         }
 
-        match space_render_elements::<_, WindowElement, _>(renderer, [&self.space], output, 1.0) {
-            Ok(space) => elements.extend(space.into_iter().map(OutputRenderElement::Space)),
-            Err(_) => tracing::warn!("output {} has no mode; nothing to draw", output.name()),
+        layer_elements(renderer, output, Layer::Top, scale, &mut elements);
+        if self.overview.is_some() {
+            self.overview_elements(renderer, output, scale, &mut elements);
+        } else {
+            self.window_elements(renderer, output, scale, &mut elements);
         }
+        layer_elements(renderer, output, Layer::Bottom, scale, &mut elements);
+        layer_elements(renderer, output, Layer::Background, scale, &mut elements);
         (elements, background)
+    }
+
+    /// The windows of an output, and in front of them the pictures of the
+    /// windows that are on their way out.
+    fn window_elements<R>(
+        &mut self,
+        renderer: &mut R,
+        output: &Output,
+        scale: Scale<f64>,
+        elements: &mut Vec<OutputRenderElement<R>>,
+    ) where
+        R: BoswasRenderer,
+        R::TextureId: Clone + Send + Texture + 'static,
+    {
+        let Some(output_geo) = self.space.output_geometry(output) else {
+            return;
+        };
+        let now = Instant::now();
+        let reduced = self.reduced_motion();
+
+        for ghost in &self.ghosts {
+            let Some(pose) = ghost.pose(now) else {
+                continue;
+            };
+            if !pose.rect.overlaps(output_geo.to_f64()) || pose.rect.size.w < 1.0 || pose.rect.size.h < 1.0 {
+                continue;
+            }
+            let location: Point<f64, Physical> = (pose.rect.loc - output_geo.loc.to_f64()).to_physical(scale);
+            let size: Size<i32, Logical> = Size::from((pose.rect.size.w.round() as i32, pose.rect.size.h.round() as i32));
+            if let Ok(element) = MemoryRenderBufferRenderElement::from_buffer(
+                renderer,
+                location,
+                &ghost.buffer,
+                Some(pose.alpha),
+                None,
+                Some(size),
+                Kind::Unspecified,
+            ) {
+                elements.push(OutputRenderElement::Memory(element));
+            }
+        }
+
+        let windows: Vec<WindowElement> = self.space.elements_for_output(output).cloned().collect();
+        for window in windows.iter().rev() {
+            let (Some(origin), Some(rect)) = (self.window_origin(window), self.window_rect(window)) else {
+                continue;
+            };
+            let animation = window.data().animation.get().filter(|_| !reduced);
+            match animation.and_then(|animation| animation.pose(rect.to_f64(), now)) {
+                Some(pose) => {
+                    let mut local = pose.rect;
+                    local.loc -= output_geo.loc.to_f64();
+                    elements.extend(
+                        placed(renderer, window, local, scale, pose.alpha, true)
+                            .into_iter()
+                            .map(OutputRenderElement::Moved),
+                    );
+                }
+                None => {
+                    window.data().animation.set(None);
+                    let location = (origin - output_geo.loc).to_physical_precise_round(scale);
+                    elements.extend(
+                        window
+                            .elements(renderer, location, scale, 1.0, true)
+                            .into_iter()
+                            .map(|e| OutputRenderElement::Window(Wrap::from(e))),
+                    );
+                }
+            }
+        }
     }
 
     fn cursor_elements<R>(
@@ -161,7 +248,7 @@ impl Boswas {
         scale: Scale<f64>,
         elements: &mut Vec<OutputRenderElement<R>>,
     ) where
-        R: Renderer + ImportAll + ImportMem,
+        R: BoswasRenderer,
         R::TextureId: Clone + Send + Texture + 'static,
     {
         let Some(output_geo) = self.space.output_geometry(output) else {
@@ -227,6 +314,77 @@ impl Boswas {
                 Kind::Unspecified,
             ));
         }
+    }
+
+    /// The render elements of a window's thumbnail: its frame with the
+    /// top-left corner at the origin, scaled down to `width` pixels (never
+    /// up), and the thumbnail's size.
+    #[allow(clippy::type_complexity)]
+    pub fn thumbnail_elements<R>(
+        &mut self,
+        renderer: &mut R,
+        id: u64,
+        width: u32,
+    ) -> Result<(Vec<MovedElement<WindowRenderElement<R>>>, Size<i32, Physical>), String>
+    where
+        R: BoswasRenderer,
+        R::TextureId: Clone + Send + Texture + 'static,
+    {
+        let window = self.window_by_id(id).ok_or("no such window")?;
+        let frame = window.frame();
+        if frame.size.w <= 0 || frame.size.h <= 0 {
+            return Err("the window has no content yet".into());
+        }
+        let factor = (f64::from(width.clamp(16, 1024)) / f64::from(frame.size.w)).min(1.0);
+        let size = Size::from((
+            ((f64::from(frame.size.w) * factor).round() as i32).max(1),
+            ((f64::from(frame.size.h) * factor).round() as i32).max(1),
+        ));
+        let target = Rectangle::new(Point::from((0.0, 0.0)), Size::from((f64::from(size.w), f64::from(size.h))));
+        Ok((placed(renderer, &window, target, Scale::from(1.0), 1.0, false), size))
+    }
+
+    /// What a picture of a window for its exit animation is made of: the
+    /// elements, the picture's size in pixels, the part of the desktop it
+    /// covers and the scale it is drawn at. `None` when the window has
+    /// nothing to show any more.
+    #[allow(clippy::type_complexity)]
+    pub fn snapshot_elements<R>(
+        &self,
+        renderer: &mut R,
+        window: &WindowElement,
+    ) -> Option<(Vec<WindowRenderElement<R>>, Size<i32, Physical>, Rectangle<f64, Logical>, f64)>
+    where
+        R: BoswasRenderer,
+        R::TextureId: Clone + Send + Texture + 'static,
+    {
+        if !window.alive() {
+            return None;
+        }
+        let data = window.data();
+        let frame = window.frame();
+        if frame.size.w <= 0 || frame.size.h <= 0 {
+            return None;
+        }
+        let rect = self
+            .window_rect(window)
+            .unwrap_or_else(|| Rectangle::new(data.location.get(), frame.size));
+        let scale = self
+            .output_for_rect(rect)
+            .map_or(1.0, |output| output.current_scale().fractional_scale());
+        let margin = data.decoration.borrow().shadow_margin(window);
+        let covered = Rectangle::new(
+            rect.loc - Point::from((margin, margin)),
+            rect.size + Size::from((2 * margin, 2 * margin)),
+        );
+        let size: Size<i32, Physical> = covered.size.to_f64().to_physical(scale).to_i32_ceil();
+        if size.w <= 0 || size.h <= 0 || size.w > 16384 || size.h > 16384 {
+            return None;
+        }
+        let origin: Point<i32, Physical> =
+            (Point::<i32, Logical>::from((margin, margin)) - frame.loc).to_physical_precise_round(scale);
+        let elements = window.elements(renderer, origin, Scale::from(scale), 1.0, margin > 0);
+        (!elements.is_empty()).then_some((elements, size, covered.to_f64(), scale))
     }
 
     /// Every surface tree that is shown on an output.
@@ -316,11 +474,92 @@ impl Boswas {
         feedback
     }
 
-    /// Whether something on screen animates without client commits (an
-    /// animated cursor), so outputs must keep producing frames.
+    /// Whether something on screen changes without client commits (an
+    /// animated cursor, a window animation, the switcher about to appear),
+    /// so outputs must keep producing frames.
     pub fn needs_continuous_frames(&self) -> bool {
-        matches!(&self.cursor_status, CursorImageStatus::Named(icon) if self.cursor_theme.is_animated(*icon))
+        if matches!(&self.cursor_status, CursorImageStatus::Named(icon) if self.cursor_theme.is_animated(*icon)) {
+            return true;
+        }
+        if self.reduced_motion() {
+            return false;
+        }
+        !self.ghosts.is_empty()
+            || self.space.elements().any(|window| window.data().animation.get().is_some())
+            || self.switcher_animating()
+            || self.overview_animating()
     }
+}
+
+/// The surfaces of one layer of an output, front to back.
+fn layer_elements<R>(
+    renderer: &mut R,
+    output: &Output,
+    layer: Layer,
+    scale: Scale<f64>,
+    elements: &mut Vec<OutputRenderElement<R>>,
+) where
+    R: BoswasRenderer,
+    R::TextureId: Clone + Send + Texture + 'static,
+{
+    let layers = layer_map_for_output(output);
+    for surface in layers.layers_on(layer).rev() {
+        let Some(geo) = layers.layer_geometry(surface) else {
+            continue;
+        };
+        elements.extend(
+            AsRenderElements::<R>::render_elements::<WaylandSurfaceRenderElement<R>>(
+                surface,
+                renderer,
+                geo.loc.to_physical_precise_round(scale),
+                scale,
+                1.0,
+            )
+            .into_iter()
+            .map(OutputRenderElement::Surface),
+        );
+    }
+}
+
+/// A window drawn so that its frame fills `target` (output-local logical
+/// coordinates) as far as its proportions allow, centred in it.
+pub fn placed<R>(
+    renderer: &mut R,
+    window: &WindowElement,
+    target: Rectangle<f64, Logical>,
+    scale: Scale<f64>,
+    alpha: f32,
+    shadow: bool,
+) -> Vec<MovedElement<WindowRenderElement<R>>>
+where
+    R: BoswasRenderer,
+    R::TextureId: Clone + Send + Texture + 'static,
+{
+    let frame = window.frame();
+    if frame.size.w <= 0 || frame.size.h <= 0 || target.size.w <= 0.0 || target.size.h <= 0.0 {
+        return Vec::new();
+    }
+    let factor = (target.size.w / f64::from(frame.size.w)).min(target.size.h / f64::from(frame.size.h));
+    let drawn = (f64::from(frame.size.w) * factor, f64::from(frame.size.h) * factor);
+    let corner: Point<f64, Logical> = Point::from((
+        target.loc.x + (target.size.w - drawn.0) / 2.0,
+        target.loc.y + (target.size.h - drawn.1) / 2.0,
+    ));
+    // Drawn with the frame's corner at the origin, scaled about the origin,
+    // then moved into place.
+    let origin: Point<i32, Physical> = (Point::<i32, Logical>::from((0, 0)) - frame.loc).to_physical_precise_round(scale);
+    let offset: Point<i32, Physical> = corner.to_physical(scale).to_i32_round();
+    window
+        .elements(renderer, origin, scale, alpha, shadow)
+        .into_iter()
+        .map(|element| {
+            RelocateRenderElement::from_element(
+                RescaleRenderElement::from_element(element, Point::from((0, 0)), factor),
+                offset,
+                Relocate::Relative,
+            )
+        })
+        .collect()
 }
 
 /// Sends the frame callbacks of a surface tree that is not a window.

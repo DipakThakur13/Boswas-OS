@@ -24,7 +24,7 @@ udev = [
 winit = ["smithay/backend_winit", "smithay/renderer_gl"]
 
 [dependencies]
-boswas-ui = { workspace = true, features = ["text"] }
+boswas-ui = { workspace = true, features = ["text", "icons"] }
 serde.workspace = true
 serde_json.workspace = true
 tiny-skia.workspace = true
@@ -35,6 +35,7 @@ toml = { version = "0.8", default-features = false, features = ["parse"] }
 png = "0.17"
 xcursor = "0.3"
 rustix = { version = "1", features = ["fs", "net", "process", "time"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
 [dependencies.smithay]
 version = "0.7"

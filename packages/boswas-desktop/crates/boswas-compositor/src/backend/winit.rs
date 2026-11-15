@@ -6,12 +6,18 @@ use std::time::Duration;
 use smithay::{
     backend::{
         allocator::dmabuf::Dmabuf,
-        renderer::{damage::OutputDamageTracker, gles::GlesRenderer, ImportDma, ImportMemWl},
+        allocator::Fourcc,
+        renderer::{
+            damage::OutputDamageTracker,
+            element::memory::MemoryRenderBuffer,
+            gles::{GlesRenderer, GlesTexture},
+            ImportDma, ImportMemWl,
+        },
         winit::{self, WinitEvent, WinitGraphicsBackend},
     },
     output::{Mode, Output, PhysicalProperties, Scale, Subpixel},
     reexports::wayland_protocols::wp::presentation_time::server::wp_presentation_feedback,
-    utils::{Clock, Monotonic, Rectangle, Transform},
+    utils::{Clock, Logical, Monotonic, Rectangle, Transform},
     wayland::{dmabuf::DmabufFeedbackBuilder, presentation::Refresh},
 };
 use tracing::warn;
@@ -29,6 +35,8 @@ pub struct Winit {
 
 pub fn init(state: &mut Boswas) -> Result<(), Box<dyn std::error::Error>> {
     let (mut backend, winit) = winit::init::<GlesRenderer>().map_err(|e| format!("could not open a window: {e}"))?;
+    crate::effects::init_gles(backend.renderer());
+    state.rounds_corners = true;
     let mode = Mode {
         size: backend.window_size(),
         refresh: 60_000,
@@ -114,9 +122,17 @@ impl Winit {
         self.backend.window().request_redraw();
     }
 
+    pub fn snapshot(
+        &mut self,
+        state: &Boswas,
+        window: &crate::shell::element::WindowElement,
+    ) -> Option<(MemoryRenderBuffer, Rectangle<f64, Logical>)> {
+        super::snapshot::<_, GlesTexture>(self.backend.renderer(), Fourcc::Abgr8888, state, window)
+    }
+
     fn render(&mut self, state: &mut Boswas) {
         state.redraw = false;
-        state.update_decorations();
+        state.prepare_frame();
         let size = self.backend.window_size();
         let age = self.backend.buffer_age().unwrap_or(0);
         let states = {
@@ -135,8 +151,14 @@ impl Winit {
         }
 
         for request in std::mem::take(&mut state.ipc.screenshots) {
-            let result = super::capture_gles(self.backend.renderer(), state, &self.output)
-                .and_then(|(w, h, rgba)| super::write_png(&request.path, w, h, rgba));
+            let outputs = [self.output.clone()];
+            let result = super::capture::<_, GlesTexture>(
+                self.backend.renderer(),
+                Fourcc::Abgr8888,
+                state,
+                &outputs,
+                &request,
+            );
             state.ipc_screenshot_done(request, result);
         }
 

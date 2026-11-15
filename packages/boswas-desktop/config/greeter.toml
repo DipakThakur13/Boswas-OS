@@ -17,6 +17,11 @@ command = ["/usr/libexec/boswas/boswas-shell", "--greeter"]
 [apps]
 terminal = []
 files = []
+settings = []
+task_manager = []
+
+[power]
+screen_off_seconds = 300
 
 [policy]
 lock_idle_max_seconds = 0

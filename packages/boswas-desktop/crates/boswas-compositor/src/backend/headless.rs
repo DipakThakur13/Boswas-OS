@@ -10,8 +10,9 @@ use smithay::{
         allocator::Fourcc,
         renderer::{
             damage::OutputDamageTracker,
+            element::memory::MemoryRenderBuffer,
             pixman::PixmanRenderer,
-            Bind, ExportMem, ImportMemWl, Offscreen,
+            Bind, ImportMemWl, Offscreen,
         },
     },
     output::{Mode, Output, PhysicalProperties, Scale, Subpixel},
@@ -20,7 +21,7 @@ use smithay::{
         pixman::Image,
         wayland_protocols::wp::presentation_time::server::wp_presentation_feedback,
     },
-    utils::{Clock, Monotonic, Rectangle, Size, Transform},
+    utils::{Clock, Logical, Monotonic, Rectangle, Size, Transform},
 };
 use tracing::warn;
 
@@ -35,7 +36,6 @@ pub struct Headless {
     target: Image<'static, 'static>,
     output: Output,
     damage: OutputDamageTracker,
-    size: Size<i32, smithay::utils::Physical>,
     clock: Clock<Monotonic>,
     sequence: u64,
 }
@@ -80,7 +80,6 @@ pub fn init(state: &mut Boswas, width: i32, height: i32) -> Result<(), Box<dyn s
         target,
         output,
         damage,
-        size,
         clock: Clock::new(),
         sequence: 0,
     }));
@@ -99,8 +98,16 @@ pub fn init(state: &mut Boswas, width: i32, height: i32) -> Result<(), Box<dyn s
 }
 
 impl Headless {
+    pub fn snapshot(
+        &mut self,
+        state: &Boswas,
+        window: &crate::shell::element::WindowElement,
+    ) -> Option<(MemoryRenderBuffer, Rectangle<f64, Logical>)> {
+        super::snapshot::<_, Image<'static, 'static>>(&mut self.renderer, Fourcc::Argb8888, state, window)
+    }
+
     fn render(&mut self, state: &mut Boswas) {
-        state.update_decorations();
+        state.prepare_frame();
         let (elements, clear) = state.output_elements(&mut self.renderer, &self.output);
         let states = {
             let mut framebuffer = match self.renderer.bind(&mut self.target) {
@@ -128,22 +135,15 @@ impl Headless {
         );
 
         for request in std::mem::take(&mut state.ipc.screenshots) {
-            let result = self.screenshot(&request.path);
+            let outputs = [self.output.clone()];
+            let result = super::capture::<_, Image<'static, 'static>>(
+                &mut self.renderer,
+                Fourcc::Argb8888,
+                state,
+                &outputs,
+                &request,
+            );
             state.ipc_screenshot_done(request, result);
         }
-    }
-
-    /// Writes the current output content as an RGBA PNG.
-    fn screenshot(&mut self, path: &std::path::Path) -> Result<(), String> {
-        let (w, h) = (self.size.w, self.size.h);
-        let bytes = {
-            let framebuffer = self.renderer.bind(&mut self.target).map_err(|e| e.to_string())?;
-            let mapping = self
-                .renderer
-                .copy_framebuffer(&framebuffer, Rectangle::from_size(Size::from((w, h))), Fourcc::Abgr8888)
-                .map_err(|e| e.to_string())?;
-            self.renderer.map_texture(&mapping).map_err(|e| e.to_string())?.to_vec()
-        };
-        super::write_png(path, w as u32, h as u32, bytes)
     }
 }

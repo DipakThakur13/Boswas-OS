@@ -12,9 +12,10 @@
 //! Connections are either trusted (the descriptor the compositor handed to a
 //! program it started itself: the shell, the lock screen) or public (the
 //! socket file in `XDG_RUNTIME_DIR`). Public connections can ask for the
-//! version, lock the session and have the configuration re-read, nothing
-//! else: the window list, window control and screenshots are for the shell
-//! only.
+//! version, lock the session, have the configuration re-read, list the
+//! outputs and start the interactive capture (which the user completes or
+//! cancels on screen), nothing else: the window list, window control and
+//! silent screenshots are for the shell only.
 
 use std::{
     io::{ErrorKind, Read, Write},
@@ -46,11 +47,20 @@ struct Connection {
     subscribed: bool,
 }
 
-/// A screenshot waiting for the next frame.
+/// What a capture request wants a picture of.
+pub enum CaptureTarget {
+    /// An output by name, or the first one.
+    Output(Option<String>),
+    /// A window's current content, scaled down to `width` pixels.
+    Window { id: u64, width: u32 },
+}
+
+/// A screenshot or thumbnail waiting for the next frame.
 pub struct ScreenshotRequest {
     pub connection: u64,
     pub request_id: Value,
     pub path: PathBuf,
+    pub target: CaptureTarget,
 }
 
 #[derive(Default)]
@@ -244,14 +254,24 @@ impl Boswas {
                     let data = window.data();
                     let size = window.frame().size;
                     let location = data.location.get();
+                    let tile = data.tile.get();
+                    let output = self
+                        .output_for_rect(smithay::utils::Rectangle::new(location, size))
+                        .map(|o| o.name())
+                        .unwrap_or_default();
                     json!({
                         "id": data.id,
                         "title": window.title(),
                         "app_id": window.app_id(),
                         "active": focused == Some(data.id),
                         "minimized": data.minimized.get(),
-                        "tile": data.tile.get().name(),
+                        "tile": tile.name(),
+                        "maximized": tile == Tile::Maximized,
+                        "fullscreen": tile == Tile::Fullscreen,
+                        "urgent": data.urgent.get(),
+                        "x11": window.is_x11(),
                         "workspace": data.workspace.get(),
+                        "output": output,
                         "x": location.x,
                         "y": location.y,
                         "width": size.w,
@@ -275,25 +295,65 @@ impl Boswas {
         json!({ "active": self.workspace, "count": self.workspace_count })
     }
 
-    fn outputs_json(&self) -> Value {
-        Value::Array(
-            self.space
-                .outputs()
-                .map(|output| {
-                    let geo = self.space.output_geometry(output).unwrap_or_default();
-                    let usable = self.usable_area(output);
-                    json!({
-                        "name": output.name(),
-                        "x": geo.loc.x,
-                        "y": geo.loc.y,
-                        "width": geo.size.w,
-                        "height": geo.size.h,
-                        "scale": output.current_scale().fractional_scale(),
-                        "usable": { "x": usable.loc.x, "y": usable.loc.y, "width": usable.size.w, "height": usable.size.h },
-                    })
+    /// The keyboard layouts of the session and which one is active.
+    pub fn layout_json(&self) -> Value {
+        let codes: Vec<&str> = self.config.keyboard.layout.split(',').map(str::trim).collect();
+        json!({ "layouts": self.layouts.0, "codes": codes, "active": self.layouts.1 })
+    }
+
+    pub fn night_light_json(&self) -> Value {
+        let (enabled, temperature) = self.night_light;
+        json!({ "enabled": enabled, "temperature": temperature, "active": self.night_light_active() })
+    }
+
+    /// The outputs of the desktop. Outputs that are connected but turned
+    /// off are listed too (`enabled: false`), so Settings can turn them on.
+    pub fn outputs_json(&self) -> Value {
+        let mut outputs: Vec<Value> = self
+            .space
+            .outputs()
+            .map(|output| {
+                let geo = self.space.output_geometry(output).unwrap_or_default();
+                let usable = self.usable_area(output);
+                let current = output.current_mode();
+                let preferred = output.preferred_mode();
+                let physical = output.physical_properties();
+                let mut modes: Vec<_> = output.modes();
+                modes.sort_by_key(|m| (-(m.size.w * m.size.h), -m.refresh));
+                modes.dedup();
+                let rotation = match output.current_transform() {
+                    smithay::utils::Transform::_90 | smithay::utils::Transform::Flipped90 => "90",
+                    smithay::utils::Transform::_180 | smithay::utils::Transform::Flipped180 => "180",
+                    smithay::utils::Transform::_270 | smithay::utils::Transform::Flipped270 => "270",
+                    _ => "normal",
+                };
+                json!({
+                    "name": output.name(),
+                    "description": output.description(),
+                    "make": physical.make,
+                    "model": physical.model,
+                    "physical_width_mm": physical.size.w,
+                    "physical_height_mm": physical.size.h,
+                    "enabled": true,
+                    "x": geo.loc.x,
+                    "y": geo.loc.y,
+                    "width": geo.size.w,
+                    "height": geo.size.h,
+                    "scale": output.current_scale().fractional_scale(),
+                    "rotation": rotation,
+                    "mode": current.map(|m| json!({ "width": m.size.w, "height": m.size.h, "refresh": m.refresh })),
+                    "modes": modes.iter().map(|m| json!({
+                        "width": m.size.w,
+                        "height": m.size.h,
+                        "refresh": m.refresh,
+                        "preferred": Some(*m) == preferred,
+                    })).collect::<Vec<_>>(),
+                    "usable": { "x": usable.loc.x, "y": usable.loc.y, "width": usable.size.w, "height": usable.size.h },
                 })
-                .collect(),
-        )
+            })
+            .collect();
+        outputs.extend(self.disabled_outputs.iter().map(|name| json!({ "name": name, "enabled": false })));
+        Value::Array(outputs)
     }
 
     /// Handles one request line. `None` means the reply comes later
@@ -335,6 +395,16 @@ impl Boswas {
                 let warnings = self.reload_config();
                 return reply(Ok(json!({ "warnings": warnings })));
             }
+            // What the monitors are is no secret to a local program (every
+            // client sees them as wl_output); Settings needs the modes too.
+            "outputs" => return reply(Ok(self.outputs_json())),
+            // Starts the capture screen, where the user chooses what to keep
+            // and confirms or cancels. Nothing is captured without that.
+            "capture" => {
+                let region = request.get("mode").and_then(Value::as_str) != Some("screen");
+                self.request_capture(region);
+                return reply(Ok(Value::Null));
+            }
             _ => {}
         }
         if !trusted {
@@ -361,11 +431,66 @@ impl Boswas {
                     "outputs": self.outputs_json(),
                     "locked": self.lock.locked,
                     "appearance": self.appearance_json(),
+                    "night_light": self.night_light_json(),
+                    "layout": self.layout_json(),
+                    "overview": self.overview_active(),
+                    "show_desktop": self.show_desktop.is_some(),
                 }))
             }
             "windows" => Ok(self.windows_json()),
-            "outputs" => Ok(self.outputs_json()),
             "workspaces" => Ok(self.workspaces_json()),
+            "overview" => {
+                self.set_overview(request.get("active").and_then(Value::as_bool));
+                Ok(json!({ "active": self.overview_active() }))
+            }
+            "show-desktop" => {
+                self.set_show_desktop(request.get("active").and_then(Value::as_bool));
+                Ok(json!({ "active": self.show_desktop.is_some() }))
+            }
+            "night-light" => {
+                let enabled = request.get("enabled").and_then(Value::as_bool).unwrap_or(!self.night_light.0);
+                let temperature = request.get("temperature").and_then(Value::as_u64).map(|t| t as u32);
+                self.set_night_light(enabled, temperature);
+                Ok(self.night_light_json())
+            }
+            "next-layout" => {
+                self.next_keyboard_layout();
+                Ok(self.layout_json())
+            }
+            "new-workspace" => {
+                self.add_workspace();
+                Ok(self.workspaces_json())
+            }
+            "close-workspace" => number("index").map(|index| {
+                self.remove_workspace(index as usize);
+                self.workspaces_json()
+            }),
+            "move-to-workspace" => window(self).and_then(|w| {
+                let index = number("index")? as usize;
+                if index >= self.workspace_count {
+                    return Err("no such workspace".into());
+                }
+                self.move_to_workspace(&w, index);
+                Ok(Value::Null)
+            }),
+            "thumbnail" => match (
+                window(self),
+                request.get("path").and_then(Value::as_str).map(PathBuf::from),
+            ) {
+                (Ok(w), Some(path)) if path.is_absolute() => {
+                    let width = request.get("width").and_then(Value::as_u64).unwrap_or(240).clamp(16, 1024) as u32;
+                    self.ipc.screenshots.push(ScreenshotRequest {
+                        connection,
+                        request_id: id.clone(),
+                        path,
+                        target: CaptureTarget::Window { id: w.id(), width },
+                    });
+                    self.schedule_redraw();
+                    return None;
+                }
+                (Err(error), _) => Err(error),
+                _ => Err("\"path\" must be an absolute file name".into()),
+            },
             "activate" => window(self).map(|w| {
                 self.activate_window(&w);
                 Value::Null
@@ -407,10 +532,12 @@ impl Boswas {
             }),
             "screenshot" => match request.get("path").and_then(Value::as_str).map(PathBuf::from) {
                 Some(path) if path.is_absolute() => {
+                    let output = request.get("output").and_then(Value::as_str).map(str::to_owned);
                     self.ipc.screenshots.push(ScreenshotRequest {
                         connection,
                         request_id: id.clone(),
                         path,
+                        target: CaptureTarget::Output(output),
                     });
                     self.schedule_redraw();
                     return None;
@@ -456,10 +583,10 @@ impl Boswas {
         reply(result)
     }
 
-    /// Answers a screenshot request once the frame has been written.
-    pub fn ipc_screenshot_done(&mut self, request: ScreenshotRequest, result: Result<(), String>) {
+    /// Answers a screenshot or thumbnail request once the file is written.
+    pub fn ipc_screenshot_done(&mut self, request: ScreenshotRequest, result: Result<Value, String>) {
         let reply = match result {
-            Ok(()) => json!({ "id": request.request_id, "ok": true, "data": { "path": request.path } }),
+            Ok(data) => json!({ "id": request.request_id, "ok": true, "data": data }),
             Err(error) => json!({ "id": request.request_id, "ok": false, "error": error }),
         };
         self.ipc_send(request.connection, &reply);

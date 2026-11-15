@@ -12,12 +12,14 @@ use std::time::Duration;
 use smithay::{
     backend::renderer::{
         element::{
-            memory::MemoryRenderBufferRenderElement, solid::SolidColorRenderElement,
-            surface::WaylandSurfaceRenderElement, AsRenderElements,
+            memory::MemoryRenderBufferRenderElement,
+            solid::SolidColorRenderElement,
+            surface::{render_elements_from_surface_tree, WaylandSurfaceRenderElement},
+            AsRenderElements, Kind,
         },
-        ImportAll, ImportMem, Renderer, Texture,
+        Renderer, Texture,
     },
-    desktop::{space::SpaceElement, utils::OutputPresentationFeedback, Window, WindowSurfaceType},
+    desktop::{space::SpaceElement, utils::OutputPresentationFeedback, PopupManager, Window, WindowSurfaceType},
     output::Output,
     reexports::{
         wayland_protocols::wp::presentation_time::server::wp_presentation_feedback,
@@ -31,7 +33,12 @@ use smithay::{
     },
 };
 
-use super::decoration::{Decoration, TITLEBAR_HEIGHT};
+use crate::{
+    animation::WindowAnimation,
+    effects::{BoswasRenderer, ClippedSurface},
+};
+
+use super::decoration::{is_rounded, Decoration, TITLEBAR_HEIGHT};
 
 /// How a window is arranged on its output.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -93,6 +100,8 @@ pub struct WindowData {
     /// Whether the window has been placed and shown at least once.
     pub mapped: Cell<bool>,
     pub minimized: Cell<bool>,
+    /// The window asked for attention while it was not focused.
+    pub urgent: Cell<bool>,
     pub workspace: Cell<usize>,
     pub tile: Cell<Tile>,
     /// Frame location on its workspace (kept while the window is hidden).
@@ -101,6 +110,9 @@ pub struct WindowData {
     /// fullscreen.
     pub restore: Cell<Option<Rectangle<i32, Logical>>>,
     pub decoration: RefCell<Decoration>,
+    /// The animation the window is shown with right now (opening, coming
+    /// back from the taskbar).
+    pub animation: Cell<Option<WindowAnimation>>,
 }
 
 /// A toplevel window and its frame.
@@ -115,11 +127,13 @@ impl WindowElement {
             ssd: Cell::new(false),
             mapped: Cell::new(false),
             minimized: Cell::new(false),
+            urgent: Cell::new(false),
             workspace: Cell::new(workspace),
             tile: Cell::new(Tile::Floating),
             location: Cell::new(Point::default()),
             restore: Cell::new(None),
             decoration: RefCell::new(Decoration::default()),
+            animation: Cell::new(None),
         });
         Self(window)
     }
@@ -138,6 +152,11 @@ impl WindowElement {
 
     pub fn wl_surface(&self) -> &WlSurface {
         self.toplevel().wl_surface()
+    }
+
+    /// Whether this is a window of an X11 application (through XWayland).
+    pub fn is_x11(&self) -> bool {
+        self.0.toplevel().is_none()
     }
 
     /// Height of the compositor-drawn title bar (0 for client-decorated and
@@ -271,8 +290,9 @@ impl SpaceElement for WindowElement {
 }
 
 render_elements! {
-    pub WindowRenderElement<R> where R: ImportAll + ImportMem;
+    pub WindowRenderElement<R> where R: BoswasRenderer;
     Surface=WaylandSurfaceRenderElement<R>,
+    Clipped=ClippedSurface<R>,
     Memory=MemoryRenderBufferRenderElement<R>,
     Solid=SolidColorRenderElement,
 }
@@ -281,6 +301,7 @@ impl<R: Renderer> std::fmt::Debug for WindowRenderElement<R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Surface(e) => f.debug_tuple("Surface").field(e).finish(),
+            Self::Clipped(_) => f.write_str("Clipped"),
             Self::Memory(_) => f.write_str("Memory"),
             Self::Solid(e) => f.debug_tuple("Solid").field(e).finish(),
             Self::_GenericCatcher(_) => f.write_str("_GenericCatcher"),
@@ -288,9 +309,85 @@ impl<R: Renderer> std::fmt::Debug for WindowRenderElement<R> {
     }
 }
 
+impl WindowElement {
+    /// The render elements of the window, front to back: popups, the title
+    /// bar and border, the client's content (clipped to the frame's rounded
+    /// corners where the renderer can), and with `shadow` the shadow.
+    ///
+    /// `location` is where the element's own origin is drawn. The frame
+    /// starts at the client's window geometry offset; the client's surfaces
+    /// are pushed down by the title bar.
+    pub fn elements<R>(
+        &self,
+        renderer: &mut R,
+        location: Point<i32, Physical>,
+        scale: Scale<f64>,
+        alpha: f32,
+        shadow: bool,
+    ) -> Vec<WindowRenderElement<R>>
+    where
+        R: BoswasRenderer,
+        R::TextureId: Clone + Send + Texture + 'static,
+    {
+        let data = self.data();
+        let decoration = data.decoration.borrow();
+        let frame = self.frame();
+        let bar = self.titlebar_height();
+        let frame_origin = location + frame.loc.to_physical_precise_round(scale);
+        let client_origin = location + Point::<i32, Logical>::from((0, bar)).to_physical_precise_round(scale);
+        let mut out: Vec<WindowRenderElement<R>> = Vec::new();
+
+        let surface = self.wl_surface();
+        for (popup, popup_offset) in PopupManager::popups_for_surface(surface) {
+            let offset: Point<i32, Physical> =
+                (self.0.geometry().loc + popup_offset - popup.geometry().loc).to_physical_precise_round(scale);
+            out.extend(
+                render_elements_from_surface_tree::<_, WaylandSurfaceRenderElement<R>>(
+                    renderer,
+                    popup.wl_surface(),
+                    client_origin + offset,
+                    scale,
+                    alpha,
+                    Kind::Unspecified,
+                )
+                .into_iter()
+                .map(WindowRenderElement::Surface),
+            );
+        }
+
+        if bar > 0 {
+            decoration.foreground_elements(renderer, frame_origin, frame.size, scale, alpha, &mut out);
+        }
+
+        let surfaces: Vec<WaylandSurfaceRenderElement<R>> =
+            render_elements_from_surface_tree(renderer, surface, client_origin, scale, alpha, Kind::Unspecified);
+        if bar > 0 && R::ROUNDS_CORNERS && is_rounded(data.tile.get()) {
+            // The client area: the frame below the title bar.
+            let origin = frame_origin + Point::<i32, Logical>::from((0, bar)).to_physical_precise_round(scale);
+            let size: Size<i32, Physical> =
+                Size::<i32, Logical>::from((frame.size.w, frame.size.h - bar)).to_physical_precise_round(scale);
+            let rect = Rectangle::new(origin, size).to_f64();
+            let radius = (f64::from(boswas_ui::tokens().radius_window) * scale.x) as f32;
+            for surface in surfaces {
+                out.push(match ClippedSurface::wrap(surface, rect, [0.0, 0.0, radius, radius], scale) {
+                    Ok(clipped) => WindowRenderElement::Clipped(clipped),
+                    Err(plain) => WindowRenderElement::Surface(plain),
+                });
+            }
+        } else {
+            out.extend(surfaces.into_iter().map(WindowRenderElement::Surface));
+        }
+
+        if shadow {
+            decoration.shadow_elements(renderer, self, frame_origin, frame.size, scale, alpha, &mut out);
+        }
+        out
+    }
+}
+
 impl<R> AsRenderElements<R> for WindowElement
 where
-    R: Renderer + ImportAll + ImportMem,
+    R: BoswasRenderer,
     R::TextureId: Clone + Send + Texture + 'static,
 {
     type RenderElement = WindowRenderElement<R>;
@@ -302,19 +399,6 @@ where
         scale: Scale<f64>,
         alpha: f32,
     ) -> Vec<C> {
-        // `location` is where the element's own origin is drawn. The frame
-        // starts at the client's window geometry offset; the client's
-        // surfaces are pushed down by the title bar.
-        let decoration = self.data().decoration.borrow();
-        let frame = self.frame();
-        let frame_origin = location + frame.loc.to_physical_precise_round(scale);
-        let client_origin =
-            location + Point::<i32, Logical>::from((0, self.titlebar_height())).to_physical_precise_round(scale);
-
-        // Front to back: the client's surfaces, the title bar, the shadow.
-        let mut elements: Vec<WindowRenderElement<R>> =
-            AsRenderElements::render_elements(&self.0, renderer, client_origin, scale, alpha);
-        decoration.render_elements(renderer, self, frame_origin, frame.size, scale, alpha, &mut elements);
-        elements.into_iter().map(C::from).collect()
+        self.elements(renderer, location, scale, alpha, true).into_iter().map(C::from).collect()
     }
 }

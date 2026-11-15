@@ -19,10 +19,51 @@ use smithay::{
 };
 
 use super::{
-    decoration::TITLEBAR_HEIGHT,
+    decoration::{ICON_SIZE, TITLEBAR_HEIGHT},
     element::{Tile, WindowElement},
 };
-use crate::state::{root_surface, Boswas};
+use crate::{
+    animation::{GhostKind, WindowAnimation, DESKTOP_SLIDE},
+    input::Direction,
+    state::{root_surface, Boswas},
+};
+
+/// The most desktops a session can have.
+pub const MAX_WORKSPACES: usize = 16;
+
+/// Super+arrow: the arrangement a window takes next, or `None` to minimize
+/// it. Sideways keys move a window to that half (and a quarter to the
+/// quarter on that side, the opposite half back to floating); up grows it
+/// (half to upper quarter, upper quarter and floating to maximized); down
+/// shrinks it (maximized to floating, half to lower quarter, upper quarter
+/// to half, and from floating or a lower quarter away into the taskbar).
+pub fn snap_step(tile: Tile, direction: Direction) -> Option<Tile> {
+    use Direction as D;
+    use Tile as T;
+    Some(match (direction, tile) {
+        (_, T::Fullscreen) => T::Fullscreen,
+        (D::Left, T::Right) | (D::Right, T::Left) => T::Floating,
+        (D::Left, T::TopRight) => T::TopLeft,
+        (D::Left, T::BottomRight) => T::BottomLeft,
+        (D::Left, T::TopLeft | T::BottomLeft) => tile,
+        (D::Left, _) => T::Left,
+        (D::Right, T::TopLeft) => T::TopRight,
+        (D::Right, T::BottomLeft) => T::BottomRight,
+        (D::Right, T::TopRight | T::BottomRight) => tile,
+        (D::Right, _) => T::Right,
+        (D::Up, T::Left) => T::TopLeft,
+        (D::Up, T::Right) => T::TopRight,
+        (D::Up, T::BottomLeft) => T::Left,
+        (D::Up, T::BottomRight) => T::Right,
+        (D::Up, _) => T::Maximized,
+        (D::Down, T::Maximized) => T::Floating,
+        (D::Down, T::Left) => T::BottomLeft,
+        (D::Down, T::Right) => T::BottomRight,
+        (D::Down, T::TopLeft) => T::Left,
+        (D::Down, T::TopRight) => T::Right,
+        (D::Down, T::Floating | T::BottomLeft | T::BottomRight) => return None,
+    })
+}
 
 /// Distance from a screen edge at which a dragged window snaps.
 const SNAP_DISTANCE: f64 = 12.0;
@@ -79,6 +120,7 @@ impl Boswas {
         };
         data.mapped.set(true);
         data.location.set(location);
+        data.animation.set(Some(WindowAnimation::open()));
         self.space.map_element(window.clone(), location, true);
         self.raise_in_stack(window);
         self.set_keyboard_focus(Some(window.wl_surface().clone()));
@@ -100,6 +142,9 @@ impl Boswas {
             return;
         };
         let id = window.id();
+        if self.space.element_location(&window).is_some() {
+            self.leave_ghost(&window, GhostKind::Close);
+        }
         self.space.unmap_elem(&window);
         self.windows.retain(|w| w.id() != id);
         self.focus_history.retain(|w| *w != id);
@@ -132,6 +177,8 @@ impl Boswas {
         }
         if data.minimized.get() {
             data.minimized.set(false);
+            let rect = Rectangle::new(data.location.get(), window.frame().size);
+            data.animation.set(Some(WindowAnimation::restore(self.taskbar_point(rect))));
             self.space.map_element(window.clone(), data.location.get(), true);
         } else {
             self.space.raise_element(window, true);
@@ -211,58 +258,6 @@ impl Boswas {
         }
         let top = self.space.elements().next_back().map(|w| w.wl_surface().clone());
         self.set_keyboard_focus(top);
-    }
-
-    /// Alt+Tab: steps through the windows of this workspace, most recently
-    /// used first. The order is fixed while the switcher is held.
-    pub fn cycle_windows(&mut self, backwards: bool) {
-        if self.lock.locked {
-            return;
-        }
-        if self.switcher.is_none() {
-            let mut order: Vec<u64> = self
-                .focus_history
-                .iter()
-                .rev()
-                .copied()
-                .filter(|id| {
-                    self.window_by_id(*id)
-                        .is_some_and(|w| w.data().mapped.get() && w.data().workspace.get() == self.workspace)
-                })
-                .collect();
-            for window in &self.windows {
-                let data = window.data();
-                if data.mapped.get() && data.workspace.get() == self.workspace && !order.contains(&data.id) {
-                    order.push(data.id);
-                }
-            }
-            if order.is_empty() {
-                return;
-            }
-            self.switcher = Some((order, 0));
-        }
-        let Some((order, index)) = self.switcher.clone() else {
-            return;
-        };
-        let len = order.len();
-        let next = if backwards { (index + len - 1) % len } else { (index + 1) % len };
-        let history = self.focus_history.clone();
-        if let Some(window) = self.window_by_id(order[next]) {
-            self.activate_window(&window);
-        }
-        // Looking at a window while cycling does not reorder the history;
-        // only the window the switcher ends on moves to the front.
-        self.focus_history = history;
-        self.switcher = Some((order, next));
-    }
-
-    /// Ends Alt+Tab: the selected window becomes the most recently used.
-    pub fn finish_switcher(&mut self) {
-        if let Some((order, index)) = self.switcher.take() {
-            let id = order[index];
-            self.focus_history.retain(|w| *w != id);
-            self.focus_history.push(id);
-        }
     }
 
     // ---------------------------------------------------------------------
@@ -395,6 +390,10 @@ impl Boswas {
             return;
         }
         data.minimized.set(true);
+        if let Some(rect) = self.window_rect(window) {
+            let taskbar = self.taskbar_point(rect);
+            self.leave_ghost(window, GhostKind::Minimize { taskbar });
+        }
         self.space.unmap_elem(window);
         self.update_keyboard_focus();
         self.windows_changed();
@@ -442,8 +441,16 @@ impl Boswas {
         if index >= self.workspace_count || index == self.workspace {
             return;
         }
+        // The desktops lie side by side: going to a later one moves
+        // everything to the left.
+        let slide = if index > self.workspace { DESKTOP_SLIDE } else { -DESKTOP_SLIDE };
+        let leaving: Vec<WindowElement> = self.space.elements().cloned().collect();
+        for window in leaving.iter().rev().take(4) {
+            self.leave_ghost(window, GhostKind::SlideOut { offset: -slide });
+        }
         self.workspace = index;
         self.switcher = None;
+        self.show_desktop = None;
         // `windows` is in stacking order, so remapping in order keeps it.
         for window in self.windows.clone() {
             let data = window.data();
@@ -451,6 +458,7 @@ impl Boswas {
                 continue;
             }
             if data.workspace.get() == index && !data.minimized.get() {
+                data.animation.set(Some(WindowAnimation::slide_in(slide)));
                 self.space.map_element(window.clone(), data.location.get(), false);
             } else {
                 self.space.unmap_elem(&window);
@@ -465,10 +473,193 @@ impl Boswas {
         if index >= self.workspace_count || window.data().workspace.get() == index {
             return;
         }
-        window.data().workspace.set(index);
+        let data = window.data();
+        data.workspace.set(index);
         if index != self.workspace {
             self.space.unmap_elem(window);
             self.update_keyboard_focus();
+        } else if data.mapped.get() && !data.minimized.get() {
+            self.space.map_element(window.clone(), data.location.get(), false);
+        }
+        self.windows_changed();
+    }
+
+    /// Adds a desktop after the last one and returns its index.
+    pub fn add_workspace(&mut self) -> usize {
+        if self.workspace_count < MAX_WORKSPACES {
+            self.workspace_count += 1;
+            self.ipc_event("workspace", self.workspaces_json());
+        }
+        self.workspace_count - 1
+    }
+
+    /// Closes a desktop: its windows move to the one before it (the one
+    /// after, for the first), and the desktops behind it move up. The last
+    /// remaining desktop cannot be closed.
+    pub fn remove_workspace(&mut self, index: usize) {
+        if self.workspace_count <= 1 || index >= self.workspace_count {
+            return;
+        }
+        let target = index.saturating_sub(1);
+        for window in &self.windows {
+            let workspace = &window.data().workspace;
+            match workspace.get() {
+                w if w == index => workspace.set(target),
+                w if w > index => workspace.set(w - 1),
+                _ => {}
+            }
+        }
+        self.workspace_count -= 1;
+        // The active desktop keeps its windows; only its number may change.
+        let active = match self.workspace {
+            w if w == index => target,
+            w if w > index => w - 1,
+            w => w,
+        };
+        self.workspace = active;
+        self.show_desktop = None;
+        for window in self.windows.clone() {
+            let data = window.data();
+            if !data.mapped.get() {
+                continue;
+            }
+            if data.workspace.get() == active && !data.minimized.get() {
+                if self.space.element_location(&window).is_none() {
+                    self.space.map_element(window.clone(), data.location.get(), false);
+                }
+            } else {
+                self.space.unmap_elem(&window);
+            }
+        }
+        self.update_keyboard_focus();
+        self.windows_changed();
+        self.ipc_event("workspace", self.workspaces_json());
+    }
+
+    // ---------------------------------------------------------------------
+    // Show desktop
+    // ---------------------------------------------------------------------
+
+    /// Shows the desktop (minimizes every window of this desktop) or brings
+    /// the windows back; `None` toggles.
+    pub fn set_show_desktop(&mut self, show: Option<bool>) {
+        if self.lock.locked {
+            return;
+        }
+        let show = show.unwrap_or(self.show_desktop.is_none());
+        if show == self.show_desktop.is_some() {
+            return;
+        }
+        if show {
+            // Bottom to top, so restoring in this order rebuilds the stack.
+            let hidden: Vec<u64> = self
+                .space
+                .elements()
+                .filter(|w| w.data().workspace.get() == self.workspace)
+                .map(|w| w.id())
+                .collect();
+            for id in &hidden {
+                if let Some(window) = self.window_by_id(*id) {
+                    window.data().minimized.set(true);
+                    self.space.unmap_elem(&window);
+                }
+            }
+            self.show_desktop = Some(hidden);
+            self.update_keyboard_focus();
+        } else {
+            let focus = self.focus_history.last().copied();
+            let hidden = self.show_desktop.take().unwrap_or_default();
+            let mut top = None;
+            for id in hidden {
+                let Some(window) = self.window_by_id(id) else {
+                    continue;
+                };
+                let data = window.data();
+                if !data.minimized.get() || data.workspace.get() != self.workspace {
+                    continue;
+                }
+                data.minimized.set(false);
+                self.space.map_element(window.clone(), data.location.get(), false);
+                if top.is_none() || focus == Some(id) {
+                    top = Some(window);
+                }
+            }
+            match top {
+                Some(window) => self.activate_window(&window),
+                None => self.update_keyboard_focus(),
+            }
+        }
+        self.windows_changed();
+        let active = self.show_desktop.is_some();
+        self.ipc_event("show-desktop", serde_json::json!({ "active": active }));
+    }
+
+    // ---------------------------------------------------------------------
+    // Monitors
+    // ---------------------------------------------------------------------
+
+    /// Super+Shift+Left/Right: moves a window to the monitor on that side,
+    /// keeping its arrangement and, for floating windows, its relative
+    /// position.
+    pub fn move_to_next_output(&mut self, window: &WindowElement, direction: Direction) {
+        let Some(rect) = self.window_rect(window) else {
+            return;
+        };
+        let Some(current) = self.output_for_rect(rect) else {
+            return;
+        };
+        let Some(from) = self.space.output_geometry(&current) else {
+            return;
+        };
+        let centre = |geo: Rectangle<i32, Logical>| geo.loc.x + geo.size.w / 2;
+        let candidates = self.space.outputs().filter(|o| **o != current).filter_map(|o| {
+            let geo = self.space.output_geometry(o)?;
+            let delta = centre(geo) - centre(from);
+            let wanted = match direction {
+                Direction::Left => delta < 0,
+                Direction::Right => delta > 0,
+                _ => false,
+            };
+            wanted.then_some((delta.abs(), o.clone()))
+        });
+        let Some((_, target)) = candidates.min_by_key(|(distance, _)| *distance) else {
+            return;
+        };
+        let (from_area, to_area) = (self.usable_area(&current), self.usable_area(&target));
+        let data = window.data();
+        let tile = data.tile.get();
+        // Where the floating frame goes: the same fraction of the new area.
+        let relocate = |r: Rectangle<i32, Logical>| {
+            let fx = f64::from(r.loc.x - from_area.loc.x) / f64::from(from_area.size.w.max(1));
+            let fy = f64::from(r.loc.y - from_area.loc.y) / f64::from(from_area.size.h.max(1));
+            let size = Size::from((r.size.w.min(to_area.size.w), r.size.h.min(to_area.size.h)));
+            let x = to_area.loc.x + (fx * f64::from(to_area.size.w)).round() as i32;
+            let y = to_area.loc.y + (fy * f64::from(to_area.size.h)).round() as i32;
+            Rectangle::new(
+                Point::from((
+                    x.clamp(to_area.loc.x, (to_area.loc.x + to_area.size.w - size.w).max(to_area.loc.x)),
+                    y.clamp(to_area.loc.y, (to_area.loc.y + to_area.size.h - size.h).max(to_area.loc.y)),
+                )),
+                size,
+            )
+        };
+        if tile == Tile::Floating {
+            let moved = relocate(rect);
+            if moved.size != rect.size {
+                let toplevel = window.toplevel();
+                let size = window.client_size_for_frame(moved.size);
+                toplevel.with_pending_state(|state| state.size = Some(size));
+                toplevel.send_pending_configure();
+            }
+            self.move_window(window, moved.loc);
+        } else {
+            if let Some(restore) = data.restore.get() {
+                data.restore.set(Some(relocate(restore)));
+            }
+            // Put the frame on the target first; `set_tile` then fits it to
+            // the output it finds the frame on.
+            self.move_window(window, to_area.loc);
+            self.set_tile(window, tile);
         }
         self.windows_changed();
     }
@@ -492,13 +683,26 @@ impl Boswas {
         let focused = self.focused_window();
         let scale = self.max_scale();
         let theme = self.theme;
-        let windows: Vec<WindowElement> = self.space.elements().cloned().collect();
+        let rounds = self.rounds_corners;
+        let icon_size = (f64::from(ICON_SIZE) * scale.ceil()) as u32;
+        // In Task View every window of the desktop is on screen, minimized
+        // ones too.
+        let windows: Vec<WindowElement> = if self.overview.is_some() || self.switcher.is_some() {
+            self.windows.iter().filter(|w| w.data().mapped.get()).cloned().collect()
+        } else {
+            self.space.elements().cloned().collect()
+        };
         let mut redrawn = false;
         for window in windows {
             let active = focused.as_ref() == Some(&window);
+            let icon = if window.titlebar_height() > 0 {
+                self.app_icons.get(&window.app_id(), icon_size)
+            } else {
+                None
+            };
             let mut decoration = window.data().decoration.borrow_mut();
             decoration.ensure_shadow(&window);
-            redrawn |= decoration.update(&window, active, scale, self.text(), theme);
+            redrawn |= decoration.update(&window, active, scale, rounds, icon, self.text(), theme);
         }
         if redrawn {
             self.schedule_redraw();
@@ -573,6 +777,27 @@ mod tests {
         assert_eq!(at(1919.0, 20.0), Some(Tile::TopRight));
         assert_eq!(at(1919.0, 1079.0), Some(Tile::BottomRight));
         assert_eq!(at(960.0, 1079.0), None, "the bottom edge belongs to the panel");
+    }
+
+    #[test]
+    fn super_arrows_step_through_the_layouts() {
+        use Direction::*;
+        let walk = |start: Tile, keys: &[Direction]| keys.iter().try_fold(start, |tile, key| snap_step(tile, *key));
+        assert_eq!(walk(Tile::Floating, &[Left]), Some(Tile::Left));
+        assert_eq!(walk(Tile::Floating, &[Left, Up]), Some(Tile::TopLeft));
+        assert_eq!(walk(Tile::Floating, &[Left, Up, Up]), Some(Tile::Maximized));
+        assert_eq!(walk(Tile::Floating, &[Left, Up, Right]), Some(Tile::TopRight));
+        assert_eq!(walk(Tile::Floating, &[Left, Down]), Some(Tile::BottomLeft));
+        assert_eq!(walk(Tile::Floating, &[Left, Down, Up]), Some(Tile::Left));
+        assert_eq!(walk(Tile::Floating, &[Left, Right]), Some(Tile::Floating), "the opposite key restores");
+        assert_eq!(walk(Tile::Floating, &[Up]), Some(Tile::Maximized));
+        assert_eq!(walk(Tile::Floating, &[Up, Down]), Some(Tile::Floating));
+        assert_eq!(walk(Tile::Floating, &[Down]), None, "down on a floating window minimizes it");
+        assert_eq!(walk(Tile::Floating, &[Right, Down, Down]), None);
+        assert_eq!(walk(Tile::Maximized, &[Left]), Some(Tile::Left));
+        for key in [Left, Right, Up, Down] {
+            assert_eq!(snap_step(Tile::Fullscreen, key), Some(Tile::Fullscreen), "fullscreen ignores the arrows");
+        }
     }
 
     #[test]
