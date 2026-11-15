@@ -29,10 +29,12 @@ Recommends: boswas-compat-manager,
             dolphin,
             kinfocenter
 Description: Boswas OS Control Center, Security Center and Software Center
- The settings hub of Boswas OS (KDE Plasma). One window with a page per
- area, each showing the state of the device as the system reports it,
- offering the actions of that area, and opening the matching KDE settings
- modules (kcmshell6) for everything configured there:
+ The settings hub of Boswas OS. One window with a page per area, each
+ showing the state of the device as the system reports it and offering the
+ actions of that area. Where a KDE settings module for an area is
+ installed, the page opens it (kcmshell6); on the native Boswas desktop
+ most of those modules are not part of the image and are shown as not
+ available:
  .
   * Personalization: Boswas desktop presets (boswas-preset) and the KDE
     appearance modules

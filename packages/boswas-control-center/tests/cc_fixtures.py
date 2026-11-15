@@ -328,7 +328,7 @@ class FakeCommands:
             self.timeouts.append(timeout)
         if command[0] == E["apt-config"]:
             return completed(APT_SHELL)
-        if command[:2] == [E["boswas-preset"], "apply"]:
+        if command[:2] == [E["boswas-preset"], "apply"] or command == [E["boswas-preset"], "reset"]:
             return self.outputs.get(tuple(command), completed())
         return self.outputs.get(tuple(command), completed("", 1, "no canned output"))
 

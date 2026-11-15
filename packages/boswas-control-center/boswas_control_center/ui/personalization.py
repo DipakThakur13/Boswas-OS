@@ -192,11 +192,17 @@ class PersonalizationPage(Page):
         self.status.setText("No presets are installed.")
         self._set_cards(list(presets.presets))
         self.default_preset = next((p for p in presets.presets if p.id == vm.DEFAULT_PRESET), None)
-        self.reset_button.setEnabled(self.default_preset is not None and not self.busy)
-        self.reset_button.setToolTip(
-            f"Apply {vm.DEFAULT_PRESET_NAME}, the Boswas OS default, with its panel layout"
-            if self.default_preset is not None else
-            f"The Boswas default preset ({vm.DEFAULT_PRESET_NAME}) is not installed on this system.")
+        self.native = self.window_.backend.native_desktop()
+        self.reset_button.setEnabled(self._can_reset() and not self.busy)
+        if self.native:
+            self.reset_button.setAccessibleDescription(
+                f"Return to the Boswas OS default look ({vm.NATIVE_DEFAULT_LOOK}), after asking")
+            self.reset_button.setToolTip(f"Return to {vm.NATIVE_DEFAULT_LOOK}, the Boswas OS default look")
+        else:
+            self.reset_button.setToolTip(
+                f"Apply {vm.DEFAULT_PRESET_NAME}, the Boswas OS default, with its panel layout"
+                if self.default_preset is not None else
+                f"The Boswas default preset ({vm.DEFAULT_PRESET_NAME}) is not installed on this system.")
 
     def _set_cards(self, presets: list[vm.Preset]) -> None:
         signature = tuple(presets)
@@ -262,10 +268,43 @@ class PersonalizationPage(Page):
                                    on_done=lambda _r: self._applied(preset, layout),
                                    on_error=lambda exc: self._failed(preset, exc))
 
+    def _can_reset(self) -> bool:
+        return getattr(self, "native", False) or getattr(self, "default_preset", None) is not None
+
+    def _reset_native(self) -> None:
+        """The native desktop: back to its own default look, which is no preset."""
+        look = vm.NATIVE_DEFAULT_LOOK
+        if not self.window_.ask(
+                "Reset the appearance?",
+                f"This returns to {look}, the Boswas OS default look: colours, wallpaper and the terminal profile "
+                "return to the defaults. Your files and other settings are kept.",
+                "Reset Appearance"):
+            return
+        self.set_busy(True)
+        self.banner.show_message("info", f"Resetting the appearance to {look}…")
+
+        def done(_result) -> None:
+            self.set_busy(False)
+            self.banner.show_message("ok", f"The appearance is back to {look}.")
+            self.store.request("presets", force=True)
+
+        def failed(exc: Exception) -> None:
+            self.set_busy(False)
+            self.banner.show_message("error", f"The appearance could not be reset. {self.window_.error_text(exc)}")
+            self.store.request("presets", force=True)
+
+        self.window_.runner.submit(self.window_.backend.reset_look, on_done=done, on_error=failed)
+
     def reset_to_default(self) -> None:
-        """Apply the Boswas default preset with its panel layout (after confirmation)."""
+        """Return to the default look (after confirmation): on the native desktop its own default, on
+        Plasma the Boswas default preset with its panel layout."""
+        if self.busy:
+            return
+        if getattr(self, "native", False):
+            self._reset_native()
+            return
         preset = getattr(self, "default_preset", None)
-        if preset is None or self.busy:
+        if preset is None:
             return
         if not self.window_.ask(
                 "Reset the appearance?",
@@ -286,7 +325,7 @@ class PersonalizationPage(Page):
             card.set_busy(busy)
         self.layout_box.setEnabled(not busy)
         if hasattr(self, "reset_button"):
-            self.reset_button.setEnabled(not busy and getattr(self, "default_preset", None) is not None)
+            self.reset_button.setEnabled(not busy and self._can_reset())
 
     def _applied(self, preset: vm.Preset, layout: bool) -> None:
         self.set_busy(False)

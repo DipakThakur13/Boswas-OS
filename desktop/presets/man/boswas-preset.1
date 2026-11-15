@@ -1,4 +1,4 @@
-.TH BOSWAS-PRESET 1 "October 2026" "boswas-branding 1.0~alpha3" "Boswas OS"
+.TH BOSWAS-PRESET 1 "November 2026" "boswas-branding 1.0~alpha3" "Boswas OS"
 .SH NAME
 boswas-preset \- list and switch the Boswas OS desktop presets
 .SH SYNOPSIS
@@ -15,15 +15,29 @@ boswas-preset \- list and switch the Boswas OS desktop presets
 .B apply
 .I PRESET
 .RB [ \-\-layout ]
+.br
+.B boswas-preset
+.RB [ \-\-json ]
+.B reset
 .SH DESCRIPTION
 Boswas OS ships ten presets of one design system: Horizon (the default),
 Midnight, Aurora, Slate, Carbon, Pearl, Ocean, Ember, Nebula and Classic.
-Each brings a Plasma Global Theme (colour scheme, Plasma style, icon theme,
-window decoration), light, dark and lock-screen wallpapers, a panel layout
-and a Konsole profile.
+Each brings a colour scheme, light, dark and lock-screen wallpapers, a
+Konsole profile, and a Plasma Global Theme with a panel layout.
 .PP
-Boswas Control Center (Personalization) uses this command; the presets also
-appear in System Settings > Global Theme.
+On the native Boswas desktop
+.RB ( boswas-compositor (1),
+.BR boswas-shell (1))
+a preset sets light or dark for the shell and the window frames, the
+wallpaper, the colours of KDE applications and the Konsole profile. The
+accent colour of the shell, the icon theme, the panel and the lock-screen
+background do not change. A user who has not applied a preset has the
+Boswas Prism look, which is not one of the ten.
+.PP
+On a KDE Plasma session a preset applies its Global Theme, wallpaper,
+lock-screen wallpaper and Konsole profile.
+.PP
+Boswas Control Center (Personalization) uses this command.
 .SH COMMANDS
 .TP
 .B list
@@ -31,14 +45,34 @@ The presets with their identifier, name, description, light or dark variant
 and accent colour, and the current preset.
 .TP
 .B current
-The preset in use (the recorded choice, otherwise the active Global Theme).
+The preset in use (the recorded choice, otherwise the active Global Theme
+of a Plasma session). Nothing is printed when no preset has been applied.
 .TP
 .BI apply " PRESET"
-Apply a preset for the signed-in user: Global Theme, desktop wallpaper,
-lock-screen wallpaper and Konsole default profile. With
+Apply a preset for the signed-in user. On the native Boswas desktop
+(\fBXDG_CURRENT_DESKTOP\fR contains \fBBoswas\fR) this writes
+.IR ~/.config/boswas/appearance.toml ,
+merges the preset's colours into
+.IR ~/.config/kdeglobals ,
+sets the Konsole default profile and asks the running compositor to reload
+its configuration. On a Plasma session it applies the Global Theme, the
+desktop wallpaper, the lock-screen wallpaper and the Konsole default
+profile. With
 .BR \-\-layout ,
-also replace the panels with the preset's layout (your own panel changes
-are lost). Runs as the desktop user; refused for root.
+a Plasma session's panels are also replaced with the preset's layout (your
+own panel changes are lost); the native desktop has one panel layout and
+ignores the option. Runs as the desktop user; refused for root.
+.TP
+.B reset
+Return to the default look. On the native Boswas desktop that is Boswas
+Prism, which is no preset: the command removes
+.IR ~/.config/boswas/appearance.toml ,
+merges the Boswas Prism colours into
+.IR ~/.config/kdeglobals ,
+makes "Boswas Prism" the Konsole default profile, clears the recorded
+preset and asks the running compositor to reload. On a Plasma session it
+applies the Horizon preset with its panel layout. Runs as the desktop user;
+refused for root.
 .SH OPTIONS
 .TP
 .B \-\-json
@@ -53,5 +87,16 @@ The preset definitions.
 .TP
 .I ~/.config/boswasrc
 The recorded choice ([Preset] Current).
+.TP
+.I ~/.config/boswas/appearance.toml
+Native desktop: light or dark and the wallpaper, read by
+.BR boswas-compositor (1).
+Rewritten as a whole by every
+.BR apply .
+.TP
+.I ~/.config/kdeglobals
+Native desktop: the colours of KDE applications. Only the colour groups
+and the ColorScheme entry are replaced.
 .SH SEE ALSO
+.BR boswas-compositor (1),
 .BR boswas-control-center (1)

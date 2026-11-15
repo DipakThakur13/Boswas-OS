@@ -159,6 +159,15 @@ class BackendReadTest(RigTestCase):
         self.assertEqual(doc["source"], "files")
         self.assertEqual(doc["periodic"], {"Update-Package-Lists": "1", "Unattended-Upgrade": "1"})
 
+    def test_desktop_prefers_the_native_desktop(self):
+        self.assertEqual(self.backend.desktop(), "KDE Plasma 6.3.6")
+        fx.write(self.rig.root / "usr/share/boswas/compositor/version", "1.0~alpha3\n")
+        self.assertEqual(self.backend.desktop(), "Boswas Desktop 1.0~alpha3")
+        fx.write(self.rig.root / "usr/share/boswas/compositor/version", "not a version\n")
+        self.assertEqual(self.backend.desktop(), "KDE Plasma 6.3.6")
+        os.remove(self.rig.root / "usr/share/metainfo/org.kde.plasmashell.metainfo.xml")
+        self.assertIsNone(self.backend.desktop())
+
     def test_plasma_version(self):
         self.assertEqual(self.backend.plasma_version(), "6.3.6")
         os.remove(self.rig.root / "usr/share/metainfo/org.kde.plasmashell.metainfo.xml")
@@ -264,6 +273,20 @@ class BackendActionTest(RigTestCase):
         for bad in ("../x", "--layout", "x;rm", ""):
             with self.assertRaises(ValueError):
                 self.backend.apply_preset(bad)
+
+    def test_reset_look(self):
+        self.assertFalse(self.backend.native_desktop())
+        self.backend.environ["XDG_CURRENT_DESKTOP"] = "Boswas"
+        self.assertTrue(self.backend.native_desktop())
+        self.backend.environ["XDG_CURRENT_DESKTOP"] = "KDE"
+        self.assertFalse(self.backend.native_desktop())
+        self.backend.reset_look()
+        self.assertEqual(self.rig.commands.ran_program("boswas-preset")[-1], [E["boswas-preset"], "reset"])
+        self.assertEqual(self.rig.commands.timeouts[-1], 180.0)
+        self.rig.commands.outputs[(E["boswas-preset"], "reset")] = fx.completed("", 1, "step 'colours' failed")
+        with self.assertRaises(CommandFailed) as raised:
+            self.backend.reset_look()
+        self.assertIn("colours", raised.exception.message)
 
     def test_apply_preset_failure(self):
         self.rig.commands.outputs[(E["boswas-preset"], "apply", "classic")] = fx.completed("", 3, "no such preset")

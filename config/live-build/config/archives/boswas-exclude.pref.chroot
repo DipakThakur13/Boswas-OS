@@ -49,3 +49,20 @@ Explanation: Boswas: network-listening print discovery
 Package: cups-browsed
 Pin: release *
 Pin-Priority: -1
+
+# KDE Plasma is replaced by the native Boswas desktop (boswas-desktop:
+# compositor, shell, lock and login screens; ADR-0026). The Plasma shell and
+# session, KWin, SDDM and their settings application must not come back
+# through a dependency or a Recommends.
+Explanation: Boswas: replaced by the native Boswas desktop (boswas-desktop)
+Package: plasma-workspace plasma-desktop kde-plasma-desktop kwin-wayland kwin-x11 sddm systemsettings
+Pin: release *
+Pin-Priority: -1
+
+# Plymouth is replaced by the Boswas boot screen (boswas-bootsplash,
+# ADR-0029), which conflicts with it: two boot screens in one initramfs
+# would both answer the disk passphrase request.
+Explanation: Boswas: replaced by the Boswas boot screen (boswas-bootsplash)
+Package: plymouth plymouth-themes plymouth-label
+Pin: release *
+Pin-Priority: -1

@@ -18,6 +18,10 @@ for p in boswas-os boswas-cli boswas-branding boswas-security boswas-compat bosw
 	boswas-control-center; do
 	check "${p}_${BOSWAS_VERSION_ID} .deb produced" test -s "$debs/${p}_${BOSWAS_VERSION_ID}_all.deb"
 done
+# The native desktop and the boot screen are compiled programs (amd64).
+for p in boswas-desktop boswas-bootsplash; do
+	check "${p}_${BOSWAS_VERSION_ID} .deb produced (amd64)" test -s "$debs/${p}_${BOSWAS_VERSION_ID}_amd64.deb"
+done
 server_deb="$debs/server/boswas-control-plane_${BOSWAS_VERSION_ID}_all.deb"
 check "boswas-control-plane_${BOSWAS_VERSION_ID} .deb produced (server; not in the device package set)" \
 	bash -c "test -s '$server_deb' && ! ls '$debs'/boswas-control-plane_*.deb >/dev/null 2>&1"
@@ -31,6 +35,10 @@ fi
 
 # Permissions that matter for security
 listing="$(for d in "$debs"/*.deb "$server_deb"; do dpkg-deb -c "$d"; done)"
+# Checks that run in a child shell read the listing from a file: it is longer
+# than one command-line argument may be (128 KiB) since the icon packs grew.
+listing_file="$(mktemp)"
+printf '%s\n' "$listing" > "$listing_file"
 check "sudoers drop-in is 0440 root:root" grep -qE '^-r--r----- root/root .* \./etc/sudoers\.d/boswas$' <<<"$listing"
 check "CLI entry points are executable" grep -qE '^-rwxr-xr-x root/root .* \./usr/bin/boswas$' <<<"$listing"
 check_not "no world-writable files" grep -qE '^-.......w' <<<"$listing"
@@ -40,7 +48,7 @@ check_not "no setuid/setgid files" grep -qE '^-..[sS]|^-.....[sS]' <<<"$listing"
 os_depends="$(dpkg-deb -f "$debs/boswas-os_${BOSWAS_VERSION_ID}_all.deb" Depends 2>/dev/null)"
 check "boswas-os depends on all Boswas device components" bash -c '
 	for p in boswas-branding boswas-security boswas-cli "boswas-compat " boswas-device-agent boswas-compat-manager \
-		boswas-control-center boswas-sysops boswas-android; do
+		boswas-control-center boswas-sysops boswas-android boswas-desktop boswas-bootsplash; do
 		grep -q -- "$p" <<<"$1" || exit 1
 	done' _ "$os_depends"
 check_not "boswas-os does not pull in the Control Plane" grep -q boswas-control-plane <<<"$os_depends"
@@ -78,9 +86,9 @@ compat_depends="$(dpkg-deb -f "$compat_deb" Depends 2>/dev/null)"
 check "boswas-compat depends on Wine 10, bubblewrap and AppArmor" \
 	bash -c "grep -q 'wine64 (>= 10' <<<'$compat_depends' && grep -q bubblewrap <<<'$compat_depends' && grep -q apparmor <<<'$compat_depends'"
 check "boswas-winapp command and in-sandbox runner are executable" \
-	bash -c "grep -qE '^-rwxr-xr-x root/root .* \./usr/bin/boswas-winapp$' <<<\"\$1\" && grep -qE '^-rwxr-xr-x root/root .* \./usr/lib/boswas/compat/winapp-exec$' <<<\"\$1\"" _ "$listing"
+	bash -c "grep -qE '^-rwxr-xr-x root/root .* \./usr/bin/boswas-winapp$' <\"\$1\" && grep -qE '^-rwxr-xr-x root/root .* \./usr/lib/boswas/compat/winapp-exec$' <\"\$1\"" _ "$listing_file"
 check "Wine AppArmor profile and WinCompat policy shipped (0644 conffiles)" \
-	bash -c "grep -qE '^-rw-r--r-- root/root .* \./etc/apparmor.d/boswas-winapp$' <<<\"\$1\" && grep -qE '^-rw-r--r-- root/root .* \./etc/boswas/compat/policy.conf$' <<<\"\$1\"" _ "$listing"
+	bash -c "grep -qE '^-rw-r--r-- root/root .* \./etc/apparmor.d/boswas-winapp$' <\"\$1\" && grep -qE '^-rw-r--r-- root/root .* \./etc/boswas/compat/policy.conf$' <\"\$1\"" _ "$listing_file"
 ctl="$(mktemp -d)"
 dpkg-deb -e "$compat_deb" "$ctl" 2>/dev/null
 check "boswas-compat postinst loads the AppArmor profile (dh_apparmor)" grep -q 'apparmor_parser -r -T -W "$APP_PROFILE"' "$ctl/postinst"
@@ -103,9 +111,9 @@ fi
 # Device agent package
 agent_deb="$debs/boswas-device-agent_${BOSWAS_VERSION_ID}_all.deb"
 check "device agent: boswas-device, the agent, the session agent and the update helper are executable" \
-	bash -c "for f in usr/bin/boswas-device usr/lib/boswas/agent/boswas-device-agent usr/lib/boswas/agent/boswas-session-agent usr/lib/boswas/agent/agent-update; do grep -qE \"^-rwxr-xr-x root/root .* \\./\$f\$\" <<<\"\$1\" || exit 1; done" _ "$listing"
+	bash -c "for f in usr/bin/boswas-device usr/lib/boswas/agent/boswas-device-agent usr/lib/boswas/agent/boswas-session-agent usr/lib/boswas/agent/agent-update; do grep -qE \"^-rwxr-xr-x root/root .* \\./\$f\$\" <\"\$1\" || exit 1; done" _ "$listing_file"
 check "device agent: system unit, update template and user unit shipped" \
-	bash -c "grep -q '\./usr/lib/systemd/system/boswas-device-agent.service$' <<<\"\$1\" && grep -q '\./usr/lib/systemd/system/boswas-agent-update@.service$' <<<\"\$1\" && grep -q '\./usr/lib/systemd/user/boswas-session-agent.service$' <<<\"\$1\"" _ "$listing"
+	bash -c "grep -q '\./usr/lib/systemd/system/boswas-device-agent.service$' <\"\$1\" && grep -q '\./usr/lib/systemd/system/boswas-agent-update@.service$' <\"\$1\" && grep -q '\./usr/lib/systemd/user/boswas-session-agent.service$' <\"\$1\"" _ "$listing_file"
 ctl="$(mktemp -d)"
 dpkg-deb -e "$agent_deb" "$ctl" 2>/dev/null
 check "device agent: postinst enables the agent and, for every user, the session agent" \
@@ -117,7 +125,7 @@ rm -rf "$ctl"
 # Compatibility Manager package
 manager_deb="$debs/boswas-compat-manager_${BOSWAS_VERSION_ID}_all.deb"
 check "Compatibility Manager: command, desktop entry and service menu shipped" \
-	bash -c "grep -qE '^-rwxr-xr-x root/root .* \./usr/bin/boswas-compat-manager$' <<<\"\$1\" && grep -q '\./usr/share/applications/com.boswas.CompatibilityManager.desktop$' <<<\"\$1\" && grep -q '\./usr/share/kio/servicemenus/boswas-compat-manager-install.desktop$' <<<\"\$1\"" _ "$listing"
+	bash -c "grep -qE '^-rwxr-xr-x root/root .* \./usr/bin/boswas-compat-manager$' <\"\$1\" && grep -q '\./usr/share/applications/com.boswas.CompatibilityManager.desktop$' <\"\$1\" && grep -q '\./usr/share/kio/servicemenus/boswas-compat-manager-install.desktop$' <\"\$1\"" _ "$listing_file"
 check "Compatibility Manager depends on PySide6 and the device agent (its backend)" \
 	bash -c "dpkg-deb -f '$manager_deb' Depends | grep -q python3-pyside6.qtwidgets && dpkg-deb -f '$manager_deb' Depends | grep -q boswas-device-agent"
 
@@ -133,32 +141,32 @@ check "Control Plane: the service is not enabled or started at installation (nee
 		! grep -qE \"deb-systemd-invoke (start|restart) 'boswas-control-plane\" '$ctl/postinst'"
 check "Control Plane: creates its unprivileged service user (sysusers)" grep -q systemd-sysusers "$ctl/postinst"
 check "Control Plane: dashboard and protocol modules shipped in its own module directory" \
-	bash -c "grep -q '\./usr/share/boswas-control-plane/dashboard/app.js$' <<<\"\$1\" && grep -q '\./usr/lib/boswas-control-plane/python/boswas_agent/commands.py$' <<<\"\$1\" && ! grep -q '\./usr/lib/boswas/python/' <<<\"\$(dpkg-deb -c '$server_deb')\"" _ "$listing"
+	bash -c "grep -q '\./usr/share/boswas-control-plane/dashboard/app.js$' <\"\$1\" && grep -q '\./usr/lib/boswas-control-plane/python/boswas_agent/commands.py$' <\"\$1\" && ! grep -q '\./usr/lib/boswas/python/' <<<\"\$(dpkg-deb -c '$server_deb')\"" _ "$listing_file"
 rm -rf "$ctl"
 
 # Boswas Control Center (settings hub; Security, Software and Update Centers)
 cc_deb="$debs/boswas-control-center_${BOSWAS_VERSION_ID}_all.deb"
 check "Control Center: command and its four desktop entries shipped (no Install entry: live sessions only)" \
-	bash -c "grep -qE '^-rwxr-xr-x root/root .* \./usr/bin/boswas-control-center$' <<<\"\$1\" &&
+	bash -c "grep -qE '^-rwxr-xr-x root/root .* \./usr/bin/boswas-control-center$' <\"\$1\" &&
 		for e in ControlCenter SecurityCenter SoftwareCenter UpdateCenter; do
-			grep -q \"\\./usr/share/applications/com.boswas.\$e.desktop$\" <<<\"\$1\" || exit 1; done &&
-		! grep -q 'InstallBoswasOS' <<<\"\$1\"" _ "$listing"
+			grep -q \"\\./usr/share/applications/com.boswas.\$e.desktop$\" <\"\$1\" || exit 1; done &&
+		! grep -q 'InstallBoswasOS' <\"\$1\"" _ "$listing_file"
 check "Control Center depends on PySide6, KDE's module launcher, the CLI, the device agent and the branding (presets)" \
 	bash -c "d=\$(dpkg-deb -f '$cc_deb' Depends); for p in python3-pyside6.qtwidgets libkf6kcmutils-bin boswas-cli boswas-device-agent boswas-branding; do
 		grep -q \"\$p\" <<<\"\$d\" || exit 1; done"
 
 # boswas-os: the installer's last step, the sources it writes, the required firmware list
 check "boswas-os ships the installer's finish step, the signed Debian sources template and the required firmware list" \
-	bash -c "grep -qE '^-rwxr-xr-x root/root .* \./usr/lib/boswas/installer/finish-install$' <<<\"\$1\" &&
-		grep -qE '^-rw-r--r-- root/root .* \./usr/share/boswas/apt/debian.sources$' <<<\"\$1\" &&
-		grep -qE '^-rw-r--r-- root/root .* \./usr/share/boswas/firmware/required.list$' <<<\"\$1\"" _ "$listing"
+	bash -c "grep -qE '^-rwxr-xr-x root/root .* \./usr/lib/boswas/installer/finish-install$' <\"\$1\" &&
+		grep -qE '^-rw-r--r-- root/root .* \./usr/share/boswas/apt/debian.sources$' <\"\$1\" &&
+		grep -qE '^-rw-r--r-- root/root .* \./usr/share/boswas/firmware/required.list$' <\"\$1\"" _ "$listing_file"
 
 # Privileged helper: started only by pkexec, one polkit action per operation
 sysops_deb="$debs/boswas-sysops_${BOSWAS_VERSION_ID}_all.deb"
 check "boswas-sysops: helper in /usr/libexec (0755), polkit actions (0644), nothing on the PATH" \
-	bash -c "grep -qE '^-rwxr-xr-x root/root .* \./usr/libexec/boswas/sysops$' <<<\"\$1\" &&
-		grep -qE '^-rw-r--r-- root/root .* \./usr/share/polkit-1/actions/com.boswas.sysops.policy$' <<<\"\$1\" &&
-		! grep -qE '\./usr/(s?bin|local/bin)/[^ ]*sysops' <<<\"\$1\"" _ "$listing"
+	bash -c "grep -qE '^-rwxr-xr-x root/root .* \./usr/libexec/boswas/sysops$' <\"\$1\" &&
+		grep -qE '^-rw-r--r-- root/root .* \./usr/share/polkit-1/actions/com.boswas.sysops.policy$' <\"\$1\" &&
+		! grep -qE '\./usr/(s?bin|local/bin)/[^ ]*sysops' <\"\$1\"" _ "$listing_file"
 ctl="$(mktemp -d)"
 dpkg-deb -e "$sysops_deb" "$ctl" 2>/dev/null
 check "boswas-sysops: /etc/boswas/apps.conf is a conffile; depends on apt, pkexec and polkitd" \
@@ -190,9 +198,9 @@ rm -rf "$sx"
 # Android runtime manager: no runtime, no autostart, the pinned repository key
 android_deb="$debs/boswas-android_${BOSWAS_VERSION_ID}_all.deb"
 check "boswas-android: command (0755), runtime.conf and the Waydroid repository keyring (0644)" \
-	bash -c "grep -qE '^-rwxr-xr-x root/root .* \./usr/bin/boswas-android$' <<<\"\$1\" &&
-		grep -qE '^-rw-r--r-- root/root .* \./usr/share/boswas/android/runtime.conf$' <<<\"\$1\" &&
-		grep -qE '^-rw-r--r-- root/root .* \./usr/share/boswas/keyrings/waydroid.gpg$' <<<\"\$1\"" _ "$listing"
+	bash -c "grep -qE '^-rwxr-xr-x root/root .* \./usr/bin/boswas-android$' <\"\$1\" &&
+		grep -qE '^-rw-r--r-- root/root .* \./usr/share/boswas/android/runtime.conf$' <\"\$1\" &&
+		grep -qE '^-rw-r--r-- root/root .* \./usr/share/boswas/keyrings/waydroid.gpg$' <\"\$1\"" _ "$listing_file"
 check_not "boswas-android: does not depend on or recommend the Android runtime (opt-in after installation)" \
 	bash -c "dpkg-deb -f '$android_deb' Depends Recommends | grep -qiE 'waydroid|lxc|gbinder'"
 check_not "boswas-android: ships no desktop entry, autostart or service (nothing starts Android by itself)" \
@@ -214,38 +222,79 @@ check "branding: the Boswas OS mark (gold and silver gradients) is the launcher 
 	bash -c "for f in usr/share/icons/hicolor/scalable/apps/boswas-logo.svg usr/share/boswas/branding/boswas-about-logo.svg \
 		usr/share/boswas/branding/boswas-os-mark.svg; do grep -q 'boswas-mark-gold' '$extract/'\$f && grep -q 'boswas-mark-silver' '$extract/'\$f || exit 1; done"
 check "branding: Orbitron brand typeface shipped (6 static weights, 0644) with its SIL OFL 1.1 licence" \
-	bash -c "test \$(grep -cE '^-rw-r--r-- root/root .* \./usr/share/fonts/truetype/orbitron/Orbitron-(Regular|Medium|SemiBold|Bold|ExtraBold|Black)\.ttf$' <<<\"\$1\") -eq 6 &&
+	bash -c "test \$(grep -cE '^-rw-r--r-- root/root .* \./usr/share/fonts/truetype/orbitron/Orbitron-(Regular|Medium|SemiBold|Bold|ExtraBold|Black)\.ttf$' <\"\$1\") -eq 6 &&
 		grep -q 'SIL OPEN FONT LICENSE Version 1.1' '$extract/usr/share/doc/boswas-branding/copyright' &&
-		grep -q 'Reserved Font Name: \"Orbitron\"' '$extract/usr/share/doc/boswas-branding/copyright'" _ "$listing"
-check "boot splash: Boswas OS Plymouth theme (two-step, passphrase dialog images, 24-frame spinner)" \
-	bash -c "grep -q 'ModuleName=two-step' '$extract/usr/share/plymouth/themes/boswas/boswas.plymouth' &&
-		for f in watermark lock entry bullet capslock throbber-0024; do test -s '$extract/usr/share/plymouth/themes/boswas/'\$f.png || exit 1; done"
-ctl="$(mktemp -d)"
-dpkg-deb -e "$debs/boswas-branding_${BOSWAS_VERSION_ID}_all.deb" "$ctl"
-check "boot splash: boswas-branding depends on plymouth-themes (the two-step module its theme uses)" \
-	bash -c "dpkg-deb -f '$debs/boswas-branding_${BOSWAS_VERSION_ID}_all.deb' Depends | grep -q plymouth-themes"
-check "boot splash: boswas-branding selects the theme and rebuilds the initramfs (trigger)" \
-	bash -c "grep -q 'plymouth-set-default-theme boswas' '$ctl/postinst' && grep -qx 'activate-noawait update-initramfs' '$ctl/triggers'"
-rm -rf "$ctl"
-check "desktop: Boswas Launcher (Kickoff under the Boswas name) and the Boswas session splash" \
-	bash -c "grep -q '\"X-Plasma-RootPath\": \"org.kde.plasma.kickoff\"' '$extract/usr/share/plasma/plasmoids/com.boswas.launcher/metadata.json' &&
-		grep -q 'org.kde.plasma.launchermenu' '$extract/usr/share/plasma/plasmoids/com.boswas.launcher/metadata.json' &&
-		test -s '$extract/usr/share/plasma/look-and-feel/com.boswas.splash/contents/splash/Splash.qml' &&
-		! grep -q '<image' '$extract/usr/share/plasma/look-and-feel/com.boswas.splash/contents/splash/images/lockup.svg'"
-check "desktop: KDE defaults select the Horizon preset, Boswas icons, splash and Konsole profile" \
-	bash -c "d='$extract/usr/share/boswas/kde-settings'; grep -qx 'LookAndFeelPackage=com.boswas.horizon' \$d/kdeglobals &&
-		grep -qx 'Theme=Boswas' \$d/kdeglobals && grep -qx 'Theme=com.boswas.splash' \$d/ksplashrc &&
-		grep -qx 'DefaultProfile=Boswas Horizon.profile' \$d/konsolerc"
+		grep -q 'Reserved Font Name: \"Orbitron\"' '$extract/usr/share/doc/boswas-branding/copyright'" _ "$listing_file"
+# The boot screen (boswas-bootsplash): the daemon and its client, the
+# initramfs integration, and no file named plymouth on the root file system.
+splash_deb="$debs/boswas-bootsplash_${BOSWAS_VERSION_ID}_amd64.deb"
+splash_listing="$(dpkg-deb -c "$splash_deb")"
+check "boot screen: daemon, client, initramfs hook and scripts are shipped executable" \
+	bash -c "for f in usr/libexec/boswas/boswas-bootsplashd usr/bin/boswas-bootsplash \
+			usr/share/initramfs-tools/hooks/boswas-bootsplash \
+			usr/share/initramfs-tools/scripts/init-premount/boswas-bootsplash \
+			usr/share/initramfs-tools/scripts/init-bottom/boswas-bootsplash; do
+			grep -qE \"^-rwxr-xr-x root/root .* \\./\$f\$\" <<<\"\$1\" || exit 1; done" _ "$splash_listing"
+check "boot screen: conflicts with plymouth and installs nothing under that name" \
+	bash -c "dpkg-deb -f '$splash_deb' Conflicts | grep -qw plymouth && ! grep -qE '/plymouth[^/]*\$' <<<\"\$1\"" _ "$splash_listing"
+check "boot screen: hand-over to the login screen, and shutdown, restart and halt screens (systemd units)" \
+	bash -c "for u in quit poweroff reboot halt; do
+			grep -q \"\\./usr/lib/systemd/system/boswas-bootsplash-\$u.service\$\" <<<\"\$1\" || exit 1; done" _ "$splash_listing"
+check "boot screen: the daemon reports its version and checks its own sandbox" \
+	bash -c "x=\$(mktemp -d) && dpkg-deb -x '$splash_deb' \"\$x\" &&
+		\"\$x/usr/bin/boswas-bootsplash\" --version | grep -q '^boswas-bootsplash ${BOSWAS_VERSION_ID}\$'; rc=\$?; rm -rf \"\$x\"; exit \$rc"
+check_not "branding no longer depends on Plymouth or ships a Plymouth theme" \
+	bash -c "dpkg-deb -f '$debs/boswas-branding_${BOSWAS_VERSION_ID}_all.deb' Depends | grep -q plymouth ||
+		test -e '$extract/usr/share/plymouth/themes/boswas'"
+
+# The native desktop (boswas-desktop): compositor, shell, session, login.
+desktop_deb="$debs/boswas-desktop_${BOSWAS_VERSION_ID}_amd64.deb"
+desktop_listing="$(dpkg-deb -c "$desktop_deb")"
+check "desktop: compositor, shell, session and login screen programs are shipped executable" \
+	bash -c "for f in usr/bin/boswas-compositor usr/bin/boswas-session usr/libexec/boswas/boswas-shell \
+			usr/libexec/boswas/boswas-greeter usr/libexec/boswas/boswas-session-ready; do
+			grep -qE \"^-rwxr-xr-x root/root .* \\./\$f\$\" <<<\"\$1\" || exit 1; done" _ "$desktop_listing"
+check "desktop: the programs run and report the release version" \
+	bash -c "'$extract/usr/bin/boswas-compositor' --version | grep -q '^boswas-compositor ' &&
+		'$extract/usr/libexec/boswas/boswas-shell' --version | grep -q '^boswas-shell ' &&
+		grep -qx '${BOSWAS_VERSION_ID}' '$extract/usr/share/boswas/compositor/version'"
+check "desktop: session entry, session target, lock-screen PAM service and compositor defaults" \
+	bash -c "grep -qx 'Exec=/usr/bin/boswas-session' '$extract/usr/share/wayland-sessions/boswas.desktop' &&
+		grep -qx 'BindsTo=graphical-session.target' '$extract/usr/lib/systemd/user/boswas-session.target' &&
+		grep -qx '@include common-auth' '$extract/etc/pam.d/boswas-lock' &&
+		test -x '$extract/usr/lib/systemd/system-sleep/boswas-lock' &&
+		test -s '$extract/usr/share/boswas/compositor/compositor.toml' && test -s '$extract/usr/share/boswas/compositor/greeter.toml'"
+check "desktop: greetd is configured by a drop-in and /etc/boswas/greetd.toml (a conffile); greetd's own file is not shipped" \
+	bash -c "grep -qx 'ExecStart=/usr/sbin/greetd --config /etc/boswas/greetd.toml' '$extract/usr/lib/systemd/system/greetd.service.d/10-boswas.conf' &&
+		grep -q '\\./etc/boswas/greetd.toml\$' <<<\"\$1\" && ! grep -q '\\./etc/greetd/' <<<\"\$1\" &&
+		! grep -q initial_session '$extract/etc/boswas/greetd.toml'" _ "$desktop_listing"
+check "desktop: depends on greetd, a session bus and the Mesa drivers; no Plasma, KWin or SDDM anywhere in its relations" \
+	bash -c "d=\$(dpkg-deb -f '$desktop_deb' Depends Recommends Suggests);
+		for p in greetd dbus-user-session libegl1 libgl1-mesa-dri libseat1 libinput10; do grep -q \"\$p\" <<<\"\$d\" || exit 1; done;
+		! grep -qE 'plasma-workspace|plasma-desktop|kwin|sddm' <<<\"\$d\""
+check "desktop: KDE application defaults select the Prism colours and the Boswas Prism icons" \
+	bash -c "d='$extract/usr/share/boswas/kde-settings'; grep -qx 'Theme=Boswas-Prism' \$d/kdeglobals &&
+		grep -qx 'ColorScheme=BoswasPrism' \$d/kdeglobals && ! grep -q LookAndFeelPackage \$d/kdeglobals &&
+		grep -qx 'DefaultProfile=Boswas Prism.profile' \$d/konsolerc &&
+		grep -qx 'ColorScheme=BoswasPrism' '$extract/usr/share/konsole/Boswas Prism.profile' &&
+		test -s '$extract/usr/share/konsole/BoswasPrism.colorscheme' &&
+		test -s '$extract/usr/share/color-schemes/BoswasPrism.colors' && test -s '$extract/usr/share/boswas/ui/tokens.json'"
+check "icons: Boswas Prism and Boswas Prism Light are installed with the launcher, lock and panel status icons" \
+	bash -c "for t in Boswas-Prism Boswas-Prism-Light; do
+			for f in index.theme scalable/apps/boswas-logo.svg scalable/apps/boswas-control-center.svg scalable/places/folder.svg \
+				scalable/status/network-wired-symbolic.svg scalable/status/battery-full-symbolic.svg \
+				scalable/actions/system-search-symbolic.svg scalable/actions/system-shutdown-symbolic.svg; do
+				test -s '$extract/usr/share/icons/'\$t/\$f || exit 1; done; done"
+check_not "desktop: no Plasma shell, KSplash, SDDM or Plasma session file is shipped by a Boswas package" \
+	bash -c "test -e '$extract/usr/share/plasma/plasmoids' || test -e '$extract/usr/share/plasma/look-and-feel/com.boswas.splash' ||
+		test -e '$extract/etc/sddm.conf.d' || test -e '$extract/usr/share/sddm' || test -e '$extract/etc/xdg/plasma-workspace'"
 check "terminal: Boswas prompt and welcome (sources the user's ~/.bashrc first)" \
 	bash -c "grep -q '\\. \"\$HOME/.bashrc\"' '$extract/usr/share/boswas/terminal/bashrc' && test -x '$extract/usr/bin/boswas-welcome'"
-check "login screen: Breeze with the Boswas background and logo (self-contained)" \
-	bash -c "grep -qx 'showlogo=shown' '$extract/usr/share/sddm/themes/breeze/theme.conf.user' &&
-		test -s '$extract/usr/share/boswas/branding/boswas-login-logo.svg' &&
-		! grep -q '<image' '$extract/usr/share/boswas/branding/boswas-login-logo.svg'"
 check_not "branding: the retired teal accent and Boswas Group gear logo are gone" \
 	bash -c "grep -rqiE '#17C6C0|#2ED3CD|23,198,192' '$extract/usr/share/boswas' '$extract/usr/share/color-schemes' '$extract/usr/share/icons' ||
 		test -e '$extract/usr/share/boswas/branding/boswas-group-logo.svg'"
 rm -rf "$extract"
+rm -f "$listing_file"
 
 # CLI unit tests (also run during the package build; repeated for a direct report)
 if out="$(cd "$BOSWAS_REPO_ROOT/packages/boswas-cli" && python3 -B -m unittest discover -s tests 2>&1)"; then

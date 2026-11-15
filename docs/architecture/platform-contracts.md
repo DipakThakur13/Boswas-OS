@@ -1,8 +1,12 @@
-# Platform contracts: boswas-sysops, boswas-android, Control Center
+# Platform contracts: boswas-sysops, boswas-android, Control Center, Boswas Desktop
 
 The interfaces between the privileged helper, the Android runtime manager and
 Boswas Control Center. Each component is tested against this document with
 fakes of the others; a change here changes all three.
+
+Section 4 describes the interfaces of the native desktop (`boswas-desktop`,
+ADR-0026) that other Boswas components use: its configuration files, its
+control socket, the design tokens and the version file.
 
 ## 1. boswas-sysops: the only privileged helper
 
@@ -187,3 +191,116 @@ set, and `/usr/bin/boswas-android`. Long operations use a streaming call that
 reads JSON Lines, shows progress, offers Cancel only while the last `start` /
 `progress` line says `cancellable`, and reports success only on a `result`
 line with `ok: true`.
+
+## 4. Boswas Desktop: configuration, control socket, tokens
+
+### Compositor configuration (TOML)
+
+Layers, later ones overriding earlier ones key by key:
+
+| File | Owner | May contain |
+|------|-------|-------------|
+| `/usr/share/boswas/compositor/compositor.toml` | boswas-desktop (never edited) | everything, including `[policy]` |
+| `/etc/boswas/compositor.toml` | the administrator (not shipped) | everything, including `[policy]` |
+| `$XDG_CONFIG_HOME/boswas/compositor.toml` | the user | everything except `[policy]`, which is ignored there |
+| `$XDG_CONFIG_HOME/boswas/appearance.toml` | `boswas-preset` (rewritten as a whole) | the `[appearance]` table only; anything else makes the file ignored |
+
+A file that does not parse or contains an unknown key is reported and
+ignored as a whole; the session still starts. `--config FILE` replaces all
+layers (the login screen uses `/usr/share/boswas/compositor/greeter.toml`).
+
+| Table | Keys |
+|-------|------|
+| `[keyboard]` | `layout`, `variant`, `model`, `options` (XKB names); `repeat_delay` (ms, 100–2000); `repeat_rate` (per second, 1–100) |
+| `[pointer]` | `natural_scroll`, `tap_to_click`, `accel_speed` (−1.0 to 1.0), `cursor_theme`, `cursor_size` (16–96) |
+| `[output]` | `scale`: 1.0, 1.25, 1.5, 1.75 or 2.0, for every output |
+| `[lock]` | `idle_seconds` (0: never, if the policy allows); `command` (the lock screen program) |
+| `[shell]` | `command` (the shell program) |
+| `[apps]` | `terminal`, `files` (argument lists for Ctrl+Alt+T and Super+E) |
+| `[appearance]` | `scheme` (`"dark"` or `"light"`), `reduced_motion`, `wallpaper` (PNG or JPEG file) |
+| `[policy]` | `lock_idle_max_seconds` (0: no limit; shipped: 600), `privileged_protocols` (`"shell"`, shipped; `"all"` for development only) |
+
+Shipped policy: the session locks after at most 600 seconds without input,
+and only programs the compositor starts get the privileged protocols.
+`boswas security status` (check `screen-lock`) reads the two system files
+to report the lock policy. `boswas-compositor(1)` is the reference for
+every key.
+
+`boswas-preset apply` on the native desktop (`XDG_CURRENT_DESKTOP`
+contains `Boswas`) writes `appearance.toml` (scheme and wallpaper), merges
+the preset's colours into the user's `kdeglobals` for KDE applications, and
+sends `reload-config`.
+
+### Control socket
+
+`$XDG_RUNTIME_DIR/boswas-<WAYLAND_DISPLAY>.sock`, a Unix stream socket,
+mode 0600. The path is printed by `boswas-compositor --print-env` as
+`BOSWAS_COMPOSITOR_SOCKET`. UTF-8, one JSON object per line in each
+direction; a line longer than 64 KiB closes the connection; at most 32
+connections.
+
+```
+-> {"id": 1, "cmd": "version"}
+<- {"id": 1, "ok": true, "data": {"name": "boswas-compositor", "version": "1.0.0-alpha.3", "trusted": false, "locked": false}}
+-> {"id": 2, "cmd": "windows"}
+<- {"id": 2, "ok": false, "error": "\"windows\" is not available on this connection"}
+```
+
+`id` is optional and echoed. Two kinds of connection:
+
+- **public**: any connection to the socket file;
+- **trusted**: the descriptor the compositor passes to a program it starts
+  itself (`BOSWAS_COMPOSITOR_FD`: the shell, the lock screen, the greeter).
+  With `privileged_protocols = "all"` public connections are trusted too.
+
+| Command | Connection | Arguments | Reply data |
+|---------|------------|-----------|------------|
+| `version` | any | – | `name`, `version`, `trusted`, `locked` |
+| `lock` | any | – | `null`; the session is locked when the reply arrives |
+| `reload-config` | any | – | `{"warnings": [...]}` |
+| `subscribe` | trusted | – | current windows, workspaces, outputs, lock state and appearance; events follow |
+| `windows` | trusted | – | list of `{id, title, app_id, active, minimized, tile, workspace, x, y, width, height}` |
+| `outputs` | trusted | – | list of `{name, x, y, width, height, scale, usable}` |
+| `workspaces` | trusted | – | `{active, count}` |
+| `activate`, `minimize`, `toggle-minimize`, `close` | trusted | `window` (id) | `null` |
+| `tile` | trusted | `window`, `tile`: `floating`, `maximized`, `fullscreen`, `left`, `right`, `top-left`, `top-right`, `bottom-left`, `bottom-right` | `null` |
+| `workspace` | trusted | `index` | `{active, count}` |
+| `screenshot` | trusted | `path` (absolute; PNG) | answered after the next frame |
+| `quit` | trusted | – | `null`; the session ends |
+| `pointer`, `button`, `key`, `scroll` | trusted and `--test-input` | test input injection | refused without `--test-input` |
+
+Events after `subscribe`, as `{"event": NAME, "data": ...}`: `windows`,
+`workspace`, `launcher` (the Super key was tapped), `lock`
+(`{"locked": bool}`), `config` (the appearance after a reload).
+
+Command line: `boswas-compositor --send version|lock|reload-config
+[--control-socket PATH]` sends one public command and prints the reply. The
+sleep hook (`/usr/lib/systemd/system-sleep/boswas-lock`) and the boot test
+lock that way; `boswas-preset` writes `reload-config` to the socket itself.
+There is no command that unlocks.
+
+The limits of a public connection, the trust of a started program and the
+lock behaviour are pinned down by
+`packages/boswas-desktop/crates/boswas-compositor/tests/headless.rs`.
+
+### Environment of a session
+
+`boswas-session` sets `XDG_CURRENT_DESKTOP=Boswas`,
+`XDG_SESSION_DESKTOP=boswas`, `XDG_SESSION_TYPE=wayland` and
+`WAYLAND_DISPLAY` (set by the compositor), and no `DISPLAY`. Programs
+started by the shell never inherit `WAYLAND_SOCKET` or
+`BOSWAS_COMPOSITOR_FD`. Components detect the native desktop by
+`Boswas` in `XDG_CURRENT_DESKTOP`.
+
+### Files other components read
+
+| Path | Written by | Read by | Content |
+|------|-----------|---------|---------|
+| `/usr/share/boswas/compositor/version` | boswas-desktop (package build) | Control Center (About). `boswas info` asks dpkg for the version of `boswas-desktop` instead | The package version, one line (for example `1.0~alpha3`) |
+| `/usr/share/boswas/ui/tokens.json` | boswas-branding | any tool that needs Boswas colours or geometry | Boswas UI tokens, version 2 (ADR-0031). The Rust programs compile the same file in and do not read it at run time |
+| `/usr/share/boswas/kde-settings/kdeglobals` | boswas-branding | KDE and Qt applications (through `XDG_CONFIG_DIRS`) | Prism colour scheme, `Boswas-Prism` icon theme, Breeze widget style |
+| `/etc/boswas/greetd.toml` | boswas-desktop; live-config appends `[initial_session]` on the live medium only | greetd | Login configuration |
+| `/etc/pam.d/boswas-lock` | boswas-desktop | `boswas-shell --lock` (libpam) | `common-auth` and `common-account` |
+
+The boot screen's control protocol (`/run/boswas-bootsplash/socket`, root
+only) is described in `packages/boswas-bootsplash/README.md`.

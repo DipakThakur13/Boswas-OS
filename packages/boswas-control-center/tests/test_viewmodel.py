@@ -172,7 +172,7 @@ class ReleaseTest(unittest.TestCase):
                     "machine": "x86_64"}
         storage = [{"key": "system", "title": "System", "path": "/", "total": 100 * 1024 ** 3,
                     "free": 40 * 1024 ** 3}]
-        rows = dict(vm.about_rows(info, hardware, storage, "6.3.6", True, None, None, fx.AGENT, None))
+        rows = dict(vm.about_rows(info, hardware, storage, "KDE Plasma 6.3.6", True, None, None, fx.AGENT, None))
         self.assertEqual(rows["Version"], "v1 Alpha (1.0~alpha3)")
         self.assertEqual(rows["Processor"], "CPU X (8 threads)")
         self.assertEqual(rows["Memory"], "16.0 GiB")
@@ -208,6 +208,11 @@ class HardwareTest(unittest.TestCase):
         self.assertEqual(vm.plasma_version_from_metainfo(fx.METAINFO), "6.3.6")
         self.assertEqual(vm.plasma_version_from_output("plasmashell 6.3.6\n"), "6.3.6")
         self.assertIsNone(vm.plasma_version_from_output("crash"))
+
+    def test_desktop_version_file(self):
+        self.assertEqual(vm.desktop_version_from_file("1.0~alpha3\n"), "1.0~alpha3")
+        for bad in ("", "alpha", "1.0 rm -rf", "1.0\n2.0", None, 7, "9" * 80):
+            self.assertIsNone(vm.desktop_version_from_file(bad))
 
     def test_power(self):
         view = vm.power_view([{"name": "BAT0", "type": "Battery", "status": "Discharging", "capacity": "12"},

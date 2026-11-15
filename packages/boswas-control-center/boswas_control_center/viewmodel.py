@@ -233,6 +233,15 @@ def plasma_version_from_metainfo(text: object) -> str | None:
     return match.group(1) if match else None
 
 
+_DESKTOP_VERSION_RE = re.compile(r"[0-9][0-9A-Za-z.~+-]{0,40}")
+
+
+def desktop_version_from_file(text: object) -> str | None:
+    """The single version line of /usr/share/boswas/compositor/version."""
+    line = text.strip() if isinstance(text, str) else ""
+    return line if _DESKTOP_VERSION_RE.fullmatch(line) else None
+
+
 def plasma_version_from_output(text: object) -> str | None:
     match = _PLASMASHELL_RE.search(text) if isinstance(text, str) else None
     return match.group(1) if match else None
@@ -830,7 +839,7 @@ def power_view(supplies: object) -> PowerView:
 
 # --- About ---------------------------------------------------------------------------------------------------
 
-def about_rows(release: ReleaseInfo, hardware: object, storage: object, plasma: object, live: object,
+def about_rows(release: ReleaseInfo, hardware: object, storage: object, desktop: object, live: object,
                security: SecurityView | None, windows: WindowsView | None, agent: object,
                agent_error: str | None) -> list[tuple[str, str]]:
     hw = _dict(hardware)
@@ -843,7 +852,7 @@ def about_rows(release: ReleaseInfo, hardware: object, storage: object, plasma: 
         ("Processor", cpu_text(hw)),
         ("Memory", format_bytes(memory) if memory else "Unknown"),
         ("Storage", storage_line(storage)),
-        ("Desktop", f"KDE Plasma {one_line(plasma, 20)}" if isinstance(plasma, str) and plasma else "Not available"),
+        ("Desktop", one_line(desktop, 60) if isinstance(desktop, str) and desktop else "Not available"),
         ("Session", ("Live session" if live else "Installed") if isinstance(live, bool) else "Checking…"),
         ("Security", security_line(security)),
         ("Windows compatibility", windows_line(windows)),
@@ -1087,6 +1096,8 @@ def filter_apps(items: list[AppItem], text: object) -> list[AppItem]:
 PRESET_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 # The image's default preset ("default" in desktop/presets/presets.json; a test keeps them equal).
 DEFAULT_PRESET, DEFAULT_PRESET_NAME = "horizon", "Boswas Horizon"
+# The native desktop's own default look (Boswas UI v2); `boswas-preset reset` returns to it.
+NATIVE_DEFAULT_LOOK = "Boswas Prism"
 _ACCENT_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 PREVIEW_SUFFIXES = (".png", ".jpg", ".jpeg", ".svg", ".webp")
 VARIANT_LABELS = {"light": "Light", "dark": "Dark"}

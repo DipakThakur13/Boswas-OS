@@ -211,7 +211,8 @@ class InstallTest(unittest.TestCase):
 class RemoveTest(unittest.TestCase):
     def test_protected_packages_are_refused(self):
         for removed in ("boswas-os", "linux-image-amd64", "grub-efi-amd64-signed", "shim-signed", "cryptsetup-bin",
-                        "sudo", "apparmor", "network-manager", "dpkg", "plasma-workspace"):
+                        "sudo", "apparmor", "network-manager", "dpkg", "greetd", "boswas-desktop",
+                        "boswas-bootsplash"):
             h = Harness()
             h.runner.on(("-s", "remove"), Completed(0, f"Remv some-app [1.0]\nRemv {removed} [1.0]\n", ""))
             self.assertEqual(run(h, "apt-remove", "some-app"), 2, removed)

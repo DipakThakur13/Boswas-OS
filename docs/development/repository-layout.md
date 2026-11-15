@@ -1,6 +1,8 @@
 # Repository layout
 
-Only directories that have content exist. Directories from the long-term plan
+Only directories that have content exist. Development build trees of the
+Rust packages (`packages/*/target/`) are git-ignored and are left out of a
+package build. Directories from the long-term plan
 (`services/`, `hardware/`, `release/`, `profiles/`, `debian/patches/`, and
 the packages `boswas-store`, `boswas-updater`, `boswas-hardware`) are
 created by the milestone that implements them.
@@ -27,15 +29,20 @@ created by the milestone that implements them.
 │   └── apt/                                Boswas repository template (disabled)
 ├── desktop/
 │   ├── branding/                           Boswas OS logo (source/), traced mark,
-│   │                                       Orbitron wordmarks, boot menu, Plymouth,
-│   │                                       session splash, login logo, tools
+│   │                                       Orbitron wordmarks, boot menu, login logo,
+│   │                                       tools
+│   ├── ui/                                 Boswas UI: tokens.json (the Prism palette,
+│   │                                       geometry, type, motion; ADR-0031), the KDE
+│   │                                       colour schemes generated from it, tools, tests
 │   ├── fonts/orbitron/                     brand typeface (SIL OFL 1.1)
-│   ├── presets/                            the ten presets (Global Themes, colour
-│   │                                       schemes, wallpapers, Konsole), boswas-preset
-│   ├── icons/                              Boswas and Boswas Light icon themes
-│   ├── launcher/                           Boswas Launcher applet
+│   ├── presets/                            the ten presets (colour schemes, wallpapers,
+│   │                                       Konsole; Plasma Global Themes, unused on the
+│   │                                       native desktop), boswas-preset
+│   ├── icons/                              Boswas-Prism and Boswas-Prism-Light (the
+│   │                                       default icon pack, generated from the tokens),
+│   │                                       the earlier Boswas and Boswas-Light themes
 │   ├── terminal/                           Boswas prompt and welcome
-│   └── defaults/                           KDE, SDDM, Firefox and session defaults
+│   └── defaults/                           defaults for KDE applications and Firefox
 ├── installer/
 │   ├── configuration/preseed.cfg           Debian Installer policy (encrypted install)
 │   └── branding/                           installer banner
@@ -46,7 +53,28 @@ created by the milestone that implements them.
 │   ├── boswas-compat/                      boswas-winapp (Python, stdlib), unit tests
 │   ├── boswas-device-agent/                device agent, session agent, boswas-device,
 │   │                                       message schemas, systemd units, unit tests
-│   └── boswas-compat-manager/              Compatibility Manager (PySide6), unit + Qt tests
+│   ├── boswas-compat-manager/              Compatibility Manager (PySide6), unit + Qt tests
+│   ├── boswas-control-center/              Control Center (PySide6), unit + Qt tests
+│   ├── boswas-sysops/                      the privileged helper and its polkit actions
+│   ├── boswas-android/                     Android runtime manager (Waydroid, opt-in)
+│   ├── boswas-desktop/                     the native desktop (Rust workspace, ADR-0026):
+│   │   ├── Cargo.toml, Cargo.lock          workspace and the pinned crate versions
+│   │   ├── crates/boswas-ui/               design tokens, drawing, text, icons (no unsafe)
+│   │   ├── crates/boswas-compositor/       the Wayland compositor (Smithay): src/backend
+│   │   │                                   (udev, winit, headless), src/handlers
+│   │   │                                   (protocols), src/shell (windows, frames,
+│   │   │                                   grabs), ipc.rs (control socket), tests/
+│   │   │                                   (end-to-end, headless)
+│   │   ├── crates/boswas-shell/            panel, launcher, wallpaper, lock screen,
+│   │   │                                   greeter, PAM and greetd clients
+│   │   ├── config/                         compositor.toml (defaults and policy),
+│   │   │                                   greeter.toml
+│   │   ├── session/                        boswas-session, greeter, greetd drop-in and
+│   │   │                                   configuration, PAM service, sleep hook
+│   │   └── man/  debian/
+│   └── boswas-bootsplash/                  boot, disk-unlock and shutdown screens (Rust,
+│                                           ADR-0029): src/, initramfs/ hooks, systemd/
+│                                           units, tests/, README.md
 ├── control-plane/                          Control Plane server (boswas-cp; Python stdlib,
 │                                           SQLite), dashboard, systemd unit, tests;
 │                                           Debian package built into server/, not the image
@@ -63,6 +91,10 @@ created by the milestone that implements them.
 ```
 security/firewall/nftables.conf ──(packages/boswas-security/debian/rules)──▶ boswas-security.deb
 desktop/…  ─────────────────────(packages/boswas-branding/debian/rules)──▶ boswas-branding.deb
+desktop/ui/tokens.json ─┬─(build_kde_colors.py, build_prism.py; committed output)──▶ colour schemes, icons
+                        ├─(compiled in: boswas-ui)──▶ packages/boswas-desktop ──(cargo, debian/rules)──▶ boswas-desktop.deb
+                        └─(build.rs, with desktop/branding artwork)──▶ packages/boswas-bootsplash ──▶ boswas-bootsplash.deb
+crates.io (versions in Cargo.lock) ──(cargo --locked, at package build time)──▶ the two Rust packages
 compatibility/… + packages/boswas-compat ──(packages/boswas-compat/debian/rules)──▶ boswas-compat.deb
 packages/boswas-device-agent, packages/boswas-compat-manager ──(debian/rules)──▶ their .debs
 control-plane/ (+ shared agent/compat modules) ──(control-plane/debian/rules)──▶ server/boswas-control-plane.deb

@@ -167,6 +167,119 @@ class ApplyTest(CliTestCase):
         self.assertEqual(json.loads(out), {"applied": "horizon", "layout": False})
         self.assertNotIn("--resetLayout", runner.calls[0])
 
+    def test_native_desktop_writes_appearance_and_colours(self):
+        """On the native Boswas desktop no Plasma tool is used."""
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "config"
+            schemes = Path(tmp) / "schemes"
+            schemes.mkdir()
+            (schemes / "BoswasPearl.colors").write_text(
+                "[ColorEffects:Disabled]\nColor=1,2,3\n\n[Colors:Window]\nBackgroundNormal=250,250,250\n\n"
+                "[General]\nName=Boswas Pearl\n\n[WM]\nactiveBackground=1,1,1\n", encoding="utf-8")
+            home.mkdir()
+            (home / "kdeglobals").write_text(
+                "[General]\nColorScheme=Old\nfont=Inter,10\n\n[Colors:Window]\nBackgroundNormal=0,0,0\n\n"
+                "[Icons]\nTheme=Boswas-Prism\n", encoding="utf-8")
+            env = dict(self.env, XDG_CURRENT_DESKTOP="Boswas", XDG_CONFIG_HOME=str(home),
+                       BOSWAS_COLOR_SCHEMES=str(schemes))
+            code, out, err, runner = self.run_cli("--json", "apply", "pearl", "--layout", env=env)
+            self.assertEqual((code, err), (0, ""))
+            self.assertEqual(json.loads(out), {"applied": "pearl", "layout": False})
+            self.assertEqual([call[0] for call in runner.calls], ["kwriteconfig6", "kwriteconfig6"])
+            self.assertFalse(any("plasma" in part for call in runner.calls for part in call))
+            self.assertEqual(runner.calls[-1][-1], "pearl")
+
+            appearance = (home / "boswas" / "appearance.toml").read_text(encoding="utf-8")
+            self.assertIn('scheme = "light"', appearance)
+            self.assertIn('wallpaper = "/usr/share/wallpapers/Boswas-Pearl/contents/images/3840x2160.png"', appearance)
+            import tomllib
+            self.assertEqual(set(tomllib.loads(appearance)), {"appearance"})
+
+            merged = support.parse_ini(home / "kdeglobals")
+            self.assertEqual(merged["General"]["ColorScheme"], "BoswasPearl")
+            self.assertEqual(merged["General"]["font"], "Inter,10", "other settings are kept")
+            self.assertEqual(merged["Colors:Window"]["BackgroundNormal"], "250,250,250")
+            self.assertEqual(merged["WM"]["activeBackground"], "1,1,1")
+            self.assertEqual(merged["Icons"]["Theme"], "Boswas-Prism")
+            self.assertNotIn("ColorEffects:Disabled", merged, "only colour groups are copied")
+            self.assertFalse(list(home.rglob("*.tmp")), "no temporary file is left behind")
+
+    def test_native_desktop_dark_preset_and_missing_scheme(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            env = dict(self.env, XDG_CURRENT_DESKTOP="Boswas", XDG_CONFIG_HOME=tmp,
+                       BOSWAS_COLOR_SCHEMES=str(Path(tmp) / "none"))
+            code, out, err, runner = self.run_cli("--json", "apply", "midnight", env=env)
+            self.assertEqual(code, 1)
+            self.assertEqual(json.loads(out)["step"], "colours")
+            self.assertEqual(runner.calls, [], "nothing runs after a failed step")
+            appearance = (Path(tmp) / "boswas" / "appearance.toml").read_text(encoding="utf-8")
+            self.assertIn('scheme = "dark"', appearance)
+            self.assertIn("contents/images_dark/3840x2160.png", appearance)
+
+    def test_native_reset_returns_to_prism(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "config"
+            schemes = Path(tmp) / "schemes"
+            schemes.mkdir()
+            (schemes / "BoswasPrism.colors").write_text(
+                "[Colors:Window]\nBackgroundNormal=18,16,28\n\n[General]\nName=Boswas Prism\n\n"
+                "[WM]\nactiveBackground=26,23,40\n", encoding="utf-8")
+            (home / "boswas").mkdir(parents=True)
+            (home / "boswas" / "appearance.toml").write_text('[appearance]\nscheme = "light"\n', encoding="utf-8")
+            (home / "boswas" / "compositor.toml").write_text('[keyboard]\nlayout = "in"\n', encoding="utf-8")
+            (home / "kdeglobals").write_text(
+                "[General]\nColorScheme=BoswasPearl\nfont=Inter,10\n\n[Colors:Window]\nBackgroundNormal=250,250,250\n",
+                encoding="utf-8")
+            env = dict(self.env, XDG_CURRENT_DESKTOP="Boswas", XDG_CONFIG_HOME=str(home),
+                       BOSWAS_COLOR_SCHEMES=str(schemes))
+            code, out, err, runner = self.run_cli("--json", "reset", env=env)
+            self.assertEqual((code, err), (0, ""))
+            self.assertEqual(json.loads(out), {"reset": True, "default": "Boswas Prism"})
+            self.assertFalse((home / "boswas" / "appearance.toml").exists(), "the preset file is gone")
+            self.assertTrue((home / "boswas" / "compositor.toml").exists(), "the user's own settings are kept")
+            merged = support.parse_ini(home / "kdeglobals")
+            self.assertEqual(merged["General"]["ColorScheme"], "BoswasPrism")
+            self.assertEqual(merged["General"]["font"], "Inter,10")
+            self.assertEqual(merged["Colors:Window"]["BackgroundNormal"], "18,16,28")
+            self.assertEqual(runner.calls, [
+                ["kwriteconfig6", "--file", "konsolerc", "--group", "Desktop Entry", "--key", "DefaultProfile",
+                 "Boswas Prism.profile"],
+                ["kwriteconfig6", "--file", "boswasrc", "--group", "Preset", "--key", "Current", "--delete"],
+            ])
+            # A second reset, with nothing to remove, works the same.
+            code, _out, err, _runner = self.run_cli("reset", env=env)
+            self.assertEqual((code, err), (0, ""))
+
+    def test_reset_on_plasma_applies_the_default_preset_with_its_layout(self):
+        code, out, _, runner = self.run_cli("--json", "reset")
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out), {"reset": True, "default": "Boswas Horizon"})
+        self.assertEqual(runner.calls, expected_steps("horizon", "Horizon", layout=True))
+
+    def test_reset_is_refused_for_root_and_takes_no_arguments(self):
+        code, _out, err, runner = self.run_cli("reset", euid=0)
+        self.assertEqual(code, 4)
+        self.assertEqual(runner.calls, [])
+        code, _out, err, runner = self.run_cli("reset", "pearl")
+        self.assertEqual(code, 3)
+        self.assertEqual(runner.calls, [])
+
+    def test_native_desktop_detection_and_reload_without_a_compositor(self):
+        self.assertTrue(cli.is_native_desktop({"XDG_CURRENT_DESKTOP": "Boswas"}))
+        self.assertTrue(cli.is_native_desktop({"XDG_CURRENT_DESKTOP": "Boswas:wlroots"}))
+        for other in ("KDE", "", "NotBoswas", "boswas"):
+            self.assertFalse(cli.is_native_desktop({"XDG_CURRENT_DESKTOP": other}), other)
+        self.assertFalse(cli.is_native_desktop({}))
+        self.assertFalse(cli.reload_compositor({}))
+        self.assertFalse(cli.reload_compositor({"XDG_RUNTIME_DIR": "/nonexistent", "WAYLAND_DISPLAY": "wayland-1"}))
+        self.assertFalse(cli.reload_compositor({"XDG_RUNTIME_DIR": "/tmp", "WAYLAND_DISPLAY": "../etc/x"}))
+
     def test_refuses_root(self):
         code, out, err, runner = self.run_cli("apply", "horizon", euid=0)
         self.assertEqual(code, 4)

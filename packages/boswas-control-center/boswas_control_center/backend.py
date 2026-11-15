@@ -164,6 +164,14 @@ class Backend:
         except ValueError:
             raise CommandFailed("boswas-preset", "boswas-preset returned an unexpected list of presets.") from None
 
+    def desktop(self) -> str | None:
+        """What About shows as the desktop: the native Boswas desktop, or KDE Plasma on images built on it."""
+        native = probes.boswas_desktop_version(self.root)
+        if native:
+            return f"Boswas Desktop {native}"
+        plasma = self.plasma_version()
+        return f"KDE Plasma {plasma}" if plasma else None
+
     def plasma_version(self) -> str | None:
         version = probes.plasma_metainfo_version(self.root)
         if version:
@@ -257,6 +265,17 @@ class Backend:
         if not vm.valid_preset_id(preset_id):
             raise ValueError(f"invalid preset ID {preset_id!r}")
         return argv("boswas-preset", "apply", preset_id, *(["--layout"] if layout else []))
+
+    def native_desktop(self) -> bool:
+        """Whether this session is the native Boswas desktop (the same test boswas-preset makes)."""
+        return "Boswas" in (self.environ.get("XDG_CURRENT_DESKTOP") or "").split(":")
+
+    def reset_look(self) -> None:
+        """Return to the default look: Boswas Prism on the native desktop."""
+        command = argv("boswas-preset", "reset")
+        result = self._run(command, PRESET_APPLY_TIMEOUT)
+        if result.code != 0:
+            raise commands.failure(command, result, "Resetting the appearance")
 
     def apply_preset(self, preset_id: str, layout: bool = False) -> None:
         command = self.preset_command(preset_id, layout)

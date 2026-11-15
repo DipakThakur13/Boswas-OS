@@ -115,7 +115,7 @@ class ChecksTest(unittest.TestCase):
         self.tmp = fx.tempdir(self)
         x11 = self.checks(environ={"XDG_SESSION_TYPE": "x11", "WAYLAND_DISPLAY": ""})[1]["wayland"]
         self.assertEqual(x11["status"], "FAIL")
-        self.assertIn("Plasma (Wayland)", x11["detail"])
+        self.assertIn("Boswas OS desktop", x11["detail"])
         self.tmp = fx.tempdir(self)
         self.assertEqual(self.checks(environ={"XDG_SESSION_TYPE": "", "WAYLAND_DISPLAY": ""})[1]["wayland"]["status"],
                          "UNKNOWN")

@@ -2,10 +2,29 @@
 
 All notable changes to Boswas OS. Versions follow `config/boswas/release.conf`.
 
-## [Unreleased] - 2026-11-12 (cross-platform applications, installer firmware, functional Control Center)
+## [Unreleased] - 2026-11-15 (native Boswas desktop; cross-platform applications, installer firmware, functional Control Center)
 
 Baseline audit: [docs/reports/2026-11-12-baseline-audit.md](docs/reports/2026-11-12-baseline-audit.md).
 Release report: [docs/reports/2026-11-12-release-readiness.md](docs/reports/2026-11-12-release-readiness.md).
+Both reports describe the KDE Plasma image of 2026-11-12, before the native
+desktop.
+
+**Native Boswas desktop (2026-11-15).** KDE Plasma, KWin, SDDM and Plymouth
+are replaced by Boswas components written in Rust: a Wayland compositor, a
+shell with lock and login screens, and a boot screen. The Wayland protocol
+stays (applications speak it), and KDE applications keep running as ordinary
+clients. Entries marked *(native desktop)* below belong to this change.
+
+Verification status of the native desktop:
+
+- **Verified in the development sandbox:** the Rust unit tests; the
+  compositor end-to-end tests on the headless backend with real Wayland
+  clients; a nested run with the GLES renderer; all package builds and
+  lintian; the static, unit and package test stages.
+- **Not yet verified:** the ISO build with the new manifest; the QEMU boot
+  test; the hardware path (DRM/KMS, libinput, libseat); the greetd login on
+  a real boot; the boot screen on real hardware and its disk-unlock prompt;
+  dependency resolution of the new image manifest on Debian trixie.
 
 ### Fixed
 - **Installer firmware (`rtl_nic/rtl8125b-2.fw` prompt):** the ISO had no
@@ -24,6 +43,74 @@ Release report: [docs/reports/2026-11-12-release-readiness.md](docs/reports/2026
   medium's unsigned pool, and writes `/var/log/boswas/install-report.txt`.
 
 ### Added
+- **`boswas-desktop`** *(native desktop)*: a new package with three Rust
+  crates and the session files.
+  - **`boswas-compositor`**, the Wayland compositor (on Smithay), in place
+    of KWin. Server-side window frames (title bar, shadow, close, maximise
+    and minimise buttons), move and resize, snapping to halves and quarters
+    with a preview, maximise, fullscreen, minimise, four workspaces, a
+    most-recently-used window switcher, popups, clipboard and drag and drop,
+    fractional scaling, pointer constraints, idle inhibition, xdg-activation.
+    Back ends: `udev` (DRM/KMS, libinput, libseat), `winit` (nested, for
+    development) and `headless` (software rendering, for tests).
+    Configuration in TOML layers (`/usr/share/boswas/compositor/`,
+    `/etc/boswas/`, `~/.config/boswas/`); a control socket that offers
+    `version`, `lock` and `reload-config` to everyone and everything else
+    to the shell only (`boswas-compositor --send lock`).
+  - **`boswas-shell`**, in place of plasmashell, the KDE screen locker and
+    the SDDM greeter: the desktop background, a 48 px panel (launcher
+    button, pinned and running applications, network and battery status,
+    clock), the launcher (Super key, local search, application grid, lock,
+    log out, restart, shut down), the lock screen (`--lock`, PAM service
+    `boswas-lock`) and the login screen (`--greeter`, behind greetd).
+  - **`boswas-ui`**: the drawing, text and icon library of the shell and
+    the window frames, in safe Rust (`#![forbid(unsafe_code)]`).
+  - **Session:** `boswas-session` (in place of `startplasma-wayland`),
+    `boswas-session.target`, the greetd configuration
+    (`/etc/boswas/greetd.toml`, enabled through a systemd drop-in, with a
+    text-login fallback), the portal configuration, and a system-sleep
+    hook that locks the session before suspend and hibernate.
+- **`boswas-bootsplash`** *(native desktop)*: a new package, the Boswas boot
+  screen in Rust in place of Plymouth: boot, shutdown, restart and the
+  disk-unlock prompt, on DRM dumb buffers or the frame buffer, repainting
+  only what changed. Its client is installed under Plymouth's name inside
+  the initramfs only, so the disk-unlock scripts work unchanged; a systemd
+  password agent serves prompts after the initramfs
+  ([packages/boswas-bootsplash](packages/boswas-bootsplash/README.md)).
+- **Boswas UI v2 and the Prism palette** *(native desktop)*:
+  `desktop/ui/tokens.json` is the single source of colours (ink, cloud,
+  iris, azure, mint, sun, coral, sky, orchid, slate), radii, spacing, type,
+  elevation and motion. The shell, the window frames, the boot screen and
+  the icon generator read it; the KDE colour schemes `BoswasPrism` (dark,
+  the default) and `BoswasPrismLight` are generated from it
+  ([desktop/ui](desktop/ui/README.md)).
+- **Boswas Prism icon pack** *(native desktop)*: the themes `Boswas-Prism`
+  and `Boswas-Prism-Light`, 178 designs in 289 SVG files (applications,
+  places, devices, mimetypes, and symbolic status and action icons in a
+  light and a dark variant), every colour taken from the tokens. It is the
+  default icon theme; the earlier `Boswas` and `Boswas-Light` themes stay
+  installed ([desktop/icons](desktop/icons/README.md)).
+- **Image** *(native desktop)*: `boswas-desktop`, `boswas-bootsplash`,
+  `greetd`, `polkit-kde-agent-1`, `xdg-desktop-portal-gtk`, `qt6-wayland`,
+  `breeze-cursor-theme`, `breeze-icon-theme`, `kde-style-breeze`,
+  `pavucontrol-qt` and `fonts-inter`. The live session signs in through
+  greetd's initial session.
+- **Tests** *(native desktop)*: compositor end-to-end tests
+  (`packages/boswas-desktop/crates/boswas-compositor/tests/headless.rs`:
+  ordinary clients are offered no privileged protocol, a program the
+  compositor starts is, the public control socket is limited, a window is
+  mapped, listed, tiled, drawn and closed, a locked session stays locked
+  when the lock screen dies, and only a lock client unlocks it); the Rust
+  suites of both packages and the `desktop/ui` tests in
+  `tests/unit/test_units.sh`; static checks for the Cargo versions, the
+  trust rules, the files allowed to contain `unsafe`, the greetd and boot
+  screen wiring and the icon pack; package, image, security and boot tests
+  rewritten for the new desktop (the image and boot stages have not run
+  yet).
+- **Build** *(native desktop)*: the builder container and
+  `build/scripts/build-packages.sh` gain the Rust toolchain (Debian's
+  rustc and cargo 1.85) and the libraries the desktop links to. Cargo
+  downloads the crates pinned in each `Cargo.lock` from crates.io.
 - **32-bit Windows applications (ADR-0022, supersedes ADR-0014):**
   `wine32:i386` (i386 is the only foreign architecture; the system stays
   amd64). PE detection cross-checks the machine field with the
@@ -52,6 +139,110 @@ Release report: [docs/reports/2026-11-12-release-readiness.md](docs/reports/2026
   for firmware, sources, Android and Google components.
 - **Build:** the previous image is kept in `build/previous/<build ID>/`
   instead of being deleted.
+
+### Changed
+- **`boswas-branding`** *(native desktop)*: the default look is Boswas
+  Prism (colour scheme `BoswasPrism`, icon theme `Boswas-Prism`, Breeze
+  widget style), set as defaults for KDE applications in
+  `/usr/share/boswas/kde-settings`. It installs the tokens
+  (`/usr/share/boswas/ui/tokens.json`) and both icon packs, and no longer
+  has a postinst or triggers (it selected the Plymouth theme).
+- **`boswas-preset`** *(native desktop)*: on the native desktop `apply`
+  writes `~/.config/boswas/appearance.toml` (light or dark, wallpaper),
+  merges the preset's colours into the user's `kdeglobals` for KDE
+  applications, sets the Konsole profile and asks the compositor to reload.
+  The new `reset` command returns to the default look (Boswas Prism on the
+  native desktop, Horizon with its layout on Plasma); Control Center's
+  "Reset to Boswas Default" button runs it. The default Konsole profile is
+  now `Boswas Prism`, generated from the tokens with its colour scheme.
+  On a Plasma session `apply` works as before
+  ([desktop/presets](desktop/presets/README.md)).
+- **`boswas-cli`** *(native desktop)*: `boswas-info` shows `Boswas Desktop
+  <version>`; the `screen-lock` check reads the compositor's lock policy
+  (`/usr/share/boswas/compositor/compositor.toml`,
+  `/etc/boswas/compositor.toml`) and falls back to the KDE keys on a Plasma
+  image.
+- **Control Center** *(native desktop)*: About Boswas OS shows the desktop
+  (Boswas Desktop and its version) where it showed the Plasma version.
+- **`boswas-sysops`** *(native desktop)*: the package policy refuses to
+  install the pinned Plasma, KWin, SDDM, System Settings and Plymouth
+  packages, and protects `greetd` in place of SDDM, plasma-workspace and
+  kwin-wayland.
+- **`boswas-compat`** *(native desktop)*: the `display` grant also binds the
+  compositor's Wayland socket into the sandbox, and the `boswas-winapp`
+  AppArmor profile includes the Wayland abstraction. Without XWayland,
+  Windows applications draw through Wine's Wayland driver.
+- **`boswas-android`** *(native desktop)*: the session check asks for a
+  Wayland session instead of naming Plasma.
+- **`boswas-os`** *(native desktop)*: depends on `boswas-desktop` and
+  `boswas-bootsplash`.
+
+### Removed
+- **From the image** *(native desktop)*: `kde-plasma-desktop`,
+  `kwin-wayland`, `sddm`, `sddm-theme-breeze`, `kde-config-sddm`,
+  `plasma-nm`, `plasma-pa`, `powerdevil`, `bluedevil`, `kscreen`,
+  `systemsettings`, `kinfocenter`, `xdg-desktop-portal-kde`,
+  `kde-spectacle`, `plasma-systemmonitor` and Plymouth. APT pins
+  (`boswas-exclude.pref`) keep `plasma-workspace`, `plasma-desktop`,
+  `kde-plasma-desktop`, `kwin-wayland`, `kwin-x11`, `sddm`,
+  `systemsettings`, `plymouth`, `plymouth-themes` and `plymouth-label`
+  out; the image verify hook fails the build if one is installed.
+- **From the repository** *(native desktop)*: the Plymouth theme
+  (`desktop/branding/plymouth/`), the KSplash theme
+  (`desktop/branding/splash/`), the Boswas Launcher applet metadata
+  (`desktop/launcher/`, Kickoff under the Boswas name), the SDDM
+  configuration and theme settings (`desktop/defaults/sddm/`), the Plasma
+  environment script (`desktop/defaults/plasma-workspace-env/`) and the
+  `ksplashrc` and `kscreenlockerrc` defaults.
+
+### Security
+- **Protocol trust** *(native desktop)*: ordinary applications get the
+  application protocols only. Layer shell, session lock, the window list
+  and clipboard control are offered only to programs the compositor starts
+  itself, over a connection it creates for them; sandboxed clients
+  (security context) never get them.
+- **Compositor-owned lock** *(native desktop)*: locking blanks every output
+  and takes input away from applications before the lock screen starts. If
+  the lock screen exits without unlocking, the session stays locked and
+  blank and the lock screen is started again. Only a lock client's unlock
+  request, sent after PAM accepted the password, ends the lock.
+- **Lock policy** *(native desktop)*: the session locks after ten minutes
+  without input and before suspend. A user may shorten the timeout but not
+  lengthen or disable it (`[policy] lock_idle_max_seconds`, read from the
+  system files only).
+- **Privileges** *(native desktop)*: the compositor and the shell run as
+  the logged-in user, without setuid bits or capabilities; device access
+  comes from the login session (libseat, logind). The boot screen daemon
+  sets `no_new_privs`, enters a Landlock domain where the kernel has
+  Landlock, and keeps three capabilities.
+- **Memory safety** *(native desktop)*: the new components are Rust.
+  `unsafe` is confined to a short list of audited source files (the PAM
+  binding, descriptor passing, the EGL context, the boot screen's system
+  calls); a static test fails if it appears anywhere else.
+
+### Known limitations
+- **Not yet run on real hardware** *(native desktop)*: see the verification
+  status above.
+- **No XWayland** *(native desktop)*: applications that only speak X11 do
+  not run.
+- **No notification service, system tray or quick settings** *(native
+  desktop)*: there is no graphical Wi-Fi, Bluetooth, volume or brightness
+  control in the panel. Wi-Fi is set up with `nmtui` in a terminal, volume
+  with `pavucontrol-qt`.
+- **Control Center** *(native desktop)*: pages and buttons that open Plasma
+  settings modules (Wi-Fi and network, Bluetooth, Display, Sound, Power,
+  Users, Devices, and the KDE modules of Personalization, Security, Privacy
+  and System) show them as unavailable.
+- **No screen capture or screen sharing, no input methods** *(native
+  desktop)*.
+- **Displays** *(native desktop)*: one GPU only; no HDR and no variable
+  refresh rate; one scale for all outputs.
+- **`loginctl lock-session` is not handled** *(native desktop)*: lock with
+  Super+L, from the launcher, or with `boswas-compositor --send lock`.
+- **Presets** *(native desktop)*: the panel, launcher and lock screen
+  follow a preset's light or dark variant and wallpaper, not its accent
+  colour. The Plasma Global Themes are still generated and installed but
+  are used only on a Plasma session.
 
 ## [1.0~alpha3] - 2026-10-04 (Device Agent, Compatibility Manager, Control Plane, Boswas OS experience)
 

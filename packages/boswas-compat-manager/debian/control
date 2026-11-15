@@ -15,8 +15,7 @@ Depends: python3 (>= 3.11),
          boswas-device-agent (>= 1.0~alpha3),
          ${misc:Depends}
 Description: Boswas OS Compatibility Manager for Windows applications
- The desktop application for Windows applications on Boswas OS (KDE
- Plasma):
+ The desktop application for Windows applications on Boswas OS:
  .
   * install Windows programs (.exe) and Windows Installer packages (.msi)
     after checking them against the compatibility catalog and the device

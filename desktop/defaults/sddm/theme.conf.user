@@ -1,6 +1,0 @@
-[General]
-background=/usr/share/boswas/branding/login-background.png
-type=image
-color=#0B1220
-showlogo=shown
-logo=/usr/share/boswas/branding/boswas-login-logo.svg

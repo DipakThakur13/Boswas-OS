@@ -47,6 +47,16 @@ EOF
 		echo "Variant=Live session" >> "${_ABOUT}"
 	fi
 
+	# Sign the live user in: greetd starts the Boswas session once at boot.
+	# (Only the live medium does this; an installed system always shows the
+	# login screen.)
+	_GREETD="/etc/boswas/greetd.toml"
+	if [ -f "${_GREETD}" ] && ! grep -qs '^\[initial_session\]' "${_GREETD}"
+	then
+		printf '\n[initial_session]\ncommand = "/usr/bin/boswas-session"\nuser = "%s"\n' \
+			"${LIVE_USERNAME:-boswas}" >> "${_GREETD}"
+	fi
+
 	# Marker for Boswas tools (Control Center, terminal banner, boswas-info).
 	mkdir -p /run/boswas
 	echo "live" > /run/boswas/session

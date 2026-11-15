@@ -4,10 +4,11 @@
 Scenario "uefi-secureboot"
     OVMF with Secure Boot enforced and the Microsoft keys enrolled boots the
     ISO through the normal path: shim -> signed GRUB (Boswas menu, live entry
-    auto-selected after the timeout) -> signed kernel -> Boswas boot splash ->
-    live system -> KDE Plasma. Verified from screenshots (Boswas navy and gold
-    on screen, the desktop panel with the gold launcher, screen differs from
-    the boot menu); screenshots are kept for review.
+    auto-selected after the timeout) -> signed kernel -> Boswas boot screen ->
+    live system -> the Boswas desktop (boswas-compositor and boswas-shell).
+    Verified from screenshots (the Boswas mark on a dark screen, the desktop
+    panel with the Boswas launcher, screen differs from the boot menu);
+    screenshots are kept for review.
 
 Scenario "usb" (release blocker)
     The ISO attached as a USB stick, UEFI with Secure Boot, plus an internal
@@ -22,7 +23,7 @@ Scenario "usb" (release blocker)
 Scenario "serial"
     Boots the ISO's live kernel directly with a serial console, logs in as the
     live user and runs functional checks: boswas commands, firewall, AppArmor,
-    audit, KDE, Wine, network. With --fixtures-iso (built by
+    audit, the desktop, Wine, network. With --fixtures-iso (built by
     tests/compatibility/build_fixtures.sh) it also installs and launches the
     Windows test application with boswas-winapp under the real kernel's
     AppArmor (the boswas-winapp profile enforcing). Finally powers the VM off.
@@ -130,27 +131,34 @@ def analyse(path: Path, region: tuple[int, int, int, int] | None = None) -> dict
             "luma": luma_sum / total}
 
 
+def is_iris(r: int, g: int, b: int) -> bool:
+    """The Boswas UI accent (iris, #9B8AFF and its neighbours): focus rings."""
+    return b >= 170 and b - r >= 60 and b - g >= 70
+
+
 def boswas_screen(stats: dict) -> bool:
-    """A Boswas-branded screen: navy dominates and gold accents are present."""
+    """A Boswas-branded screen: a dark blue-black background (the boot menu's
+    navy, the boot screen's ink) dominates and the gold of the mark is
+    present."""
     return stats["navy"] > 0.45 and stats["gold"] > 0.0008 and stats["black"] < 0.5
 
 
 def passphrase_prompt(path: Path) -> bool:
-    """The Plymouth disk-unlock prompt: the passphrase field's gold border is a
-    long horizontal gold line below the mark (while booting, only the small
-    spinner is gold there)."""
+    """The boot screen's disk-unlock prompt: the passphrase field's iris focus
+    ring is a long horizontal line below the mark (measured: 17 % of the
+    screen width; while booting, the progress arc covers about 1 %)."""
     w, h, px = read_ppm(path)
-    for y in range(int(h * 0.6), int(h * 0.95)):
+    for y in range(int(h * 0.55), int(h * 0.95)):
         row = y * w
-        if sum(is_gold(px[3 * i], px[3 * i + 1], px[3 * i + 2]) for i in range(row, row + w)) >= 150:
+        if sum(is_iris(px[3 * i], px[3 * i + 1], px[3 * i + 2]) for i in range(row, row + w)) >= 0.10 * w:
             return True
     return False
 
 
 def desktop_screen(path: Path) -> bool:
-    """The Plasma desktop: a Boswas background plus the panel along the bottom,
-    whose launcher shows the gold Boswas mark (boot and start-up splashes have
-    an empty bottom edge)."""
+    """The Boswas desktop: its background plus the panel along the bottom,
+    whose launcher shows the gold Boswas mark (the boot screen has an empty
+    bottom edge)."""
     stats = analyse(path)
     panel = analyse(path, (0, stats["h"] - 64, stats["w"], stats["h"]))
     return stats["black"] < 0.6 and stats["navy"] > 0.3 and panel["gold"] > 0.0015
@@ -467,9 +475,15 @@ def wait_boot_menu(vm: "VM", start: float, limit: float, label: str, outdir: Pat
     return None
 
 
+# The desktop shell of the live user's session. Its environment is the
+# session's; WAYLAND_SOCKET and BOSWAS_COMPOSITOR_FD name descriptors that
+# exist only inside the shell itself and must never be passed on.
+SHELL_PID = "p=$(pgrep -u boswas -x boswas-shell | head -1)"
+
+
 def session_env(sh: "Shell") -> str:
-    """The environment of the live user's Plasma session, to start applications in it."""
-    rc, env = sh.run("p=$(pgrep -u boswas -x plasmashell | head -1); [ -n \"$p\" ] && "
+    """The environment of the live user's desktop session, to start applications in it."""
+    rc, env = sh.run(SHELL_PID + "; [ -n \"$p\" ] && "
                      "tr '\\0' '\\n' < /proc/$p/environ | grep -E '^(WAYLAND_DISPLAY|DISPLAY|XAUTHORITY|"
                      "XDG_RUNTIME_DIR|DBUS_SESSION_BUS_ADDRESS|XDG_SESSION_TYPE|XDG_CURRENT_DESKTOP)=' | tr '\\n' ' '")
     return env.strip()
@@ -477,12 +491,13 @@ def session_env(sh: "Shell") -> str:
 
 def in_session(cmd: str, background: bool = False) -> str:
     """A shell snippet that runs CMD (plain words, no quotes) with the live user's
-    complete Plasma session environment, as if started from the desktop
+    complete desktop session environment, as if started from the launcher
     (XDG_CONFIG_DIRS brings the Boswas defaults: Konsole profile, icons, colours)."""
-    run = f"xargs -0 -a /proc/$p/environ sh -c 'exec env -i \"$@\" {cmd}' _"
+    run = (f"xargs -0 -a /proc/$p/environ sh -c 'exec env -i \"$@\" "
+           f"env -u WAYLAND_SOCKET -u BOSWAS_COMPOSITOR_FD {cmd}' _")
     if background:
         run = f"( {run} >/dev/null 2>&1 & )"
-    return f"p=$(pgrep -u boswas -x plasmashell | head -1); {run}"
+    return f"{SHELL_PID}; {run}"
 
 
 def installer_banner(path: Path) -> bool:
@@ -520,9 +535,9 @@ def scenario_usb(iso: Path, workdir: Path, outdir: Path, timeout: float) -> None
         vm.key("down")
         vm.key("down")
         vm.key("end")
-        # (Plymouth shows only text when a serial console is configured, unless told
-        # to ignore it; without the test's console the splash is shown anyway.)
-        vm.type_text(" console=ttyS0,115200n8 console=tty0 plymouth.ignore-serial-consoles")
+        # (tty0 stays the last console, so the boot screen keeps the display
+        # and the keyboard.)
+        vm.type_text(" console=ttyS0,115200n8 console=tty0")
         time.sleep(1)
         to_png(vm.screendump("boot-edit"), outdir / "usb-live-boot-edit.png")
         vm.key("ctrl-x")
@@ -553,10 +568,12 @@ def scenario_usb(iso: Path, workdir: Path, outdir: Path, timeout: float) -> None
         rc, out = sh.run("cat /proc/cmdline")
         check("boot=live" in out and "splash" in out and "/install" not in out,
               "Live USB: the default boot entry starts the live session (not the installer)")
-        rc, out = sh.run("/usr/sbin/plymouth-set-default-theme; lsinitramfs "
-                         "/run/live/medium/live/initrd.img* 2>/dev/null | grep -c 'plymouth/themes/boswas/'")
-        check(out.split()[:1] == ["boswas"] and out.split()[-1:] != ["0"],
-              "boot splash: the Boswas OS Plymouth theme is the default and is in the live initramfs")
+        rc, out = sh.run("lsinitramfs /run/live/medium/live/initrd.img* 2>/dev/null | "
+                         "grep -c -E 'usr/libexec/boswas/boswas-bootsplashd$|usr/bin/plymouth$'; "
+                         "command -v plymouthd plymouth-set-default-theme >/dev/null && echo plymouth-installed")
+        check(out.split()[:1] == ["2"] and "plymouth-installed" not in out,
+              "boot screen: boswas-bootsplash (daemon, and its client under the name the disk-unlock helper calls) "
+              "is in the live initramfs; Plymouth is not installed")
 
         # Identity
         rc, out = sh.run(". /etc/os-release; echo \"$NAME|$ID|$ID_LIKE|$PRETTY_NAME|$VERSION_CODENAME\"")
@@ -577,16 +594,20 @@ def scenario_usb(iso: Path, workdir: Path, outdir: Path, timeout: float) -> None
         check(lines[-1:] == ["1"], "live session: \"Install Boswas OS\" is offered in the application menu (optional)")
 
         # The desktop, directly
-        plasma = False
+        desktop_up = False
         deadline = time.time() + min(900, timeout)
         while time.time() < deadline:
-            rc, out = sh.run("pgrep -u boswas -x plasmashell >/dev/null && echo running")
+            rc, out = sh.run("pgrep -u boswas -x boswas-compositor >/dev/null && "
+                             "pgrep -u boswas -x boswas-shell >/dev/null && echo running")
             if "running" in out:
-                plasma = True
+                desktop_up = True
                 break
             vm.pump(20)
-        if not check(plasma, "Live USB: the Plasma desktop starts for the live user (no sign-in needed)"):
+        if not check(desktop_up, "Live USB: the Boswas desktop (compositor and shell) starts for the live user "
+                                 "(no sign-in needed)"):
             return
+        rc, out = sh.run("pgrep -a -x 'plasmashell|kwin_wayland|sddm' || echo none")
+        check(out.strip() == "none", f"Live USB: no Plasma shell, KWin or SDDM is running ({out.strip()[:80]})")
         vm.pump(60)
         vm.nudge()
         shot = vm.screendump("desktop")
@@ -603,7 +624,8 @@ def scenario_usb(iso: Path, workdir: Path, outdir: Path, timeout: float) -> None
 
         # Using the system: applications, settings, terminal, Control Center
         env = session_env(sh)
-        if not check("DBUS_SESSION_BUS_ADDRESS=" in env, "Live USB: the Plasma session environment is reachable"):
+        if not check("DBUS_SESSION_BUS_ADDRESS=" in env and "XDG_CURRENT_DESKTOP=Boswas" in env,
+                     "Live USB: the Boswas session environment is reachable"):
             return
 
         def start_app(argv: str, pattern: str, label: str, description: str, extra: str = "") -> None:
@@ -635,7 +657,7 @@ def scenario_usb(iso: Path, workdir: Path, outdir: Path, timeout: float) -> None
             start_app(f"boswas-control-center --page {page}", "boswas-control-center", f"cc-{page}",
                       f"Live USB: Control Center {label} opens and starts no privileged helper by itself",
                       extra=no_helper)
-        start_app("systemsettings", "^systemsettings", "system-settings", "Live USB: system settings open")
+        start_app("dolphin", "^dolphin", "files", "Live USB: the file manager opens")
         start_app("kcalc", "^kcalc", "application", "Live USB: applications start (calculator)")
         start_app("boswas-compat-manager", "boswas-compat-manager", "compat-manager",
                   "Live USB: the Boswas Compatibility Manager opens")
@@ -676,33 +698,34 @@ def scenario_usb(iso: Path, workdir: Path, outdir: Path, timeout: float) -> None
         sh.run(in_session("boswas-preset apply horizon") + " >/dev/null 2>&1", timeout=300)
         vm.pump(20)
 
-        # Lock and login screens
-        rc, sid = sh.run("loginctl show-user boswas -p Display --value")
-        sid = sid.strip()
+        # Lock and login screens. Locking is the one control command any
+        # program of the session may send to the compositor.
         vm.nudge()
-        sh.run(f"loginctl lock-session {sid}")
+        rc, out = sh.run(in_session("boswas-compositor --send lock"))
         vm.pump(30)
         vm.nudge()
         vm.pump(5)
         shot = vm.screendump("lock-screen")
         to_png(shot, outdir / "usb-live-lock-screen.png")
         stats = analyse(shot)
-        rc, out = sh.run("pgrep -f kscreenlocker_greet >/dev/null && echo locked")
-        check("locked" in out and stats["navy"] > 0.3 and stats["black"] < 0.5,
-              "lock screen: the Boswas lock screen (screenshot usb-live-lock-screen.png)")
-        # The login screen, as "Switch user" opens it (terminating the autologin
-        # session instead makes SDDM treat it as crashed and start no greeter).
-        sh.run("qdbus6 --system org.freedesktop.DisplayManager /org/freedesktop/DisplayManager/Seat0 "
-               "org.freedesktop.DisplayManager.Seat.SwitchToGreeter")
+        rc, locked = sh.run("pgrep -u boswas -f 'boswas-shell --lock' >/dev/null && echo locked")
+        check('"ok":true' in out.replace(" ", "") and "locked" in locked and not desktop_screen(shot) and
+              stats["black"] < 0.5,
+              "lock screen: the session locks and the Boswas lock screen is shown; the desktop is not "
+              "(screenshot usb-live-lock-screen.png)")
+        # The login screen: ending the session returns to greetd's greeter
+        # (the automatic sign-in of the live session happens once, at boot).
+        sh.run("sudo -n pkill -u boswas -x boswas-compositor")
         for _ in range(6):
             vm.pump(15)
             vm.nudge()
         shot = vm.screendump("login-screen")
         to_png(shot, outdir / "usb-live-login-screen.png")
         stats = analyse(shot)
-        rc, out = sh.run("pgrep -f sddm-greeter-qt6 >/dev/null && echo greeter")
+        rc, out = sh.run("pgrep -f 'boswas-shell --greeter' >/dev/null && echo greeter")
         check("greeter" in out and stats["black"] < 0.5,
-              "login screen: the Boswas login screen opens (Switch user; screenshot usb-live-login-screen.png)")
+              "login screen: the Boswas login screen opens after the session ends "
+              "(screenshot usb-live-login-screen.png)")
 
         vm.send("sudo -n systemctl poweroff\n")
         shutdown_splash = None
@@ -787,9 +810,9 @@ d-i partman/confirm_nooverwrite boolean true
 d-i grub-installer/bootdev string default
 d-i finish-install/reboot_in_progress note
 d-i debian-installer/exit/poweroff boolean true
-# A serial console on the installed system, for the test only (Plymouth would
-# fall back to text mode on a serial console without the last option).
-d-i debian-installer/add-kernel-opts string console=ttyS0,115200n8 console=tty0 plymouth.ignore-serial-consoles
+# A serial console on the installed system, for the test only (tty0 stays
+# the last console, so the boot screen keeps the display and the keyboard).
+d-i debian-installer/add-kernel-opts string console=ttyS0,115200n8 console=tty0
 """
 DISK_PASSPHRASE = "boswas-disk-passphrase"
 
@@ -938,7 +961,9 @@ def scenario_install(iso: Path, workdir: Path, outdir: Path, timeout: float, off
         installed_system_checks(sh, outdir, what, name, offline)
         rc, out = sh.run("echo Boswas-Test-1234 | sudo -S -p '' sh -c 'mokutil --sb-state; efibootmgr -v; "
                          "cryptsetup status $(ls /dev/mapper | grep -m1 _crypt) | grep -i type; aa-enabled; "
-                         "plymouth-set-default-theme; test -e /usr/local/share/applications/com.boswas.InstallBoswasOS.desktop "
+                         "lsinitramfs /boot/initrd.img-* | grep -q usr/libexec/boswas/boswas-bootsplashd$ && "
+                         "echo bootsplash-in-initramfs; "
+                         "test -e /usr/local/share/applications/com.boswas.InstallBoswasOS.desktop "
                          "&& echo install-entry-present; dpkg -s live-boot 2>/dev/null | "
                          "grep -qx \"Status: install ok installed\" && echo live-boot-installed; echo'",
                          timeout=300)
@@ -948,7 +973,7 @@ def scenario_install(iso: Path, workdir: Path, outdir: Path, timeout: float, off
               f"{what}: the firmware boots Debian's signed shim from \\EFI\\debian (Secure Boot path kept)")
         check("LUKS2" in out, f"{what}: disk encryption is LUKS2 (installation policy)")
         check("Yes" in out, f"{what}: AppArmor is enabled")
-        check("boswas" in out.split(), f"{what}: the Boswas OS boot splash is configured")
+        check("bootsplash-in-initramfs" in out.split(), f"{what}: the Boswas OS boot screen is in the initramfs")
         check("install-entry-present" not in out and "live-boot-installed" not in out,
               f"{what}: no live-session leftovers (no Install entry, live-boot removed)")
         vm.send("echo Boswas-Test-1234 | sudo -S -p '' systemctl poweroff\n")
@@ -1097,7 +1122,7 @@ def scenario_android(iso: Path, workdir: Path, outdir: Path, timeout: float) -> 
         doc = sysops("android-service start", 300)
         check(doc.get("ok") is True, "android: container service started on demand (android-service start)")
 
-        # The Plasma session (SDDM autologin) must be up: Waydroid shows apps on Wayland.
+        # The desktop session (automatic sign-in) must be up: Waydroid shows apps on Wayland.
         deadline = time.time() + min(1800, timeout)
         env = ""
         while time.time() < deadline:
@@ -1105,7 +1130,7 @@ def scenario_android(iso: Path, workdir: Path, outdir: Path, timeout: float) -> 
             if "WAYLAND_DISPLAY" in env:
                 break
             vm.pump(20)
-        if not check("XDG_SESSION_TYPE=wayland" in env, "android: Plasma Wayland session running for the live user"):
+        if not check("XDG_SESSION_TYPE=wayland" in env, "android: Wayland desktop session running for the live user"):
             return
         sh.run(in_session("boswas-android session start", background=True))
         booted = False
@@ -1295,11 +1320,14 @@ def winapp_32bit_checks(sh: "Shell", outdir: Path, timeout: float) -> None:
 
 
 def winapp_gui_check(vm: "VM", sh: "Shell", outdir: Path, timeout: float) -> None:
-    """A Windows GUI program on the live Plasma session's (Xwayland) display, confined."""
-    rc, env = sh.run("p=$(pgrep -u boswas -x plasmashell | head -1); [ -n \"$p\" ] && "
-                     "tr '\\0' '\\n' < /proc/$p/environ | grep -E '^(DISPLAY|XAUTHORITY)=' | tr '\\n' ' '")
-    if "DISPLAY=" not in env:
-        record("SKIP", "WinCompat GUI check (no X display in the Plasma session)")
+    """A Windows GUI program on the live desktop session's display, confined.
+    On the Boswas desktop there is no X server: Wine draws on the compositor
+    through the Wayland socket the sandbox was granted."""
+    rc, env = sh.run(SHELL_PID + "; [ -n \"$p\" ] && "
+                     "tr '\\0' '\\n' < /proc/$p/environ | grep -E '^(DISPLAY|XAUTHORITY|WAYLAND_DISPLAY|"
+                     "XDG_RUNTIME_DIR)=' | tr '\\n' ' '")
+    if "DISPLAY=" not in env and "WAYLAND_DISPLAY=" not in env:
+        record("SKIP", "WinCompat GUI check (no display in the desktop session)")
         return
     rc, out = sh.run("boswas-winapp install /mnt/boswas-testapp-unlisted.exe --id local.gui-test -- /S; echo rc=$?",
                      timeout=timeout)
@@ -1367,7 +1395,7 @@ def device_management_checks(vm: "VM", sh: "Shell", outdir: Path, workdir: Path,
         time.sleep(5)
     check(connected, "the session agent is registered with the device agent")
 
-    rc, env = sh.run("p=$(pgrep -u boswas -x plasmashell | head -1); [ -n \"$p\" ] && "
+    rc, env = sh.run(SHELL_PID + "; [ -n \"$p\" ] && "
                      "tr '\\0' '\\n' < /proc/$p/environ | grep -E '^(DISPLAY|XAUTHORITY|WAYLAND_DISPLAY|"
                      "XDG_RUNTIME_DIR)=' | tr '\\n' ' '")
     sh.run(f"( env {env.strip()} boswas-compat-manager >/tmp/compat-manager.log 2>&1 & )")
@@ -1553,10 +1581,13 @@ def scenario_serial(iso: Path, workdir: Path, outdir: Path, timeout: float, fixt
         rc, out = sh.run("wine --version 2>/dev/null")
         version = next((line for line in out.splitlines() if line.startswith("wine-")), "")
         check(version.startswith("wine-10."), f"Wine runs ({version or 'no version output'})")
-        # plasmashell cannot run outside a graphical session (even --version), so
-        # check the installed version; the running session is verified below.
-        rc, out = sh.run("dpkg-query -W -f='${Version}\\n' plasma-workspace")
-        check(out.strip().split(":")[-1].startswith("6."), f"KDE Plasma 6 installed (plasma-workspace {out.strip()})")
+        # The native desktop: installed, and no Plasma shell, KWin or SDDM
+        # beside it; the running session is verified below.
+        rc, out = sh.run("boswas-compositor --version; /usr/libexec/boswas/boswas-shell --version; "
+                         "dpkg-query -W -f='${db:Status-Status} ${Package}\\n' plasma-workspace kwin-wayland sddm "
+                         "plymouth 2>/dev/null | grep '^installed' || echo no-plasma")
+        check("boswas-compositor 1." in out and "boswas-shell 1." in out and "no-plasma" in out,
+              f"the Boswas desktop is installed; Plasma, KWin, SDDM and Plymouth are not ({' | '.join(out.split(chr(10))[:4])})")
 
         rc, out = sh.run("ip -4 -o addr show scope global")
         check("10.0.2.15" in out, "network: DHCP address obtained (NetworkManager)")
@@ -1569,17 +1600,18 @@ def scenario_serial(iso: Path, workdir: Path, outdir: Path, timeout: float, fixt
             winapp_32bit_checks(sh, outdir, timeout)
         agent_checks(sh)
 
-        # The graphical session (SDDM autologin -> Plasma) under emulation may
-        # take a while; give it time, then capture the screen.
+        # The graphical session (greetd's automatic sign-in -> the Boswas
+        # desktop) under emulation may take a while; give it time, then
+        # capture the screen.
         plasma = False
         deadline = time.time() + min(900, timeout)
         while time.time() < deadline:
-            rc, out = sh.run("pgrep -u boswas -x plasmashell >/dev/null && echo running")
+            rc, out = sh.run("pgrep -u boswas -x boswas-shell >/dev/null && echo running")
             if "running" in out:
                 plasma = True
                 break
             vm.pump(20)
-        check(plasma, "KDE Plasma session started for the live user (SDDM autologin)")
+        check(plasma, "the Boswas desktop session started for the live user (automatic sign-in)")
         if plasma:
             vm.pump(60)
             to_png(vm.screendump("desktop"), outdir / "serial-desktop.png")
@@ -1587,7 +1619,7 @@ def scenario_serial(iso: Path, workdir: Path, outdir: Path, timeout: float, fixt
                 winapp_gui_check(vm, sh, outdir, timeout)
             device_management_checks(vm, sh, outdir, workdir, fixtures, timeout)
         else:
-            record("SKIP", "session agent, Compatibility Manager and Control Plane checks (no Plasma session)")
+            record("SKIP", "session agent, Compatibility Manager and Control Plane checks (no desktop session)")
         rc, out = sh.run("cat /proc/cmdline; uname -r")
         (outdir / "kernel.txt").write_text(out + "\n")
 

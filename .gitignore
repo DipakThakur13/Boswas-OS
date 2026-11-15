@@ -15,6 +15,10 @@
 /packages/*.deb
 /packages/*.buildinfo
 /packages/*.changes
+
+# Rust build trees (Cargo.lock files are committed)
+/packages/*/target/
+/packages/*/build/cargo-home/
 /control-plane/debian/.debhelper/
 /control-plane/debian/debhelper-build-stamp
 /control-plane/debian/files

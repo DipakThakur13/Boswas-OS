@@ -36,7 +36,7 @@ class Store(QObject):
             "live": backend.live_session,
             "release": backend.release,
             "hardware": backend.hardware,
-            "plasma": backend.plasma_version,
+            "desktop": backend.desktop,
             "storage": backend.storage,
             "power": backend.power,
             "security": backend.security_status,

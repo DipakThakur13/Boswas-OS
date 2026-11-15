@@ -26,6 +26,7 @@ UPDATE_CONF = "/etc/boswas/update.conf"
 DEVICE_CONF = "/etc/boswas/device.conf"
 DEBIAN_VERSION = "/etc/debian_version"
 PLASMA_METAINFO = "/usr/share/metainfo/org.kde.plasmashell.metainfo.xml"
+DESKTOP_VERSION = "/usr/share/boswas/compositor/version"    # boswas-desktop: its package version
 LIVE_MEDIUM = "/run/live/medium"
 SESSION_MARKER = "/run/boswas/session"       # contains "live" in a live session
 APT_CONF_DIR = "/etc/apt/apt.conf.d"
@@ -119,6 +120,11 @@ def hardware(root: Root) -> dict:
 def live_session(root: Root) -> bool:
     return vm.is_live(root.exists(LIVE_MEDIUM), root.read("/proc/cmdline", 65536) or "",
                       root.read(SESSION_MARKER, 256))
+
+
+def boswas_desktop_version(root: Root) -> str | None:
+    """The version of the native Boswas desktop (package boswas-desktop), if it is installed."""
+    return vm.desktop_version_from_file(root.read(DESKTOP_VERSION, 256))
 
 
 def plasma_metainfo_version(root: Root) -> str | None:

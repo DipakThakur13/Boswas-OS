@@ -293,6 +293,28 @@ class PersonalizationTest(UiTestCase):
         self.assertIn([E["boswas-preset"], "apply", "horizon", "--layout"], self.rig.commands.ran_program("boswas-preset"))
         self.assertEqual(page.banner.level, "ok")
 
+    def test_reset_on_the_native_desktop_returns_to_prism_after_asking(self):
+        # No "horizon" in the fixture list, and none is needed: Prism is no preset.
+        self.rig.environ["XDG_CURRENT_DESKTOP"] = "Boswas"
+        w = self.window()
+        page = w.page("personalization")
+        self.assertTrue(page.reset_button.isEnabled())
+        self.assertIn(vm.NATIVE_DEFAULT_LOOK, page.reset_button.toolTip())
+        self.answer = False
+        page.reset_button.click()
+        self.settle(w)
+        self.assertEqual(len(self.questions), 1)
+        self.assertIn(vm.NATIVE_DEFAULT_LOOK, self.questions[0][1])
+        self.assertNotIn("panels", self.questions[0][1])
+        self.assertNotIn([E["boswas-preset"], "reset"], self.rig.commands.ran_program("boswas-preset"))
+        self.answer = True
+        page.reset_button.click()
+        self.settle(w)
+        self.assertIn([E["boswas-preset"], "reset"], self.rig.commands.ran_program("boswas-preset"))
+        self.assertFalse(any(c[1] == "apply" for c in self.rig.commands.ran_program("boswas-preset")))
+        self.assertEqual(page.banner.level, "ok")
+        self.assertTrue(page.reset_button.isEnabled())
+
     def test_default_preset_matches_the_shipped_presets(self):
         shipped = json.loads((Path(__file__).resolve().parents[3] / "desktop/presets/presets.json").read_text())
         self.assertEqual(shipped["default"], vm.DEFAULT_PRESET)

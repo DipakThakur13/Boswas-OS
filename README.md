@@ -1,16 +1,24 @@
 # Boswas OS
 
 **Boswas OS v1** is the Boswas Group company-managed desktop operating
-system, built on **Debian 13 "trixie"** with **KDE Plasma**. It is an
-internal platform for Boswas Group employees and company-owned hardware, not
-a public Linux distribution.
+system, built on **Debian 13 "trixie"** with the **native Boswas desktop**:
+its own Wayland compositor, shell, lock and login screens and boot screen,
+written in Rust. It is an internal platform for Boswas Group employees and
+company-owned hardware, not a public Linux distribution.
 
 > **Status: v1 alpha (1.0~alpha3). Not production-ready.**
 > This release contains:
-> - the Boswas OS experience: Boswas OS identity, boot splash, login,
->   ten presets, Boswas icons, Boswas Launcher, Boswas Control Center (with
->   the Security, Software and Update Centers) and a branded terminal, on
->   KDE Plasma and a Debian 13 base
+> - **the native Boswas desktop** (unreleased, see
+>   [Status of the native desktop](#status-of-the-native-desktop)):
+>   `boswas-compositor` (Rust, on Smithay) in place of KWin, `boswas-shell`
+>   (panel, launcher, lock screen, login screen) in place of Plasma and
+>   SDDM, and `boswas-bootsplash` in place of Plymouth. KDE applications
+>   (Dolphin, Konsole, Okular, ...) keep running on it as ordinary Wayland
+>   clients
+> - the Boswas OS experience: Boswas OS identity, Boswas UI (the Prism
+>   palette and design tokens), the Boswas Prism icon pack, ten presets,
+>   Boswas Control Center (with the Security, Software and Update Centers)
+>   and a branded terminal, on a Debian 13 base
 > - a Live USB that boots straight to a usable desktop; installation only
 >   by explicit choice
 > - security baseline and encrypted installer
@@ -39,9 +47,34 @@ a public Linux distribution.
 > releases follow in later milestones; Boswas ID is deferred (see
 > `docs/architecture/roadmap.md`).
 
-Debian remains upstream. This repository contains only Boswas-specific
-packaging, configuration, artwork, scripts, tests and documentation; every
-other component is an unmodified Debian package.
+Debian remains upstream. This repository contains Boswas-specific
+packaging, configuration, artwork, scripts, tests and documentation, and
+the source of the Boswas components (the desktop and the boot screen in
+Rust, the tools in Python). Every other component is an unmodified Debian
+package. The Wayland protocol itself stays: it is what every application
+speaks, and the native compositor implements it.
+
+## Status of the native desktop
+
+The native desktop replaces KDE Plasma, KWin, SDDM and Plymouth in the image
+manifest (they are pinned out; ADRs in
+[docs/architecture/decisions.md](docs/architecture/decisions.md)). It is new
+and has **not yet booted on real hardware**.
+
+| Verified in the development sandbox | Not yet verified |
+|-------------------------------------|------------------|
+| Rust unit tests of the compositor, shell, UI library and boot screen | Building the ISO with the new manifest |
+| Compositor end-to-end tests on its headless backend with real Wayland clients: protocol trust, the control socket, window management, the session lock | The QEMU boot test (`tests/boot/qemu_boot_test.py`, rewritten for the new desktop) |
+| The same compositor nested in a window with the GLES renderer | The hardware path: DRM/KMS, libinput, libseat (compiled, not run) |
+| All package builds and lintian; the static, unit and package test stages | The greetd login on a real boot; the boot screen on real hardware, including the disk-unlock prompt |
+| | Whether Debian trixie resolves the new image manifest's dependencies |
+
+Known gaps of this first version: no XWayland (X11-only applications do
+not run), no notification service, system tray or quick settings (Wi-Fi,
+Bluetooth, volume), no screen capture or screen sharing, no input methods,
+one GPU only, no HDR or variable refresh rate. Control Center pages that
+open Plasma settings modules show them as unavailable. The full list is in
+[docs/experience/README.md](docs/experience/README.md#known-gaps).
 
 ## Build
 
@@ -51,8 +84,9 @@ other component is an unmodified Debian package.
 - **or** any host with Docker or Podman, including Windows with Docker
   Desktop (WSL2 backend), macOS and other Linux distributions. The build runs
   in a `debian:trixie` builder container automatically.
-- About 25 GB of free disk space, a network connection to deb.debian.org and
-  a correct system clock.
+- About 25 GB of free disk space, a network connection to deb.debian.org
+  and, for the Rust packages (`boswas-desktop`, `boswas-bootsplash`), to
+  crates.io, and a correct system clock.
 
 ### Commands
 
@@ -118,9 +152,10 @@ boswas-device status        # device agent: state, identity, Control Plane conne
 | Area | Implementation |
 |------|----------------|
 | Base | Debian 13.x trixie, amd64, Linux 6.12, systemd |
-| Desktop | KDE Plasma 6.3 (Wayland) with the Boswas OS experience: ten presets (Global Themes, colour schemes, wallpapers, Konsole profiles), Boswas icon themes, Boswas Launcher, Boswas splash, login and lock screens, Boswas Control Center ([docs/experience](docs/experience/README.md)) |
+| Desktop | The native Boswas desktop (`boswas-desktop`): `boswas-compositor`, a Wayland compositor in Rust on Smithay (window management, snapping, four workspaces, server-side window frames, compositor-owned session lock, privileged protocols only for its own shell), and `boswas-shell` (panel, launcher, lock screen, login screen behind greetd). KDE applications (Dolphin, Konsole, KWrite, Okular, Gwenview, Ark, KCalc) and Firefox ESR run on it as ordinary Wayland clients. Ten presets, Boswas Control Center ([docs/experience](docs/experience/README.md)) |
+| Design system | Boswas UI v2: the Prism palette and the design tokens in one file ([desktop/ui](desktop/ui/README.md)), used by the shell, the window frames, the boot screen, the KDE colour schemes and the Boswas Prism icon pack ([desktop/icons](desktop/icons/README.md)) |
 | Branding | Built from the official Boswas Group logo and lettering ([desktop/branding](desktop/branding/README.md)) |
-| Boot | GRUB for BIOS and UEFI; Debian-signed shim/GRUB/kernel for Secure Boot; Boswas boot menu and Plymouth boot, shutdown and passphrase splash |
+| Boot | GRUB for BIOS and UEFI; Debian-signed shim/GRUB/kernel for Secure Boot; Boswas boot menu; the Boswas boot screen (`boswas-bootsplash`, Rust: boot, shutdown, restart and the disk-unlock prompt, [packages/boswas-bootsplash](packages/boswas-bootsplash/README.md)) |
 | Installer | Debian Installer (live mode), Boswas banner, policy: full-disk encryption, root locked, host `boswas-device`; firmware pool on the medium, no network needed, signed APT sources and an installation report written at the end |
 | Security | nftables (inbound deny), AppArmor, auditd rules, sudo/pwquality policy, kernel hardening, no SSH server, security-only automatic updates, enforced screen lock |
 | Tools | `boswas`, `boswas-info`, `boswas-status` (read-only, `--json`) |
@@ -148,6 +183,8 @@ boswas-device status        # device agent: state, identity, Control Plane conne
 | Privileged helper (boswas-sysops) | [docs/administration/sysops.md](docs/administration/sysops.md) |
 | Platform contracts (sysops, Android, Control Center) | [docs/architecture/platform-contracts.md](docs/architecture/platform-contracts.md) |
 | The Boswas OS experience | [docs/experience/README.md](docs/experience/README.md) |
+| Boswas UI tokens and the Prism palette | [desktop/ui/README.md](desktop/ui/README.md) |
+| Boot screen | [packages/boswas-bootsplash/README.md](packages/boswas-bootsplash/README.md) |
 | Debian references audit | [docs/experience/debian-references.md](docs/experience/debian-references.md) |
 | Live USB checklist | [docs/experience/live-usb-checklist.md](docs/experience/live-usb-checklist.md) |
 | Device agent | [docs/device-management/README.md](docs/device-management/README.md) |

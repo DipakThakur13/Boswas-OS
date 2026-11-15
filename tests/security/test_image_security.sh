@@ -85,10 +85,32 @@ else
 fi
 check "Debian archive keyring present" bash -c "ls '$root'/usr/share/keyrings/debian-archive-keyring.* >/dev/null"
 
-# Screen lock policy
-kscr="$root/usr/share/boswas/kde-settings/kscreenlockerrc"
-contains "screen lock: automatic lock enforced" "$kscr" 'Autolock[$i]=true'
-contains "screen lock: lock on resume enforced" "$kscr" 'LockOnResume[$i]=true'
+# Screen lock policy of the native desktop: the compositor's shipped defaults
+# and the administrator's file decide; a user's file cannot relax them.
+check "screen lock: automatic lock after at most ten minutes, enforced (compositor policy)" python3 -IB -c '
+import sys, tomllib
+merged = {"lock": {}, "policy": {}}
+for path in ("usr/share/boswas/compositor/compositor.toml", "etc/boswas/compositor.toml"):
+    try:
+        data = tomllib.load(open(f"{sys.argv[1]}/{path}", "rb"))
+    except FileNotFoundError:
+        continue
+    for table in merged:
+        merged[table].update(data.get(table, {}))
+assert 0 < merged["policy"]["lock_idle_max_seconds"] <= 600
+assert 0 < merged["lock"]["idle_seconds"] <= merged["policy"]["lock_idle_max_seconds"]
+assert merged["policy"]["privileged_protocols"] == "shell"' "$root"
+check "screen lock: the session locks before suspend and hibernate (systemd sleep hook)" \
+	bash -c "test -x '$root/usr/lib/systemd/system-sleep/boswas-lock' &&
+		grep -q -- '--send lock' '$root/usr/lib/systemd/system-sleep/boswas-lock'"
+check "screen lock: the lock screen verifies the password through PAM (no session, no changes)" \
+	bash -c "f='$root/etc/pam.d/boswas-lock'; grep -qx '@include common-auth' \$f && grep -qx '@include common-account' \$f &&
+		! grep -qE '^(session|password|@include common-(session|password))' \$f"
+check_not "the desktop programs carry no setuid or setgid bit and no file capability" \
+	bash -c "for f in usr/bin/boswas-compositor usr/libexec/boswas/boswas-shell usr/libexec/boswas/boswas-bootsplashd usr/bin/boswas-bootsplash; do
+			[ -u '$root/'\$f ] || [ -g '$root/'\$f ] && exit 0
+			command -v getcap >/dev/null 2>&1 && [ -n \"\$(getcap '$root/'\$f 2>/dev/null)\" ] && exit 0
+		done; exit 1"
 
 # Secrets
 check_not "no private keys in Boswas paths" grep -rqsE -- '-----BEGIN ([A-Z]+ )?PRIVATE KEY-----' "$root/etc/boswas" "$root/usr/lib/boswas" "$root/usr/share/boswas"

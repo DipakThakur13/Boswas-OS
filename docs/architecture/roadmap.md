@@ -6,7 +6,7 @@
 |-------|-------|--------|
 | **0 Repository bootstrap** | Repository layout, docs, build tooling, licensing model | **Done** |
 | **1 Debian live-build** | trixie configuration, KDE, package manifest, first ISO | **Done** |
-| **2 Branding** | Theme, wallpaper, boot menu, installer, login/lock, About, `boswas-info`/`boswas-status` | **Done** (installed-system boot splash pending, see below) |
+| **2 Branding** | Theme, wallpaper, boot menu, installer, login/lock, About, `boswas-info`/`boswas-status` | **Done.** The boot screen of installed systems is now `boswas-bootsplash` (see below) |
 | **3 Security baseline** | AppArmor, nftables, audit, LUKS2 install policy, sudo/pwquality, sysctl, journald | **Baseline done**; USB enforcement and systemd unit hardening pending |
 
 ## Enterprise platform (ADR-0016)
@@ -30,6 +30,94 @@ review and an integration test all exist.
 
 Boswas ID is intentionally deferred (ADR-0015); only interfaces exist.
 
+## Native desktop (Desktop Platform project plan, Draft 1)
+
+The project plan replaces KDE Plasma in stages: a Boswas shell on KWin first
+(its Phase 1), the compositor as a preview session after eight weeks of
+daily use (Phase 2), and the compositor as the default only with the public
+Beta (Phase 4). This tree takes the step at once, as requested: the image
+manifest installs `boswas-desktop` and `boswas-bootsplash` and pins out the
+Plasma shell, KWin, SDDM, System Settings and Plymouth (ADR-0026 to
+ADR-0032). The plan's exit criteria for that step are **not** met yet.
+
+**What "done" means below.** *Implemented* = the code exists, builds as a
+Debian package, is lintian-clean and passes its tests in the development
+environment (unit tests; for the compositor also end-to-end tests on the
+headless back end and a nested run with OpenGL ES). *Not boot-tested* =
+it has not run in the built image, in QEMU or on hardware. No ISO has been
+built from this manifest yet, and its dependency resolution on Debian 13
+has not been checked. 1.0~alpha3 (Plasma) is the last release that booted.
+
+### Compositor milestones (plan section 5)
+
+| Milestone | Plan result | Status |
+|-----------|-------------|--------|
+| **C0** | Runs in a window on the developer machine and shows one client | **Implemented** (`--backend winit`; also `headless`) |
+| **C1** | Runs on real hardware with one monitor, keyboard and mouse | **Implemented, not boot-tested**: `udev` back end (DRM/KMS, GBM, OpenGL ES, libinput, libseat) |
+| **C2** | Complete window protocol support; the Boswas Shell runs on it | **Core implemented**: xdg-shell with popups and decorations, layer shell, selections and drag-and-drop, dmabuf, viewporter, presentation time, pointer constraints and gestures, activation, idle inhibit, security context; the shell runs on it. Not yet: touch screens, tablets, text input and input methods, output management |
+| **C3** | Multiple monitors, hotplug, fractional scaling, XWayland | **Partly**: several monitors on the primary GPU and hotplug (not boot-tested), one fractional scale for all outputs. Open: per-output scale, a second GPU, **XWayland** |
+| **C4** | Materials, shadows, rounded corners, full animation set, snap layouts | **Partly**: Boswas window frames with 8 px corners, pre-rendered shadows, snap layouts with preview. Open: the Horizon and Glass materials (blur), corner clipping of client content, window animations |
+| **C5** | Screen capture, portals, input methods, screen-reader support, session lock | **Session lock implemented** (ADR-0028), `xdg-desktop-portal-gtk` for file dialogs. Open: screen capture and its portal, input methods, screen-reader support |
+| **C6** | Whole team uses it daily; offered as a preview session | Open |
+| **C7** | NVIDIA proprietary driver, variable refresh rate, performance hardening | Open |
+
+Performance budgets (frame time, memory, start time, dropped frames): **not
+measured.** There is no benchmark job yet, and nothing in this repository
+states that a budget is met. The compositor draws no frame when nothing
+changes; that part of the idle-power budget is by design, not by
+measurement.
+
+Security model: ordinary applications get no privileged interface
+(implemented and tested, ADR-0026). The plan identifies trusted components
+by the security-context protocol and a list of signed binaries; this
+implementation identifies them by who started them (the compositor's own
+children). Screen capture through a portal with a visible indicator is open.
+
+### Shell and Boswas UI (plan section 6)
+
+| Component | Status |
+|-----------|--------|
+| Taskbar | **Implemented**: panel at the bottom edge of every output with pinned and running applications, clock, battery and network state. Open: tray, other edges |
+| Start and search | **Implemented**: launcher with a pinned grid, search over installed applications, and lock, log out, restart and shut down. Open: recent files, search in files and settings |
+| Quick settings | Open (Wi-Fi, Bluetooth, volume, brightness, night light). Until then: `nmtui` or `nmcli`, `pavucontrol-qt` |
+| Notification centre and calendar | Open. No notification daemon runs, so applications' notifications are not shown |
+| On-screen displays | Open (volume, brightness, keyboard layout) |
+| Desktop and wallpaper | **Implemented**: wallpaper (built-in Prism background or a preset's picture). Open: desktop icons, right-click menu |
+| Lock screen and login screen | **Implemented** (ADR-0028, ADR-0030), password only. **Login not boot-tested** |
+| Password and permission prompts | polkit agent of KDE (`polkit-kde-agent-1`) and the GTK portal; Boswas dialogs are open |
+| Boswas UI tokens | **Implemented**: `desktop/ui/tokens.json`, version 2 (ADR-0031). The plan's navy and gold token sets were replaced by the Prism palette, as requested |
+| Boswas UI delivery | In Rust (`boswas-ui`), not the Qt Quick style and QML module of the plan (ADR-0027). KDE colour schemes are generated; a Qt Widgets style and a GTK theme are open |
+| Icons | **Implemented**: Boswas Prism and Boswas Prism Light, 178 designs (ADR-0031) |
+| Boot screen | **Implemented, not boot-tested**: `boswas-bootsplash` (ADR-0029) |
+
+### Planned work on the native desktop
+
+In rough order of what a user misses first:
+
+1. **Boot the image**: build the ISO with the new manifest, fix what the
+   verify hook, the QEMU boot test and the first real machines show, and
+   record the result in `docs/reports/` and the hardware list.
+2. **Settings without Plasma**: network (Wi-Fi), display arrangement and
+   scale, sound, power, users, keyboard layout and region in Control
+   Center, in place of the Plasma modules that are no longer installed;
+   output configuration in the compositor.
+3. **Notifications, tray, quick settings and on-screen displays.**
+4. **Screen capture**: screenshots and screen sharing through PipeWire and
+   a portal, with a visible indicator.
+5. **Input**: input methods (Indian and East Asian languages), touch
+   screens, tablets, an on-screen keyboard.
+6. **Accessibility**: screen-reader support in the shell, a high-contrast
+   scheme. `reduced_motion` exists as a setting.
+7. **XWayland** as an opt-in for X11-only applications.
+8. **Graphics**: a second GPU, per-output scale, variable refresh rate,
+   HDR, direct scan-out, the NVIDIA proprietary driver.
+9. **Materials and motion**: blur, corner clipping, window animations.
+10. **Session integration**: `loginctl lock-session`, fingerprint unlock
+    where policy allows, user switching.
+11. **Build**: vendored crates for offline builds, an advisory check and an
+    SBOM for the Rust dependencies (ADR-0032); the performance benchmark
+    job of the plan.
+
 ## Decided
 
 - **64-bit and 32-bit Windows applications (ADR-0022, supersedes ADR-0014).**
@@ -43,7 +131,9 @@ Boswas ID is intentionally deferred (ADR-0015); only interfaces exist.
 
 - **Physical hardware validation.** No physical PC has been certified; the
   validation matrix in `docs/deployment/hardware-compatibility.md` lists what
-  was tested only in a VM.
+  was tested only in a VM. The native desktop makes this more urgent:
+  graphics, input and suspend now depend on Boswas code that has not run on
+  hardware.
 - **Android on real hardware.** Waydroid needs a GPU with open drivers for
   acceleration; ARM-only apps cannot run (no redistributable translation).
   The Waydroid repository is outside Debian security support.
@@ -69,7 +159,9 @@ Boswas ID is intentionally deferred (ADR-0015); only interfaces exist.
 ## Open items carried from Phases 2–3
 
 - Installed-system boot branding:
-  - a Plymouth theme, which also gives a graphical LUKS passphrase prompt
+  - the boot screen and the graphical LUKS passphrase prompt are
+    `boswas-bootsplash` (ADR-0029); they still have to be verified on a
+    real boot
   - a GRUB background on `/boot`
 - USB storage enforcement: udev authorisation plus udisks2 polkit rules,
   driven by `/etc/boswas/usb-policy/policy.conf`.

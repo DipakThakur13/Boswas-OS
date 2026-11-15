@@ -1,26 +1,30 @@
-# Boswas OS v1 - desktop (KDE Plasma 6.3 as shipped by Debian 13)
+# Boswas OS v1 - desktop: what the native Boswas desktop needs around it
 #
-# kde-plasma-desktop is Debian's minimal Plasma metapackage. Boswas deliberately
-# does not use task-kde-desktop / kde-standard (PIM suite, games, etc.).
-# Packages kept out on purpose are pinned in config/archives/boswas-exclude.pref.chroot.
+# The desktop itself (compositor, shell, lock and login screens) is the
+# Boswas package boswas-desktop, and the boot screen is boswas-bootsplash;
+# both are listed in boswas-components.list.chroot (ADR-0026 to ADR-0029).
+#
+# KDE Plasma is not installed: no Plasma shell, no KWin, no Plasma session,
+# no SDDM, no Plymouth. They are pinned out in
+# config/archives/boswas-exclude.pref.chroot, so the build fails if anything
+# pulls them in. KDE's applications stay: they are ordinary Wayland clients.
 
-kde-plasma-desktop
-kwin-wayland
-sddm
-sddm-theme-breeze
-kde-config-sddm
-plasma-nm
-plasma-pa
-powerdevil
-bluedevil
-kscreen
-systemsettings
-kinfocenter
-xdg-desktop-portal-kde
+# Login (boswas-desktop configures it) and session services
+greetd
+polkit-kde-agent-1
+xdg-desktop-portal-gtk
 xdg-user-dirs
+
+# Toolkits on Wayland, cursors, fallback icons and the widget style of the
+# KDE applications
+qt6-wayland
+breeze-cursor-theme
+breeze-icon-theme
+kde-style-breeze
 
 # Audio
 pipewire-audio
+pavucontrol-qt
 
 # Core applications
 konsole
@@ -29,14 +33,16 @@ kwrite
 ark
 okular
 gwenview
-kde-spectacle
 kcalc
-plasma-systemmonitor
 firefox-esr
 
-# Fonts (Lato: secondary text in Boswas artwork; the brand typeface Orbitron ships in
-# boswas-branding. Liberation is metric-compatible
-# with common Windows fonts for documents and Wine applications)
+# Fonts (Inter: the Boswas UI typeface. Hack: the monospace font of the
+# Boswas terminal profiles, which Plasma used to pull in. Lato: secondary
+# text in Boswas artwork; the brand typeface Orbitron ships in
+# boswas-branding. Liberation is metric-compatible with common Windows fonts
+# for documents and Wine applications)
+fonts-hack
+fonts-inter
 fonts-lato
 fonts-liberation2
 fonts-noto-core

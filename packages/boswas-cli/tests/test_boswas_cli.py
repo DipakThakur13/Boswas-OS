@@ -16,7 +16,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from boswas_cli import checks, main, system  # noqa: E402
+from boswas_cli import checks, identity, main, system  # noqa: E402
 
 RELEASE = """\
 # comment
@@ -142,6 +142,32 @@ class CheckTests(CliTestCase):
         self.assertEqual(result.status, checks.PASS)
         self.assertIn("10 min", result.detail)
 
+    def test_screen_lock_reads_the_native_desktop_policy(self):
+        defaults, admin = checks.COMPOSITOR_CONFIGS
+        self.fs.write(defaults, "[lock]\nidle_seconds = 600\n[policy]\nlock_idle_max_seconds = 600\n")
+        result = checks.screen_lock()
+        self.assertEqual(result.status, checks.PASS)
+        self.assertIn("10 min idle, enforced", result.detail)
+        # An administrator may shorten it; the result is still enforced.
+        self.fs.write(admin, "[lock]\nidle_seconds = 90\n")
+        self.assertIn("90 s idle, enforced", checks.screen_lock().detail)
+        # "Never" under an enforced maximum is clamped, as the compositor does.
+        self.fs.write(admin, "[lock]\nidle_seconds = 0\n")
+        self.assertEqual(checks.screen_lock().status, checks.PASS)
+        # Without a maximum the lock is the user's choice: a warning.
+        self.fs.write(admin, "[policy]\nlock_idle_max_seconds = 0\n")
+        result = checks.screen_lock()
+        self.assertEqual(result.status, checks.WARN)
+        self.assertIn("users may turn it off", result.detail)
+        self.fs.write(admin, "[policy]\nlock_idle_max_seconds = 0\n[lock]\nidle_seconds = 0\n")
+        self.assertIn("turned off", checks.screen_lock().detail)
+        # A broken administrator file is ignored, like the compositor does.
+        self.fs.write(admin, "not = = toml")
+        self.assertEqual(checks.screen_lock().status, checks.PASS)
+        # Nonsense values never report a pass.
+        self.fs.write(admin, "[lock]\nidle_seconds = \"soon\"\n")
+        self.assertEqual(checks.screen_lock().status, checks.WARN)
+
     def test_root_account_requires_root(self):
         with mock.patch.object(system, "is_root", return_value=False):
             self.assertEqual(checks.root_account().status, checks.UNKNOWN)
@@ -200,6 +226,15 @@ class CommandTests(CliTestCase):
         self.assertIn("Debian 13.7", out)
         self.assertIn("trixie", out)
         self.assertIn("KDE Plasma 6.3.6", out)
+
+    def test_info_names_the_native_desktop_when_it_is_installed(self):
+        def run(cmd, timeout=10.0):
+            if cmd[0] == "dpkg-query" and cmd[-1] == "boswas-desktop":
+                return 0, "installed 1.0~alpha3"
+            return fake_run(cmd, timeout)
+
+        with mock.patch.object(system, "run", side_effect=run):
+            self.assertEqual(identity.os_identity()["desktop"], "Boswas Desktop 1.0~alpha3")
 
     def test_info_json_global_and_trailing_flag(self):
         for argv in (("--json", "info"), ("info", "--json")):

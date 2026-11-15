@@ -95,11 +95,11 @@ def binder_check(root: Root, host: Host) -> dict:
 def wayland_check(host: Host) -> dict:
     session = (host.environ.get("XDG_SESSION_TYPE") or "").lower()
     if session == "wayland" or host.environ.get("WAYLAND_DISPLAY"):
-        return _check("wayland", PASS, "This is a Wayland session (Plasma on Wayland).")
+        return _check("wayland", PASS, "This is a Wayland session.")
     if session in ("x11", "tty", "mir"):
-        return _check("wayland", FAIL, f"Android apps need a Wayland session; this session is {session}. Choose "
-                                       "\"Plasma (Wayland)\" on the login screen.")
-    return _check("wayland", UNKNOWN, "Not run from a desktop session; Android apps need Plasma on Wayland.")
+        return _check("wayland", FAIL, f"Android apps need a Wayland session; this session is {session}. Sign in to "
+                                       "the Boswas OS desktop.")
+    return _check("wayland", UNKNOWN, "Not run from a desktop session; Android apps need the Boswas OS desktop (Wayland).")
 
 
 def cpu_check(root: Root, host: Host) -> dict:

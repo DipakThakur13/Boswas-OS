@@ -9,27 +9,28 @@ Rules-Requires-Root: no
 Package: boswas-branding
 Architecture: all
 Depends: libkf6config-bin,
-         plymouth,
-         plymouth-themes,
          python3,
          ${misc:Depends}
-Recommends: breeze-icon-theme, fonts-lato, konsole, plasma-workspace, sddm-theme-breeze
-Description: Boswas OS visual identity for KDE Plasma
+Recommends: breeze-icon-theme, fonts-inter, fonts-lato, konsole
+Description: Boswas OS visual identity
  The Boswas OS visual identity, built from the Boswas OS logo (the gold and
- silver "b" mark), the brand typeface and one design system:
+ silver "b" mark), the brand typeface and one design system, Boswas UI:
  .
+  * the Boswas UI design tokens (the Prism palette) and the Prism colour
+    schemes for KDE applications
+  * Boswas Prism, the icon pack of the Boswas desktop: applications,
+    places, devices, file types and symbolic status and action icons; the
+    earlier Boswas and Boswas Light icon themes stay available
   * Orbitron, the brand typeface (SIL Open Font License 1.1)
-  * ten Boswas OS presets (Horizon, the default, Midnight, Aurora, Slate,
-    Carbon, Pearl, Ocean, Ember, Nebula, Classic): Plasma Global Themes,
-    colour schemes, light/dark/lock wallpapers and Konsole profiles, and
-    boswas-preset to switch between them
-  * the Boswas and Boswas Light icon themes
-  * Boswas Launcher, the session start-up splash, the Plymouth boot,
-    shutdown and passphrase splash, and the login and lock screen art
+  * ten Boswas OS presets (Horizon, Midnight, Aurora, Slate, Carbon, Pearl,
+    Ocean, Ember, Nebula, Classic): colour schemes, light, dark and lock
+    wallpapers and Konsole profiles, and boswas-preset to switch between
+    them
   * the Boswas terminal prompt and welcome (boswas-welcome)
-  * System Settings "About this System" branding and the screen lock policy
-    (automatic lock after 10 minutes, enforced)
  .
- Defaults are delivered through an XDG configuration directory
- (/usr/share/boswas/kde-settings), so /etc/xdg and per-user settings keep
- precedence and no file of another package is modified.
+ The desktop that uses them is the package boswas-desktop; the boot screen
+ is boswas-bootsplash.
+ .
+ Defaults for KDE applications are delivered through an XDG configuration
+ directory (/usr/share/boswas/kde-settings), so /etc/xdg and per-user
+ settings keep precedence and no file of another package is modified.

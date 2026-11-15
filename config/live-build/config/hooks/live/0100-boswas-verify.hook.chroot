@@ -15,7 +15,7 @@ installed() {
 
 for pkg in boswas-os boswas-cli boswas-branding boswas-security boswas-compat \
 	boswas-device-agent boswas-compat-manager \
-	plasma-workspace sddm kwin-wayland firefox-esr \
+	boswas-desktop boswas-bootsplash greetd firefox-esr \
 	apparmor auditd nftables libpam-pwquality \
 	cryptsetup cryptsetup-initramfs lvm2 \
 	wine wine64 wine32 flatpak network-manager libfuse2t64; do
@@ -23,7 +23,9 @@ for pkg in boswas-os boswas-cli boswas-branding boswas-security boswas-compat \
 done
 
 for pkg in openssh-server kdeconnect plasma-discover packagekit libpam-fprintd cups-browsed plasma-welcome \
-	boswas-control-plane; do
+	boswas-control-plane \
+	plasma-workspace plasma-desktop kde-plasma-desktop kwin-wayland kwin-x11 sddm systemsettings \
+	plymouth plymouth-themes; do
 	installed "$pkg" && fail "excluded package present: $pkg"
 done
 
@@ -118,13 +120,48 @@ grep -q 'Boswas OS' /etc/motd || fail "/etc/motd is not the Boswas OS notice"
 grep -qx 'GRUB_DISTRIBUTOR="Debian"' /etc/default/grub.d/10-boswas.cfg \
 	|| fail "GRUB distributor must stay Debian (EFI directory for Secure Boot)"
 
-# Boot splash: the Boswas OS Plymouth theme is the default and is in the initramfs.
-installed plymouth || fail "required package missing: plymouth"
-[ "$(plymouth-set-default-theme)" = "boswas" ] || fail "the default Plymouth theme is not boswas"
+# Boot screen: boswas-bootsplash is in every initramfs, with its client under
+# the name the disk-unlock helper calls; Plymouth is not there.
+[ -x /usr/libexec/boswas/boswas-bootsplashd ] || fail "/usr/libexec/boswas/boswas-bootsplashd missing"
 for initrd in /boot/initrd.img-*; do
-	lsinitramfs "$initrd" | grep -q 'usr/share/plymouth/themes/boswas/watermark.png' \
-		|| fail "$initrd does not contain the Boswas OS Plymouth theme"
+	listing="$(lsinitramfs "$initrd")"
+	echo "$listing" | grep -q 'usr/libexec/boswas/boswas-bootsplashd$' \
+		|| fail "$initrd does not contain the Boswas OS boot screen"
+	echo "$listing" | grep -q 'usr/bin/plymouth$' \
+		|| fail "$initrd lacks the boot screen's client under the name the disk-unlock helper calls"
+	echo "$listing" | grep -q 'plymouthd' && fail "$initrd contains Plymouth"
 done
+# The daemon's own check of its sandbox: 0, or 3 where Landlock is not
+# available (a build chroot on an older host kernel).
+status=0
+/usr/libexec/boswas/boswas-bootsplashd --self-test >/dev/null 2>&1 || status=$?
+[ "$status" -eq 0 ] || [ "$status" -eq 3 ] || fail "boswas-bootsplashd --self-test failed (exit $status)"
+
+# The native desktop: the compositor and the shell run, the session is
+# offered at login, greetd is the display manager and reads the Boswas
+# configuration, and the lock policy is enforced.
+[ -x /usr/bin/boswas-compositor ] && [ -x /usr/libexec/boswas/boswas-shell ] && [ -x /usr/bin/boswas-session ] \
+	|| fail "the Boswas desktop programs are missing"
+/usr/bin/boswas-compositor --version | grep -q '^boswas-compositor ' || fail "boswas-compositor does not run"
+/usr/libexec/boswas/boswas-shell --version | grep -q '^boswas-shell ' || fail "boswas-shell does not run"
+[ -s /usr/share/wayland-sessions/boswas.desktop ] || fail "the Boswas session entry is missing"
+[ ! -e /usr/share/wayland-sessions/plasma.desktop ] || fail "a Plasma session is installed"
+[ "$(systemctl is-enabled greetd.service 2>/dev/null || true)" = "enabled" ] || fail "greetd.service is not enabled"
+grep -q 'ExecStart=/usr/sbin/greetd --config /etc/boswas/greetd.toml' \
+	/usr/lib/systemd/system/greetd.service.d/10-boswas.conf || fail "greetd is not pointed at /etc/boswas/greetd.toml"
+[ -x /usr/sbin/greetd ] && [ -x /usr/sbin/agreety ] || fail "greetd or its text login is not where boswas-desktop expects it"
+getent passwd _greetd >/dev/null || fail "the greeter user _greetd does not exist"
+grep -q '^command = "/usr/libexec/boswas/boswas-greeter"$' /etc/boswas/greetd.toml \
+	|| fail "/etc/boswas/greetd.toml does not start the Boswas login screen"
+grep -q '^\[initial_session\]' /etc/boswas/greetd.toml && fail "the image signs a user in automatically"
+[ -s /etc/pam.d/boswas-lock ] || fail "the lock screen's PAM service is missing"
+python3 -IB -c '
+import tomllib
+c = tomllib.load(open("/usr/share/boswas/compositor/compositor.toml", "rb"))
+assert 0 < c["lock"]["idle_seconds"] <= c["policy"]["lock_idle_max_seconds"] == 600
+assert c["policy"]["privileged_protocols"] == "shell"
+assert c["shell"]["command"] == ["/usr/libexec/boswas/boswas-shell"]' \
+	|| fail "the compositor defaults do not enforce the lock and trust policy"
 
 # Boswas Control Center (settings hub, Security/Software/Update Centers) imports
 # its Qt bindings; the icon themes and the ten presets are installed.
@@ -133,14 +170,11 @@ python3 -IB -c 'import sys; sys.path.insert(0, "/usr/lib/boswas/python"); import
 	|| fail "Boswas Control Center does not import"
 QT_QPA_PLATFORM=offscreen python3 -IB -c 'import sys; sys.path.insert(0, "/usr/lib/boswas/python"); import boswas_control_center.ui.main_window' \
 	|| fail "Boswas Control Center's window (all pages) does not import"
-for theme in Boswas Boswas-Light; do
+for theme in Boswas-Prism Boswas-Prism-Light Boswas Boswas-Light; do
 	[ -f "/usr/share/icons/$theme/index.theme" ] || fail "icon theme $theme missing"
 done
+grep -qx 'Theme=Boswas-Prism' /usr/share/boswas/kde-settings/kdeglobals || fail "the default icon theme is not Boswas Prism"
 [ "$(boswas-preset --json list | python3 -c 'import json, sys; print(len(json.load(sys.stdin)["presets"]))')" = 10 ] \
 	|| fail "boswas-preset does not list the ten Boswas OS presets"
-
-# Desktop: Boswas Launcher and the session splash are installed packages.
-[ -f /usr/share/plasma/plasmoids/com.boswas.launcher/metadata.json ] || fail "Boswas Launcher applet missing"
-[ -f /usr/share/plasma/look-and-feel/com.boswas.splash/contents/splash/Splash.qml ] || fail "Boswas splash missing"
 
 echo "I: boswas-verify: image matches the Boswas OS manifest"

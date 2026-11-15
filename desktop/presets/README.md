@@ -1,9 +1,20 @@
 # Boswas OS visual presets
 
-Ten complete looks for the Boswas OS desktop (KDE Plasma 6.3). A preset
-bundles a Plasma Global Theme, a KDE colour scheme, a wallpaper (light and
-dark artwork), a lock screen background, a Konsole colour scheme and profile,
-and a preview image for the Boswas Control Center.
+Ten complete looks for the Boswas OS desktop. A preset bundles a KDE colour
+scheme, a wallpaper (light and dark artwork), a lock screen background, a
+Konsole colour scheme and profile, a preview image for the Boswas Control
+Center, and a Plasma Global Theme.
+
+The presets were designed for the KDE Plasma image. On the **native Boswas
+desktop** (`boswas-compositor`, `boswas-shell`), which replaced Plasma in
+the image, a preset sets what that desktop can take from it: light or dark
+for the shell and the window frames, the wallpaper, the colours of KDE
+applications and the Konsole profile
+([The native Boswas desktop](#the-native-boswas-desktop)). The Global
+Themes, panel layouts and lock screen art are still generated, tested and
+installed, but only a Plasma session uses them. A new user of the native
+desktop starts with the Boswas Prism look ([`../ui/`](../ui/README.md)),
+which is not one of the ten presets.
 
 `presets.json` is the single source of truth. Everything in `color-schemes/`,
 `konsole/`, `look-and-feel/`, `wallpapers/` and `previews/` is generated from
@@ -93,10 +104,12 @@ the colour scheme: panels and widgets take each preset's own colours (ivory
 on Pearl, navy on Horizon). `breeze-dark` and `breeze-light` would ignore
 the preset palette.
 
-The icon themes `Boswas` and `Boswas-Light`, the Boswas Launcher applet
-(`com.boswas.launcher`), the splash screen (`com.boswas.splash`) and the
-terminal start file (`/usr/share/boswas/terminal/bashrc`) are provided by
-other parts of Boswas OS; the presets only refer to them.
+The icon themes `Boswas` and `Boswas-Light` and the terminal start file
+(`/usr/share/boswas/terminal/bashrc`) are provided by other parts of Boswas
+OS; the presets only refer to them. The Global Themes also still name the
+Boswas Launcher applet (`com.boswas.launcher`) and the splash screen
+(`com.boswas.splash`), which left the repository with Plasma; the layout
+scripts keep Kickoff when the applet is missing.
 
 ### Panel layout
 
@@ -127,7 +140,68 @@ It uses only the Plasma 6.3 desktop scripting API (`knownWidgetTypes`,
 
 ## Applying a preset
 
-### Global Theme settings
+### The native Boswas desktop
+
+`boswas-preset apply <id>` (or Control Center > Personalization, which
+calls it) detects the native desktop by `XDG_CURRENT_DESKTOP=Boswas` and
+then, with fixed argument lists and never a shell:
+
+1. writes `~/.config/boswas/appearance.toml`:
+
+   ```toml
+   # Written by boswas-preset; changes made here are replaced by the next preset.
+   [appearance]
+   scheme = "dark"
+   wallpaper = "/usr/share/wallpapers/Boswas-Ocean/contents/images_dark/3840x2160.png"
+   ```
+
+   `scheme` is the preset's variant (light or dark) and `wallpaper` the
+   matching artwork. `boswas-compositor` reads the file as its last
+   configuration layer (it may contain the `[appearance]` table only) and
+   passes both values to the shell: window frames, panel, launcher and lock
+   screen switch between the Prism dark and light themes, and the shell
+   shows the wallpaper;
+2. merges the colour groups of
+   `/usr/share/color-schemes/Boswas<Label>.colors` into the user's
+   `~/.config/kdeglobals` and sets `ColorScheme=Boswas<Label>` there. KDE
+   applications (Dolphin, Konsole, Okular, ...) read their colours from
+   that file; every other group in it is kept;
+3. `kwriteconfig6 --file konsolerc --group "Desktop Entry" --key
+   DefaultProfile "Boswas <Label>.profile"`: the default Konsole profile;
+4. `kwriteconfig6 --file boswasrc --group Preset --key Current <id>`;
+5. asks the running compositor to re-read its configuration
+   (`reload-config` on its control socket). Without a running compositor
+   the look applies at the next login.
+
+Both files are written atomically (a temporary file, then a rename).
+Running applications pick the new colours up when they next read
+`kdeglobals`; an application that is already open may need a restart.
+
+What a preset does **not** change on the native desktop:
+
+- the accent colour of the panel, launcher, window frames and lock screen:
+  they use the Prism accent in every preset;
+- the icon theme (Boswas Prism stays);
+- the lock and login screens' background (the preset's lock screen art is
+  installed but not used);
+- the panel: there is one layout, so `--layout` is accepted and has no
+  effect (`--json` then reports `"layout": false`).
+
+`boswas-preset current` reports the recorded choice. A user who has not
+applied a preset has the Boswas Prism look, and `current` prints nothing
+(`{"current": null}` with `--json`).
+
+`boswas-preset reset` returns to Prism after a preset: it removes
+`~/.config/boswas/appearance.toml` (the compositor and the shell fall back
+to Prism), merges the Boswas Prism colours into `~/.config/kdeglobals`,
+makes `Boswas Prism.profile` the default Konsole profile, clears the
+recorded preset and asks the compositor to reload.
+`~/.config/boswas/compositor.toml`, the user's own settings, is not
+touched. Control Center's "Reset to Boswas Default" button runs it. On a
+Plasma session `reset` applies Horizon with its panel layout, the default
+there.
+
+### Global Theme settings (Plasma session)
 
 The ten Global Themes appear in System Settings > Colors & Themes > Global
 Theme as "Boswas Horizon" ... "Boswas Classic". Applying one there changes
@@ -138,6 +212,11 @@ the colours, icons, Plasma style, cursor and window decoration (and, if
 whole preset.
 
 ### boswas-preset
+
+The commands are the same on both desktops; the steps below are what
+`apply` runs on a **Plasma session**. Plasma is not part of the Boswas OS
+image any more (its packages are pinned out), so on Boswas OS the native
+path above is the one that runs.
 
 ```sh
 boswas-preset list                 # the presets, * marks the current one
@@ -173,11 +252,14 @@ preset, 3 usage error, 4 run as root. With `--json`, success prints
 `current` reads `Current` in `$XDG_CONFIG_HOME/boswasrc` (default
 `~/.config/boswasrc`); when nothing is recorded there, it reports the preset
 whose Global Theme is active (`[KDE] LookAndFeelPackage` in kdeglobals, the
-user's or the system default), so a new user sees Horizon as current. The
+user's or the system default). The Boswas OS defaults no longer set a
+Global Theme, so a new user has no current preset. The
 preset list comes from `/usr/share/boswas/presets/presets.json`
 (`BOSWAS_PRESETS_FILE` overrides it, for tests).
 
 ### Notes on Plasma 6.3 behaviour
+
+These notes apply to a Plasma session only.
 
 * `plasma-apply-lookandfeel` never applies the Global Theme's wallpaper.
   `[Wallpaper] Image` in a theme's `defaults` is only the default for desktops
@@ -193,13 +275,13 @@ preset list comes from `/usr/share/boswas/presets/presets.json`
 
 ### Login screen
 
-The login screen (SDDM) is system-wide and does not follow a user's preset.
-Its background is `/usr/share/boswas/branding/login-background.png`, the
-Horizon lock screen artwork. An administrator who wants the login screen to
-match a preset can apply it, then use System Settings > Colors & Themes >
-Login Screen (SDDM) > Apply Plasma Settings, which copies their Plasma
-settings (colours, fonts, cursor theme) to the login screen. The lock screen
-is per user and follows the preset.
+The login screen is system-wide and does not follow a user's preset. On the
+native desktop it is the Boswas login screen (`boswas-shell --greeter`), in
+the Prism dark theme with the default background.
+`/usr/share/boswas/branding/login-background.png` (the Horizon lock screen
+artwork, once SDDM's background) is still installed and not used. The lock
+screen is per user: it follows the preset's light or dark variant and has
+the same background as the desktop, not the preset's lock screen art.
 
 ## Files
 
@@ -226,6 +308,10 @@ python3 desktop/presets/tools/build_presets.py --check  # exit 1 if generated fi
 cd desktop/presets && python3 -B -m unittest discover -s tests -v
 BOSWAS_PRESETS_FULL_INSTALL=1 python3 -B -m unittest discover -s tests -p test_install.py   # full install
 ```
+
+`test_cli.py` covers both apply paths with a fake command runner and a
+temporary home: the native path's `appearance.toml`, the merge into
+`kdeglobals`, and that `--layout` is ignored there.
 
 The tests check `presets.json`, that the generated files are up to date, the
 colour schemes (every group and key, valid colours, the contrast rules, the

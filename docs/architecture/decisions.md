@@ -18,11 +18,16 @@ Group responsible for maintaining thousands of packages.
 ## ADR-0002 Boswas customisation ships as Debian packages
 
 **Decision.** Everything Boswas adds to a device lives in native Debian
-packages built from `packages/` (seven since 1.0~alpha3):
+packages built from `packages/` (seven in 1.0~alpha3; added since:
+`boswas-control-center`, `boswas-sysops` (ADR-0024), `boswas-android`
+(ADR-0025), `boswas-desktop` (ADR-0026) and `boswas-bootsplash`
+(ADR-0029)):
 
 - `boswas-os`: release identity and `/etc/boswas`; depends on the others.
 - `boswas-cli`: `boswas`, `boswas-info`, `boswas-status`.
-- `boswas-branding`: KDE look-and-feel, wallpaper, login, About and icons.
+- `boswas-branding`: artwork, design tokens, colour schemes, presets,
+  icons and About (until ADR-0026 also the KDE look-and-feel and the login
+  theme).
 - `boswas-security`: the security baseline.
 - `boswas-compat`: WinCompat (`boswas-winapp`, the Wine AppArmor profile,
   the compatibility catalog and its policy); since 1.0~alpha2.
@@ -166,6 +171,13 @@ kernel command line.
 
 ## ADR-0007 KDE defaults through an XDG configuration directory
 
+*Revised with the native desktop (ADR-0026).* The mechanism stays, for KDE
+applications only: `kdeglobals` now selects the Prism colour scheme and
+icon pack (ADR-0031), `boswas-session` appends the directory to
+`XDG_CONFIG_DIRS`, and `kscreenlockerrc` is gone, because the screen lock
+is the compositor's (ADR-0028). The text below describes the Plasma-based
+releases up to 1.0~alpha3.
+
 **Decision.** Boswas KDE defaults are installed in
 `/usr/share/boswas/kde-settings`:
 
@@ -210,6 +222,10 @@ brand typeface, so this decision replaces that one.
 
 **Revisit when** a designer's vector original of the mark exists. It then
 replaces the traced SVG.
+
+*Since ADR-0031* the desktop UI uses the Prism palette with Inter as its
+text face. The mark, the wordmarks and Orbitron are unchanged; gold stays a
+brand colour and is no longer the UI accent.
 
 ## ADR-0009 Reproducible, containerised builds
 
@@ -299,7 +315,8 @@ display-sharing design.
   unrelated use.
 
 **Known limits.** X11 clients can observe each other (limited to Xwayland
-clients under Plasma Wayland). Direct `/usr/bin/wine` use is not mediated;
+clients under Plasma Wayland; not applicable since ADR-0026, which has no
+X server: Wine draws through its Wayland driver). Direct `/usr/bin/wine` use is not mediated;
 restricting it remains an open item (roadmap).
 
 ## ADR-0013 Compatibility manifest format v1 and a layered catalog
@@ -706,3 +723,478 @@ authorized on its own.
 
 **Why.** A real, maintained Android runtime without changing the kernel or
 weakening Secure Boot, and an honest position on Google Play.
+
+## ADR-0026 A native compositor (boswas-compositor) replaces KWin and KDE Plasma
+
+**Decision.**
+
+- **What is replaced.** KDE's compositor (KWin), the Plasma shell, the
+  Plasma session, SDDM and System Settings are removed from the image and
+  pinned out (`plasma-workspace`, `plasma-desktop`, `kde-plasma-desktop`,
+  `kwin-wayland`, `kwin-x11`, `sddm`, `systemsettings`). The build fails if
+  a dependency brings one back.
+- **What "replacing Wayland" means.** The program that implements Wayland
+  is replaced, not the protocol. Wayland is the interface every desktop
+  application on Debian speaks (Qt, GTK, Firefox, Wine 10). A different
+  protocol would mean that no existing application runs. KDE's
+  applications (Dolphin, Konsole, KWrite, Ark, Okular, Gwenview, KCalc)
+  therefore stay: they are ordinary Wayland clients of the new compositor.
+- **The compositor.** `boswas-compositor` (package `boswas-desktop`),
+  written in Rust on the Smithay library (0.7). It is the display server,
+  the window manager and the effects engine in one process, and it runs as
+  the logged-in user.
+  - **Back ends:** `udev` for hardware (DRM/KMS, GBM, EGL with OpenGL ES,
+    libinput; devices are opened through libseat and logind, so there is no
+    setuid bit and no capability); `winit` (a window inside another
+    session, for development); `headless` (software rendering with pixman,
+    for tests).
+  - **Window management:** floating windows with Boswas frames drawn by the
+    compositor (a client may ask to draw its own), snap layouts by dragging
+    or with Super+arrow keys, four workspaces, Alt+Tab in
+    most-recently-used order, maximise, fullscreen and minimise, one scale
+    for all outputs (1.0 to 2.0 in steps of 0.25).
+  - **Rendering:** damage-tracked. A frame is drawn only when something
+    changed and the previous one has been shown.
+- **Client trust.** Every client has one of three levels:
+  - `Shell`: a program the compositor started itself. The compositor
+    creates a connected Wayland socket (`WAYLAND_SOCKET`) and a control
+    descriptor (`BOSWAS_COMPOSITOR_FD`) for that one child. No program can
+    reach this level through the socket file.
+  - `Normal`: any program that connects to the Wayland socket.
+  - `Sandboxed`: a client connected through `wp_security_context_v1`
+    (Flatpak).
+
+  The privileged globals are filtered per client and offered to `Shell`
+  clients only: layer shell (panels and overlays), session lock, the window
+  list (`ext-foreign-toplevel-list`) and clipboard control
+  (`wlr-data-control`). Protocols for screen capture, input injection,
+  global key grabs and output configuration are not implemented, so no
+  client has them.
+- **`policy.privileged_protocols`.** `"shell"` is the shipped value. `"all"`
+  offers the privileged globals to `Normal` clients too; it exists for
+  development. The `[policy]` table is read from the system files only
+  (ADR-0028), and sandboxed clients never get the privileged globals.
+- **Control socket.** `$XDG_RUNTIME_DIR/boswas-<WAYLAND_DISPLAY>.sock`
+  (mode 0600), one JSON object per line. A connection to the socket file
+  may send `version`, `lock` and `reload-config`. The window list, window
+  control, workspaces, screenshots and `quit` need the descriptor of a
+  `Shell` client. Contract: `docs/architecture/platform-contracts.md`.
+- **No XWayland.** The compositor starts no X server.
+
+**Why.**
+
+- Boswas decides what an application may see and do on the desktop. An
+  ordinary application cannot read the screen, other windows, the clipboard
+  history or keys typed elsewhere, and that rule is enforced in one place
+  that Boswas owns.
+- The process that sees every key stroke and every pixel is written in a
+  memory-safe language (ADR-0032).
+- Smithay supplies the protocol and device plumbing, so the Boswas code is
+  mostly policy: trust, window management, the lock.
+- One configuration with an administrator layer that a user cannot relax,
+  instead of KDE Kiosk keys spread over several files.
+
+**Alternatives.** Keeping KWin and writing only a shell would leave the
+trust decisions to KDE's protocol policy and keep the Plasma session.
+wlroots (C) has broader hardware coverage today but not the memory safety.
+A compositor without a library would repeat years of protocol work.
+
+**Consequences.**
+
+- **X11-only applications do not run.** Wine uses its Wayland driver: the
+  WinCompat sandbox binds the Wayland socket and sets no `DISPLAY`. The
+  earlier limit "X11 clients can observe each other" (ADR-0012) no longer
+  applies, because there is no X server.
+- **Missing desktop functions**, all planned work (see the roadmap): a
+  notification daemon, a system tray, quick settings for Wi-Fi, Bluetooth
+  and volume, a screen-capture portal (screenshots and screen sharing from
+  applications), input methods, outputs on a second GPU, HDR and variable
+  refresh rate, per-output scale, a display configuration tool. Wi-Fi is
+  set up with `nmtui` or `nmcli` for now; volume with `pavucontrol-qt`.
+- **Control Center:** the entries that open Plasma settings modules
+  (`kcmshell6`: network, Bluetooth, display, sound, power, users, input
+  devices, region, notifications and others) are unavailable, because the
+  modules are no longer installed. Its own pages (updates, security,
+  software, storage, hardware, compatibility, Android, about) do not
+  depend on Plasma. Native settings pages are planned work.
+- **`loginctl lock-session`** is not handled; locking goes through the
+  compositor (ADR-0028).
+- **Maintenance:** Boswas now owns a compositor. Hardware regressions that
+  KWin's developers would have fixed are ours to find and fix.
+- **Not verified yet:** the `udev` back end has been compiled but has not
+  run on a real DRM device, in QEMU or on hardware. The image has not been
+  built with the new manifest, and its dependency resolution on Debian 13
+  is untested. Verified in the development environment: unit tests, six
+  end-to-end tests that drive the real binary on its headless back end
+  (trust filtering, control-socket limits, window life cycle, lock), a
+  nested run on the `winit` back end with OpenGL ES, the package build and
+  lintian.
+
+**Revisit when** hardware validation shows a class of devices the `udev`
+back end cannot drive, or an application Boswas must support needs X11
+(then: XWayland as an opt-in, confined client).
+
+## ADR-0027 Boswas Shell is written in Rust on boswas-ui, not in Qt/QML
+
+**Decision.** The panel, the launcher, the wallpaper, the lock screen and
+the login greeter are one Rust program, `boswas-shell`
+(`/usr/libexec/boswas/boswas-shell`; `--lock` and `--greeter` select the
+other two roles). It draws with `boswas-ui`, a small library in the same
+workspace: tiny-skia (software rasteriser), cosmic-text (text shaping,
+system fonts) and resvg (SVG icons). It is a Wayland client of the
+compositor (layer shell and session lock, through smithay-client-toolkit)
+and reads windows and workspaces from the control descriptor (ADR-0026).
+
+The project plan's first draft names Qt 6/QML for the shell. This decision
+replaces that part of the plan.
+
+**Why.**
+
+- **One memory-safe toolchain** for every process that holds privileged
+  protocol access or sees a password: compositor, panel, lock screen and
+  greeter.
+- **No QML engine and no JavaScript runtime** in the lock screen and the
+  greeter. Both run before or instead of a user session, and the greeter
+  handles the password of every user.
+- **Small footprint:** no Qt Quick, scene graph or GPU context per shell
+  surface. The shell draws into shared-memory buffers and redraws only on
+  change.
+- **One renderer and one token file** for the window frames (drawn by the
+  compositor) and the shell, so they cannot drift apart (ADR-0031).
+- `boswas-ui` forbids `unsafe` code. SVG icons are rendered without
+  following external references.
+
+**Consequences.**
+
+- **No accessibility stack in the shell yet:** no screen-reader interface
+  (AT-SPI), no on-screen keyboard. Qt would have provided the first.
+- **Boswas maintains its own toolkit:** every new control (a slider, a
+  list, a menu) is written and tested here. Today it has what the panel,
+  the launcher and the password prompt need, no more.
+- **Text:** shaping and font fallback come from cosmic-text; complex
+  scripts and right-to-left layout in the shell have not been reviewed.
+- **Applications are unaffected:** Control Center and the Compatibility
+  Manager stay PySide6/Qt applications, and KDE applications keep the
+  Breeze widget style with the Prism colour scheme.
+- **Not verified yet:** the shell has run against the headless and nested
+  compositor (panel, launcher, search, lock) but not on hardware; the
+  greeter's conversation with greetd has unit tests for the message format
+  and has not run against a real greetd.
+
+**Revisit when** the shell needs views that are costly to build by hand
+(a settings application, rich notifications) or when an accessibility
+requirement is set. A Qt shell would then be a `Shell`-trust client like
+any other; the compositor does not change.
+
+## ADR-0028 The compositor owns the session lock; a user cannot relax the lock timeout policy
+
+**Decision.**
+
+- **Locking is a compositor state.** `lock_session` first blanks every
+  output and takes pointer and keyboard away from applications, and only
+  then starts the lock screen (`boswas-shell --lock`) as a `Shell` client.
+  The lock screen uses `ext-session-lock-v1`; its surfaces replace the
+  blank screen when they arrive.
+- **Only the lock screen unlocks.** The lock ends when a lock client sends
+  `unlock_and_destroy`, which `boswas-shell` does after PAM has accepted
+  the password (service `boswas-lock`: `common-auth` and `common-account`,
+  no session, nothing changed). There is no control-socket command that
+  unlocks.
+- **A lock screen that dies leaves the session locked.** The outputs stay
+  blank, applications get no input, and the lock screen is started again
+  after three seconds.
+- **When the session locks:**
+  - Super+L;
+  - after `lock.idle_seconds` without input (shipped: 600), unless a
+    client inhibits idling (a video, a presentation);
+  - before suspend and hibernate:
+    `/usr/lib/systemd/system-sleep/boswas-lock` sends `lock` to every
+    Boswas compositor and systemd waits for it;
+  - `boswas-compositor --send lock`. `lock` is one of the three commands
+    every connection may send: any program of the user may lock, none may
+    unlock.
+- **Policy.** `[policy] lock_idle_max_seconds` (shipped: 600) is the
+  longest timeout. A user may choose a shorter one in
+  `~/.config/boswas/compositor.toml`; a longer one, or 0 ("never"), is cut
+  back to the maximum. The `[policy]` table is read from
+  `/usr/share/boswas/compositor/compositor.toml` and
+  `/etc/boswas/compositor.toml` only and is ignored in a user's file. This
+  replaces `kscreenlockerrc` with KDE Kiosk keys (ADR-0007).
+- **Status.** `boswas security status` reads the compositor's policy for
+  its `screen-lock` check.
+
+**Why.** A lock that is a separate program on top of the desktop fails
+open: if it crashes, the session is visible. With the lock inside the
+compositor, the failure mode is a blank, locked screen. The password is
+checked in the lock screen, not in the compositor, so the process that
+handles every window never sees it.
+
+**Consequences.**
+
+- `loginctl lock-session` and the `org.freedesktop.ScreenSaver` D-Bus
+  interface are not handled. Tools that lock that way do nothing.
+- The sleep hook locks through the control sockets in `/run/user/*`; a
+  session whose compositor does not answer is not locked by it.
+- There is no way to unlock a session whose lock screen cannot start (for
+  example a damaged installation) other than ending the session from a
+  virtual terminal. That is intended.
+- No fingerprint or smart-card unlock: the PAM service is password-only
+  (biometric PAM is pinned out, ADR-0004).
+- **Which programs are trusted is system-only too:** `[lock] command` and
+  `[shell] command` name programs the compositor starts as trusted
+  clients, so they are read from the system files only; in a user's file
+  they are ignored with a warning, like `[policy]` (unit test
+  `a_user_cannot_name_the_trusted_programs`).
+- **Limit of "cannot relax":** this is not a boundary against a program
+  that runs unsandboxed as the same user. Such a program cannot change
+  the policy or the trusted programs through the configuration, but it
+  can still act as the user in other ways (edit `~/.profile`, attach a
+  debugger to the user's processes where the kernel allows it). Confining
+  untrusted programs is the job of the sandboxes.
+- **Not verified yet:** suspend and resume on hardware, and PAM with a
+  real account database on the image. Verified: unit tests of the policy
+  layering, and end-to-end tests that the session stays locked across
+  two crashed lock screens and unlocks only through a lock client.
+
+**Revisit when** a managed policy needs more than a maximum timeout (lock
+on smart-card removal, a grace period), or when logind integration is
+needed for remote "lock this device" commands.
+
+## ADR-0029 boswas-bootsplash replaces Plymouth
+
+**Decision.** The boot screen, the disk passphrase prompt and the shutdown
+and restart screens are one Rust package, `boswas-bootsplash`. Plymouth is
+removed, pinned out (`plymouth`, `plymouth-themes`, `plymouth-label`) and
+the package conflicts with it.
+
+- **Programs:** `boswas-bootsplashd` (the daemon: display, console
+  keyboard, control socket) and `boswas-bootsplash` (the client and the
+  systemd password agent).
+- **Display:** DRM/KMS dumb buffers, or the legacy frame buffer when no
+  DRM device exists. No GPU acceleration and no libdrm. The daemon follows
+  the hand-over from the firmware frame buffer to the real driver.
+- **Rendering:** the picture is a fixed set of items; a frame repaints only
+  the rectangles of items that changed. The artwork, the typeface and the
+  colours (from the token file, ADR-0031) are compiled in, so nothing is
+  parsed or loaded from disk at boot.
+- **Disk unlock:** the daemon starts in the initramfs. Debian's
+  `cryptsetup-initramfs` asks for the passphrase through `/bin/plymouth`,
+  so the client is installed under that name **inside the initramfs
+  only** and understands the commands the unlock helper and the initramfs
+  scripts use. No file named `plymouth` exists on the root file system.
+  Later password requests (a second encrypted volume) reach the boot
+  screen through a systemd password agent.
+- **Least privilege:** after the display, the console and the socket are
+  open, the daemon sets `no_new_privs`, enters a Landlock domain (graphics
+  devices and its runtime directory only, no TCP) and keeps three
+  capabilities. The socket is root-only and the peer is checked. The
+  passphrase lives in one buffer that is wiped after use and is never
+  logged.
+- **Failure:** without `splash`, or if the boot screen cannot start or
+  dies, the passphrase is asked for on the text console as before. A
+  supervising process restores the text console.
+- **Hand-over:** `quit --retain` leaves the last frame on screen until the
+  greeter's compositor shows its own (ADR-0030).
+
+Details: `packages/boswas-bootsplash/README.md`.
+
+**Why.** The boot screen runs as root in the initramfs and reads the disk
+passphrase. Plymouth is a C daemon with a plugin loader, a theme script
+interpreter and image and font loading at boot; none of that is needed for
+one fixed screen. A program with the screen compiled in has far less to
+parse, is memory-safe outside one audited module (ADR-0032), and confines
+itself once it is running. Repainting only what changed keeps the
+animation cheap on machines without a working GPU driver.
+
+**Consequences.**
+
+- Boswas maintains the compatibility with Debian's unlock helper. A change
+  in how `cryptsetup-initramfs` calls Plymouth must be followed; the image
+  check fails the build if the client is missing from an initramfs.
+- Text is ASCII from a built-in glyph atlas; other characters are drawn as
+  `?`. Prompts are in English. `ask-for-password --command` is not
+  supported.
+- No per-preset boot themes: the boot screen is the same for every preset.
+- Landlock is best effort: a kernel without it still gets `no_new_privs`
+  and the reduced capabilities.
+- **Not verified yet:** the DRM and frame-buffer outputs, the initramfs
+  scripts and the systemd units have not run on a real boot, in QEMU or on
+  hardware, and no LUKS volume has been unlocked through it. Verified in
+  the development environment: 107 unit and integration tests (scene and
+  damage, control protocol, Plymouth-compatible client, password agent,
+  the unlock helper's call sequence in a scratch root), the package build
+  and lintian.
+
+**Revisit when** the boot test or hardware validation shows a display the
+daemon cannot drive, or when localised boot text is required.
+
+## ADR-0030 greetd is the login daemon, with the Boswas greeter
+
+**Decision.**
+
+- **greetd replaces SDDM.** greetd (Debian package `greetd`) owns the
+  login: it runs a greeter as the unprivileged user `_greetd`, performs
+  PAM authentication itself, and starts the user's session.
+- **The greeter is the Boswas desktop.** `/usr/libexec/boswas/boswas-greeter`
+  starts `boswas-compositor` with `greeter.toml` (no lock, no applications)
+  and `boswas-shell --greeter` as its only `Shell` client. The greeter
+  shares its drawing and its password field with the lock screen.
+- **Configuration through a drop-in.** `boswas-desktop` ships
+  `/etc/boswas/greetd.toml` and
+  `/usr/lib/systemd/system/greetd.service.d/10-boswas.conf`, which starts
+  greetd with that file on the first virtual terminal after the boot
+  screen. greetd's own `/etc/greetd/config.toml` is not edited (ADR-0006).
+- **Session.** After login greetd starts `/usr/bin/boswas-session`: the
+  login profile, the session environment, the compositor, then the systemd
+  user target `boswas-session.target`, which pulls in
+  `graphical-session.target` (the device session agent, the polkit agent,
+  XDG autostart entries).
+- **Fallback.** If the graphical greeter fails within ten seconds of its
+  start, `boswas-greeter` runs greetd's text login (`agreety`) with the
+  same session command, so there is always a way to sign in.
+- **Live medium.** live-config appends an `[initial_session]` for the live
+  user to `/etc/boswas/greetd.toml` at boot. The shipped file contains
+  none, and the image check fails the build if it does: an installed
+  system always shows the login screen.
+
+**Why.** greetd is small, has no user interface of its own and speaks a
+simple, documented protocol (JSON over a Unix socket), so the login screen
+can be the same code as the lock screen under the same compositor. SDDM
+would bring Qt Quick and its own theme format back for one screen, and
+its Wayland greeter depends on a compositor Boswas no longer ships.
+
+**Consequences.**
+
+- One session type. There is no session chooser; `boswas.desktop` is
+  installed in `/usr/share/wayland-sessions` for tools that list sessions.
+- No user list with pictures, no password-change dialogue for expired
+  passwords, no remote or guest login. The greeter asks for a user name
+  and a password.
+- The greeter leaves authentication to greetd and its PAM service
+  (`/etc/pam.d/greetd` from the Debian package, built on the `login`
+  stack). The password goes to greetd once, over its socket, and is wiped
+  from the greeter's memory.
+- `sddm` is no longer a protected package of `boswas-sysops`; `greetd` is.
+- **Not verified yet:** a login on a real boot (greetd, PAM, logind seat
+  hand-over to the user's compositor), the text-login fallback, and the
+  live session's automatic login. Verified: the drop-in and configuration
+  contents by static and package tests, and the greeter's message encoding
+  by unit tests.
+
+**Revisit when** multi-user features are needed (user switching, a user
+list), or if greetd leaves Debian.
+
+## ADR-0031 Boswas UI v2: one token file ("Prism") for colour, geometry, type and motion
+
+**Decision.**
+
+- **Single source.** `desktop/ui/tokens.json` (Boswas UI, version 2)
+  defines the palette, the semantic dark and light themes, icon hues,
+  corner radii, the spacing unit, the type scale, elevation and motion.
+  Nothing else in the repository defines a UI colour.
+- **Values from the project plan:** window radius 8 px, control radius
+  4 px, a 4 px spacing grid, type sizes 12/14/16/20/28/40, motion of 150
+  to 250 ms with an ease-out curve, four elevation levels, Inter as the UI
+  typeface (Debian's `fonts-inter`).
+- **Palette "Prism":** ink and cloud neutrals with iris as the accent, and
+  azure, mint, sun, coral, sky, orchid and slate families. It replaces the
+  navy, gold and silver scheme of the desktop. The Boswas OS mark keeps its
+  gold and silver (ADR-0008); gold is a brand colour, no longer the UI
+  accent.
+- **Consumers:**
+  - `boswas-ui` compiles the file in (compositor frames, shell, lock
+    screen, greeter);
+  - `boswas-bootsplash` reads it at build time;
+  - `desktop/ui/tools/build_kde_colors.py` generates the KDE colour
+    schemes `BoswasPrism` and `BoswasPrismLight`, so KDE applications
+    match;
+  - `desktop/icons/tools/build_prism.py` generates the icon themes
+    `Boswas-Prism` (default) and `Boswas-Prism-Light`: 178 designs, 289
+    SVG files;
+  - `boswas-branding` installs the file as
+    `/usr/share/boswas/ui/tokens.json` for other tools.
+- **Checks.** `desktop/ui/tests` fails the build when a reference does not
+  resolve, a plan value changes, an icon tile has less than 3:1 contrast,
+  a generated colour scheme misses WCAG AA for text, or a generated file
+  is stale.
+- **Earlier themes.** The icon themes `Boswas` and `Boswas-Light` stay
+  installed and selectable.
+
+**Why.** Three programs in two languages and two generators draw Boswas
+surfaces. Without one source they drift, and a contrast fix in one place
+is missed in another. A data file with tests makes the design system
+reviewable and lets a designer change a value without reading Rust.
+
+**Consequences.**
+
+- A token change needs the Rust packages rebuilt; there is no run-time
+  theming of the shell beyond dark and light.
+- The ten presets still change wallpaper, the scheme (dark or light) and
+  the colours of KDE applications, but the shell and the window frames
+  ignore a preset's accent colour. The Plasma Global Theme data of the
+  presets is still generated and is unused.
+- Third-party icon coverage is what the pack contains; other icons fall
+  back to Breeze (`breeze-icon-theme`).
+- The palette was chosen and contrast-checked by tooling; it has had no
+  design review and no test with users.
+
+**Revisit when** a designer delivers a reviewed palette (it replaces the
+values, not the mechanism) or presets must recolour the shell.
+
+## ADR-0032 Rust build policy: Debian's toolchain, a committed lock file, crates from crates.io
+
+**Decision.**
+
+- **Toolchain:** the `rustc` and `cargo` of Debian 13 (1.85). Both
+  workspaces declare `rust-version = "1.85"`; `boswas-desktop` uses
+  resolver 3, which only selects dependency versions that build with it.
+  No rustup and no nightly features in a package build.
+- **Dependencies:** `Cargo.lock` is committed for `packages/boswas-desktop`
+  and `packages/boswas-bootsplash`, and `debian/rules` builds and tests
+  with `--locked`. cargo downloads exactly those crate versions from
+  crates.io during the package build and verifies their checksums against
+  the lock file. `CARGO_HOME` and the build products stay inside the
+  package's build directory.
+- **Build settings:** release profile with thin LTO and integer overflow
+  checks on (`boswas-desktop` also aborts on a panic instead of
+  unwinding); build paths are remapped out of the binaries.
+- **`unsafe`:** in shipped code (`src/`) confined to an allowlist that
+  `tests/static/test_sources.sh` enforces. `boswas-ui` forbids it.
+  `boswas-bootsplash` denies it outside `src/sys.rs`. In `boswas-desktop`
+  it is allowed in the compositor's `backend/udev.rs`, `ipc.rs` and
+  `state.rs` (descriptors handed to child processes, device and EGL
+  set-up) and in the shell's `control.rs` and `pam.rs` (the inherited
+  descriptor, the libpam binding). A new source file with `unsafe` fails
+  the static stage until it is reviewed and listed. Test programs are not
+  shipped and are not covered by the list.
+
+**Why.** Debian's toolchain is the one that receives Debian's security
+support and is in the builder image; a second toolchain would be one more
+thing to pin and trust. A committed lock file makes the dependency set
+reviewable and identical on every build host. Debian 13 does not package
+Smithay or several of its dependencies, so building only from
+Debian-packaged crates is not possible today.
+
+**Trade-off.** The package build needs network access to crates.io, like
+the image build needs the Debian archive, and the crates are not covered
+by Debian's security team: Boswas must follow advisories for the locked
+versions itself. Vendoring the crate sources (`cargo vendor`) into the
+repository or a Boswas archive is the follow-up: it gives offline and
+reproducible builds and a place to audit. It was not done now because it
+adds a large source tree that has to be reviewed and licensed as a whole.
+
+**Consequences.**
+
+- `boswas-desktop` and `boswas-bootsplash` are `Architecture: amd64`
+  packages; the other Boswas packages stay `all`.
+- The builder image gains `cargo`, `rustc`, `pkgconf` and the development
+  packages of libseat, libinput, libudev, GBM, pixman, xkbcommon and PAM.
+- A package build downloads and compiles a few hundred crates (the lock
+  files name 329 and 86 packages, not all of them for Linux), which takes
+  several minutes. `build-packages.sh` builds in a scratch tree, so nothing
+  is reused between builds.
+- No automated advisory check (`cargo audit`) and no SBOM for the crates
+  yet (M9).
+
+**Revisit when** vendoring is in place (then: `--offline` in
+`debian/rules`), or when Debian packages the needed crates.

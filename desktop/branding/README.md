@@ -1,5 +1,16 @@
 # Boswas brand assets
 
+The brand: the official Boswas OS mark, the Orbitron lettering and the
+navy, gold and silver brand palette. They are used where the product is
+named: the boot menu, the boot screen, the installer banner, the launcher
+button, About pages and application icons.
+
+The **interface** of the native Boswas desktop (panel, launcher, window
+frames, lock and login screens, the colours of applications) is not drawn
+in the brand palette. It uses Boswas UI and its Prism palette, which live
+in [`../ui/`](../ui/README.md). The mark keeps its gold and silver
+everywhere; they are never used as interface colours.
+
 ## Sources of truth
 
 | File | What it is |
@@ -39,17 +50,19 @@ Wordmarks and the mono mark are white on transparent. Composed artwork
 references them with `<image href=... data-fill="#RRGGBB">`, and the colour
 mark with plain `<image href=...>`. `build/scripts/inline-svg.py` inlines
 (and recolours) them, because Qt (KDE icons, the About page) cannot follow
-external SVG references.
+external SVG references, and the Boswas shell's icon loader never follows
+them.
 
 ## Composed artwork
 
 | File | Used for |
 |------|----------|
-| `boswas-mark.svg` | App/launcher icon (`boswas-logo` in the hicolor theme): the mark on a navy tile with a gold edge |
-| `boswas-about-logo.svg` | System Settings > About this System: the mark on a navy tile (the page prints the OS name) |
+| `boswas-mark.svg` | The `boswas-logo` icon in the hicolor theme: the mark on a navy tile with a gold edge. The fallback for the panel's launcher button, which takes `boswas-logo` from the icon theme first (Boswas Prism draws its own) |
+| `boswas-about-logo.svg` | The mark on a navy tile for KDE's About this System page (`kcm-about-distrorc`). Installed; that page exists only on a Plasma session. Control Center > About Boswas OS draws the mark itself |
 | `boot-splash.svg` | Live/installer ISO boot menu (GRUB, 800x600) |
-| `../presets/` | The ten presets: wallpapers (light, dark, lock), colour schemes (Horizon is the default: gold accent, dark text on gold selections), Global Themes, Konsole profiles ([presets README](../presets/README.md)) |
-| `../icons/` | The Boswas and Boswas Light icon themes ([icons README](../icons/README.md)) |
+| `boswas-os-mark.svg`, `wordmark-boswas-os.svg` | The boot screen: `packages/boswas-bootsplash` rasterises them at build time ([README](../../packages/boswas-bootsplash/README.md)) |
+| `../presets/` | The ten presets: wallpapers (light, dark, lock), colour schemes for applications, Konsole profiles, and Plasma Global Themes ([presets README](../presets/README.md)) |
+| `../icons/` | The Boswas Prism icon pack (the default, in the Prism palette) and the earlier Boswas and Boswas Light themes in the brand palette ([icons README](../icons/README.md)) |
 | `../../installer/branding/installer-banner.svg` | Debian Installer banner |
 | `../../config/live-build/config/bootloaders/grub-pc/live-theme/theme.txt` | Boot menu colours |
 | `../../packages/boswas-compat-manager/data/boswas-compat-manager.svg` | Compatibility Manager icon |
@@ -57,26 +70,35 @@ external SVG references.
 The package `boswas-branding` installs the mark as
 `/usr/share/boswas/branding/boswas-os-mark.svg`, for other components.
 
-## Boot, start-up and login
+## Boot and login
 
 | Source | What it becomes |
 |--------|-----------------|
-| `plymouth/` | The `boswas` Plymouth theme (two-step). It shows the lockup (`watermark.svg`), a 24-frame gold spinner (`throbber.svg`, rotated per frame at build time) and the disk-encryption passphrase dialog (`lock`, `entry`, `bullet`, `capslock`). It is used for boot, shutdown, reboot and the LUKS prompt. `boswas-branding` selects it unless an administrator chose another theme, and rebuilds the initramfs through a trigger |
-| `splash/` | `com.boswas.splash`, the session start-up splash (KSplash) between login and the desktop: the lockup and a spinner. It respects "animations off" |
-| `login-logo.svg` | The horizontal lockup shown by the login screen (SDDM Breeze, `showlogo=shown`), inlined to `/usr/share/boswas/branding/boswas-login-logo.svg` |
 | `boot-splash.svg` | The live and installation medium's boot menu (GRUB) |
+| `boswas-os-mark.svg`, `wordmark-boswas-os.svg`, Orbitron Medium | The Boswas boot screen (boot, shutdown, restart, disk-unlock prompt), drawn by `boswas-bootsplash`. Its colours are Prism tokens; the mark keeps its gold and silver |
+| `login-logo.svg` | The horizontal lockup, inlined to `/usr/share/boswas/branding/boswas-login-logo.svg`. It was the SDDM login screen's logo; the Boswas login screen does not show it yet, so the file is installed but unused |
 
-The live medium boots with `splash`, so a USB boot shows the Plymouth
-theme. Installed systems get `quiet splash` and a hidden GRUB menu from
+The Plymouth theme (`plymouth/`), the session start-up splash (`splash/`,
+KSplash) and the SDDM settings that were here are gone with Plymouth,
+Plasma and SDDM: the boot screen is the package `boswas-bootsplash`, and
+the login and lock screens are part of `boswas-shell` (package
+`boswas-desktop`). The native desktop has no start-up splash.
+
+The live medium boots with `splash`, so a USB boot shows the boot screen.
+Installed systems get `quiet splash` and a hidden GRUB menu from
 `/etc/default/grub.d/10-boswas.cfg` (boswas-os).
 
-## Desktop shell pieces
+## Desktop pieces
 
 | Source | What it becomes |
 |--------|-----------------|
-| `../launcher/metadata.json` | **Boswas Launcher** (`com.boswas.launcher`). It is KDE's maintained application launcher (Kickoff, through `X-Plasma-RootPath`) under the Boswas name and icon, with search, favourites, recent items, all applications and power actions. It answers the Meta key |
+| `../ui/` | Boswas UI: the design tokens and the Prism colour schemes for KDE applications ([ui README](../ui/README.md)) |
 | `../terminal/` | The Boswas terminal: `boswas-welcome`, a fast, files-only summary with version, kernel, architecture, live or installed session, and AppArmor and device agent state, plus the prompt (`bashrc`, used by the Boswas Konsole profiles; it sources `~/.bashrc` first). Turn the welcome off per user with `~/.config/boswas/no-welcome` |
-| `../defaults/` | System-wide KDE defaults (Horizon preset, Boswas icons, splash, Konsole profile, lock screen), the SDDM login screen and a Firefox policy (removes the "Debian packages" search engine) |
+| `../defaults/` | System-wide defaults for KDE applications (the Boswas Prism colour scheme and icon theme, Breeze widget style, the Konsole profile), installed in `/usr/share/boswas/kde-settings`, which `boswas-session` appends to `XDG_CONFIG_DIRS`; and a Firefox policy (removes the "Debian packages" search engine) |
+
+The launcher is part of `boswas-shell`. The Boswas Launcher applet that was
+in `../launcher/` (KDE's Kickoff under the Boswas name) is gone with
+Plasma.
 
 ## Typography
 
@@ -91,8 +113,11 @@ theme. Installed systems get `quiet splash` and a hidden GRUB menu from
   - "Orbitron" is a Reserved Font Name, so a modified version must not use
     that name.
 * **Secondary text** in artwork (versions, "Installer") uses Lato.
-* **The desktop UI** uses the KDE default face. Orbitron is a display face
-  and is not used for running text.
+* **The desktop UI** (panel, launcher, window titles, lock and login
+  screens) uses Inter, with Noto Sans, Lato and DejaVu Sans as fallbacks
+  (`type.family` in `../ui/tokens.json`). Orbitron is the display face:
+  besides the lettering it sets the boot screen's few lines and the clock
+  of the lock and login screens. It is not used for running text.
 * **The Control Plane dashboard** uses the system UI font: its
   Content-Security-Policy and tests allow no web fonts.
 
@@ -104,7 +129,12 @@ python3 desktop/branding/tools/trace_mark.py
 python3 desktop/branding/tools/build_wordmarks.py
 ```
 
-## Palette
+## Brand palette
+
+This is the palette of the mark and of the artwork that names the product
+(boot menu, installer banner, the `boswas-logo` tile, the earlier icon
+themes, the presets' wallpapers). The interface palette is Prism:
+[`../ui/README.md`](../ui/README.md).
 
 | Token | Hex | Use |
 |-------|-----|-----|

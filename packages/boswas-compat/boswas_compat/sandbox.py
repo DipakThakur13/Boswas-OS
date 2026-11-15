@@ -11,7 +11,10 @@ What exists inside the sandbox:
 
 Only when granted (manifest sandbox, or policy for unlisted apps):
   network   the host network namespace (otherwise: loopback only)
-  display   the X11 socket of $DISPLAY and its Xauthority file
+  display   the Wayland socket of $WAYLAND_DISPLAY (the Boswas desktop: Wine
+            draws on the compositor directly, as an ordinary client without
+            access to other windows), and, where the session has one, the
+            X11 socket of $DISPLAY with its Xauthority file
   audio     the PulseAudio/PipeWire socket
   gpu       /dev/dri and the sysfs device tree Mesa needs
   folders   the user's Documents, Downloads, ... at <view>/home/<Name>
@@ -43,6 +46,8 @@ FOLDER_XDG = {
     "videos": ("XDG_VIDEOS_DIR", "Videos"),
 }
 _DISPLAY_RE = re.compile(r"^(?:unix)?:(\d{1,4})(?:\.\d+)?$")
+# A Wayland socket name in the runtime directory (never a path).
+_WAYLAND_RE = re.compile(r"^wayland-[A-Za-z0-9._-]{1,32}$")
 _LANG_RE = re.compile(r"^[A-Za-z0-9_.@-]{1,64}$")
 _TZ_RE = re.compile(r"^:?[A-Za-z0-9_+./-]{1,64}$")
 
@@ -74,6 +79,7 @@ class HostSession:
     home: Path
     display: str | None = None
     xauthority: Path | None = None
+    wayland_display: str | None = None
     runtime_dir: Path | None = None
     lang: str = "C.UTF-8"
     tz: str | None = None
@@ -87,6 +93,7 @@ class HostSession:
         except KeyError:
             username = f"uid{uid}"
         xauth = env.get("XAUTHORITY")
+        wayland = env.get("WAYLAND_DISPLAY")
         rtdir = env.get("XDG_RUNTIME_DIR")
         lang = env.get("LANG", "C.UTF-8")
         tz = env.get("TZ")
@@ -96,6 +103,7 @@ class HostSession:
             home=home,
             display=env.get("DISPLAY") or None,
             xauthority=Path(xauth) if xauth else None,
+            wayland_display=wayland if wayland and _WAYLAND_RE.fullmatch(wayland) else None,
             runtime_dir=Path(rtdir) if rtdir else None,
             lang=lang if _LANG_RE.fullmatch(lang) else "C.UTF-8",
             tz=tz if tz and _TZ_RE.fullmatch(tz) else None,
@@ -234,6 +242,14 @@ def build_command(*, app_id: str, appdir: Path, session: HostSession, grants: Gr
             if session.xauthority and _owned_by(session.xauthority, uid, stat.S_IFREG):
                 argv += ["--ro-bind", str(session.xauthority), f"{run_dir}/X11/Xauthority"]
                 env["XAUTHORITY"] = f"{run_dir}/X11/Xauthority"
+        # The compositor's public socket: the application is an ordinary
+        # Wayland client (no layer shell, lock, window list or clipboard
+        # control). Without $DISPLAY Wine uses its Wayland driver.
+        if session.wayland_display and session.runtime_dir:
+            wayland = session.runtime_dir / session.wayland_display
+            if _owned_by(wayland, uid, stat.S_IFSOCK):
+                argv += ["--ro-bind", str(wayland), f"{run_dir}/{session.wayland_display}"]
+                env["WAYLAND_DISPLAY"] = session.wayland_display
     if grants.audio and session.runtime_dir:
         pulse = session.runtime_dir / "pulse" / "native"
         if _owned_by(pulse, uid, stat.S_IFSOCK):
