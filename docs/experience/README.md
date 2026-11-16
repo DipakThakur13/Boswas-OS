@@ -353,8 +353,10 @@ idle_seconds = 300
 Super+Space goes to the next keyboard layout. A file that does not
 parse, or that contains an unknown key, is reported in the log and
 ignored as a whole; the other files stay in use. When Control Center
-changes a setting it rewrites the file: the keys are kept, comments are
-not, and the previous file is kept as `compositor.toml.bak`.
+changes a setting it rewrites the file and keeps every documented key.
+What it cannot keep (comments, a key the compositor does not know) is not
+dropped silently: the previous file is saved as `compositor.toml.bak`
+first, and Control Center says so.
 
 Not in Settings yet: user accounts (the Users page is not built), editing
 a proxy, managing VPN connections, drawing tablets, an automatic suspend
@@ -400,14 +402,14 @@ light, and each has a manual page (`man boswas-files`, and so on).
 
 | Application | What it is |
 |-------------|------------|
-| **Files** | The file manager: tabs, an address bar that turns into a path box (Ctrl+L), a navigation pane with Home, your folders, pinned folders, the volumes of the computer and the Trash; Details, List, Tiles and Icons layouts with picture thumbnails. Copying, moving and deleting run in the background with progress and a cancel button, ask when a name is taken, and can be undone. Delete moves to the Trash. ZIP and TAR archives can be made and extracted. A program or script is never started by opening it without a question |
+| **Files** | The file manager: tabs, an address bar that turns into a path box (Ctrl+L), a navigation pane with Home, your folders, pinned folders, the volumes of the computer and the Trash; Details, List, Tiles and Icons layouts with picture thumbnails. Copying, moving and deleting run in the background with progress and a cancel button, ask when a name is taken, and can be undone. Delete moves to the Trash. A selection can be compressed to a ZIP archive, and ZIP and TAR archives extracted. A program or script is never started by opening it without a question |
 | **Terminal** | The command line with tabs and profiles (Ctrl+Shift+T, Ctrl+Tab), scrollback with search (Ctrl+Shift+F), copy and paste (Ctrl+Shift+C and V), links that open with Ctrl+click, and colour schemes that follow the desktop. Editors, pagers and terminal multiplexers work as in an xterm |
 | **Text Editor** | Plain text with tabs: the encoding and the line endings of a file are kept, find and replace with regular expressions, go to line, word wrap, zoom, printing. It restores the last session, unsaved text included |
 | **Calculator** | Standard, scientific and programmer modes, date calculation and twelve unit converters, with memory and history. Arithmetic is exact: 0.1 + 0.2 is 0.3 |
 | **Photos** | A viewer (zoom, filmstrip, rotate, delete with undo, print, set as background), a gallery by month, a slideshow, and an editor: crop, straighten, ten adjustments, looks, pen and highlighter. "Save as copy" is the default |
 | **Document Viewer** | A PDF reader: tabs, thumbnails and outline, search, text selection and copy, continuous or page-wise view, presentation mode, printing |
 | **Archive Manager** | Opens an archive like a folder; extracts, adds, deletes, tests, creates. ZIP and TAR (also compressed); 7z and RAR when the `7zip` package is installed |
-| **Media Player** | Music and video: a library from the tags of your files, a play queue, playlists, a mini player, subtitles and audio tracks, and control from the keyboard's media keys through the shell |
+| **Media Player** | Music and video: a library from the tags of your files, a play queue, playlists, a mini player, subtitle and audio tracks, and an MPRIS interface for the media keys and the shell's media controls |
 | **Camera** | Photos and videos from a camera of the computer, with a timer, to Pictures/Camera Roll and Videos/Camera Roll |
 | **Clock** | Alarms, timers, a stopwatch, a world clock and focus sessions |
 | **Calendar** | A calendar kept on this computer: month, week and day views, repeating events, reminders, several calendars, import and export of `.ics` files. It has no accounts and does not synchronise |

@@ -2174,8 +2174,8 @@ Replaces ADR-0026's "native settings pages are planned work".
 
 - **Settings rebuilds the user's file.** Every documented key the user
   had is kept; comments and anything the compositor does not know are
-  not. The previous file is copied to `compositor.toml.bak` first and the
-  user is told.
+  not. When something cannot be kept, the previous file is copied to
+  `compositor.toml.bak` first and the user is told.
 - **Left out:** the Users page (not built; the page stays hidden),
   editing a proxy (shown read-only), managing VPN connections (status
   only), a test sound, an automatic suspend time (the compositor has no

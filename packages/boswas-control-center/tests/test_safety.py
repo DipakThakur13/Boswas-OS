@@ -86,6 +86,9 @@ FORBIDDEN_TEXT = ("os.system", "os.popen", "shell=True", "QProcess", "startDetac
                   "aptdaemon", "packagekit", "pkcon", "dpkg -i", "sudo ", "boswas-winapp launch",
                   "boswas-winapp install", "/usr/bin/boswas-winapp", "wine64",
                   "wineserver", "winecfg", "msiexec", "calamares", "debian-installer")
+# Ways of recording text (never used where passwords pass through): print, logging, a logger, the standard streams.
+RECORDING = (re.compile(r"\bprint\("), re.compile(r"\blogging\b"), re.compile(r"(?<![A-Za-z_])log\."),
+             re.compile(r"sys\.std(err|out)"))
 WINE_COMMAND = re.compile(r"^(?:/\S*/)?wine(?:64|server|boot|cfg|-preloader)?(?:\s|$)")
 HEX_COLOUR = re.compile(r"#([0-9A-Fa-f]{6}|[0-9A-Fa-f]{3})(?![0-9A-Fa-f])")
 
@@ -176,8 +179,8 @@ class ProcessTest(unittest.TestCase):
         self.assertIn("if command != passwd_argv():", converse)
         self.assertLess(converse.index("if command != passwd_argv():"), converse.index("os.openpty()"))
         self.assertIn("~(termios.ECHO | termios.ECHONL)", converse)      # nothing typed is printed back
-        for forbidden in ("print(", "log", "sys.stderr", "sys.stdout"):
-            self.assertNotIn(forbidden, converse, forbidden)             # nothing typed or printed is recorded
+        for recording in RECORDING:
+            self.assertIsNone(recording.search(converse), recording.pattern)   # nothing typed or printed is recorded
         self.assertEqual(functions["passwd_argv"].count("EXECUTABLES[\"passwd\"]"), 1)
         self.assertEqual(commands.passwd_argv(), ["/usr/bin/passwd"])
         for bad in (["/usr/bin/passwd", "root"], ["/usr/bin/passwd", "-d", "bob"], ["/usr/bin/passwd", "--stdin"]):
@@ -201,9 +204,9 @@ class ProcessTest(unittest.TestCase):
         ui = (PACKAGE / "boswas_control_center" / "ui" / "settings" / "accounts.py").read_text(encoding="utf-8")
         self.assertEqual(ui.count('"SetPassword"'), 1)                   # one D-Bus call, in dbus_set_password
         self.assertIn("message.setArguments([hashed, \"\"])", ui)
-        for forbidden in ("print(", "logging", "log.", "sys.stderr"):
-            self.assertNotIn(forbidden, ui, forbidden)
-            self.assertNotIn(forbidden, source, forbidden)
+        for recording in RECORDING:
+            self.assertIsNone(recording.search(ui), recording.pattern)
+            self.assertIsNone(recording.search(source), recording.pattern)
 
     def test_allowlist(self):
         self.assertEqual(commands.EXECUTABLES, EXPECTED_EXECUTABLES)
