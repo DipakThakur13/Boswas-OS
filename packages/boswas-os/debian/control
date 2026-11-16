@@ -8,18 +8,18 @@ Rules-Requires-Root: no
 
 Package: boswas-os
 Architecture: all
-Depends: boswas-branding (>= 1.0~alpha1),
-         boswas-cli (>= 1.0~alpha3),
-         boswas-compat (>= 1.0~alpha3),
-         boswas-compat-manager (>= 1.0~alpha3),
-         boswas-control-center (>= 1.0~alpha3),
-         boswas-device-agent (>= 1.0~alpha3),
-         boswas-security (>= 1.0~alpha1),
-         boswas-sysops (>= 1.0~alpha3),
-         boswas-android (>= 1.0~alpha3),
-         boswas-apps (>= 1.0~alpha3),
-         boswas-bootsplash (>= 1.0~alpha3),
-         boswas-desktop (>= 1.0~alpha3),
+Depends: boswas-branding (>= 3.0~alpha1),
+         boswas-cli (>= 3.0~alpha1),
+         boswas-compat (>= 3.0~alpha1),
+         boswas-compat-manager (>= 3.0~alpha1),
+         boswas-control-center (>= 3.0~alpha1),
+         boswas-device-agent (>= 3.0~alpha1),
+         boswas-security (>= 3.0~alpha1),
+         boswas-sysops (>= 3.0~alpha1),
+         boswas-android (>= 3.0~alpha1),
+         boswas-apps (>= 3.0~alpha1),
+         boswas-bootsplash (>= 3.0~alpha1),
+         boswas-desktop (>= 3.0~alpha1),
          ${misc:Depends}
 Description: Boswas OS release identity and core configuration
  Boswas OS is the Boswas Group company-managed desktop operating system.

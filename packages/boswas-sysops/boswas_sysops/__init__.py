@@ -10,7 +10,7 @@ Lines (docs/architecture/platform-contracts.md, section 1). Never setuid,
 never a daemon, never a shell, never an arbitrary command.
 """
 
-__version__ = "1.0~alpha3"
+__version__ = "3.0~alpha1"
 
 # Identifier of the JSON Lines protocol. Bump the major number on any
 # backwards-incompatible change to the event shapes or the result codes.

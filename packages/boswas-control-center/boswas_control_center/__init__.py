@@ -34,4 +34,4 @@ Modules:
   app.py        entry point (boswas-control-center)
 """
 
-__version__ = "1.0~alpha3"
+__version__ = "3.0~alpha1"

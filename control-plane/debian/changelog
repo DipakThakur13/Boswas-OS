@@ -1,3 +1,9 @@
+boswas-control-plane (3.0~alpha1) trixie; urgency=medium
+
+  * Release 3.0~alpha1 (Boswas OS v3 Alpha).
+
+ -- Boswas OS Platform Team <os-platform@boswas.invalid>  Mon, 16 Nov 2026 06:01:55 +0000
+
 boswas-control-plane (1.0~alpha3) trixie; urgency=medium
 
   * Initial release: Boswas Control Plane.

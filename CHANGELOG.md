@@ -2,7 +2,7 @@
 
 All notable changes to Boswas OS. Versions follow `config/boswas/release.conf`.
 
-## [Unreleased] - 2026-11-16 (native Boswas desktop in the Fluent design language, Boswas system applications and settings; cross-platform applications, installer firmware, functional Control Center)
+## [3.0~alpha1] - 2026-11-16 (Boswas OS v3 Alpha: native Boswas desktop in the Fluent design language, Boswas system applications and settings; cross-platform applications, installer firmware, functional Control Center)
 
 Baseline audit: [docs/reports/2026-11-12-baseline-audit.md](docs/reports/2026-11-12-baseline-audit.md).
 Release report: [docs/reports/2026-11-12-release-readiness.md](docs/reports/2026-11-12-release-readiness.md).

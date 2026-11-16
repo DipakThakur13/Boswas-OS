@@ -652,7 +652,7 @@ class AppEntryTest(unittest.TestCase):
             app.main(["boswas-compat-manager", "--version"])
         self.assertEqual(caught.exception.code, 0)
         self.assertEqual(out.getvalue().strip(), f"boswas-compat-manager {__version__}")
-        self.assertEqual(__version__, "1.0~alpha3")
+        self.assertEqual(__version__, "3.0~alpha1")
 
 
 if __name__ == "__main__":

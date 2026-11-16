@@ -1,4 +1,4 @@
-# Installing Boswas OS v1 alpha
+# Installing Boswas OS v3 alpha
 
 > Alpha software for pilot devices only. Installing **erases the selected disk**.
 
@@ -8,13 +8,13 @@ Verify the checksum first:
 
 ```sh
 cd build/output
-sha256sum -c Boswas-OS-v1-alpha-amd64.sha256
+sha256sum -c Boswas-OS-v3-alpha-amd64.sha256
 ```
 
 Write it with any raw image writer. On Linux:
 
 ```sh
-sudo dd if=Boswas-OS-v1-alpha-amd64.iso of=/dev/sdX bs=4M conv=fsync status=progress
+sudo dd if=Boswas-OS-v3-alpha-amd64.iso of=/dev/sdX bs=4M conv=fsync status=progress
 ```
 
 On Windows, use a raw writer such as Rufus in "DD image" mode.
@@ -29,7 +29,7 @@ On Windows, use a raw writer such as Rufus in "DD image" mode.
 
 | Entry | Purpose |
 |-------|---------|
-| Boswas OS v1 Alpha - Live session | Try the desktop without installing (starts automatically after 10 s) |
+| Boswas OS v3 Alpha - Live session | Try the desktop without installing (starts automatically after 10 s) |
 | ... (safe graphics) | Live session with `nomodeset` for problematic GPUs. The desktop is then rendered in software on the firmware's display mode (slower; not yet boot-tested with the native desktop) |
 | Install Boswas OS | Graphical Debian Installer (live mode) |
 | Advanced install options | Text and expert installers, rescue mode |

@@ -1,4 +1,4 @@
-"""Local posture checks against the Boswas OS v1 alpha security baseline.
+"""Local posture checks against the Boswas OS v3 alpha security baseline.
 
 These are a *local self-assessment*: they read kernel, firmware and service
 state on this machine. They are not remote attestation and must not be
@@ -310,7 +310,7 @@ def usb_policy() -> Check:
     conf = system.load_env("/etc/boswas/usb-policy/policy.conf")
     mode = conf.get("MODE", "unset")
     return Check("usb-policy", "security", "USB storage policy", INFO,
-                 f"mode={mode} (framework only; enforcement not implemented in v1 alpha)", scored=False)
+                 f"mode={mode} (framework only; enforcement not implemented in v3 alpha)", scored=False)
 
 
 def unattended_upgrades_enabled() -> bool:
@@ -396,5 +396,5 @@ def compliance(results: list[Check]) -> dict:
         "warn": counts[WARN],
         "fail": counts[FAIL],
         "unknown": counts[UNKNOWN],
-        "basis": "local self-assessment against the Boswas OS v1 alpha baseline (not attested)",
+        "basis": "local self-assessment against the Boswas OS v3 alpha baseline (not attested)",
     }

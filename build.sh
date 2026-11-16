@@ -17,7 +17,7 @@
 #   BOSWAS_BUILDER_IMAGE                     builder image tag (boswas-os-builder:trixie)
 #
 # Output (build/output/):
-#   Boswas-OS-v1-alpha-amd64.iso, .sha256, .manifest.txt
+#   Boswas-OS-v3-alpha-amd64.iso, .sha256, .manifest.txt
 #   boswas-control-plane_<version>_all.deb (server package, not in the ISO)
 # Build records: build/manifest/   Logs: build/logs/
 set -Eeuo pipefail

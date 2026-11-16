@@ -17,5 +17,5 @@ database can replace SQLite behind the same interface.
   cli.py       boswas-cp administration command
 """
 
-__version__ = "1.0~alpha3"
+__version__ = "3.0~alpha1"
 API_VERSION = "v1"

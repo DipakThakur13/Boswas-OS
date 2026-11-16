@@ -8,7 +8,7 @@ Rules-Requires-Root: no
 
 Package: boswas-device-agent
 Architecture: all
-Depends: boswas-compat (>= 1.0~alpha3),
+Depends: boswas-compat (>= 3.0~alpha1),
          openssl,
          python3 (>= 3.11),
          systemd,

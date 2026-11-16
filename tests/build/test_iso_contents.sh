@@ -81,7 +81,7 @@ check "BIOS GRUB modules present" test -d "$isodir/boot/grub/i386-pc"
 
 # Boot menu branding
 grubcfg="$isodir/boot/grub/grub.cfg"
-contains "boot menu: Boswas live entry" "$grubcfg" "Boswas OS v1 Alpha - Live session"
+contains "boot menu: Boswas live entry" "$grubcfg" "Boswas OS v3 Alpha - Live session"
 contains "boot menu: Boswas installer entry" "$isodir/boot/grub/install_start.cfg" "Install Boswas OS"
 contains "boot menu: live session sets hostname boswas-device" "$grubcfg" "hostname=boswas-device"
 check_not "boot menu: AppArmor not disabled on the kernel command line" grep -q 'apparmor=0' "$grubcfg"

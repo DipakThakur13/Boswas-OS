@@ -51,8 +51,8 @@ for mod in packages/boswas-cli:boswas_cli packages/boswas-compat:boswas_compat \
 		"${mod%%:*}" "${mod#*:}" 2>/dev/null)"
 	[ "$v" = "$BOSWAS_VERSION_ID" ] || mismatch="$mismatch ${mod#*:}=$v"
 done
-# The Rust crates carry the same version in Cargo's notation (1.0~alpha3 is
-# 1.0.0-alpha.3).
+# The Rust crates carry the same version in Cargo's notation (3.0~alpha1 is
+# 3.0.0-alpha.1).
 cargo_version="$(sed -E 's/^([0-9]+)\.([0-9]+)~([a-z]+)([0-9]+)$/\1.\2.0-\3.\4/' <<<"$BOSWAS_VERSION_ID")"
 for manifest in packages/boswas-desktop/Cargo.toml packages/boswas-bootsplash/Cargo.toml; do
 	v="$(sed -n 's/^version = "\(.*\)"$/\1/p' "$manifest" | head -1)"

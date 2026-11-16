@@ -1,6 +1,6 @@
 [package]
 name = "boswas-bootsplash"
-version = "1.0.0-alpha.3"
+version = "3.0.0-alpha.1"
 edition = "2021"
 rust-version = "1.85"
 description = "Boswas OS boot, disk-unlock and shutdown screen"

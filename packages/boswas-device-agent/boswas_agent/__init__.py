@@ -11,7 +11,7 @@ Shared with the Control Plane: models.py, commands.py, policydoc.py,
 privacy.py and the JSON schemas in packages/boswas-device-agent/schemas/.
 """
 
-__version__ = "1.0~alpha3"
+__version__ = "3.0~alpha1"
 
 # Control Plane API version the models describe (/api/v1/...).
 API_VERSION = "v1"

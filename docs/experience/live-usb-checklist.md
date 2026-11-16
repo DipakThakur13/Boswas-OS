@@ -19,7 +19,7 @@ and `BOSWAS_LOG=debug` in their environment gives more detail).
 ## Prepare
 
 1. Write the ISO to a USB stick (4 GB or larger):
-   - Linux: `sudo dd if=Boswas-OS-v1-alpha-amd64.iso of=/dev/sdX bs=4M conv=fsync status=progress`
+   - Linux: `sudo dd if=Boswas-OS-v3-alpha-amd64.iso of=/dev/sdX bs=4M conv=fsync status=progress`
    - Windows/macOS: a raw image writer (e.g. "dd mode" in Rufus, or balenaEtcher).
 2. Note the internal disk's state: existing OS, partition layout
    (`lsblk` / Disk Management) and EFI boot entries (`efibootmgr` / firmware setup).
@@ -37,7 +37,7 @@ and `BOSWAS_LOG=debug` in their environment gives more detail).
 | 6 | Start Terminal, Files, Calculator (the Boswas applications) | They open with a Boswas window frame (title bar with icon, three buttons, rounded corners all round); the terminal shows "Welcome to Boswas OS … Live session" | [ ] |
 | 7 | Move, resize and snap a window (drag the title bar to a side and to the top; Super+Left, Super+Up, Super+Down; rest on the maximise button), switch with Alt+Tab, open Task View (Super+Tab) | The window follows; the snap preview and the snap layouts appear; the window picker and Task View show live previews; animations run without tearing or a stale picture | [ ] |
 | 8 | Keyboard, touchpad and mouse: type in the terminal, tap to click, two-finger scroll, three fingers sideways and up, an external mouse; a touch screen or tablet if the device has one | All work; the pointer is drawn and follows smoothly | [ ] |
-| 9 | Open Boswas Control Center > About Boswas OS | Boswas OS v1 Alpha, x86_64, "Live session"; the desktop row says "Boswas Desktop" with a version | [ ] |
+| 9 | Open Boswas Control Center > About Boswas OS | Boswas OS v3 Alpha, x86_64, "Live session"; the desktop row says "Boswas Desktop" with a version | [ ] |
 | 10 | Control Center > Security | The Security Center lists AppArmor, sandbox, firewall, Secure Boot (enabled), screen lock (10 min, enforced), etc. | [ ] |
 | 11 | Network: Ethernet connects on its own; for Wi-Fi open quick settings (Super+A), choose a network and type its passphrase, then look at Control Center > Network | The connection is up; the taskbar's network icon, quick settings and the Network page agree. Bluetooth, volume and brightness in quick settings work too, and the volume and brightness keys show their display | [ ] |
 | 11a | Control Center: change something that asks for a password (Updates > Check for Updates) | The Boswas password dialog appears over the desktop; the right password is accepted, a wrong one refused | [ ] |

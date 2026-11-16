@@ -50,12 +50,12 @@ They have their tests and have not run on the desktop yet.
 
 | Surface | What users see |
 |---------|----------------|
-| Boot menu (USB/DVD) | Boswas OS mark, Orbitron wordmark, "Boswas OS v1 Alpha - Live session" (default), "Install Boswas OS" |
+| Boot menu (USB/DVD) | Boswas OS mark, Orbitron wordmark, "Boswas OS v3 Alpha - Live session" (default), "Install Boswas OS" |
 | Boot, shutdown, restart, disk unlock | The Boswas boot screen: the mark and a ring of dots on a dark background, with no name written; for encrypted disks "Unlock your disk", the disk's name and a text box with one dot per character, a Caps Lock hint and a line for a rejected passphrase. Shutdown and restart show the ring and one line of text |
 | Login screen | The Boswas login screen: first the clock over the background, then, after a key or a click, the people who can sign in and a password field. Another user name can be typed. A power button offers sleep, restart and shut down (the lock screen has none). If graphics cannot start, a text login takes its place |
 | Desktop | The background (or the preset's wallpaper), the taskbar with the Boswas mark as the Start button, Boswas Prism icons |
 | Lock screen | First the clock, then, after a key or a click, the user's name and a password field; applications are neither shown nor given input, and no notifications appear |
-| Control Center > About Boswas OS, `hostnamectl`, console | "Boswas OS v1 Alpha" (`/etc/os-release`: `NAME="Boswas OS"`, `ID=boswas`, `ID_LIKE=debian`); the desktop is shown as "Boswas Desktop" with its version |
+| Control Center > About Boswas OS, `hostnamectl`, console | "Boswas OS v3 Alpha" (`/etc/os-release`: `NAME="Boswas OS"`, `ID=boswas`, `ID_LIKE=debian`); the desktop is shown as "Boswas Desktop" with its version |
 | Terminal | "Welcome to Boswas OS" summary and the Boswas prompt |
 | Live session | User "Boswas OS Live"; "Live session" in Control Center and the terminal |
 

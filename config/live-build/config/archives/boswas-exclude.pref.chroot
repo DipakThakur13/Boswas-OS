@@ -44,7 +44,7 @@ Pin: release *
 Pin-Priority: -1
 
 # cups-browsed listens on the network (UDP 631). Printing is out of scope for
-# v1 alpha and will be delivered through a profile.
+# v3 alpha and will be delivered through a profile.
 Explanation: Boswas: network-listening print discovery
 Package: cups-browsed
 Pin: release *

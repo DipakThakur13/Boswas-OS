@@ -1541,7 +1541,7 @@ def scenario_serial(iso: Path, workdir: Path, outdir: Path, timeout: float, fixt
         sh = Shell(vm)
 
         rc, out = sh.run("boswas-info")
-        check(rc == 0 and "Boswas OS" in out and "v1 Alpha" in out, "boswas-info runs and identifies Boswas OS v1 Alpha")
+        check(rc == 0 and "Boswas OS" in out and "v3 Alpha" in out, "boswas-info runs and identifies Boswas OS v3 Alpha")
         check("trixie" in out and "Debian 13" in out, "boswas-info reports the package base in its technical details (Debian 13, trixie)")
         (outdir / "boswas-info.txt").write_text(out + "\n")
 

@@ -23,4 +23,4 @@ Description: Boswas OS security baseline
   * sudo defaults (no privileges granted) and password quality policy
   * restrictive sshd policy for when SSH is explicitly provisioned
   * unattended-upgrades restricted to the Debian security archive
-  * USB/removable-media policy framework (not enforced in v1 alpha)
+  * USB/removable-media policy framework (not enforced in v3 alpha)

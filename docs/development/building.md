@@ -3,7 +3,7 @@
 ## TL;DR
 
 ```sh
-./build.sh     # → build/output/Boswas-OS-v1-alpha-amd64.{iso,sha256,manifest.txt}
+./build.sh     # → build/output/Boswas-OS-v3-alpha-amd64.{iso,sha256,manifest.txt}
 ./test.sh      # static, package, image and QEMU boot tests
 ```
 

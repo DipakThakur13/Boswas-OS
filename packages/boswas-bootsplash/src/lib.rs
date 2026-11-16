@@ -37,7 +37,7 @@ pub mod text;
 pub mod tty;
 
 /// Version shown by `--version` (the Debian package version).
-pub const VERSION: &str = "1.0~alpha3";
+pub const VERSION: &str = "3.0~alpha1";
 
 #[cfg(test)]
 mod tests {

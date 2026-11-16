@@ -227,7 +227,7 @@
       body.application_id = opts.applicationId;
     } else if (type === "UPDATE_AGENT") {
       if (typeof opts.version !== "string" || !AGENT_VERSION_RE.test(opts.version)) {
-        throw new Error("Update agent needs a version such as 1.0~alpha3.");
+        throw new Error("Update agent needs a version such as 3.0~alpha1.");
       }
       body.version = opts.version;
     } else if (!DEVICE_COMMANDS.includes(type)) {

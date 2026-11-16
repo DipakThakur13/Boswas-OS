@@ -217,7 +217,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         prog="boswas", parents=[common],
-        description="Boswas OS administration and status tool (read-only in v1 alpha).")
+        description="Boswas OS administration and status tool (read-only in v3 alpha).")
     parser.add_argument("--version", action="version", version=f"boswas {__version__}")
     sub = parser.add_subparsers(dest="command", metavar="<command>")
 

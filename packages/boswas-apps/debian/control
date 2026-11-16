@@ -21,7 +21,7 @@ Depends: python3 (>= 3.11),
          qt6-image-formats-plugins,
          shared-mime-info,
          tzdata,
-         boswas-branding (>= 1.0~alpha3),
+         boswas-branding (>= 3.0~alpha1),
          ${misc:Depends}
 Recommends: 7zip,
             boswas-desktop,

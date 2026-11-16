@@ -1,6 +1,6 @@
 """Boswas WinCompat: isolated Windows applications on Boswas OS (boswas-winapp)."""
 
-__version__ = "1.0~alpha3"
+__version__ = "3.0~alpha1"
 
 # Identifier of the JSON documents printed with --json. Bump the major number
 # on any backwards-incompatible change to field names or meaning.

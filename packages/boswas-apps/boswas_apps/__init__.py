@@ -6,4 +6,4 @@ its own program in /usr/bin. The applications run as the desktop user,
 never as root, and share nothing at run time but the toolkit.
 """
 
-__version__ = "1.0~alpha3"
+__version__ = "3.0~alpha1"

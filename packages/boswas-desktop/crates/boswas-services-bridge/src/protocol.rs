@@ -4,7 +4,7 @@
 //! services report it:
 //!
 //! ```text
-//! {"event":"ready","version":"1.0.0-alpha.3"}
+//! {"event":"ready","version":"3.0.0-alpha.1"}
 //! {"event":"network","available":true,"wifi_enabled":true,"access_points":[...],...}
 //! {"event":"bluetooth",...}  {"event":"audio",...}  {"event":"power",...}
 //! {"event":"brightness","level":0.8}

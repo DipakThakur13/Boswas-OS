@@ -24,7 +24,7 @@ upstream issue needs a Boswas-side mitigation.
 
 | Version | Supported |
 |---------|-----------|
-| v1 alpha | Pilot devices only. Fixes ship as new images and package versions |
+| v3 alpha | Pilot devices only. Fixes ship as new images and package versions |
 
 ## Security principles for contributors
 
@@ -45,4 +45,4 @@ upstream issue needs a Boswas-side mitigation.
 ## Baseline
 
 See `docs/security/baseline.md` for the implemented controls, how
-`boswas status` reports them, and the known gaps of v1 alpha.
+`boswas status` reports them, and the known gaps of v3 alpha.

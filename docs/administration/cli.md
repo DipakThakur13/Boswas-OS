@@ -37,7 +37,7 @@ Captured by the automated boot test, in the live session of build
 ```
 $ boswas-info
 Boswas OS
-Version:      v1 Alpha (1.0~alpha1)
+Version:      v3 Alpha (3.0~alpha1)
 Build:        BOS-1.0~alpha1-20261004T004726Z
 Channel:      dev
 Base:         Debian 13.7
@@ -64,7 +64,7 @@ $ boswas-status
   Root account        UNKNOWN  run as root to check
   Repository trust    INFO     live session: only the boot medium's package pool is unsigned (removed at install)
   Screen lock         PASS     automatic lock after 10 min idle, enforced
-  USB storage policy  INFO     mode=allow (framework only; enforcement not implemented in v1 alpha)
+  USB storage policy  INFO     mode=allow (framework only; enforcement not implemented in v3 alpha)
   Security updates    PASS     automatic security updates enabled; package lists 0 day(s) old
   Boswas agent        INFO     not installed in v1 alpha (device agent arrives in Phase 4)
   Enrollment          INFO     unenrolled
@@ -99,7 +99,7 @@ Every document carries `"schema": "boswas-cli/1"`, `"command"` and
   "command": "status",
   "generated_at": "2026-10-04T08:00:00Z",
   "compliance": {"state": "COMPLIANT_WITH_WARNINGS", "pass": 8, "warn": 1, "fail": 0, "unknown": 0,
-                 "basis": "local self-assessment against the Boswas OS v1 alpha baseline (not attested)"},
+                 "basis": "local self-assessment against the Boswas OS v3 alpha baseline (not attested)"},
   "checks": [
     {"id": "firewall", "category": "security", "title": "Firewall", "status": "PASS",
      "detail": "nftables.service active (Boswas baseline ruleset)", "scored": true}

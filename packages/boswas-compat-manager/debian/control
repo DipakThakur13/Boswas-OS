@@ -12,8 +12,8 @@ Depends: python3 (>= 3.11),
          python3-pyside6.qtcore,
          python3-pyside6.qtgui,
          python3-pyside6.qtwidgets,
-         boswas-branding (>= 1.0~alpha3),
-         boswas-device-agent (>= 1.0~alpha3),
+         boswas-branding (>= 3.0~alpha1),
+         boswas-device-agent (>= 3.0~alpha1),
          ${misc:Depends}
 Description: Boswas OS Compatibility Manager for Windows applications
  The desktop application for Windows applications on Boswas OS:

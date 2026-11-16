@@ -15,7 +15,7 @@ file owned by another Debian package; every setting is a drop-in.
 | Security updates | `/etc/apt/apt.conf.d/{21boswas-periodic,52boswas-unattended-upgrades}` | unattended-upgrades, Debian security only |
 | Audit rules | `/etc/audit/rules.d/50-boswas.rules` | augenrules |
 | Journal retention | `/usr/lib/systemd/journald.conf.d/50-boswas.conf` | journald |
-| USB policy | `/etc/boswas/usb-policy/policy.conf` | framework only in v1 alpha |
+| USB policy | `/etc/boswas/usb-policy/policy.conf` | framework only in v3 alpha |
 
 Check the state with `boswas security status`. The full baseline and its
 rationale are in `docs/security/baseline.md` in the Boswas OS repository.

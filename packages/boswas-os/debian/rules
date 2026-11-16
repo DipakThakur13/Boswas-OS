@@ -14,7 +14,7 @@ override_dh_auto_build:
 	mkdir -p build
 	$(SUBST) < $(REPO)/config/boswas/update.conf.in > build/update.conf
 	$(SUBST) < $(REPO)/config/boswas/boswas.issue.in > build/boswas.issue
-	# os-release VERSION_ID may only use [a-z0-9._-]: 1.0~alpha3 -> 1.0-alpha3
+	# os-release VERSION_ID may only use [a-z0-9._-]: 3.0~alpha1 -> 3.0-alpha1
 	$(SUBST) < $(REPO)/config/boswas/os-release.in | sed '/^VERSION_ID=/s/~/-/g' > build/os-release
 	$(SUBST) < $(REPO)/config/boswas/issue.in > build/issue
 	$(SUBST) < $(REPO)/config/boswas/issue.net.in > build/issue.net

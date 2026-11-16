@@ -297,7 +297,7 @@ dependencies = [
 
 [[package]]
 name = "boswas-compositor"
-version = "1.0.0-alpha.3"
+version = "3.0.0-alpha.1"
 dependencies = [
  "bitflags 2.13.2",
  "boswas-ui",
@@ -319,7 +319,7 @@ dependencies = [
 
 [[package]]
 name = "boswas-services"
-version = "1.0.0-alpha.3"
+version = "3.0.0-alpha.1"
 dependencies = [
  "async-channel",
  "async-executor",
@@ -335,7 +335,7 @@ dependencies = [
 
 [[package]]
 name = "boswas-services-bridge"
-version = "1.0.0-alpha.3"
+version = "3.0.0-alpha.1"
 dependencies = [
  "boswas-services",
  "serde_json",
@@ -347,7 +347,7 @@ dependencies = [
 
 [[package]]
 name = "boswas-shell"
-version = "1.0.0-alpha.3"
+version = "3.0.0-alpha.1"
 dependencies = [
  "boswas-services",
  "boswas-ui",
@@ -368,7 +368,7 @@ dependencies = [
 
 [[package]]
 name = "boswas-ui"
-version = "1.0.0-alpha.3"
+version = "3.0.0-alpha.1"
 dependencies = [
  "cosmic-text",
  "image",

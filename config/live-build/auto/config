@@ -9,7 +9,7 @@ set -e
 
 : "${BOSWAS_BASE_CODENAME:=trixie}"
 : "${BOSWAS_ARCH:=amd64}"
-: "${BOSWAS_IMAGE_TAG:=v1-alpha}"
+: "${BOSWAS_IMAGE_TAG:=v3-alpha}"
 : "${BOSWAS_ISO_VOLUME:=BOSWAS_OS_V1_ALPHA}"
 : "${BOSWAS_MIRROR:=http://deb.debian.org/debian/}"
 : "${BOSWAS_MIRROR_SECURITY:=http://deb.debian.org/debian-security/}"

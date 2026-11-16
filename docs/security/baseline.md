@@ -8,7 +8,7 @@ Results are a **local self-assessment**, not remote attestation.
 
 ## Controls
 
-| Control | v1 alpha implementation | Status check | Alpha level |
+| Control | v3 alpha implementation | Status check | Alpha level |
 |---------|-------------------------|--------------|-------------|
 | Boot chain | Debian-signed shim → GRUB → kernel. The ISO boots with Secure Boot enforced | `secure-boot` | WARN if disabled (required for production) |
 | Hardware root of trust | TPM 2.0 detected and reported. Not yet used for keys | `tpm` | WARN if absent |

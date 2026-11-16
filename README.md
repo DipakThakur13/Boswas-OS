@@ -8,7 +8,7 @@ Fluent design language with Boswas's own colours, icons and typeface. It
 is an internal platform for Boswas Group employees and company-owned
 hardware, not a public Linux distribution.
 
-> **Status: v1 alpha (1.0~alpha3). Not production-ready.**
+> **Status: v3 alpha (3.0~alpha1). Not production-ready.**
 > This release contains:
 > - **the native Boswas desktop** (unreleased, see
 >   [Status of the native desktop](#status-of-the-native-desktop)):
@@ -150,9 +150,9 @@ builds reuse the package cache. Results:
 
 ```
 build/output/
-  Boswas-OS-v1-alpha-amd64.iso            bootable live + installer ISO (BIOS and UEFI, Secure Boot)
-  Boswas-OS-v1-alpha-amd64.sha256         checksum (sha256sum -c)
-  Boswas-OS-v1-alpha-amd64.manifest.txt   build facts + full package list
+  Boswas-OS-v3-alpha-amd64.iso            bootable live + installer ISO (BIOS and UEFI, Secure Boot)
+  Boswas-OS-v3-alpha-amd64.sha256         checksum (sha256sum -c)
+  Boswas-OS-v3-alpha-amd64.manifest.txt   build facts + full package list
   boswas-control-plane_<version>_all.deb  the Control Plane server package (not part of the ISO)
 build/manifest/<build-id>.json            machine-readable build record
 build/logs/                               build and test logs
@@ -195,7 +195,7 @@ boswas-compat-manager       # the same, graphically ("Compatibility Manager")
 boswas-device status        # device agent: state, identity, Control Plane connection
 ```
 
-## What is in v1 alpha
+## What is in v3 alpha
 
 | Area | Implementation |
 |------|----------------|
