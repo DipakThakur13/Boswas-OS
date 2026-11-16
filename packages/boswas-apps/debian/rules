@@ -38,8 +38,14 @@ override_dh_auto_install:
 		install -m 0644 "$$file" "$(CURDIR)/$(PYDIR)/boswas_apps/$$file"; \
 	done
 	set -e; for entry in data/*/*.desktop; do \
+		case "$$entry" in data/reminders/*) continue ;; esac; \
 		install -m 0644 "$$entry" $(APPS)/; \
 	done
+	# The reminders service starts with the session (XDG autostart; the
+	# entry is for the Boswas desktop only). It rings alarms and shows
+	# calendar reminders while Clock and Calendar are closed.
+	install -D -m 0644 data/reminders/com.boswas.Reminders.desktop \
+		$(PKG)/etc/xdg/autostart/com.boswas.Reminders.desktop
 	set -e; for dir in data/*/; do \
 		app=$$(basename "$$dir"); \
 		find "$$dir" -type f -not -name '*.desktop' | while read -r file; do \

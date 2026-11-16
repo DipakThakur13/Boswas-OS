@@ -308,6 +308,11 @@ check "apps: every application has its launcher (0755), desktop entry, manual pa
 			test -s '$extract/usr/share/man/man1/boswas-'\$bin.1.gz || { echo \"man \$bin\"; exit 1; }
 			test -s '$extract/usr/lib/boswas/python/boswas_apps/'\$mod/__init__.py || { echo \"module \$mod\"; exit 1; }
 		done" _ "$apps_listing"
+check "apps: the reminders service is shipped and starts with the Boswas session only (XDG autostart)" \
+	bash -c "grep -qE '^-rwxr-xr-x root/root .* \\./usr/bin/boswas-reminders\$' <<<\"\$1\" &&
+		f='$extract/etc/xdg/autostart/com.boswas.Reminders.desktop' &&
+		grep -qx 'Exec=boswas-reminders' \"\$f\" && grep -qx 'OnlyShowIn=Boswas;' \"\$f\" && grep -qx 'NoDisplay=true' \"\$f\" &&
+		! test -e '$extract/usr/share/applications/com.boswas.Reminders.desktop'" _ "$apps_listing"
 check "apps: desktop entries name icons of the Boswas Prism pack" \
 	bash -c "for f in '$extract'/usr/share/applications/com.boswas.*.desktop; do
 			icon=\$(sed -n 's/^Icon=//p' \"\$f\" | head -1); [ -n \"\$icon\" ] || continue
