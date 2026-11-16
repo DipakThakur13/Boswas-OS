@@ -5,10 +5,19 @@ the categories on the left (with a search box that filters them by name
 and by the settings they hold), the title of the current page above it,
 and messages as an InfoBar between title and page. Pages are created the
 first time they are shown, and each loads only the data it displays
-(store.py). The Install page exists only in a live session: its entry stays
+(store.py). A page shows its native settings sections (ui/settings); they
+are activated while the page is the current one and deactivated when it is
+left or the window closes. Enter in the search box opens the page of the
+best matching settings section and scrolls to it. A page that has nothing
+to show on this system (no section, no content of its own) is left out of
+the pane. The Install page exists only in a live session: its entry stays
 hidden until the live check has answered yes. Keyboard: Up/Down in the
 pane switch pages, Tab moves into the page, F5 refreshes the current page,
 Ctrl+F searches the applications, Ctrl+Q quits.
+
+A second start of the program does not open a second window: the toolkit
+hands its arguments to handle_arguments(), which shows the page (and
+section) they name.
 """
 
 from __future__ import annotations
@@ -18,14 +27,15 @@ from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QVBoxLayout, QWidget
 
 from .. import catalog
+from ..app import requested_page
 from ..errors import user_message
+from . import bridgeclient, settings
 from .android_page import AndroidPage
 from .applications import ApplicationsPage
 from .common import SP, Badge, MessageBanner, app_icon, icon
-from .device_pages import PowerPage, SettingsPage, StoragePage
+from .device_pages import SettingsPage, StoragePage
 from .hardware_page import HardwarePage
 from .jobs import JobController
-from .network_page import NetworkPage
 from .personalization import PersonalizationPage
 from .security import SecurityPage
 from .status_pages import PrivacyPage, WindowsPage
@@ -37,11 +47,12 @@ from .worker import Runner
 APP_NAME = "Boswas Control Center"
 APP_ID = "com.boswas.ControlCenter"
 DEFAULT_PAGE = "personalization"
+# Pages with content of their own; every other page is a SettingsPage: its native settings sections.
 PAGE_CLASSES = {
-    "personalization": PersonalizationPage, "power": PowerPage, "storage": StoragePage,
+    "personalization": PersonalizationPage, "storage": StoragePage,
     "applications": ApplicationsPage, "windows": WindowsPage, "security": SecurityPage, "updates": UpdatesPage,
     "privacy": PrivacyPage, "system": SystemPage, "about": AboutPage, "install": InstallPage,
-    "android": AndroidPage, "hardware": HardwarePage, "network": NetworkPage,
+    "android": AndroidPage, "hardware": HardwarePage,
 }
 SIDEBAR_FALLBACKS = {"about": SP.SP_MessageBoxInformation, "storage": SP.SP_DriveHDIcon,
                      "install": SP.SP_DriveHDIcon, "applications": SP.SP_FileDialogListView,
@@ -70,7 +81,7 @@ class Header(QWidget):
 
 class MainWindow(fluent.FluentWindow):
     def __init__(self, backend, *, runner: Runner | None = None, initial_page: str | None = None,
-                 parent: QWidget | None = None):
+                 initial_section: str | None = None, parent: QWidget | None = None):
         super().__init__(APP_ID, APP_NAME, parent, navigation={"search": True, "compact_below": 760},
                          icon=app_icon(), size=(1180, 780), minimum_size=(820, 560))
         self.backend = backend
@@ -79,6 +90,8 @@ class MainWindow(fluent.FluentWindow):
         self.pages: dict[str, QWidget] = {}
         self.live: bool | None = None
         self.pending_page = initial_page if initial_page in catalog.PAGE_KEYS else None
+        self.pending_section = initial_section if self.pending_page else None
+        self.closed = False
         # Modal interactions go through these attributes so tests can answer them.
         self.ask = self._ask
         self.choose_file = self._choose_file
@@ -93,7 +106,7 @@ class MainWindow(fluent.FluentWindow):
         self.add_shortcut("quit", self.close)
         self.store.request("live")
         start = self.pending_page if self.pending_page and self.pending_page != "install" else DEFAULT_PAGE
-        self.show_page(start)
+        self.show_page(start, self.pending_section if start == self.pending_page else None)
         self.sidebar.setFocus(Qt.FocusReason.OtherFocusReason)
 
     # --- layout ---
@@ -105,6 +118,7 @@ class MainWindow(fluent.FluentWindow):
         self.sidebar.setAccessibleDescription("Use the Up and Down arrow keys to switch between categories")
         self.stack = nav.stack
         self.holders: dict[str, QWidget] = {}
+        section_words = settings.all_keywords()
         for page in catalog.PAGES:
             holder = QWidget()
             holder_layout = QVBoxLayout(holder)
@@ -112,10 +126,11 @@ class MainWindow(fluent.FluentWindow):
             self.holders[page.key] = holder
             fallback = SIDEBAR_FALLBACKS.get(page.key, SP.SP_FileDialogInfoView)
             # The search box of the pane also finds a category by the settings it holds.
-            keywords = [word for module in page.modules for word in (module.title, module.description)]
+            keywords = [*page.keywords, *section_words.get(page.key, ()),
+                        *(word for program in page.programs for word in (program.title, program.description))]
             nav.add_page(page.key, page.label, holder, icon=icon(*page.icons, fallback=fallback),
                          tooltip=page.description, heading=page.heading, keywords=keywords)
-            if page.live_only:
+            if page.live_only or not self.page_available(page.key):
                 nav.set_item_visible(page.key, False)
         self.header = Header()
         self.header.refresh_button.clicked.connect(self.refresh_current)
@@ -129,6 +144,7 @@ class MainWindow(fluent.FluentWindow):
         self.message_holder.hide()
         nav.add_banner(self.message_holder)
         nav.current_changed.connect(self._page_selected)
+        nav.search_submitted.connect(self._search_submitted)
         if nav.search_box is not None:
             nav.search_box.setPlaceholderText("Find a setting")
             nav.search_box.setAccessibleName("Find a setting")
@@ -144,7 +160,13 @@ class MainWindow(fluent.FluentWindow):
             self.pages[key] = widget
         return widget
 
-    def show_page(self, key: str) -> None:
+    @staticmethod
+    def page_available(key: str) -> bool:
+        """Whether the page has anything to show: content of its own, a settings section or a program row."""
+        return key in PAGE_CLASSES or bool(catalog.BY_KEY[key].programs) or bool(settings.sections_for(key))
+
+    def show_page(self, key: str, section: str | type | None = None) -> None:
+        """Make ``key`` the current page; with ``section`` (a title, command-line name or class), scroll to it."""
         if key not in catalog.BY_KEY:
             raise ValueError(f"unknown page {key!r}")
         if catalog.BY_KEY[key].live_only and self.live is not True:
@@ -153,23 +175,51 @@ class MainWindow(fluent.FluentWindow):
                 return
             self.show_status("Install Boswas OS is available only in a live session.")
             return
+        if not self.page_available(key):
+            self.show_status(f"The {catalog.BY_KEY[key].label} settings are not available on this system.")
+            return
         if self.navigation.current() == key:
             self._page_selected(key)
         else:
             self.navigation.set_current(key)
+        if section is not None and self._shown == key:
+            self.page(key).scroll_to_section(section)
 
     def current_page(self) -> str:
         return self._shown or self.navigation.current()
 
     def _page_selected(self, key: str) -> None:
         info = catalog.BY_KEY[key]
-        if info.live_only and self.live is not True:
-            # Never reachable outside a live session, whatever selected it.
+        if (info.live_only and self.live is not True) or not self.page_available(key):
+            # Never reachable outside a live session (or without content), whatever selected it.
             self.navigation.set_current(self._shown or DEFAULT_PAGE)
             return
+        previous = self._shown
+        if previous is not None and previous != key and previous in self.pages:
+            self.pages[previous].deactivate()
         self._shown = key
         self.page(key).activate()
         self.setWindowTitle(f"{info.heading} — {APP_NAME}" if info.heading != APP_NAME else APP_NAME)
+        query = self.navigation.search_box.text().strip() if self.navigation.search_box is not None else ""
+        if query and previous != key:
+            # Chosen from the filtered list: show what was searched for.
+            found = settings.find(query, key)
+            if found:
+                self.page(key).scroll_to_section(found[0])
+
+    # --- search and other instances ---
+    def _search_submitted(self, query: str) -> None:
+        """Enter in the search box: the page of the best matching settings section, scrolled to it."""
+        found = [cls for cls in settings.find(query)
+                 if self.page_available(cls.page) and not catalog.BY_KEY[cls.page].live_only]
+        if found:
+            self.show_page(found[0].page, found[0])
+
+    def handle_arguments(self, arguments: list[str]) -> None:
+        """A second start of the program: show the page (and section) its command line names."""
+        page, section = requested_page(arguments)
+        if page is not None:
+            self.show_page(page, section)
 
     def refresh_current(self) -> None:
         self.page(self.current_page()).refresh()
@@ -194,10 +244,10 @@ class MainWindow(fluent.FluentWindow):
                 self.show_status("Install Boswas OS is available only in a live session.")
 
     # --- actions ---
-    def open_module(self, module: catalog.Module) -> None:
-        self.runner.submit(self.backend.open_module, module, key=f"open:{module.kind}:{module.id}",
+    def open_program(self, program: catalog.Program) -> None:
+        self.runner.submit(self.backend.open_program, program, key=f"open:{program.id}",
                            on_done=lambda _r: None,
-                           on_error=lambda exc: self.show_error(f"{module.title} could not be opened. "
+                           on_error=lambda exc: self.show_error(f"{program.title} could not be opened. "
                                                                 f"{self.error_text(exc)}"))
 
     def restart_to_install(self) -> None:
@@ -235,6 +285,13 @@ class MainWindow(fluent.FluentWindow):
 
     # --- shutdown ---
     def shutdown(self) -> None:
+        """Stop everything that runs for this window: the sections' watching, the services bridge, the jobs."""
+        if self.closed:
+            return
+        self.closed = True
+        for page in self.pages.values():
+            page.deactivate()
+        bridgeclient.stop_for(self)
         self.jobs.stop_for_close()
         self.runner.shutdown()
 

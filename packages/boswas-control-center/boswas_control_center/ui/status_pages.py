@@ -26,7 +26,7 @@ class WindowsPage(Page):
         self.open_button.setIcon(icon("boswas-compat-manager", "application-x-ms-dos-executable",
                                       fallback=SP.SP_DesktopIcon))
         self.open_button.setAccessibleDescription("Install, start and manage Windows applications")
-        self.open_button.clicked.connect(lambda: self.window_.open_module(COMPAT_MANAGER))
+        self.open_button.clicked.connect(lambda: self.window_.open_program(COMPAT_MANAGER))
         self.summary.actions.addWidget(self.open_button)
         self.body.addWidget(self.summary)
         self.details = Card("Environment", self.content)
@@ -65,7 +65,7 @@ class PrivacyPage(Page):
         self.grid = InfoGrid(self.details)
         self.details.addWidget(self.grid)
         self.body.addWidget(self.details)
-        self.add_modules("Privacy settings")
+        self.add_settings()
 
     def render(self) -> None:
         agent = self.store.get("agent")

@@ -1,0 +1,200 @@
+.TH BOSWAS-ARCHIVE-MANAGER 1 "November 2026" "boswas-apps 1.0~alpha3" "Boswas OS"
+.SH NAME
+boswas-archive-manager \- open, extract and create ZIP and TAR archives
+.SH SYNOPSIS
+.B boswas-archive-manager
+.RI [ archive " ...]"
+.br
+.B boswas-archive-manager \-\-extract
+.IR archive " ..."
+.RB [ \-\-to
+.IR folder ]
+.br
+.B boswas-archive-manager \-\-extract\-here
+.IR archive " ..."
+.br
+.B boswas-archive-manager \-\-create
+.I output file
+\&...
+.br
+.B boswas-archive-manager
+.BR \-\-help " | " \-\-version
+.SH DESCRIPTION
+.B boswas-archive-manager
+is Archive Manager, the Boswas OS application for compressed archives. It
+shows an archive like a folder: a path bar through the folders inside it, a
+details list (name, size, packed size, modification time, type, checksum and
+permission bits where the format stores them) that can be sorted and
+searched, and a preview pane for text files and pictures. From there the
+whole archive or the selected entries are extracted, files and folders are
+added or deleted, the archive is tested for damage, and new archives are
+created.
+.PP
+Without an option each
+.I archive
+opens in a window of its own. Every start of the program is its own process.
+.PP
+The program runs as the desktop user and refuses to start as root.
+.SS Formats
+.TP
+.B Read and write
+ZIP (also JAR, APK and EPUB files, which are ZIP archives), TAR, and TAR
+compressed with gzip, bzip2 or xz.
+.TP
+.B Read
+Single files compressed with gzip, bzip2 or xz (they extract to the
+uncompressed file). ZIP entries encrypted with the legacy ZIP encryption are
+read after asking for the password.
+.TP
+.B Read, with the 7zip package installed
+7z archives, RAR archives (these also need the RAR codec of 7z, in Debian
+the package
+.BR 7zip\-rar )
+and ZIP entries that use AES encryption or a compression method Python does
+not have. Without the package these are shown as "needs the 7zip package".
+.TP
+.B Read, with a Zstandard module in Python
+Files and TAR archives compressed with Zstandard (the module
+.B zstandard
+of the package python3\-zstandard, or
+.B compression.zstd
+of Python 3.14). Without one they are listed as not available.
+.PP
+A file is recognised by its content, not by its name. The 7z program is used
+only to read: it lists an archive and writes the content of entries to a
+pipe, with the password given on its standard input. It never writes a file.
+.SS Extraction
+Whatever an archive contains, extraction creates nothing outside the
+destination folder:
+.IP \(bu 3
+An entry whose name has a
+.B ..
+component or a NUL character is not extracted. A leading
+.B /
+is dropped. Control characters in names are replaced by an underscore.
+.IP \(bu 3
+Every path is created component by component below the destination without
+following symbolic links, so a link that is already in the destination, or
+that the archive itself contains, is never written through. Files are written
+under a temporary name and renamed into place.
+.IP \(bu 3
+Symbolic links are created last and only when their target stays inside the
+destination; when all are in place each is resolved again and removed if it
+leads outside through other links. Hard links are made only to files of the
+same extraction.
+.IP \(bu 3
+Device nodes, pipes and sockets are skipped. Set-user-ID, set-group-ID and
+sticky bits are dropped. Permission bits and modification times are kept, the
+permission bits masked by the umask; folders always stay writable for their
+owner. Owners are never changed.
+.IP \(bu 3
+Before extracting, and while writing data whose size the archive does not
+announce, the amount is compared with limits: more than 8 GB, more than 200
+times the size of the archive once above 256 MB, more than 500,000 entries,
+or more than the free space. Beyond a limit a dialog states the numbers and
+asks whether to continue.
+.PP
+For files that already exist the choices are to ask each time, replace, keep
+the existing file, or keep both by adding a number to the new name. Two
+entries with the same name in one archive: the later one is kept. Everything
+that was skipped or failed is listed with its reason when the extraction ends.
+.SS Creating and changing
+New archives are ZIP (deflate, with a choice of compression level, or
+stored), TAR, TAR.GZ, TAR.XZ or TAR.BZ2. Symbolic links are stored as links
+or, on request, followed; hidden files can be left out; sockets, devices and
+pipes are never packed. TAR archives are written without owner names and
+numbers.
+.PP
+Adding to and deleting from a ZIP or TAR archive writes a new archive beside
+the old one and renames it into place when it is complete. If that fails or
+is cancelled, the original is unchanged. Password-protected and damaged
+archives cannot be changed.
+.SS Opening an entry
+Opening a file from the list extracts it into a private folder below the
+user's cache directory, read-only, and hands it to its default application;
+changes are not written back. The folder is removed when the window closes.
+Programs, scripts, installers and desktop entries are not opened from inside
+an archive.
+.SH OPTIONS
+.TP
+.B \-\-extract
+Extract each
+.I archive
+without showing its contents: into a folder named after the archive, beside
+it
+.RI ( photos.tar.gz
+goes to
+.IR photos ),
+or into the folder given with
+.BR \-\-to .
+Only a progress window is shown; it asks for a password, about existing
+files and about unusually large archives when needed, and closes when
+everything was extracted. If something was left out it stays open and lists
+it.
+.TP
+.BI \-\-to " folder"
+With
+.BR \-\-extract :
+the folder to extract into. It is created if needed.
+.TP
+.B \-\-extract\-here
+Extract each
+.I archive
+into the folder it is in, with the same progress window.
+.TP
+.B \-\-create
+Pack every
+.I file
+(files and folders) into the new archive
+.IR output ,
+whose extension selects the format:
+.BR .zip ", " .tar ", " .tar.gz " (" .tgz "), " .tar.xz " (" .txz ") or " .tar.bz2 " (" .tbz2 ")."
+An existing
+.I output
+is replaced only after asking.
+.TP
+.B \-\-help
+Show the usage and exit.
+.TP
+.B \-\-version
+Show the version and exit.
+.PP
+These three options are what the Files application calls from its context
+menu.
+.SH EXIT STATUS
+.TP
+.B 0
+Success, or the window was closed normally.
+.TP
+.B 1
+With
+.BR \-\-extract ", " \-\-extract\-here " or " \-\-create :
+something was skipped or failed.
+.TP
+.B 2
+The operation was cancelled, or the command line was wrong.
+.TP
+.B 4
+Started as root.
+.SH FILES
+.TP
+.I $XDG_STATE_HOME/com.boswas.ArchiveManager/state.json
+Recent archives and the last choices in the extract dialog.
+.TP
+.I $XDG_STATE_HOME/com.boswas.ArchiveManager/window.ini
+Size of the window.
+.TP
+.I $XDG_CACHE_HOME/com.boswas.ArchiveManager/opened\-*
+Entries that were opened from an archive; removed when the window closes.
+.TP
+.I /usr/share/applications/com.boswas.ArchiveManager.desktop
+The desktop entry.
+.TP
+.IR /usr/bin/7z ", " /usr/bin/7zz ", " /usr/bin/7za
+Where the optional 7z program is looked for.
+.SH SEE ALSO
+.BR tar (1),
+.BR zip (1),
+.BR unzip (1),
+.BR 7z (1),
+.BR boswas\-files (1)

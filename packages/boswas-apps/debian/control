@@ -1,0 +1,24 @@
+Source: boswas-apps
+Section: utils
+Priority: optional
+Maintainer: Boswas OS Platform Team <os-platform@boswas.invalid>
+Build-Depends: debhelper-compat (= 13), python3:any
+Standards-Version: 4.7.2
+Rules-Requires-Root: no
+
+Package: boswas-apps
+Architecture: all
+Depends: python3 (>= 3.11),
+         python3-pyside6.qtcore,
+         python3-pyside6.qtgui,
+         python3-pyside6.qtwidgets,
+         python3-pyside6.qtsvg,
+         python3-pyside6.qtdbus,
+         python3-pyside6.qtnetwork,
+         boswas-branding (>= 1.0~alpha3),
+         ${misc:Depends}
+Description: Boswas OS system applications
+ The applications every Boswas OS desktop comes with, built on the Boswas
+ Fluent toolkit so that they look and behave alike.
+ .
+ Each application is one program and runs as the desktop user.

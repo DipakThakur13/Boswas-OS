@@ -2,8 +2,8 @@
 
 Installed: three groups in one searchable list, Boswas applications (desktop
 entries com.boswas.*), Windows applications (the session agent's apps.list)
-and the other applications (XDG desktop entries visible in KDE). Native and
-Boswas applications open with `kstart --application <desktop id>`; Windows
+and the other applications (XDG desktop entries shown on the Boswas desktop).
+Native and Boswas applications open with `gio launch <desktop entry>`; Windows
 applications are managed in the Compatibility Manager and never started from
 here. The other tabs (software_tabs.py) install Debian packages, Flatpak
 applications and AppImages, and route a chosen file to the right installer.
@@ -250,7 +250,7 @@ class ApplicationsPage(Page):
         self.install_tabs = (self.linux_tab, self.flatpak_tab, self.appimage_tab, self.file_tab)
         self.tabs.currentChanged.connect(self._tab_changed)
         self.body.addWidget(self.tabs)
-        self.add_modules()
+        self.add_settings()
         self.window_.jobs.changed.connect(self._update_tab_buttons)
         self.items: dict[str, vm.AppItem] = {}
         self.groups: dict[str, list[vm.AppItem]] = {}
@@ -258,7 +258,7 @@ class ApplicationsPage(Page):
         self.list.currentItemChanged.connect(self._selected)
         self.list.itemActivated.connect(self._activated)
         self.detail.open_button.clicked.connect(self._open_current)
-        self.detail.manage_button.clicked.connect(lambda: self.window_.open_module(COMPAT_MANAGER))
+        self.detail.manage_button.clicked.connect(lambda: self.window_.open_program(COMPAT_MANAGER))
         self.setTabOrder(self.search, self.list)
 
     def render(self) -> None:
@@ -366,7 +366,7 @@ class ApplicationsPage(Page):
             return
         item: vm.AppItem = entry.data(PAYLOAD)
         if item.group == vm.WINDOWS:
-            self.window_.open_module(COMPAT_MANAGER)
+            self.window_.open_program(COMPAT_MANAGER)
         else:
             self.launch(item)
 

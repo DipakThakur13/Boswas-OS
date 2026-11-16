@@ -173,7 +173,7 @@ class PersonalizationPage(Page):
         self.busy = False
         self.images: dict[str, QImage] = {}
         self.signature: tuple = ()
-        self.add_modules()
+        self.add_settings()
 
     # --- data ---
     def render(self) -> None:

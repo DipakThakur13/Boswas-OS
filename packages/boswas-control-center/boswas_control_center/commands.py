@@ -6,10 +6,11 @@ $PATH, no string that is split into words, and every call has a timeout:
 
   run(argv, timeout)          wait for a short command and capture its output
                               (boswas --json status, boswas-preset, apt-cache, ...)
-  start(argv)                 start a desktop program (a KDE settings module, an
-                              application, Dolphin) in its own session, wait briefly
-                              to report an immediate failure, then let it run on
-                              its own; Control Center does not stay its parent
+  start(argv)                 start a desktop program (Files, the Compatibility
+                              Manager, an application through `gio launch`) in its
+                              own session, wait briefly to report an immediate
+                              failure, then let it run on its own; Control Center
+                              does not stay its parent
   stream(argv, on_line, ...)  run a long operation (the privileged helper
                               boswas-sysops through pkexec, boswas-android) and
                               hand every output line to on_line as it arrives;
@@ -20,7 +21,15 @@ The builders below validate every variable argument before it reaches argv:
 pkexec is only ever started as ``pkexec /usr/libexec/boswas/sysops
 <operation> ...`` with an operation of SYSOPS_OPERATIONS and arguments that
 pass that operation's validator; apt-get only ever simulates (``-s``);
-boswas-android only with a command of ANDROID_COMMANDS.
+boswas-android only with a command of ANDROID_COMMANDS; gio only as ``gio
+launch <desktop entry>``; nmcli only for queries; ip only with the three
+read-only JSON queries of IP_QUERIES; timedatectl and localectl only with
+the subcommands and validated values of timedatectl_argv() and
+localectl_argv() (systemd's own services ask polkit for the changes).
+
+The services bridge (/usr/libexec/boswas/boswas-services-bridge) is the one
+program not started here: it is a long-lived child that speaks on pipes,
+started without arguments by ui/bridgeclient.py.
 """
 
 from __future__ import annotations
@@ -39,18 +48,17 @@ EXECUTABLES = {
     "boswas-preset": "/usr/bin/boswas-preset",                    # desktop presets
     "boswas-compat-manager": "/usr/bin/boswas-compat-manager",    # Windows applications
     "boswas-android": "/usr/bin/boswas-android",                  # Android runtime manager (boswas-android)
-    "kcmshell6": "/usr/bin/kcmshell6",                            # libkf6kcmutils-bin: one settings module
-    "kstart": "/usr/bin/kstart",                                  # kde-cli-tools: start an application
-    "kioclient": "/usr/bin/kioclient",                            # kde-cli-tools: open a desktop entry
-    "dolphin": "/usr/bin/dolphin",
-    "partitionmanager": "/usr/bin/partitionmanager",
-    "kinfocenter": "/usr/bin/kinfocenter",
-    "plasmashell": "/usr/bin/plasmashell",                        # only `plasmashell --version`
+    "boswas-files": "/usr/bin/boswas-files",                      # Files (boswas-apps): browse a folder
+    "gio": "/usr/bin/gio",                                        # libglib2.0-bin: only `gio launch <entry>`
+    "ip": "/usr/bin/ip",                                          # iproute2: only the JSON queries of IP_QUERIES
+    "timedatectl": "/usr/bin/timedatectl",                        # systemd: time zone, NTP, clock (polkit)
+    "localectl": "/usr/bin/localectl",                            # systemd: system locale (polkit)
+    "locale": "/usr/bin/locale",                                  # libc-bin: only `locale -a`
     "apt-config": "/usr/bin/apt-config",                          # only `apt-config shell` (read-only)
     "apt-get": "/usr/bin/apt-get",                                # only `apt-get -s ...` (simulation, read-only)
     "apt-cache": "/usr/bin/apt-cache",                            # only search, show, policy (read-only)
     "flatpak": "/usr/bin/flatpak",                                # user installation and read-only queries
-    "nmcli": "/usr/bin/nmcli",                                    # NetworkManager (its own polkit rules)
+    "nmcli": "/usr/bin/nmcli",                                    # NetworkManager: queries only (-t)
     "lsblk": "/usr/bin/lsblk",                                    # disks (read-only, no serial numbers)
     "systemctl": "/usr/bin/systemctl",                            # only `systemctl reboot`
     "pkexec": "/usr/bin/pkexec",                                  # only `pkexec SYSOPS <operation> ...`
@@ -74,6 +82,15 @@ FLATPAK_SUBCOMMANDS = frozenset({"remotes", "list", "search", "remote-add", "ins
 FLATPAK_USER_ONLY = frozenset({"remote-add", "install", "uninstall", "update"})
 REMOTE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 MAX_PACKAGES = 50
+
+# ip (iproute2): the only argument lists used, all read-only with JSON output.
+IP_QUERIES = frozenset({("-j", "addr", "show"), ("-j", "-4", "route", "show"), ("-j", "-6", "route", "show")})
+# timedatectl and localectl values. A time zone is a name of the tz database; a locale is a glibc locale name.
+TIMEZONE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_+-]{0,31}(/[A-Za-z0-9][A-Za-z0-9_+-]{0,31}){0,2}$")
+TIME_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$")
+LOCALE_RE = re.compile(r"^[A-Za-z]{1,8}(_[A-Za-z0-9]{1,8})?(\.[A-Za-z0-9-]{1,16})?(@[A-Za-z0-9]{1,16})?$")
+LOCALE_VARIABLES = ("LANG", "LC_NUMERIC", "LC_TIME", "LC_MONETARY", "LC_PAPER", "LC_MEASUREMENT", "LC_COLLATE",
+                    "LC_NAME", "LC_ADDRESS", "LC_TELEPHONE")
 
 # boswas-android commands (contract section 2): words after `boswas-android --json`.
 ANDROID_PACKAGE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$")
@@ -114,10 +131,16 @@ def argv(name: str, *args: str) -> list[str]:
         raise ValueError("apt-get is only ever run as a simulation (-s)")
     if name == "apt-cache" and (not args or args[0] not in ("search", "show", "policy")):
         raise ValueError("apt-cache is only used for search, show and policy")
-    if name == "nmcli" and (not args or args[0] not in ("-t", "radio", "device")
-                            or (args[0] == "radio" and tuple(args[1:]) not in (("wifi", "on"), ("wifi", "off")))
-                            or (args[0] == "device" and (len(args) != 3 or args[1] not in ("connect", "disconnect")))):
-        raise ValueError("nmcli is used for queries (-t), the Wi-Fi radio and connecting devices only")
+    if name == "nmcli" and (not args or args[0] != "-t"):
+        raise ValueError("nmcli is used for queries (-t) only")
+    if name == "gio" and (len(args) != 2 or args[0] != "launch" or not _desktop_entry_path(args[1])):
+        raise ValueError("gio is only used as `gio launch <absolute path of a desktop entry>`")
+    if name == "ip" and tuple(args) not in IP_QUERIES:
+        raise ValueError("ip is used for the read-only JSON queries of addresses and routes only")
+    if name == "locale" and tuple(args) != ("-a",):
+        raise ValueError("locale is only used as `locale -a`")
+    if name in ("timedatectl", "localectl"):
+        raise ValueError(f"{name} is started only through {name}_argv()")
     if name == "flatpak":
         if not args or args[0] not in FLATPAK_SUBCOMMANDS:
             raise ValueError(f"flatpak {args[:1]} is not allowed")
@@ -129,6 +152,39 @@ def argv(name: str, *args: str) -> list[str]:
         if not _plain(arg):
             raise ValueError(f"invalid argument for {name}: {arg!r}")
     return [path, *args]
+
+
+def _desktop_entry_path(path: object) -> bool:
+    return (_plain(path) and os.path.isabs(path) and path.endswith(".desktop") and ".." not in path.split("/")
+            and not os.path.basename(path).startswith("-"))
+
+
+def timedatectl_argv(*words: str) -> list[str]:
+    """timedatectl show | set-ntp true|false | set-timezone <Area/City> | set-time "YYYY-MM-DD HH:MM:SS"."""
+    words = tuple(words)
+    ok = (words == ("show",)
+          or (len(words) == 2 and words[0] == "set-ntp" and words[1] in ("true", "false"))
+          or (len(words) == 2 and words[0] == "set-timezone" and isinstance(words[1], str)
+              and bool(TIMEZONE_RE.fullmatch(words[1])) and ".." not in words[1])
+          or (len(words) == 2 and words[0] == "set-time" and isinstance(words[1], str)
+              and bool(TIME_RE.fullmatch(words[1]))))
+    if not ok:
+        raise ValueError(f"timedatectl {' '.join(map(str, words))!r} is not allowed")
+    return [EXECUTABLES["timedatectl"], *words]
+
+
+def localectl_argv(*words: str) -> list[str]:
+    """localectl status | set-locale VAR=locale ... (variables of LOCALE_VARIABLES, locale names of LOCALE_RE)."""
+    words = tuple(words)
+    ok = words == ("status",)
+    if not ok and len(words) >= 2 and words[0] == "set-locale" and len(words) <= 1 + len(LOCALE_VARIABLES):
+        names = [w.partition("=")[0] if isinstance(w, str) else "" for w in words[1:]]
+        ok = (len(set(names)) == len(names)
+              and all(isinstance(w, str) and "=" in w and w.partition("=")[0] in LOCALE_VARIABLES
+                      and bool(LOCALE_RE.fullmatch(w.partition("=")[2])) for w in words[1:]))
+    if not ok:
+        raise ValueError(f"localectl {' '.join(map(str, words))!r} is not allowed")
+    return [EXECUTABLES["localectl"], *words]
 
 
 def valid_package(name: object) -> bool:

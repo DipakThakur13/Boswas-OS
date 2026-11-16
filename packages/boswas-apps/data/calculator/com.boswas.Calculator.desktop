@@ -1,0 +1,22 @@
+[Desktop Entry]
+Type=Application
+Version=1.5
+Name=Calculator
+GenericName=Calculator
+Comment=Standard, scientific and programmer calculator, date calculation and unit converters
+Exec=boswas-calculator
+Icon=accessories-calculator
+Terminal=false
+Categories=Utility;Calculator;Qt;
+Keywords=calculator;calculation;arithmetic;scientific;programmer;hex;binary;convert;units;date;percent;
+StartupNotify=true
+StartupWMClass=com.boswas.Calculator
+Actions=Scientific;Programmer;
+
+[Desktop Action Scientific]
+Name=Scientific
+Exec=boswas-calculator --mode scientific
+
+[Desktop Action Programmer]
+Name=Programmer
+Exec=boswas-calculator --mode programmer

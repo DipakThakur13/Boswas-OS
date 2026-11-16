@@ -28,7 +28,7 @@ class SystemPage(Page):
     data_keys = ("agent",)
 
     def build(self) -> None:
-        self.add_modules()
+        self.add_settings()
         self.device = Card("Device management", self.content)
         self.grid = InfoGrid(self.device)
         self.device.addWidget(self.grid)

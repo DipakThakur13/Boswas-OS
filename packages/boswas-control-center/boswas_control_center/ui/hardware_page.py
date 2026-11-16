@@ -66,7 +66,7 @@ class HardwarePage(Page):
         self.devices.addWidget(self.devices_note)
         self.devices.addWidget(self.tree)
         self.body.addWidget(self.devices)
-        self.add_modules()
+        self.add_settings()
         jobs_.changed.connect(self._buttons)
 
     def _changed(self, key: str) -> None:

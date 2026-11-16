@@ -223,16 +223,6 @@ def parse_meminfo(text: object) -> int | None:
     return None
 
 
-_METAINFO_RE = re.compile(r'<release\s[^>]*version="([0-9][0-9.]*)"')
-_PLASMASHELL_RE = re.compile(r"plasmashell\s+([0-9][0-9.]*)")
-
-
-def plasma_version_from_metainfo(text: object) -> str | None:
-    """The newest release listed in org.kde.plasmashell.metainfo.xml (releases are newest first)."""
-    match = _METAINFO_RE.search(text) if isinstance(text, str) else None
-    return match.group(1) if match else None
-
-
 _DESKTOP_VERSION_RE = re.compile(r"[0-9][0-9A-Za-z.~+-]{0,40}")
 
 
@@ -240,11 +230,6 @@ def desktop_version_from_file(text: object) -> str | None:
     """The single version line of /usr/share/boswas/compositor/version."""
     line = text.strip() if isinstance(text, str) else ""
     return line if _DESKTOP_VERSION_RE.fullmatch(line) else None
-
-
-def plasma_version_from_output(text: object) -> str | None:
-    match = _PLASMASHELL_RE.search(text) if isinstance(text, str) else None
-    return match.group(1) if match else None
 
 
 def cpu_text(hardware: object) -> str:
@@ -975,9 +960,13 @@ class DesktopEntry:
     winapp_id: str = ""
 
 
-def parse_desktop_entry(text: object, desktop_id: str, path: str, locale: object = None, desktop: str = "KDE",
-                        which=None) -> DesktopEntry | None:
-    """A launchable application entry, or None when the entry must not be shown in KDE.
+# The name of the native desktop in XDG_CURRENT_DESKTOP, OnlyShowIn and NotShowIn.
+CURRENT_DESKTOP = "Boswas"
+
+
+def parse_desktop_entry(text: object, desktop_id: str, path: str, locale: object = None,
+                        desktop: str = CURRENT_DESKTOP, which=None) -> DesktopEntry | None:
+    """A launchable application entry, or None when the entry must not be shown on the desktop.
 
     Follows the Desktop Entry Specification: Type=Application only; skipped
     when NoDisplay or Hidden is true, when OnlyShowIn does not include the

@@ -1,0 +1,6 @@
+#!/usr/bin/python3 -IB
+"""Boswas Terminal. See boswas-terminal(1)."""
+import sys
+sys.path.insert(0, "/usr/lib/boswas/python")
+from boswas_apps.terminal.__main__ import main  # noqa: E402
+sys.exit(main())

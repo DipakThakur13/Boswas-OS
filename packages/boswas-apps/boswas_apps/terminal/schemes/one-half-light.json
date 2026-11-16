@@ -1,0 +1,27 @@
+{
+  "name": "One Half Light",
+  "dark": false,
+  "foreground": "#383A42",
+  "background": "#FAFAFA",
+  "cursor": "#4F525D",
+  "selection": "#0184BC",
+  "selection-text": "#FAFAFA",
+  "colors": [
+    "#383A42",
+    "#E45649",
+    "#50A14F",
+    "#C18301",
+    "#0184BC",
+    "#A626A4",
+    "#0997B3",
+    "#FAFAFA",
+    "#4F525D",
+    "#DF6C75",
+    "#98C379",
+    "#E4C07A",
+    "#61AFEF",
+    "#C577DD",
+    "#56B5C1",
+    "#FFFFFF"
+  ]
+}

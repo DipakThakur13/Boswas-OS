@@ -1,0 +1,172 @@
+.TH BOSWAS-TERMINAL 1 "November 2026" "Boswas OS" "User Commands"
+.SH NAME
+boswas\-terminal \- the terminal emulator of Boswas OS
+.SH SYNOPSIS
+.B boswas\-terminal
+.RB [ \-\-working\-directory
+.IR DIR ]
+.RB [ \-\-title
+.IR TITLE ]
+.RB [ \-\-profile
+.IR NAME ]
+.RB [ \-\-new\-window ]
+.RB [ \-\-separate ]
+.RB [ \-e
+.IR COMMAND " [" ARGUMENT ...]]
+.SH DESCRIPTION
+.B boswas\-terminal
+shows the command line in a window with tabs.
+Each tab runs one program on a pseudo\-terminal: your login shell, the
+command of a profile, or the command given after
+.BR \-e .
+The terminal understands the control sequences of an xterm with 256 and
+24\-bit colours
+.RB ( TERM=xterm\-256color ,
+.BR COLORTERM=truecolor ),
+so editors, pagers, terminal multiplexers and remote shells work as usual,
+including the alternate screen, the mouse, bracketed paste and window
+titles.
+.PP
+When the terminal is already running, starting
+.B boswas\-terminal
+again opens a new tab in its active window (or a new window with
+.BR \-\-new\-window )
+and returns at once; it does not wait for the command to end.
+.PP
+A tab shows the title its program sets. Lines that scroll off the top are
+kept in the scrollback, which can be searched. Addresses in the text open
+with Ctrl+click. Text is selected by dragging: a double\-click selects a
+word, a triple\-click a line, dragging with Alt a rectangle; Shift with the
+mouse selects even while a program uses the mouse itself.
+.PP
+The colour scheme "Boswas Prism" follows the dark or light scheme of the
+desktop. Profiles (program, starting directory, font, colour scheme,
+cursor, scrollback, bell, what happens when the program ends) and the
+other settings are edited in the Settings tab; changes apply at once.
+.SH OPTIONS
+.TP
+.BI \-\-working\-directory " DIR"
+Start the program in
+.IR DIR .
+Without this option a tab starts in the starting directory of its profile,
+else where
+.B boswas\-terminal
+was started.
+.TP
+.BI \-\-title " TITLE"
+Give the tab a fixed title; the program in it cannot change it.
+.TP
+.BI \-\-profile " NAME"
+Use the profile called
+.I NAME
+instead of the default profile.
+.TP
+.B \-\-new\-window
+Open a new window instead of a tab.
+.TP
+.B \-\-separate
+Run as a process of its own instead of using the running terminal.
+.TP
+.BI \-e " COMMAND \fR[\fIARGUMENT\fR...]"
+Run
+.I COMMAND
+instead of the shell. Everything after
+.B \-e
+belongs to the command, so this option comes last. The command is started
+directly, not through a shell; a single argument that contains spaces is
+split into words the way a shell would quote them.
+.TP
+.BR \-\-help ", " \-\-version
+Show the options or the version and exit.
+.SH KEYS
+.TP
+.B Ctrl+Shift+T
+New tab, in the directory of the current tab.
+.TP
+.B Ctrl+Shift+N
+New window.
+.TP
+.B Ctrl+Shift+W
+Close the tab.
+.TP
+.B Ctrl+Shift+D
+Duplicate the tab.
+.TP
+.B Ctrl+Shift+1 ... 9
+New tab with the first ... ninth profile.
+.TP
+.B Ctrl+Tab, Ctrl+Shift+Tab
+Next tab, previous tab.
+.TP
+.B Alt+1 ... 8, Alt+9
+A tab by position, the last tab.
+.TP
+.B Ctrl+Shift+C, Ctrl+Shift+V
+Copy, paste.
+.TP
+.B Shift+Insert
+Paste.
+.TP
+.B Ctrl+Shift+A
+Select all.
+.TP
+.B Ctrl+Shift+F
+Find in the scrollback.
+.TP
+.B Shift+PageUp, Shift+PageDown
+Scroll a page.
+.TP
+.B Ctrl+Shift+Up, Ctrl+Shift+Down
+Scroll a line.
+.TP
+.B Ctrl+Shift+Home, Ctrl+Shift+End
+Scroll to the top, to the bottom.
+.TP
+.B Ctrl+=, Ctrl+\-, Ctrl+0
+Larger, smaller, normal text.
+.TP
+.B F11
+Full screen.
+.TP
+.B Ctrl+,
+Settings.
+.TP
+.B Ctrl+Shift+Space
+The menu of profiles.
+.PP
+With text selected, Ctrl+C copies it (this can be turned off); otherwise
+Ctrl+C reaches the program. The middle mouse button pastes the primary
+selection.
+.SH ENVIRONMENT
+The program in a tab gets the environment of the terminal with
+.BR TERM=xterm\-256color ,
+.BR COLORTERM=truecolor ,
+.B TERM_PROGRAM=boswas\-terminal
+and
+.B SHELL
+set to your login shell.
+.SH FILES
+.TP
+.I ~/.config/com.boswas.Terminal/settings.json
+Profiles and settings.
+.TP
+.I ~/.local/state/com.boswas.Terminal/window.ini
+The size of the window.
+.TP
+.I /usr/share/boswas/terminal/bashrc
+When this file exists and the shell is
+.BR bash (1),
+the shell is started with it as its start\-up file; it reads
+.I ~/.bashrc
+first.
+.SH EXIT STATUS
+0 when the terminal ran or passed its request on to the running one, 2 for
+a wrong command line, 4 when started as root.
+.SH NOTES
+Programs may write to the clipboard with the OSC 52 sequence only when
+that is allowed in the settings; reading the clipboard this way is never
+answered. Pasted text is stripped of control characters.
+.SH SEE ALSO
+.BR bash (1),
+.BR terminfo (5),
+.BR xterm (1)

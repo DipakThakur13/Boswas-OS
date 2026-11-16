@@ -1,0 +1,124 @@
+.TH BOSWAS-CALCULATOR 1 "November 2026" "Boswas OS" "User Commands"
+.SH NAME
+boswas-calculator \- calculator with standard, scientific and programmer modes, date calculation and unit converters
+.SH SYNOPSIS
+.B boswas-calculator
+.RB [ \-\-mode
+.IR MODE ]
+.br
+.B boswas-calculator \-\-version
+.SH DESCRIPTION
+.B boswas-calculator
+is the calculator of Boswas OS. The menu at the top left switches between
+.TP
+.B Standard
+The four operations, percent, reciprocal, square and square root. An
+operation is carried out as soon as the next operator is pressed, so
+2 + 3 \(mu 4 gives 20. Sixteen digits are shown.
+.TP
+.B Scientific
+Operator precedence and parentheses, powers and roots, logarithms,
+factorial (also of numbers that are not whole), the trigonometric and
+hyperbolic functions and their inverses in degrees, radians or gradians,
+and scientific notation (F\-E). Thirty\-two digits are shown.
+.TP
+.B Programmer
+Whole numbers of 64, 32, 16 or 8 bits in two's complement, shown in
+hexadecimal, decimal, octal and binary at once, with the bitwise operators,
+arithmetic and logical shifts, rotation (also through the carry bit) and a
+keypad that toggles single bits.
+.TP
+.B Date calculation
+The difference between two dates in years, months, weeks and days, and a
+date plus or minus years, months and days.
+.TP
+.B Converter
+Length, weight and mass, temperature, area, volume, speed, time, data,
+energy, power, pressure and angle. The factors are the exact definitions
+of the units. There is no currency converter: the calculator never uses
+the network.
+.PP
+Numbers are kept as exact fractions where the calculation allows it and to
+42 significant digits otherwise, so 0.1 + 0.2 is 0.3 and 1 \(di 3 \(mu 3 is 1.
+A calculation that has no result shows
+.BR "Cannot divide by zero" ,
+.BR "Result is undefined" ,
+.B "Invalid input"
+or
+.B Overflow
+(from 10^10000 on) and waits for
+.BR C .
+.PP
+Standard and Scientific mode keep a history of the last twenty
+calculations each; every calculator mode has a memory list (MS, MR, M+,
+M\-, MC). Neither is kept after the program ends. The mode last used, the
+angle unit, the word size and radix and the units of each converter are
+remembered. Every start of the program opens its own window.
+.SH OPTIONS
+.TP
+.BI \-\-mode " MODE"
+Open in
+.I MODE
+instead of the mode used last:
+.BR standard ,
+.BR scientific ,
+.BR programmer ,
+.B date
+or a converter
+.RB ( length ,
+.BR weight ,
+.BR temperature ,
+.BR area ,
+.BR volume ,
+.BR speed ,
+.BR time ,
+.BR data ,
+.BR energy ,
+.BR power ,
+.BR pressure ,
+.BR angle ).
+.TP
+.B \-\-version
+Print the version and exit.
+.TP
+.BR \-h ", " \-\-help
+Print a summary of the options and exit.
+.SH KEYBOARD
+.TP
+.B Everywhere
+Digits, + \- * /, Enter or = (equals), Esc (C), Delete (CE), Backspace,
+F9 (change the sign), Ctrl+C and Ctrl+V (copy and paste the number;
+pasted text that is not a number is refused), Ctrl+M (MS), Ctrl+P (M+),
+Ctrl+Q (M\-), Ctrl+R (MR), Ctrl+L (MC), Ctrl+H (history), Ctrl+Shift+D
+(clear the history), Alt+1 Standard, Alt+2 Scientific, Alt+3 Programmer,
+Alt+4 Date calculation.
+.TP
+.B Standard
+% (percent), R (reciprocal), Q (square), @ (square root).
+.TP
+.B Scientific
+( and ), ^ or Y (power), Ctrl+Y (root), Q (square), # (cube), @ (square
+root), ! (factorial), L (log), Shift+L (log to base y), N (ln), Ctrl+N
+(e to the x), G (two to the x), Ctrl+G (ten to the x), P (pi), E (e),
+X (exponent), V (F\-E), % or D (modulo), | (absolute value), [ (floor),
+] (ceiling), M (degrees, minutes, seconds); S, O, T, U, I, J for sine,
+cosine, tangent, secant, cosecant, cotangent, with Shift for the inverse
+and Ctrl for the hyperbolic function; F3 degrees, F4 radians, F5 gradians.
+.TP
+.B Programmer
+A to F (hexadecimal digits), & (AND), | (OR), ^ (XOR), ~ (NOT), . (NAND),
+\e (NOR), < and > (shift), J and K (rotate), % (modulo), ( and ),
+F5 hexadecimal, F6 decimal, F7 octal, F8 binary, F12 QWORD, F2 DWORD,
+F3 WORD, F4 BYTE.
+.SH FILES
+.TP
+.I $XDG_STATE_HOME/com.boswas.Calculator/state.json
+The mode used last and the choices of each mode.
+.TP
+.I $XDG_STATE_HOME/com.boswas.Calculator/window.ini
+The size of the window.
+.SH EXIT STATUS
+0 when the window was closed; 2 for a wrong option; 4 when started as
+root, which the program refuses.
+.SH SEE ALSO
+.BR boswas\-text\-editor (1)

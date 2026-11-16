@@ -172,12 +172,12 @@ class ReleaseTest(unittest.TestCase):
                     "machine": "x86_64"}
         storage = [{"key": "system", "title": "System", "path": "/", "total": 100 * 1024 ** 3,
                     "free": 40 * 1024 ** 3}]
-        rows = dict(vm.about_rows(info, hardware, storage, "KDE Plasma 6.3.6", True, None, None, fx.AGENT, None))
+        rows = dict(vm.about_rows(info, hardware, storage, "Boswas Desktop 1.0~alpha3", True, None, None, fx.AGENT, None))
         self.assertEqual(rows["Version"], "v1 Alpha (1.0~alpha3)")
         self.assertEqual(rows["Processor"], "CPU X (8 threads)")
         self.assertEqual(rows["Memory"], "16.0 GiB")
         self.assertEqual(rows["Storage"], "100.0 GiB (40.0 GiB free)")
-        self.assertEqual(rows["Desktop"], "KDE Plasma 6.3.6")
+        self.assertEqual(rows["Desktop"], "Boswas Desktop 1.0~alpha3")
         self.assertEqual(rows["Session"], "Live session")
         self.assertEqual(rows["Device agent"], "Running (Ready), Control Plane: Standalone")
         rows = dict(vm.about_rows(info, {}, [], None, False, None, None, None, "down"))
@@ -203,11 +203,6 @@ class HardwareTest(unittest.TestCase):
         self.assertEqual(vm.parse_meminfo(fx.MEMINFO), 16303520 * 1024)
         self.assertEqual(vm.parse_cpuinfo(None), ("", 0))
         self.assertIsNone(vm.parse_meminfo("nothing"))
-
-    def test_plasma_version(self):
-        self.assertEqual(vm.plasma_version_from_metainfo(fx.METAINFO), "6.3.6")
-        self.assertEqual(vm.plasma_version_from_output("plasmashell 6.3.6\n"), "6.3.6")
-        self.assertIsNone(vm.plasma_version_from_output("crash"))
 
     def test_desktop_version_file(self):
         self.assertEqual(vm.desktop_version_from_file("1.0~alpha3\n"), "1.0~alpha3")
@@ -339,7 +334,7 @@ class WindowsTest(unittest.TestCase):
 
 class DesktopEntryTest(unittest.TestCase):
     def parse(self, text: str, desktop_id: str = "org.example.app", locale=None, which=None):
-        return vm.parse_desktop_entry(text, desktop_id, f"/x/{desktop_id}.desktop", locale, "KDE", which)
+        return vm.parse_desktop_entry(text, desktop_id, f"/x/{desktop_id}.desktop", locale, which=which)
 
     def test_application(self):
         entry = self.parse("[Desktop Entry]\nType=Application\nName=Kate\nName[de]=Kate DE\nGenericName=Editor\n"
@@ -355,8 +350,10 @@ class DesktopEntryTest(unittest.TestCase):
         self.assertIsNone(self.parse(base + "NoDisplay=true\n"))
         self.assertIsNone(self.parse(base + "Hidden=true\n"))
         self.assertIsNone(self.parse(base + "OnlyShowIn=GNOME;XFCE;\n"))
-        self.assertIsNotNone(self.parse(base + "OnlyShowIn=GNOME;KDE;\n"))
-        self.assertIsNone(self.parse(base + "NotShowIn=KDE;\n"))
+        self.assertIsNotNone(self.parse(base + "OnlyShowIn=GNOME;Boswas;\n"))
+        self.assertIsNone(self.parse(base + "OnlyShowIn=GNOME;KDE;\n"))          # another desktop's entry
+        self.assertIsNone(self.parse(base + "NotShowIn=Boswas;\n"))
+        self.assertIsNotNone(self.parse(base + "NotShowIn=KDE;\n"))
         self.assertIsNone(self.parse(base.replace("Application", "Link")))
         self.assertIsNone(self.parse("[Desktop Entry]\nType=Application\nName=A\n"))
         self.assertIsNone(self.parse("[Desktop Entry]\nType=Application\nExec=a\n"))

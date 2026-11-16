@@ -42,6 +42,8 @@ if PYSIDE:
     from boswas_control_center import android, catalog, commands, jobs
     from boswas_control_center.commands import EXECUTABLES as E
     from boswas_control_center.ui.main_window import MainWindow
+
+    fx.use_fake_bridge()
     from boswas_control_center.ui.software_tabs import APPIMAGE_WARNING, LOCAL_DEB_WARNING
 
     APP = QApplication.instance() or QApplication(["test"])
@@ -494,19 +496,6 @@ class StorageAndNetworkTest(FunctionalCase):
         self.settle(w)
         self.assertFalse((thumbs / "a.png").exists())
         self.assertIn("2.0 KiB freed", page.cleanup_message.text.text())
-
-    def test_network(self):
-        w = self.window()
-        page = self.show(w, "network")
-        self.assertEqual(page.summary.headline.text(), "Connected (Wi-Fi: Home:Net)")
-        self.assertEqual(sorted(page.device_buttons), ["wlp2s0"])  # the unavailable device offers no button
-        self.assertFalse(page.hardware_button.isHidden())
-        page.wifi_button.click()
-        self.settle(w)
-        self.assertIn([E["nmcli"], "radio", "wifi", "off"], self.cmd.ran)
-        page.hardware_button.click()
-        self.settle(w)
-        self.assertEqual(w.current_page(), "hardware")
 
     def test_overview(self):
         page = self.show(self.window(), "about")

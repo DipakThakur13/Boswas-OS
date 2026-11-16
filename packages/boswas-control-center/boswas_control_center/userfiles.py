@@ -3,10 +3,23 @@
   ~/Applications/<name>.AppImage                         AppImages the user added
   ~/.local/share/applications/boswas-appimage-<id>.desktop  their menu entries
   ~/.cache/thumbnails/                                   the thumbnail cache (cleanup)
+  <config>/boswas/compositor.toml                        the user layer of the compositor's settings
+  <config>/boswas/compositor.toml.bak                    its previous content (kept while a change is tried)
+  <config>/boswas/appearance.toml                        the [appearance] table (colour scheme, accent, ...)
+  <config>/mimeapps.list                                 default applications
+  <config>/autostart/<id>.desktop                        start-up applications and their overrides
+  ~/.face                                                the account picture
+
+<config> is $XDG_CONFIG_HOME when that is an absolute path, else ~/.config.
+The settings files are written by write_config() and deleted by
+remove_config(), which accept the names of CONFIG_FILES (and
+autostart/<id>.desktop) only: the content replaces the file atomically (a
+temporary file in the same directory, then a rename), with mode 0600, and
+nothing is written through a symbolic link below <config>.
 
 Every path is built here from a validated name and checked to stay inside
 its directory (no symlinks are followed out of it). Nothing here runs a
-program, and nothing outside these three locations is touched. AppImages run
+program, and nothing outside these locations is touched. AppImages run
 unsandboxed with the user's permissions: the window says so before adding one.
 """
 
@@ -14,6 +27,7 @@ from __future__ import annotations
 
 import os
 import re
+import secrets
 import shutil
 import stat
 from dataclasses import dataclass
@@ -218,3 +232,193 @@ def clean_thumbnails(environ) -> int:
             except OSError:
                 continue
     return freed
+
+
+# --- settings files in the user's config directory -------------------------------------------------------------
+
+# The files write_config() and remove_config() accept, relative to the config directory; besides these,
+# autostart/<id>.desktop with an id of AUTOSTART_RE.
+CONFIG_FILES = ("boswas/compositor.toml", "boswas/compositor.toml.bak", "boswas/appearance.toml", "mimeapps.list")
+AUTOSTART_RE = re.compile(r"^autostart/[A-Za-z0-9_-][A-Za-z0-9._-]{0,127}\.desktop$")
+MAX_CONFIG = 256 * 1024
+FACE_FILE = ".face"
+MAX_FACE = 2 * 1024 * 1024
+_DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC
+
+
+def config_dir(environ) -> str:
+    """The user's config directory: $XDG_CONFIG_HOME when it is an absolute path, else ~/.config."""
+    base = environ.get("XDG_CONFIG_HOME") or ""
+    if isinstance(base, str) and os.path.isabs(base) and "\0" not in base:
+        return os.path.normpath(base)
+    return os.path.join(_home(environ), ".config")
+
+
+def _config_name(name: object) -> tuple[list[str], str]:
+    """(directories, file name) of an allow-listed name; UserFileError for anything else."""
+    if not isinstance(name, str) or not (name in CONFIG_FILES or AUTOSTART_RE.fullmatch(name)):
+        raise UserFileError("Control Center does not write this settings file.")
+    parts = name.split("/")
+    return parts[:-1], parts[-1]
+
+
+def _reason(exc: OSError) -> str:
+    return exc.strerror or str(exc)
+
+
+def _kind(name: str, dir_fd: int) -> str:
+    """missing, link, dir, file or other: what `name` in the open directory is (symlinks are not followed)."""
+    try:
+        info = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return "missing"
+    if stat.S_ISLNK(info.st_mode):
+        return "link"
+    if stat.S_ISDIR(info.st_mode):
+        return "dir"
+    return "file" if stat.S_ISREG(info.st_mode) else "other"
+
+
+def _open_config_dir(environ, directories: list[str], create: bool) -> int | None:
+    """An open descriptor of <config>/<directories...>, or None when it does not exist and create is False.
+
+    Every directory below <config> is opened without following a symbolic
+    link; missing ones are created with mode 0700 when ``create`` is set.
+    """
+    base = config_dir(environ)
+    try:
+        if create:
+            os.makedirs(base, mode=0o700, exist_ok=True)
+        current = os.open(base, _DIR_FLAGS)
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise UserFileError(f"Your settings folder {base} cannot be used ({_reason(exc)}).") from None
+    shown = base
+    try:
+        for part in directories:
+            shown = os.path.join(shown, part)
+            kind = _kind(part, current)
+            if kind == "missing":
+                if not create:
+                    os.close(current)
+                    return None
+                os.mkdir(part, mode=0o700, dir_fd=current)
+            elif kind == "link":
+                raise UserFileError(f"{shown} is a symbolic link; refusing to write through it.")
+            elif kind != "dir":
+                raise UserFileError(f"{shown} is not a folder.")
+            following = os.open(part, _DIR_FLAGS | os.O_NOFOLLOW, dir_fd=current)
+            os.close(current)
+            current = following
+    except UserFileError:
+        os.close(current)
+        raise
+    except OSError as exc:
+        os.close(current)
+        raise UserFileError(f"The folder {shown} cannot be used ({_reason(exc)}).") from None
+    return current
+
+
+def _replace_file(dir_fd: int, file_name: str, data: bytes, mode: int, shown: str) -> None:
+    """Atomically replace `file_name` in the open directory with `data` (temporary file, fsync, rename)."""
+    kind = _kind(file_name, dir_fd)
+    if kind == "link":
+        raise UserFileError(f"{shown} is a symbolic link; refusing to write through it.")
+    if kind not in ("missing", "file"):
+        raise UserFileError(f"{shown} is not a regular file; it was not replaced.")
+    temporary = f".{file_name}.{secrets.token_hex(8)}.tmp"
+    descriptor = None
+    try:
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600,
+                             dir_fd=dir_fd)
+        os.fchmod(descriptor, mode)
+        view = memoryview(data)
+        while view:
+            view = view[os.write(descriptor, view):]
+        os.fsync(descriptor)
+        os.close(descriptor)
+        descriptor = None
+        os.replace(temporary, file_name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+    except OSError as exc:
+        if descriptor is not None:
+            os.close(descriptor)
+        try:
+            os.unlink(temporary, dir_fd=dir_fd)
+        except OSError:
+            pass
+        raise UserFileError(f"{shown} could not be written ({_reason(exc)}).") from None
+    try:
+        os.fsync(dir_fd)                  # the rename itself; not every file system can
+    except OSError:
+        pass
+
+
+def write_config(environ, name: str, data: bytes) -> str:
+    """Replace the settings file `name` (a name of CONFIG_FILES or autostart/<id>.desktop) with `data`.
+
+    Returns the absolute path written. Missing directories are created with
+    mode 0700 and the file gets mode 0600. Raises UserFileError, in words
+    for the user, when the name is not allow-listed, the content is not bytes
+    or larger than MAX_CONFIG, a directory below the config directory or
+    the file itself is a symbolic link, the target is not a regular file, or
+    writing fails; the previous file is then left as it was.
+    """
+    directories, file_name = _config_name(name)
+    if not isinstance(data, bytes):
+        raise UserFileError("The settings could not be saved (the content is not bytes).")
+    if len(data) > MAX_CONFIG:
+        raise UserFileError(f"The settings file would be larger than {MAX_CONFIG // 1024} KiB; it was not saved.")
+    path = os.path.join(config_dir(environ), name)
+    dir_fd = _open_config_dir(environ, directories, create=True)
+    try:
+        _replace_file(dir_fd, file_name, data, 0o600, path)
+    finally:
+        os.close(dir_fd)
+    return path
+
+
+def remove_config(environ, name: str) -> None:
+    """Delete the settings file `name` if it exists (the same names and symlink rules as write_config)."""
+    directories, file_name = _config_name(name)
+    path = os.path.join(config_dir(environ), name)
+    dir_fd = _open_config_dir(environ, directories, create=False)
+    if dir_fd is None:
+        return
+    try:
+        kind = _kind(file_name, dir_fd)
+        if kind == "missing":
+            return
+        if kind != "file":
+            raise UserFileError(f"{path} is not a regular file; it was not removed.")
+        os.unlink(file_name, dir_fd=dir_fd)
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        raise UserFileError(f"{path} could not be removed ({_reason(exc)}).") from None
+    finally:
+        os.close(dir_fd)
+
+
+def write_face(environ, data: bytes) -> str:
+    """Replace the account picture ~/.face with `data` (an encoded image); returns its path.
+
+    The file gets mode 0644: the sign-in screen and the accounts service
+    read it as another user. A ~/.face that is a symbolic link or not a
+    regular file is refused.
+    """
+    if not isinstance(data, bytes) or not data:
+        raise UserFileError("The picture could not be saved (there is no image data).")
+    if len(data) > MAX_FACE:
+        raise UserFileError("The picture is too large to be saved as the account picture.")
+    home = _home(environ)
+    path = os.path.join(home, FACE_FILE)
+    try:
+        dir_fd = os.open(home, _DIR_FLAGS)
+    except OSError as exc:
+        raise UserFileError(f"Your home folder cannot be used ({_reason(exc)}).") from None
+    try:
+        _replace_file(dir_fd, FACE_FILE, data, 0o644, path)
+    finally:
+        os.close(dir_fd)
+    return path

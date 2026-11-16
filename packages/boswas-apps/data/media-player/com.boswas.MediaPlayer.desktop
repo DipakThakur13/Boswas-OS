@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Media Player
+GenericName=Music and Video Player
+Comment=Play your music and videos
+Exec=boswas-media-player %U
+Icon=multimedia-player
+Terminal=false
+StartupNotify=true
+StartupWMClass=com.boswas.MediaPlayer
+Categories=AudioVideo;Audio;Video;Player;Qt;
+Keywords=music;video;audio;player;songs;albums;playlist;movie;film;mp3;flac;ogg;mp4;mkv;stream;
+MimeType=audio/mpeg;audio/mp3;audio/flac;audio/x-flac;audio/ogg;audio/x-vorbis+ogg;audio/x-opus+ogg;audio/opus;audio/vorbis;audio/wav;audio/x-wav;audio/vnd.wave;audio/mp4;audio/x-m4a;audio/aac;audio/x-aac;audio/x-ms-wma;audio/x-matroska;audio/x-mpegurl;audio/mpegurl;audio/x-scpls;video/mp4;video/x-m4v;video/x-matroska;video/webm;video/quicktime;video/x-msvideo;video/avi;video/mpeg;video/ogg;video/x-ms-wmv;video/3gpp;video/x-flv;video/mp2t;

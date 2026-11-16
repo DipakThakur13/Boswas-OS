@@ -1,0 +1,123 @@
+.TH BOSWAS-TASK-MANAGER 1 "November 2026" "boswas-apps 1.0~alpha3" "Boswas OS"
+.SH NAME
+boswas-task-manager \- see what is running on the computer, how busy it is, and end tasks
+.SH SYNOPSIS
+.B boswas-task-manager
+.RB [ \-\-page
+.IR page ]
+.br
+.B boswas-task-manager
+.B \-\-version
+|
+.B \-\-help
+.SH DESCRIPTION
+.B boswas-task-manager
+is the Task Manager of Boswas OS. The desktop starts it with Ctrl+Shift+Esc.
+It reads the kernel's own figures under
+.I /proc
+and
+.I /sys
+and talks to systemd and logind over D-Bus; it starts no other program to
+measure anything. It runs as the user who started it and never as root.
+.PP
+Only one Task Manager runs in a session. Starting the program again brings
+the window to the front and, with
+.BR \-\-page ,
+shows that page.
+.SS Pages
+.TP
+.B processes
+What is running, as rows: an application with everything it started is one
+row that can be opened; then the other programs of the user (background
+processes) and those of the system, the kernel threads among them. A program
+counts as an application when it runs as the user in a user session and its
+executable, its script (when the executable is an interpreter) or its name
+matches the program or the StartupWMClass of a visible desktop entry that
+does not run in a terminal. Columns: status, CPU (100% is all processors
+busy), memory (resident memory not shared with other processes), disk
+(bytes read from and written to storage per second, where the kernel lets
+the user see it). The header shows the totals; cells are tinted by how much
+they use. Network use per process is not shown: the kernel does not tell it
+to an ordinary user.
+.TP
+.B performance
+Graphs of the last 60 samples: CPU (optionally one graph per logical
+processor), memory with its composition, every disk, every network
+interface, graphics adapters (a graph only when the driver reports
+utilisation), and the battery.
+.TP
+.B startup
+The programs that start when the user signs in: the XDG autostart entries
+that apply to this desktop. Disabling or enabling one writes the user's own
+file of the same name with Hidden=true or Hidden=false; the system's file
+is not touched. An installed application can be added, and the user's own
+entries removed.
+.TP
+.B users
+The sessions logind knows, with the processes of each. Without logind, the
+user's own processes as one session.
+.TP
+.B details
+Every process: PID, status, user, CPU, resident and proportional memory,
+threads, nice value, start time, command line. From here a process can be
+ended, with everything below it if wanted, sent a signal, given another
+priority, and its properties shown (never its environment).
+.TP
+.B services
+The services of the system's and of the user's systemd manager. Start, Stop
+and Restart ask systemd, which asks for authorisation where it needs it.
+.TP
+.B settings
+Update speed (0.5, 1 or 4 seconds, or paused), the page to start with, a
+command line column on the Processes page, and the theme.
+.SS Ending a task
+End task asks the process to end (SIGTERM). If it is still there after
+three seconds, Task Manager offers to force it (SIGKILL). A signal is only
+sent when the process ID still belongs to the process that was selected.
+.SS Keys
+Ctrl+N or Alt+N: run a new task (a command line that is split like a shell
+does but started without one). Delete: end the selected task. F5: read
+everything again now. Ctrl+F: the filter box. Ctrl+Tab and Ctrl+Shift+Tab:
+the next and the previous page. Alt+Enter: properties. Ctrl+C: copy the
+selected row. Typing in a list goes to the row that starts with what was
+typed.
+.SS Units
+Sizes are binary: 1 KB is 1024 bytes. Network rates are decimal bits per
+second.
+.SH OPTIONS
+.TP
+.BI \-\-page " page"
+Open with this page: processes, performance, startup, users, details,
+services or settings.
+.TP
+.B \-\-version
+Print the version and exit.
+.TP
+.BR \-h ", " \-\-help
+Print a short help text and exit.
+.SH EXIT STATUS
+0 on success (also when a running Task Manager was told to come forward),
+2 for a page that does not exist, 4 when started as root.
+.SH FILES
+.TP
+.I $XDG_CONFIG_HOME/com.boswas.TaskManager/settings.json
+The settings.
+.TP
+.I $XDG_STATE_HOME/com.boswas.TaskManager/window.ini
+The size of the window.
+.TP
+.I $XDG_CONFIG_HOME/autostart/
+Where the user's startup entries and overrides are written.
+.TP
+.IR /etc/xdg/autostart/ ", " $XDG_CONFIG_DIRS/autostart/
+The startup entries installed for everybody (read only).
+.TP
+.IR /usr/share/misc/pci.ids
+When installed, gives graphics adapters their model name.
+.SH SEE ALSO
+.BR boswas-files (1),
+.BR proc (5),
+.BR systemctl (1),
+.BR loginctl (1),
+.BR kill (1),
+.BR renice (1)

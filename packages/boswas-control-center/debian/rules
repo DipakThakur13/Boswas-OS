@@ -20,8 +20,9 @@ endif
 
 override_dh_auto_install:
 	install -D -m 0755 bin/boswas-control-center $(PKG)/usr/bin/boswas-control-center
-	install -d -m 0755 $(PYDIR) $(PYDIR)/ui $(APPS)
+	install -d -m 0755 $(PYDIR) $(PYDIR)/ui $(PYDIR)/ui/settings $(APPS)
 	install -m 0644 boswas_control_center/*.py $(PYDIR)/
 	install -m 0644 boswas_control_center/ui/*.py $(PYDIR)/ui/
+	install -m 0644 boswas_control_center/ui/settings/*.py $(PYDIR)/ui/settings/
 	install -m 0644 data/com.boswas.ControlCenter.desktop data/com.boswas.SecurityCenter.desktop \
 		data/com.boswas.SoftwareCenter.desktop data/com.boswas.UpdateCenter.desktop $(APPS)/
