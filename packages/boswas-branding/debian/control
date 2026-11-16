@@ -17,7 +17,7 @@ Depends: libkf6config-bin,
          python3-pyside6.qtsvg,
          python3-pyside6.qtwidgets,
          ${misc:Depends}
-Recommends: breeze-icon-theme, fonts-inter, fonts-lato, konsole
+Recommends: breeze-icon-theme, fonts-inter, fonts-lato
 Description: Boswas OS visual identity
  The Boswas OS visual identity, built from the Boswas OS logo (the gold and
  silver "b" mark), the brand typeface and one design system, Boswas UI:

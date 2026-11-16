@@ -15,7 +15,7 @@ else
 fi
 
 for p in boswas-os boswas-cli boswas-branding boswas-security boswas-compat boswas-device-agent boswas-compat-manager \
-	boswas-control-center; do
+	boswas-control-center boswas-apps; do
 	check "${p}_${BOSWAS_VERSION_ID} .deb produced" test -s "$debs/${p}_${BOSWAS_VERSION_ID}_all.deb"
 done
 # The native desktop and the boot screen are compiled programs (amd64).
@@ -48,7 +48,7 @@ check_not "no setuid/setgid files" grep -qE '^-..[sS]|^-.....[sS]' <<<"$listing"
 os_depends="$(dpkg-deb -f "$debs/boswas-os_${BOSWAS_VERSION_ID}_all.deb" Depends 2>/dev/null)"
 check "boswas-os depends on all Boswas device components" bash -c '
 	for p in boswas-branding boswas-security boswas-cli "boswas-compat " boswas-device-agent boswas-compat-manager \
-		boswas-control-center boswas-sysops boswas-android boswas-desktop boswas-bootsplash; do
+		boswas-control-center boswas-sysops boswas-android boswas-apps boswas-desktop boswas-bootsplash; do
 		grep -q -- "$p" <<<"$1" || exit 1
 	done' _ "$os_depends"
 check_not "boswas-os does not pull in the Control Plane" grep -q boswas-control-plane <<<"$os_depends"
@@ -268,6 +268,12 @@ check "desktop: greetd is configured by a drop-in and /etc/boswas/greetd.toml (a
 	bash -c "grep -qx 'ExecStart=/usr/sbin/greetd --config /etc/boswas/greetd.toml' '$extract/usr/lib/systemd/system/greetd.service.d/10-boswas.conf' &&
 		grep -q '\\./etc/boswas/greetd.toml\$' <<<\"\$1\" && ! grep -q '\\./etc/greetd/' <<<\"\$1\" &&
 		! grep -q initial_session '$extract/etc/boswas/greetd.toml'" _ "$desktop_listing"
+check "desktop: the Settings bridge is shipped, the shell is the polkit agent, and screen sharing goes to the wlroots portal" \
+	bash -c "grep -qE '^-rwxr-xr-x root/root .* \\./usr/libexec/boswas/boswas-services-bridge\$' <<<\"\$1\" &&
+		'$extract/usr/libexec/boswas/boswas-services-bridge' --version | grep -q '^boswas-services-bridge ' &&
+		! grep -q polkit '$extract/usr/lib/systemd/user/boswas-session.target' &&
+		grep -qx 'org.freedesktop.impl.portal.ScreenCast=wlr' '$extract/usr/share/xdg-desktop-portal/boswas-portals.conf' &&
+		grep -qx 'chooser_type=none' '$extract/etc/xdg/xdg-desktop-portal-wlr/Boswas'" _ "$desktop_listing"
 check "desktop: depends on greetd, a session bus and the Mesa drivers; no Plasma, KWin or SDDM anywhere in its relations" \
 	bash -c "d=\$(dpkg-deb -f '$desktop_deb' Depends Recommends Suggests);
 		for p in greetd dbus-user-session libegl1 libgl1-mesa-dri libseat1 libinput10; do grep -q \"\$p\" <<<\"\$d\" || exit 1; done;
@@ -288,6 +294,35 @@ check "icons: Boswas Prism and Boswas Prism Light are installed with the launche
 check_not "desktop: no Plasma shell, KSplash, SDDM or Plasma session file is shipped by a Boswas package" \
 	bash -c "test -e '$extract/usr/share/plasma/plasmoids' || test -e '$extract/usr/share/plasma/look-and-feel/com.boswas.splash' ||
 		test -e '$extract/etc/sddm.conf.d' || test -e '$extract/usr/share/sddm' || test -e '$extract/etc/xdg/plasma-workspace'"
+# The system applications (boswas-apps) and the toolkit they are built on.
+apps_deb="$debs/boswas-apps_${BOSWAS_VERSION_ID}_all.deb"
+apps_listing="$(dpkg-deb -c "$apps_deb")"
+check "apps: every application has its launcher (0755), desktop entry, manual page and module" \
+	bash -c "for a in files:Files:files terminal:Terminal:terminal text-editor:TextEditor:text_editor \
+			calculator:Calculator:calculator task-manager:TaskManager:task_manager photos:Photos:photos \
+			media-player:MediaPlayer:media_player camera:Camera:camera document-viewer:DocumentViewer:document_viewer \
+			archive-manager:ArchiveManager:archive_manager clock:Clock:clock calendar:Calendar:calendar; do
+			IFS=: read -r bin id mod <<<\"\$a\"
+			grep -qE \"^-rwxr-xr-x root/root .* \\./usr/bin/boswas-\$bin\$\" <<<\"\$1\" || { echo \"launcher \$bin\"; exit 1; }
+			grep -qE \"^Exec=boswas-\$bin( |\$)\" '$extract/usr/share/applications/com.boswas.'\$id.desktop || { echo \"entry \$id\"; exit 1; }
+			test -s '$extract/usr/share/man/man1/boswas-'\$bin.1.gz || { echo \"man \$bin\"; exit 1; }
+			test -s '$extract/usr/lib/boswas/python/boswas_apps/'\$mod/__init__.py || { echo \"module \$mod\"; exit 1; }
+		done" _ "$apps_listing"
+check "apps: desktop entries name icons of the Boswas Prism pack" \
+	bash -c "for f in '$extract'/usr/share/applications/com.boswas.*.desktop; do
+			icon=\$(sed -n 's/^Icon=//p' \"\$f\" | head -1); [ -n \"\$icon\" ] || continue
+			test -s '$extract/usr/share/icons/Boswas-Prism/scalable/apps/'\$icon.svg || { echo \"\$f: \$icon\"; exit 1; }
+		done"
+check "apps: the toolkit is installed by boswas-branding next to the applications' modules" \
+	bash -c "test -s '$extract/usr/lib/boswas/python/boswas_fluent/__init__.py' &&
+		test -s '$extract/usr/lib/boswas/python/boswas_fluent/widgets/navigation.py' &&
+		dpkg-deb -f '$apps_deb' Depends | grep -q 'boswas-branding'"
+check "apps: Boswas Terminal is an x-terminal-emulator alternative; no KDE application in the relations" \
+	bash -c "dpkg-deb -f '$apps_deb' Provides | grep -qx 'x-terminal-emulator' &&
+		c=\$(mktemp -d) && dpkg-deb -e '$apps_deb' \"\$c\" && grep -q 'update-alternatives --install /usr/bin/x-terminal-emulator' \"\$c/postinst\" &&
+		grep -q 'update-alternatives --remove x-terminal-emulator' \"\$c/prerm\" && rm -rf \"\$c\" &&
+		! dpkg-deb -f '$apps_deb' Depends Recommends Suggests | grep -qE 'konsole|dolphin|kwrite|okular|gwenview|kcalc|(^|[ ,])ark([ ,]|\$)'"
+check_not "apps: no world-writable or setuid file" grep -qE '^-.......w|^-..[sS]|^-.....[sS]' <<<"$apps_listing"
 check "terminal: Boswas prompt and welcome (sources the user's ~/.bashrc first)" \
 	bash -c "grep -q '\\. \"\$HOME/.bashrc\"' '$extract/usr/share/boswas/terminal/bashrc' && test -x '$extract/usr/bin/boswas-welcome'"
 check_not "branding: the retired teal accent and Boswas Group gear logo are gone" \

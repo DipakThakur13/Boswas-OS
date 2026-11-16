@@ -644,7 +644,7 @@ def scenario_usb(iso: Path, workdir: Path, outdir: Path, timeout: float) -> None
             sh.run(f"pkill -u boswas -f '{pattern}'")
             vm.pump(5)
 
-        start_app("konsole", "^konsole", "terminal", "Live USB: the terminal opens with the Boswas profile (welcome and prompt)",
+        start_app("boswas-terminal", "boswas-terminal", "terminal", "Live USB: the terminal opens with the Boswas prompt (welcome and prompt)",
                   extra="pgrep -u boswas -f 'rcfile /usr/share/boswas/terminal/bashrc' >/dev/null && echo ok")
         start_app("boswas-control-center --page about", "boswas-control-center", "control-center",
                   "Live USB: Boswas Control Center opens (About Boswas OS)")
@@ -657,8 +657,8 @@ def scenario_usb(iso: Path, workdir: Path, outdir: Path, timeout: float) -> None
             start_app(f"boswas-control-center --page {page}", "boswas-control-center", f"cc-{page}",
                       f"Live USB: Control Center {label} opens and starts no privileged helper by itself",
                       extra=no_helper)
-        start_app("dolphin", "^dolphin", "files", "Live USB: the file manager opens")
-        start_app("kcalc", "^kcalc", "application", "Live USB: applications start (calculator)")
+        start_app("boswas-files", "boswas-files", "files", "Live USB: the file manager opens")
+        start_app("boswas-calculator", "boswas-calculator", "application", "Live USB: applications start (calculator)")
         start_app("boswas-compat-manager", "boswas-compat-manager", "compat-manager",
                   "Live USB: the Boswas Compatibility Manager opens")
         start_app("boswas-control-center --page install", "boswas-control-center", "install-page",

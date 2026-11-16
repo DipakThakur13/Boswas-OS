@@ -7,7 +7,8 @@
 # KDE Plasma is not installed: no Plasma shell, no KWin, no Plasma session,
 # no SDDM, no Plymouth. They are pinned out in
 # config/archives/boswas-exclude.pref.chroot, so the build fails if anything
-# pulls them in. KDE's applications stay: they are ordinary Wayland clients.
+# pulls them in. KDE's applications are not installed either, but they run:
+# they are ordinary Wayland clients.
 
 # Login (boswas-desktop configures it) and session services. The shell is
 # the polkit agent. X11 applications run through Xwayland. The wlroots
@@ -39,14 +40,11 @@ kde-style-breeze
 pipewire-audio
 pavucontrol-qt
 
-# Core applications
-konsole
-dolphin
-kwrite
-ark
-okular
-gwenview
-kcalc
+# Applications. The system applications (files, terminal, editor,
+# calculator, task manager, photos, media player, camera, PDF reader,
+# archives, clock, calendar) are the Boswas package boswas-apps, listed in
+# boswas-components.list.chroot; it replaces the KDE applications that were
+# here. The browser is Debian's.
 firefox-esr
 
 # Fonts (Inter: the Boswas UI typeface. Hack: the monospace font of the

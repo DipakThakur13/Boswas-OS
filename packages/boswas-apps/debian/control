@@ -15,10 +15,46 @@ Depends: python3 (>= 3.11),
          python3-pyside6.qtsvg,
          python3-pyside6.qtdbus,
          python3-pyside6.qtnetwork,
+         python3-pyside6.qtmultimedia,
+         python3-pyside6.qtpdf,
+         python3-pyside6.qtprintsupport,
+         qt6-image-formats-plugins,
+         shared-mime-info,
+         tzdata,
          boswas-branding (>= 1.0~alpha3),
          ${misc:Depends}
+Recommends: 7zip,
+            boswas-desktop,
+            fonts-hack,
+            fonts-noto-color-emoji,
+            udisks2,
+            xdg-user-dirs
+Suggests: 7zip-rar,
+          kimageformat6-plugins,
+          python3-zstandard,
+          sound-theme-freedesktop
+Provides: x-terminal-emulator
 Description: Boswas OS system applications
  The applications every Boswas OS desktop comes with, built on the Boswas
- Fluent toolkit so that they look and behave alike.
+ Fluent toolkit so that they look and behave alike:
  .
- Each application is one program and runs as the desktop user.
+  * Files: a file manager with tabs, search, the Trash, drives, undo, and
+    copying in the background
+  * Terminal: a terminal emulator with tabs and colour schemes
+  * Text Editor: a plain text editor with tabs that keeps encodings and
+    line endings
+  * Calculator: standard, scientific and programmer modes, dates and unit
+    converters
+  * Task Manager: processes, performance, start-up applications, users
+    and services
+  * Photos: picture viewer, editor, gallery and slideshow
+  * Media Player: music and video with a library, playlists and MPRIS
+  * Camera: photos and video from a webcam
+  * Document Viewer: a PDF reader
+  * Archive Manager: ZIP and TAR archives (7z and RAR with 7zip)
+  * Clock: alarms, timers, stopwatch and world clock
+  * Calendar: a local calendar with reminders and iCalendar files
+ .
+ Each application is one program and runs as the desktop user. None of
+ them starts a shell or keeps running in the background, except the small
+ reminders service that rings alarms and shows calendar reminders.
