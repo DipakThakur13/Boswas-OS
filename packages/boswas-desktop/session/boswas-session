@@ -12,8 +12,10 @@
 if [ -z "${BOSWAS_SESSION_PROFILE:-}" ]; then
 	export BOSWAS_SESSION_PROFILE=1
 	for profile in /etc/profile "$HOME/.profile"; do
+		# A file with a syntax error would end this script when it is
+		# sourced, and with it the login: such a file is skipped.
 		# shellcheck disable=SC1090
-		[ -r "$profile" ] && . "$profile" 2>/dev/null
+		[ -r "$profile" ] && sh -n "$profile" 2>/dev/null && . "$profile" 2>/dev/null
 	done
 fi
 

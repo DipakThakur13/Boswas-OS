@@ -288,6 +288,17 @@ check "desktop: the Settings bridge is shipped, the shell is the polkit agent, a
 		! grep -q polkit '$extract/usr/lib/systemd/user/boswas-session.target' &&
 		grep -qx 'org.freedesktop.impl.portal.ScreenCast=wlr' '$extract/usr/share/xdg-desktop-portal/boswas-portals.conf' &&
 		grep -qx 'chooser_type=none' '$extract/etc/xdg/xdg-desktop-portal-wlr/Boswas'" _ "$desktop_listing"
+check "desktop: what the login screen cannot start without is a dependency, not a recommendation (polkit for the seat, a font and the font configuration, the logind PAM module)" \
+	bash -c "d=\$(dpkg-deb -f '$desktop_deb' Depends);
+		for p in polkitd fontconfig-config fonts-inter libpam-systemd greetd; do grep -qE \"(^|[ ,])\$p([ ,(]|\$)\" <<<\"\$d\" || exit 1; done"
+check "desktop: a boot never ends without a login: text login if the login screen cannot start, and if greetd fails for good" \
+	bash -c "g='$extract/usr/libexec/boswas/boswas-greeter'; t='$extract/usr/libexec/boswas/boswas-text-session';
+		test -x \$g && test -x \$t && sh -n \$g && sh -n \$t &&
+		grep -q 'exec /usr/sbin/agreety --cmd /usr/libexec/boswas/boswas-text-session' \$g &&
+		grep -qx 'OnFailure=boswas-login-fallback.service' '$extract/usr/lib/systemd/system/greetd.service.d/10-boswas.conf' &&
+		grep -qx 'ExecStart=/usr/libexec/boswas/boswas-login-fallback' '$extract/usr/lib/systemd/system/boswas-login-fallback.service' &&
+		test -x '$extract/usr/libexec/boswas/boswas-login-fallback' &&
+		grep -qx 'Conflicts=getty@tty1.service' '$extract/usr/lib/systemd/system/greetd.service.d/10-boswas.conf'"
 check "desktop: depends on greetd, a session bus and the Mesa drivers; no Plasma, KWin or SDDM anywhere in its relations" \
 	bash -c "d=\$(dpkg-deb -f '$desktop_deb' Depends Recommends Suggests);
 		for p in greetd dbus-user-session libegl1 libgl1-mesa-dri libseat1 libinput10; do grep -q \"\$p\" <<<\"\$d\" || exit 1; done;

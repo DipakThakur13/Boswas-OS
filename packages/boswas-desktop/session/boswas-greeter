@@ -2,21 +2,41 @@
 # boswas-greeter: the login screen, run by greetd as its greeter user.
 #
 # It starts the compositor with only the greeter as its shell. If the
-# graphical login cannot start (no usable graphics device, a broken
-# driver), it falls back to greetd's text login, so there is always a way
-# to sign in.
+# graphical login cannot be shown (no usable graphics device, no seat, a
+# broken driver, a login screen that keeps failing), it falls back to
+# greetd's text login, so there is always a way to sign in.
+#
+# The compositor's exit status says what happened (boswas-compositor(1)):
+#   0  a login succeeded: the greeter is done
+#   3  it could not start (no seat, no graphics device, no output)
+#   4  the login screen itself kept failing
+# 3 and 4 mean that trying again would give the same result. Any other
+# failure counts as "cannot start" only when it happens right after the
+# start; a compositor that fails after it has run for a while is started
+# again by greetd.
 export XDG_CURRENT_DESKTOP=Boswas
 export XDG_SESSION_TYPE=wayland
 export XCURSOR_THEME="${XCURSOR_THEME:-Boswas-Cursors}"
 
-started=$(date +%s)
+# Seconds since boot: not changed by the clock being set during start-up.
+uptime_seconds()
+{
+	cut -d' ' -f1 /proc/uptime 2>/dev/null | cut -d. -f1
+}
+
+started=$(uptime_seconds)
 /usr/bin/boswas-compositor --config /usr/share/boswas/compositor/greeter.toml
 status=$?
-# A greeter that ends normally was asked to (a login succeeded).
 [ "$status" -eq 0 ] && exit 0
-# It failed: if that happened at once, the graphical login is not usable.
-if [ $(($(date +%s) - started)) -lt 10 ] && [ -x /usr/sbin/agreety ]; then
-	echo "Boswas OS: the graphical login could not start; using the text login." >&2
-	exec /usr/sbin/agreety --cmd /usr/bin/boswas-session
+
+ended=$(uptime_seconds)
+fallback=no
+case "$status" in
+	3|4) fallback=yes ;;
+	*) [ $((${ended:-0} - ${started:-0})) -lt 30 ] && fallback=yes ;;
+esac
+if [ "$fallback" = yes ] && [ -x /usr/sbin/agreety ]; then
+	echo "Boswas OS: the graphical login could not start (status $status); this is the text login." >&2
+	exec /usr/sbin/agreety --cmd /usr/libexec/boswas/boswas-text-session
 fi
 exit "$status"

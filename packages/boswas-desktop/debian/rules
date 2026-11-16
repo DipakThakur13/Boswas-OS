@@ -46,6 +46,7 @@ override_dh_auto_install:
 	install -D -m 0755 session/boswas-session $(PKG)/usr/bin/boswas-session
 	install -D -m 0755 session/boswas-session-ready $(LIBEXEC)/boswas-session-ready
 	install -D -m 0755 session/boswas-greeter $(LIBEXEC)/boswas-greeter
+	install -D -m 0755 session/boswas-text-session $(LIBEXEC)/boswas-text-session
 	install -D -m 0644 session/boswas.desktop $(SHARE)/wayland-sessions/boswas.desktop
 	install -D -m 0644 session/boswas-session.target $(PKG)/usr/lib/systemd/user/boswas-session.target
 	install -D -m 0644 session/boswas-portals.conf $(SHARE)/xdg-desktop-portal/boswas-portals.conf
@@ -55,6 +56,8 @@ override_dh_auto_install:
 	# configuration file stays untouched); PAM service of the lock screen
 	install -D -m 0644 session/greetd.toml $(PKG)/etc/boswas/greetd.toml
 	install -D -m 0644 session/greetd-boswas.conf $(PKG)/usr/lib/systemd/system/greetd.service.d/10-boswas.conf
+	install -D -m 0644 session/boswas-login-fallback.service $(PKG)/usr/lib/systemd/system/boswas-login-fallback.service
+	install -D -m 0755 session/boswas-login-fallback $(LIBEXEC)/boswas-login-fallback
 	install -D -m 0644 session/boswas-lock.pam $(PKG)/etc/pam.d/boswas-lock
 	# Lock before suspend and hibernate
 	install -D -m 0755 session/boswas-lock-on-sleep $(PKG)/usr/lib/systemd/system-sleep/boswas-lock

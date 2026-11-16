@@ -1,0 +1,29 @@
+#!/bin/sh
+# boswas-login-fallback: a text login on the first virtual terminal when
+# greetd, the login manager, has failed for good.
+#
+# Started by systemd each time greetd.service fails (OnFailure= in the
+# Boswas drop-in). systemd restarts greetd a few times first; while it is
+# still trying, the first virtual terminal belongs to greetd and starting a
+# text login there would only be undone by the next attempt. So this waits
+# until systemd has decided: greetd runs again (nothing to do), or it has
+# given up (the unit is "failed"), and only then starts the text login.
+unit=greetd.service
+tries=0
+while [ "$tries" -lt 20 ]; do
+	state=$(systemctl show --property=ActiveState --value "$unit" 2>/dev/null)
+	case "$state" in
+		failed)
+			# A text login that was stopped a moment ago may have hit its own
+			# start limit: clear that, then start it.
+			systemctl reset-failed getty@tty1.service 2>/dev/null
+			exec systemctl --no-block start getty@tty1.service
+			;;
+		active)
+			exit 0
+			;;
+	esac
+	sleep 1
+	tries=$((tries + 1))
+done
+exit 0

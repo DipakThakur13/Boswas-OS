@@ -1,0 +1,10 @@
+# Boswas OS: never end a boot on an empty console.
+# (Installed as /usr/lib/systemd/system/boswas-login-fallback.service and
+# started through OnFailure= of greetd.service, see greetd.service.d/10-boswas.conf.)
+[Unit]
+Description=Text login when the login manager has failed
+Documentation=man:boswas-session(1)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/boswas/boswas-login-fallback
