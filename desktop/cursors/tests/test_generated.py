@@ -227,9 +227,9 @@ class DrawingTest(unittest.TestCase):
         self.assertEqual(self.white, "#FFFFFF")
         self.assertLess(max(channels(self.outline)), 0x30, "the outline is a dark colour")
         generator = support.generator()
-        self.assertEqual(generator.colour(generator.FILL_TOKEN), self.white)
-        self.assertEqual(generator.colour(generator.OUTLINE_TOKEN), self.outline)
-        self.assertEqual(generator.colour(generator.ACCENT_TOKEN), self.accent)
+        self.assertEqual(generator.colour(generator.FILL_COLOUR), self.white)
+        self.assertEqual(generator.colour(generator.OUTLINE_COLOUR), self.outline)
+        self.assertEqual(generator.colour(generator.ACCENT_COLOUR), self.accent)
 
     def test_static_shapes_are_white_with_a_dark_outline(self):
         for path in self.files:

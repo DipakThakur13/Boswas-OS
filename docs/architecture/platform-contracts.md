@@ -246,10 +246,10 @@ appearance, the cursor, the monitors, night light and the lock and
 screen-off times to the running session. The shell command, the input
 method command and `privileged_protocols` are fixed for the session.
 
-`boswas-preset apply` on the native desktop (`XDG_CURRENT_DESKTOP`
-contains `Boswas`) writes `appearance.toml` (scheme and wallpaper), merges
-the preset's colours into the user's `kdeglobals` for KDE applications, and
-sends `reload-config`.
+`boswas-preset apply` writes `appearance.toml` (scheme and wallpaper),
+merges the preset's colours into the user's `kdeglobals` for KDE
+applications, records the preset in `boswasrc`, and sends `reload-config`.
+It writes the three files itself and starts no program (ADR-0042).
 
 ### Control socket
 
@@ -404,7 +404,8 @@ native desktop by `Boswas` in `XDG_CURRENT_DESKTOP`.
 | `/usr/share/boswas/compositor/version` | boswas-desktop (package build) | Control Center (About). `boswas info` asks dpkg for the version of `boswas-desktop` instead | The package version, one line (for example `1.0~alpha3`) |
 | `/usr/share/boswas/ui/tokens.json` | boswas-branding | `boswas_fluent` (the Qt toolkit) at run time, and any tool that needs Boswas colours or geometry | Boswas UI tokens, version 3 (ADR-0033). The Rust programs compile the same file in and do not read it at run time |
 | `/usr/lib/boswas/python/boswas_fluent/` | boswas-branding | the Boswas Qt applications | The toolkit (ADR-0039); its interface is `desktop/ui/qt/README.md` |
-| `/usr/share/boswas/kde-settings/kdeglobals` | boswas-branding | KDE and Qt applications (through `XDG_CONFIG_DIRS`) | Prism colour scheme, `Boswas-Prism` icon theme, Breeze widget style |
+| `/usr/share/boswas/kde-settings/kdeglobals` | boswas-branding | KDE and Qt applications (through `XDG_CONFIG_DIRS`) | Prism colour scheme, `Boswas-Prism` icon theme, Breeze widget style where a user has installed it |
+| `/usr/share/icons/Boswas-Cursors/` | boswas-branding | the compositor (`[pointer] cursor_theme`), every client through `XCURSOR_THEME`, and programs that load the theme `default` through Debian's `x-cursor-theme` alternative (registered by the package, priority 150) | The pointer theme (ADR-0043): XCursor files at the nominal sizes 24, 32, 48, 64 and 96 under `cursors/`, `index.theme`, and `cursor.theme` for the alternative |
 | `$XDG_CONFIG_HOME/boswas/shell.toml` | boswas-shell (may be edited by hand) | boswas-shell | `[taskbar] pinned` and `[start] pinned`: lists of desktop file ids |
 | `/usr/share/xdg-desktop-portal/boswas-portals.conf` | boswas-desktop | xdg-desktop-portal (`XDG_CURRENT_DESKTOP=Boswas`) | GTK back end by default; the wlroots back end for ScreenCast and Screenshot |
 | `/etc/xdg/xdg-desktop-portal-wlr/Boswas` | boswas-desktop | xdg-desktop-portal-wlr | `chooser_type=none`: the first monitor is shared |

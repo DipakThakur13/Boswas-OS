@@ -94,7 +94,7 @@ account.
 
 | Page | Reads | Actions |
 |------|-------|---------|
-| Personalization | `boswas-preset --json list` | apply a preset (light or dark, wallpaper, application colours, terminal profile); the sections above |
+| Personalization | `boswas-preset --json list` | apply a preset (light or dark, wallpaper, application colours); the sections above |
 | Storage | statvfs of `/` and `/home`; `lsblk -J -b` (no serial numbers); size of `~/.cache/thumbnails` | remove downloaded package files (sysops `apt-clean`), shrink the system journal (sysops `journal-vacuum`), clear the thumbnail cache; browse the file system in Files (`boswas-files`) |
 | Applications (Software Center) | desktop entries, Windows apps (session agent), `apt-cache search/show/policy`, `flatpak remotes/list/search`, AppImages in `~/Applications` | start an application (`gio launch`); install/remove Debian packages (sysops `apt-install`/`apt-remove`); enable Flathub (sysops `flatpak-remote-enable`); install/uninstall/update Flatpak apps for the user; add/remove AppImages; install from file (by content: `.deb` → sysops `apt-install-local` with an "origin not verified" warning, Windows program → `boswas-compat-manager --install FILE`, APK → Android page, AppImage → AppImages) |
 | Windows Compatibility | session agent `system.status` (runtime health, supported Windows architectures), `apps.list` | open the Compatibility Manager |

@@ -76,8 +76,8 @@ def home_directory() -> str:
 def shell_command(shell: str, bashrc: str = BASHRC) -> tuple[str, list[str]]:
     """(program, argument list) that starts ``shell`` for interactive use.
 
-    bash takes the Boswas start-up file when it is installed (as the Konsole
-    profile of Boswas does); it reads the user's own ~/.bashrc first. Every
+    bash takes the Boswas start-up file when it is installed (the Boswas
+    prompt and welcome); it reads the user's own ~/.bashrc first. Every
     other shell is started as a login shell, with a dash in front of its name.
     """
     name = os.path.basename(shell)

@@ -188,8 +188,16 @@ Verification status of the native desktop
     details and services.
   - All of them run as the user (they refuse root), start other programs
     without a shell, and treat file names and file contents as hostile.
+- **Boswas-Cursors pointer theme** *(native desktop, ADR-0043)*: the
+  pointers are Boswas's own instead of KDE's Breeze: one family of 28
+  drawings (a white arrow with a dark outline), every CSS cursor name, the
+  X11 and toolkit names, an animated ring for busy states, sizes 24 to 96.
+  It is the compositor's and the login screen's default, the session's
+  `XCURSOR_THEME`, and Debian's default cursor theme (`x-cursor-theme`
+  alternative) for GTK and X11 programs. Generated from
+  `desktop/cursors`, installed by `boswas-branding`.
 - **Boswas Prism icon pack** *(native desktop)*: the themes `Boswas-Prism`
-  and `Boswas-Prism-Light`, 264 designs in 461 SVG files (applications,
+  and `Boswas-Prism-Light`, 300 designs in 535 SVG files (applications,
   places, devices, mimetypes, and symbolic status and action icons in a
   light and a dark variant), every colour taken from the tokens. It is the
   default icon theme; the earlier `Boswas` and `Boswas-Light` themes stay
@@ -198,8 +206,9 @@ Verification status of the native desktop
   `boswas-apps`, `greetd`, `xwayland`, `xdg-desktop-portal-gtk`,
   `xdg-desktop-portal-wlr`, `pipewire-bin`, `wireplumber`, `upower`,
   `power-profiles-daemon`, `accountsservice`, `qt6-wayland`,
-  `breeze-cursor-theme`, `breeze-icon-theme`, `kde-style-breeze`,
-  `pavucontrol-qt` and `fonts-inter`. The live session signs in through
+  `breeze-icon-theme`, `pavucontrol-qt` and `fonts-inter`
+  (`breeze-cursor-theme` and `kde-style-breeze` were dropped again when
+  the pointer theme became Boswas's own, ADR-0043). The live session signs in through
   greetd's initial session.
 - **Tests** *(native desktop)*: compositor end-to-end tests
   (`packages/boswas-desktop/crates/boswas-compositor/tests/headless.rs`:

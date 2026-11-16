@@ -168,8 +168,14 @@ exits; open windows are not affected. `boswas-shell(1)` is the reference.
   returns to it.
 - **Icons:** the Boswas Prism icon pack
   ([icons](../../desktop/icons/README.md)): applications, places, devices,
-  file types, and the symbolic status and action icons. Everything it does
-  not draw comes from Breeze.
+  file types, and the symbolic status and action icons. It draws every
+  icon the Boswas applications and Settings ask for; what other programs
+  ask for and it does not draw comes from Breeze's icon theme.
+- **Pointer:** Boswas-Cursors
+  ([cursors](../../desktop/cursors/README.md)), Boswas's own pointer
+  theme: a white arrow with a dark outline, the same family for every
+  shape, and a turning ring while a program is busy. It is the default of
+  the compositor, of the login screen and of every program (ADR-0043).
 
 The pins are kept in `~/.config/boswas/shell.toml`; how often each
 application was started and the last commands typed into Run are in

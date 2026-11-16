@@ -10,6 +10,7 @@
 #                       boswas-preset (install.sh)
 #   desktop/icons/      the Boswas Prism icon pack and the earlier Boswas
 #                       icon themes (install.sh)
+#   desktop/cursors/    Boswas-Cursors, the pointer theme (install.sh)
 #   desktop/terminal/   the prompt and welcome of Boswas Terminal
 #   desktop/defaults/   system-wide defaults for KDE applications and Firefox
 #
@@ -37,6 +38,7 @@ ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
 	cd $(DESK)/ui/qt && QT_QPA_PLATFORM=offscreen python3 -B -m unittest discover -s tests
 	cd $(DESK)/presets && python3 -B -m unittest discover -s tests
 	cd $(DESK)/icons && python3 -B -m unittest discover -s tests
+	cd $(DESK)/cursors && python3 -B -m unittest discover -s tests
 endif
 
 override_dh_auto_build:
@@ -76,6 +78,9 @@ override_dh_auto_install:
 	# earlier Boswas themes
 	sh $(DESK)/presets/install.sh $(CURDIR)/$(PKG)
 	sh $(DESK)/icons/install.sh $(CURDIR)/$(PKG) all
+	# The pointer theme of the desktop. The maintainer scripts register it
+	# as Debian's default cursor theme (the x-cursor-theme alternative).
+	sh $(DESK)/cursors/install.sh $(CURDIR)/$(PKG)
 	# Terminal: the prompt and welcome Boswas Terminal starts bash with
 	install -D -m 0644 $(DESK)/terminal/bashrc $(SHARE)/boswas/terminal/bashrc
 	install -D -m 0755 $(DESK)/terminal/boswas-welcome $(PKG)/usr/bin/boswas-welcome

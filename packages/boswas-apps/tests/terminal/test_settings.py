@@ -201,7 +201,7 @@ class CommandLine(unittest.TestCase):
 
 
 class Schemes(unittest.TestCase):
-    def test_prism_is_what_the_konsole_schemes_are(self):
+    def test_prism_is_the_terminal_palette_of_the_ui_tokens_tool(self):
         tool = REPOSITORY / "desktop" / "ui" / "tools" / "build_kde_colors.py"
         if not tool.is_file():
             self.skipTest("the colour scheme tool is not in this tree")

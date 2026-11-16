@@ -2,8 +2,8 @@
 
 "Boswas Prism" comes from the UI tokens: the sixteen terminal colours, the
 background and the foreground are the ones ``desktop/ui/tools/build_kde_colors.py``
-gives Konsole (``TERMINAL`` below is that tool's table of token references;
-a test compares the two). The scheme named ``prism`` follows the desktop:
+defines for terminals (``TERMINAL`` below is that tool's table of token
+references; a test compares the two). The scheme named ``prism`` follows the desktop:
 it is the dark one while the desktop is dark and the light one otherwise.
 
 The classic schemes are data files beside this module (``schemes/*.json``);

@@ -309,6 +309,23 @@ check "icons: Boswas Prism and Boswas Prism Light are installed with the launche
 				scalable/status/network-wired-symbolic.svg scalable/status/battery-full-symbolic.svg \
 				scalable/actions/system-search-symbolic.svg scalable/actions/system-shutdown-symbolic.svg; do
 				test -s '$extract/usr/share/icons/'\$t/\$f || exit 1; done; done"
+check "pointer: Boswas-Cursors is shipped (XCursor files and the names toolkits ask for) and is the theme of the compositor, the login screen and the session" \
+	bash -c "t='$extract/usr/share/icons/Boswas-Cursors'; test -s \$t/index.theme &&
+		for n in default pointer text wait progress grab not-allowed ns-resize nwse-resize left_ptr xterm hand2 watch; do
+			test -s \$t/cursors/\$n && [ \"\$(head -c 4 \$t/cursors/\$n)\" = Xcur ] || exit 1; done;
+		grep -qx 'cursor_theme = \"Boswas-Cursors\"' '$extract/usr/share/boswas/compositor/compositor.toml' &&
+		grep -qx 'cursor_theme = \"Boswas-Cursors\"' '$extract/usr/share/boswas/compositor/greeter.toml' &&
+		grep -q 'XCURSOR_THEME:-Boswas-Cursors' '$extract/usr/bin/boswas-session' &&
+		grep -q 'XCURSOR_THEME:-Boswas-Cursors' '$extract/usr/libexec/boswas/boswas-greeter'"
+check "pointer: boswas-branding registers the theme as the default cursor theme (x-cursor-theme alternative) and removes it again" \
+	bash -c "grep -qx 'Inherits=Boswas-Cursors' '$extract/usr/share/icons/Boswas-Cursors/cursor.theme' &&
+		c=\$(mktemp -d) && dpkg-deb -e '$debs/boswas-branding_${BOSWAS_VERSION_ID}_all.deb' \"\$c\" &&
+		grep -q 'update-alternatives --install /usr/share/icons/default/index.theme x-cursor-theme' \"\$c/postinst\" &&
+		grep -q '/usr/share/icons/Boswas-Cursors/cursor.theme 150' \"\$c/postinst\" &&
+		grep -q 'update-alternatives --remove x-cursor-theme /usr/share/icons/Boswas-Cursors/cursor.theme' \"\$c/prerm\" && rm -rf \"\$c\""
+check_not "pointer: no Boswas package names KDE's Breeze cursor theme (files or relations)" \
+	bash -c "if grep -rqs breeze_cursors '$extract/usr/share/boswas' '$extract/usr/bin/boswas-session' '$extract/usr/libexec/boswas/boswas-greeter'; then exit 0; fi;
+		for d in '$debs'/boswas-*.deb; do dpkg-deb -f \"\$d\" Depends Recommends Suggests | grep -q breeze-cursor-theme && exit 0; done; exit 1"
 check_not "desktop: no Plasma shell, KSplash, SDDM or Plasma session file is shipped by a Boswas package" \
 	bash -c "test -e '$extract/usr/share/plasma/plasmoids' || test -e '$extract/usr/share/plasma/look-and-feel/com.boswas.splash' ||
 		test -e '$extract/etc/sddm.conf.d' || test -e '$extract/usr/share/sddm' || test -e '$extract/etc/xdg/plasma-workspace'"

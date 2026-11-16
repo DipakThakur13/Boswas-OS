@@ -24,12 +24,13 @@ Python suites, which were run). The numbers move as work lands.
 | `boswas-services-bridge` | 5 + 1 | The command parser, and the program itself: it reports states, answers bad lines and ends with its input |
 | `boswas-shell` | 88 | Every surface drawn in both schemes and checked for controls inside the surface and reachable by keyboard; the taskbar's grouping and layout, Start's search, toasts and the notification centre, the dialogs (Run without a shell, the polkit dialog, the choice of administrator), the capture mark, pinned applications, the greetd messages, the PAM conversation, the users the greeter lists |
 | `boswas-bootsplash` | 108 unit, 14 + 1 + 1 | Rendering, layout on eleven display sizes, damage, the protocol, both client dialects, the passphrase editor; the real programs headless with a pseudo-terminal; Debian's unmodified `askpass` in a scratch root (needs root and the helper, skipped otherwise); frame cost |
-| `desktop/ui` (Python) | 11 | The token file and the generated KDE and Konsole colour schemes: references, the fixed values, the Fluent geometry, contrast, staleness |
+| `desktop/ui` (Python) | 11 | The token file and the generated KDE colour schemes: references, the fixed values, the Fluent geometry, contrast, staleness |
 | `desktop/ui/qt` (Python) | 131 | The Qt toolkit on Qt's offscreen platform: theme, style sheet, widgets, navigation, contrast, single instance, workers |
-| `desktop/icons` (Python) | 42 | The icon packs |
-| `desktop/presets` (Python) | 75 (2 skipped here) | The presets and `boswas-preset` |
-| `boswas-compat-manager` (Python) | 107 | The Compatibility Manager on the toolkit |
-| `boswas-control-center` (Python) | 584 (4 skipped) | The settings framework and every section against stand-ins (a fake bridge, a model of the compositor's files), the file writer against symbolic links and read-only directories, the safety rules (only one module writes files, only one starts programs, no KDE program is named), the Users page against a stand-in for AccountsService and a scripted `passwd`, SHA-512 crypt against the specification's vectors, the earlier pages |
+| `desktop/icons` (Python) | 42 | The icon packs: the files match the generator, every required name exists, aliases repeat their design |
+| `desktop/cursors` (Python) | 82 | The pointer theme: the sources match the generator, every CSS, X11 and toolkit name resolves after installation, the XCursor files are read back by libXcursor and match `xcursorgen` byte for byte, hotspots, animation frames, two installations are identical |
+| `desktop/presets` (Python) | 72 (1 skipped here) | The presets and `boswas-preset`: it starts no program and names no KDE tool, writes its three files atomically, and refuses symbolic links |
+| `boswas-compat-manager` (Python) | 111 (1 skipped here: `desktop-file-validate` is not installed) | The Compatibility Manager on the toolkit; the installer entry for Boswas Files and which application stays the default |
+| `boswas-control-center` (Python) | 593 (5 skipped) | The settings framework and every section against stand-ins (a fake bridge, a model of the compositor's files), the file writer against symbolic links and read-only directories, the safety rules (only one module writes files, only one starts programs, no KDE program is named), the Users page against a stand-in for AccountsService and a scripted `passwd`, SHA-512 crypt against the specification's vectors, the earlier pages |
 | `boswas-apps` (Python), one suite per application | Terminal 302, Task Manager 261, Archive Manager 255, Files 229, Photos 204, Calculator 160, Media Player 136, Text Editor 131, Calendar 112, Reminders 103, Document Viewer 90, Clock 58, Camera 39 | Each application's logic (parsers, file operations, the terminal emulator against hostile input, 78 extraction tests with hand-built hostile archives) and its window through real clicks and keys on Qt's offscreen platform, with stand-ins where the real thing would touch the system |
 
 One more `#[test]` in the compositor's end-to-end file is a helper
@@ -40,7 +41,9 @@ run against the real compositor on its headless back end and are opt-in
 `tests/static/test_sources.sh` checks, for this round: that a public
 control connection gets exactly `version`, `lock`, `reload-config`,
 `outputs` and `capture`; that the privileged protocols are filtered by
-client trust; and that `unsafe` appears only in the seven audited files.
+client trust; that `unsafe` appears only in the seven audited files; that
+the applications and the toolkit start no shell; and that `boswas-preset`
+and the packages name no Plasma, Konsole or Dolphin program (ADR-0042).
 
 ### What the tests use in place of the real thing
 

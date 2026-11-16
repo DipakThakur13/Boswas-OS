@@ -26,6 +26,8 @@ Description: Boswas OS visual identity
   * Boswas Prism, the icon pack of the Boswas desktop: applications,
     places, devices, file types and symbolic status and action icons; the
     earlier Boswas and Boswas Light icon themes stay available
+  * Boswas-Cursors, the pointer theme of the desktop, registered as the
+    system's default cursor theme
   * Orbitron, the brand typeface (SIL Open Font License 1.1)
   * ten Boswas OS presets (Horizon, Midnight, Aurora, Slate, Carbon, Pearl,
     Ocean, Ember, Nebula, Classic): light or dark, wallpapers, lock screen

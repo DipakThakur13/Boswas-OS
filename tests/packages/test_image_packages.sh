@@ -73,6 +73,11 @@ for f in \
 done
 contains "KDE applications default to the Boswas Prism icons" "$root/usr/share/boswas/kde-settings/kdeglobals" "Theme=Boswas-Prism"
 contains "KDE applications default to the Prism colour scheme" "$root/usr/share/boswas/kde-settings/kdeglobals" "ColorScheme=BoswasPrism"
+# The pointer theme is Boswas's own and the system's default (Debian's x-cursor-theme alternative).
+check "the pointer theme Boswas-Cursors is installed" test -s "$root/usr/share/icons/Boswas-Cursors/cursors/default"
+check "the default cursor theme of the system is Boswas-Cursors" \
+	bash -c "[ \"\$(readlink '$root/etc/alternatives/x-cursor-theme')\" = /usr/share/icons/Boswas-Cursors/cursor.theme ]"
+contains "the compositor's pointer theme is Boswas-Cursors" "$root/usr/share/boswas/compositor/compositor.toml" 'cursor_theme = "Boswas-Cursors"'
 # Nothing of Boswas is installed for programs the image does not have (ADR-0042): Plasma (Global
 # Themes), Konsole (profiles, colour schemes, a default profile), System Settings (the About
 # module's file), Dolphin (service menus). The lists are dpkg's, so files of Debian packages do

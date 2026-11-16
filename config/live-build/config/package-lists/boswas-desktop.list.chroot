@@ -29,12 +29,12 @@ upower
 power-profiles-daemon
 accountsservice
 
-# Toolkits on Wayland, fallback icons and the widget style of the KDE
-# applications. The pointer cursors are Boswas's own theme, Boswas-Cursors,
-# in boswas-branding.
+# Qt on Wayland, and fallback icons for programs that ask for names the
+# Boswas Prism pack does not draw. The pointer cursors are Boswas's own
+# theme, Boswas-Cursors, in boswas-branding. No KDE library or widget style
+# is installed: nothing on the image uses one (ADR-0043).
 qt6-wayland
 breeze-icon-theme
-kde-style-breeze
 
 # Audio
 pipewire-audio
@@ -47,8 +47,8 @@ pavucontrol-qt
 # here. The browser is Debian's.
 firefox-esr
 
-# Fonts (Inter: the Boswas UI typeface. Hack: the monospace font of the
-# Boswas terminal profiles, which Plasma used to pull in. Lato: secondary
+# Fonts (Inter: the Boswas UI typeface. Hack: the monospace font of
+# Boswas Terminal. Lato: secondary
 # text in Boswas artwork; the brand typeface Orbitron ships in
 # boswas-branding. Liberation is metric-compatible with common Windows fonts
 # for documents and Wine applications)

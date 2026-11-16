@@ -26,9 +26,9 @@ hardware, not a public Linux distribution.
 >   personalization, date and time, user accounts
 > - the Boswas OS experience: Boswas OS identity, Boswas UI (the Fluent
 >   design language with the Prism colours, in one token file), the Boswas
->   Prism icon pack, ten presets, Boswas Control Center (with the Security,
->   Software and Update Centers) and a branded terminal, on a Debian 13
->   base
+>   Prism icon pack, the Boswas-Cursors pointer theme, ten presets, Boswas
+>   Control Center (with the Security, Software and Update Centers) and a
+>   branded terminal, on a Debian 13 base
 > - a Live USB that boots straight to a usable desktop; installation only
 >   by explicit choice
 > - security baseline and encrypted installer
@@ -202,7 +202,7 @@ boswas-device status        # device agent: state, identity, Control Plane conne
 | Base | Debian 13.x trixie, amd64, Linux 6.12, systemd |
 | Desktop | The native Boswas desktop (`boswas-desktop`): `boswas-compositor`, a Wayland compositor in Rust on Smithay (Fluent window frames, animations, snap layouts, Task View with several desktops, per-monitor settings, night light, Xwayland for X11 applications, compositor-owned session lock, privileged protocols only for its own shell, screen capture only with the user's consent), and `boswas-shell` (taskbar, Start, quick settings, notifications, tray, the polkit dialog, lock screen, login screen behind greetd). Ten presets ([docs/experience](docs/experience/README.md)) |
 | Applications | The Boswas system applications (`boswas-apps`, PySide6 on the Boswas Qt toolkit): Files, Terminal, Text Editor, Calculator, Photos, Document Viewer, Archive Manager, Media Player, Camera, Clock, Calendar, Task Manager; Firefox ESR as the browser. Boswas Control Center with native settings and the Security, Software and Update Centers ([docs/experience/control-center.md](docs/experience/control-center.md)) |
-| Design system | Boswas UI v3: the Fluent design language with Boswas's own colours (the Prism palette), icons and typeface, as design tokens in one file ([desktop/ui](desktop/ui/README.md)). The shell, the window frames, the boot screen, the Qt toolkit of the Boswas applications ([desktop/ui/qt](desktop/ui/qt/README.md)), the KDE colour schemes and the Boswas Prism icon pack ([desktop/icons](desktop/icons/README.md)) all read it |
+| Design system | Boswas UI v3: the Fluent design language with Boswas's own colours (the Prism palette), icons and typeface, as design tokens in one file ([desktop/ui](desktop/ui/README.md)). The shell, the window frames, the boot screen, the Qt toolkit of the Boswas applications ([desktop/ui/qt](desktop/ui/qt/README.md)), the KDE colour schemes, the Boswas Prism icon pack ([desktop/icons](desktop/icons/README.md)) and the Boswas-Cursors pointer theme ([desktop/cursors](desktop/cursors/README.md)) all read it |
 | Branding | Built from the official Boswas Group logo and lettering ([desktop/branding](desktop/branding/README.md)) |
 | Boot | GRUB for BIOS and UEFI; Debian-signed shim/GRUB/kernel for Secure Boot; Boswas boot menu; the Boswas boot screen (`boswas-bootsplash`, Rust: boot, shutdown, restart and the disk-unlock prompt, [packages/boswas-bootsplash](packages/boswas-bootsplash/README.md)) |
 | Installer | Debian Installer (live mode), Boswas banner, policy: full-disk encryption, root locked, host `boswas-device`; firmware pool on the medium, no network needed, signed APT sources and an installation report written at the end |

@@ -408,10 +408,11 @@ device policy (ADR-0020):
 ## "Run with Boswas" (graphical flow)
 
 ```
-Double-click or right-click a .exe or .msi   (Dolphin: "Run with Boswas")
-        │   /usr/share/applications/boswas-winapp-install.desktop, the only
+Double-click or right-click a .exe or .msi   (Boswas Files: "Run with Boswas")
+        │   /usr/share/applications/boswas-winapp-install.desktop, the default
         │   handler for application/x-msdownload, x-ms-dos-executable,
-        │   vnd.microsoft.portable-executable and x-msi
+        │   vnd.microsoft.portable-executable and x-msi ("Open with" also
+        │   offers "Install with Boswas Compatibility Manager", ADR-0042)
         ▼
 Terminal window: boswas-winapp install --pause <file>
         │   catalog match → policy → prefix → installer (its own dialogs if

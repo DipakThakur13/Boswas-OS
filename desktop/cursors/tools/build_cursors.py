@@ -68,10 +68,10 @@ SHADOW_OPACITY = 0.34
 FRAMES = 24                      # frames of one turn of the busy ring
 FRAME_DELAY = 40                 # milliseconds per frame (one turn in 0.96 s)
 
-# Token references (desktop/ui/tokens.json).
-FILL_TOKEN = "white"
-OUTLINE_TOKEN = "neutral.950"
-ACCENT_TOKEN = "semantic.light.accent"   # the ring's track is white, a light surface
+# Colours, as references into desktop/ui/tokens.json.
+FILL_COLOUR = "white"
+OUTLINE_COLOUR = "neutral.950"
+ACCENT_COLOUR = "semantic.light.accent"   # the ring's track is white, a light surface
 
 
 # ---------------------------------------------------------------------------
@@ -232,7 +232,7 @@ def ink_fill(d: str) -> str:
 
 def render(name: str, layers) -> str:
     """The SVG document of one image."""
-    white, dark = colour(FILL_TOKEN), colour(OUTLINE_TOKEN)
+    white, dark = colour(FILL_COLOUR), colour(OUTLINE_COLOUR)
     shadow_id = f"{name}-shadow"
     out = [
         '<?xml version="1.0" encoding="UTF-8"?>',
@@ -424,7 +424,7 @@ def ring_ink(cx: float, cy: float, r: float, band: float, head: float):
     closer to the accent. A piece runs a little under the next one, which is
     drawn over it, so there is no gap between them.
     """
-    white, accent = colour(FILL_TOKEN), colour(ACCENT_TOKEN)
+    white, accent = colour(FILL_COLOUR), colour(ACCENT_COLOUR)
     count, longest, shortest, under = 16, 250.0, 30.0, 4.0
     starts = [head - longest + (longest - shortest) * i / (count - 1) for i in range(count)]
     out = []

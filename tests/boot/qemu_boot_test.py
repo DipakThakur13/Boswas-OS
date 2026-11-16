@@ -606,6 +606,10 @@ def scenario_usb(iso: Path, workdir: Path, outdir: Path, timeout: float) -> None
             return
         rc, out = sh.run("pgrep -a -x 'plasmashell|kwin_wayland|sddm' || echo none")
         check(out.strip() == "none", f"Live USB: no Plasma shell, KWin or SDDM is running ({out.strip()[:80]})")
+        rc, out = sh.run(SHELL_PID + "; tr '\\0' '\\n' < /proc/$p/environ | grep '^XCURSOR_THEME='; "
+                         "update-alternatives --query x-cursor-theme | sed -n 's/^Value: //p'")
+        check("XCURSOR_THEME=Boswas-Cursors" in out and "/usr/share/icons/Boswas-Cursors/cursor.theme" in out,
+              f"Live USB: the pointer theme of the session and of the system is Boswas-Cursors ({out.strip()[:120]})")
         vm.pump(60)
         vm.nudge()
         shot = vm.screendump("desktop")

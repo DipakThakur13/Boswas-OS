@@ -96,7 +96,7 @@ Installed systems get `quiet splash` and a hidden GRUB menu from
 |--------|-----------------|
 | `../ui/` | Boswas UI: the design tokens, the Prism colour schemes for KDE applications, and the Qt toolkit of the Boswas applications ([ui README](../ui/README.md)) |
 | `../terminal/` | The Boswas terminal: `boswas-welcome`, a fast, files-only summary with version, kernel, architecture, live or installed session, and AppArmor and device agent state, plus the prompt (`bashrc`, with which Boswas Terminal starts bash; it sources `~/.bashrc` first). Turn the welcome off per user with `~/.config/boswas/no-welcome` |
-| `../defaults/` | System-wide defaults for KDE applications a user installs (the Boswas Prism colour scheme and icon theme, Breeze widget style), installed in `/usr/share/boswas/kde-settings`, which `boswas-session` appends to `XDG_CONFIG_DIRS`; and a Firefox policy (removes the "Debian packages" search engine) |
+| `../defaults/` | System-wide defaults for KDE applications a user installs (the Boswas Prism colour scheme and icon theme, and the Breeze widget style where it is installed), installed in `/usr/share/boswas/kde-settings`, which `boswas-session` appends to `XDG_CONFIG_DIRS`; and a Firefox policy (removes the "Debian packages" search engine) |
 
 Start is part of `boswas-shell`. The Boswas Launcher applet that was
 in `../launcher/` (KDE's Kickoff under the Boswas name) is gone with

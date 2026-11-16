@@ -1195,7 +1195,7 @@ list), or if greetd leaves Debian.
     match;
   - `desktop/icons/tools/build_prism.py` generates the icon themes
     `Boswas-Prism` (default) and `Boswas-Prism-Light`: 264 designs, 461
-    SVG files;
+    SVG files (300 designs in 535 files since ADR-0043);
   - `boswas-branding` installs the file as
     `/usr/share/boswas/ui/tokens.json` for other tools.
 - **Checks.** `desktop/ui/tests` fails the build when a reference does not
@@ -2284,8 +2284,9 @@ installed and tested data and code for four of those programs.
   ordinary clients, so three things remain: the `.colors` schemes in
   `/usr/share/color-schemes` (the ten presets and the two Prism
   schemes); the default `kdeglobals` in `/usr/share/boswas/kde-settings`
-  (Prism colours, the Boswas Prism icons, the Breeze widget style of
-  `kde-style-breeze`), which `boswas-session` appends to
+  (Prism colours, the Boswas Prism icons, and the Breeze widget style
+  where the user has that style installed: the image no longer brings
+  `kde-style-breeze`, ADR-0043), which `boswas-session` appends to
   `XDG_CONFIG_DIRS`; and the step of `boswas-preset` that merges a
   preset's colours into the user's `kdeglobals`. The icons of the pack
   that are named after KDE applications stay as well.
@@ -2340,8 +2341,8 @@ installed and tested data and code for four of those programs.
   Control Center reads. The lock screen art, the login background and
   `boswas-about-logo.svg` are still installed and nothing reads them. The
   preview pictures still sketch the panel as the Plasma image had it.
-  The live-session script still looks for `kcm-about-distrorc` and now
-  finds none.
+  (The live-session script's lines for `kcm-about-distrorc` were removed
+  with ADR-0043.)
 - **Not verified yet:** no preset was applied in a running Boswas
   session, and the entry was not tried from Boswas Files on a device.
   Which application is the default was checked in a scratch directory
@@ -2354,3 +2355,76 @@ installed and tested data and code for four of those programs.
 application becomes part of the image again, the Boswas desktop needs
 defaults for more file types than these four, or users with linked
 configuration files need presets to follow the link.
+
+## ADR-0043 The pointer theme is Boswas's own (Boswas-Cursors); no KDE library is left on the image
+
+Follows ADR-0031 (the icon pack) and ADR-0042. After those, two things on
+screen and on the image still came from KDE: the pointer (`breeze_cursors`
+from `breeze-cursor-theme`) and the widget style `kde-style-breeze`, kept
+for KDE applications the image no longer has.
+
+**Decision.**
+
+- **Boswas-Cursors.** `desktop/cursors/` holds an XCursor theme drawn for
+  Boswas OS: one family (a white arrow with a dark outline and a soft
+  shadow), 28 drawings, every CSS cursor name the compositor asks for, the
+  X11 and toolkit names as symbolic links, and a turning ring for `wait`
+  and `progress` (24 frames of 40 ms). Like the icon pack it is generated:
+  `tools/build_cursors.py` writes the SVG sources, which are committed and
+  checked against the generator; `install.sh` renders them with
+  `rsvg-convert` at the nominal sizes 24, 32, 48, 64 and 96 and writes the
+  XCursor files with a writer of its own (`tools/xcursor.py`), so the build
+  needs no `xcursorgen`. The colours are token references
+  (`desktop/ui/tokens.json`).
+- **Where it applies.** `boswas-branding` installs the theme in
+  `/usr/share/icons/Boswas-Cursors`. It is the compositor's default
+  (`[pointer] cursor_theme` in the shipped `compositor.toml` and
+  `greeter.toml`) and the `XCURSOR_THEME` the session and the login screen
+  export. For programs that load the theme called `default` instead (GTK
+  and X11 clients), the package registers the theme as Debian's
+  `x-cursor-theme` alternative with priority 150, above Adwaita (90) and
+  Breeze (102); the alternative is removed with the package. A user's
+  choice in Settings (`cursor_theme`, `cursor_size`) is unchanged.
+- **What left the image.** `breeze-cursor-theme` and `kde-style-breeze`
+  are no longer in the package lists, and `boswas-desktop` no longer
+  recommends the former. No package of the KDE Frameworks is installed by
+  a Boswas list or dependency any more (`libkf6config-bin` went with
+  ADR-0042). `breeze-icon-theme` stays: it is data only, the fallback for
+  icons of programs that are not Boswas's.
+- **Icons the applications asked for.** The Prism pack gained 36 symbolic
+  icons (300 designs, 535 files), so every icon name that the system
+  applications, Settings and the Compatibility Manager request is drawn in
+  the pack and none falls back to Breeze. Boswas Photos and Boswas
+  Document Viewer use their own names (`boswas-photos`,
+  `boswas-document-viewer`) instead of the names of the KDE programs they
+  replaced.
+- **Settings' copy of the compositor's defaults** named Konsole and Dolphin
+  as terminal and file manager. It names Boswas Terminal and Boswas Files
+  now, and a test compares the copy with the file the compositor ships.
+
+**Consequences.**
+
+- The installed theme is about 9 MB; `wait` and `progress` are 2.9 MB each
+  (24 frames at five sizes, uncompressed as XCursor files are).
+- A KDE application a user installs draws with Qt's own style unless the
+  user also installs a KDE style. The shipped `kdeglobals` still names
+  Breeze, which takes effect where that style is present.
+- Eight one-way resize names and the edge names link to the four double
+  arrows; there are no one-way arrows.
+- A change of `white`, `neutral.950` or the light accent in the tokens
+  needs the sources regenerated; the install script and the tests refuse
+  stale sources.
+
+**Verified.** The theme's 82 tests (the sources match the generator; every
+name resolves after installation; the files are read back by libXcursor
+and match `xcursorgen` byte for byte; two installations are identical). The
+packaged compositor, run headless as an unprivileged user from the built
+packages, drew the arrow and the text cursor of this theme.
+
+**Not verified.** The pointer on a hardware cursor plane, at a fractional
+scale or on a HiDPI display; Xwayland, GTK and Qt clients picking the theme
+up in a real session; the alternative on a Debian 13 image; twelve of the
+32 legacy hash names, which are from memory (listed in the theme's README).
+
+**Revisit when** a designer reviews the shapes, or a display scale shows
+that more sizes are needed.

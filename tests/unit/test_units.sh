@@ -5,8 +5,8 @@
 # Android runtime manager (boswas-android), the system applications
 # (boswas-apps), the Control Plane (including the end-to-end
 # agent <-> Control Plane tests over mutual TLS), the presets (boswas-preset,
-# the generated colour schemes and artwork), the Boswas UI tokens and the
-# icon themes, and the Rust test suites of the native desktop (compositor,
+# the generated colour schemes and artwork), the Boswas UI tokens, the
+# icon themes and the pointer theme, and the Rust test suites of the native desktop (compositor,
 # shell, design system) and the boot screen. These also run during the
 # package builds (dh_auto_test);
 # repeating them here gives one report line each with the number of test
@@ -17,7 +17,7 @@ set -uo pipefail
 export QT_QPA_PLATFORM=offscreen
 for dir in packages/boswas-compat packages/boswas-device-agent packages/boswas-compat-manager \
 	packages/boswas-control-center packages/boswas-sysops packages/boswas-android control-plane \
-	desktop/ui desktop/ui/qt desktop/presets desktop/icons; do
+	desktop/ui desktop/ui/qt desktop/presets desktop/icons desktop/cursors; do
 	name="$(basename "$dir")"
 	out="$(cd "$BOSWAS_REPO_ROOT/$dir" && python3 -B -m unittest discover -s tests 2>&1)"
 	count="$(grep -oE '^Ran [0-9]+ tests?' <<<"$out" | grep -oE '[0-9]+')"
