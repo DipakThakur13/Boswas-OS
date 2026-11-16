@@ -5,9 +5,10 @@
 # Android runtime manager (boswas-android), the system applications
 # (boswas-apps), the Control Plane (including the end-to-end
 # agent <-> Control Plane tests over mutual TLS), the presets (boswas-preset,
-# generated themes), the Boswas UI tokens and the icon themes, and the Rust
-# test suites of the native desktop (compositor, shell, design system) and
-# the boot screen. These also run during the package builds (dh_auto_test);
+# the generated colour schemes and artwork), the Boswas UI tokens and the
+# icon themes, and the Rust test suites of the native desktop (compositor,
+# shell, design system) and the boot screen. These also run during the
+# package builds (dh_auto_test);
 # repeating them here gives one report line each with the number of test
 # cases. The CLI unit tests run in tests/packages/test_packages.sh.
 set -uo pipefail

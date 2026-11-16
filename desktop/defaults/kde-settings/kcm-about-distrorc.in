@@ -1,9 +1,0 @@
-# Boswas OS branding for System Settings > About this System (kinfocenter).
-# Placeholders are filled from config/boswas/release.conf at package build.
-# Website is not set (os-release has no HOME_URL), so no link is shown.
-# Live sessions get "Variant=Live session" appended at boot by the boswas
-# live-config component (config/boswas/live-config-boswas).
-[General]
-Name=@BOSWAS_NAME@
-Version=@BOSWAS_VERSION@
-LogoPath=/usr/share/boswas/branding/boswas-about-logo.svg

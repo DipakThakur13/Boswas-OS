@@ -13,11 +13,16 @@ from __future__ import annotations
 
 import ast
 import re
+import shutil
+import subprocess
+import sys
+import tempfile
 import unicodedata
 import unittest
 from pathlib import Path
 
 PACKAGE = Path(__file__).resolve().parents[1]
+REPOSITORY = PACKAGE.parents[1]
 CODE = sorted((PACKAGE / "boswas_manager").rglob("*.py"))
 SCRIPTS = [PACKAGE / "bin" / "boswas-compat-manager"]
 ALL = CODE + SCRIPTS
@@ -230,14 +235,109 @@ class DataFilesTest(unittest.TestCase):
         self.assertEqual(entry["Categories"], "System;Settings;")
         self.assertNotIn("MimeType", entry)           # "Run with Boswas" stays the default handler
 
-    def test_service_menu(self):
-        groups = self.entries(PACKAGE / "data" / "boswas-compat-manager-install.desktop")
-        self.assertEqual(groups["Desktop Entry"]["Type"], "Service")
-        self.assertEqual(groups["Desktop Entry"]["Actions"], "install;")
-        self.assertIn("application/x-msi", groups["Desktop Entry"]["MimeType"])
-        action = groups["Desktop Action install"]
-        self.assertEqual(action["Name"], "Install with Boswas Compatibility Manager")
-        self.assertEqual(action["Exec"], "boswas-compat-manager --install %f")
+    INSTALL_ENTRY = "com.boswas.CompatibilityManager.Install.desktop"
+    RUN_ENTRY = "boswas-winapp-install.desktop"          # "Run with Boswas" (boswas-compat)
+    INSTALLER_TYPES = ["application/x-msdownload", "application/x-ms-dos-executable",
+                       "application/vnd.microsoft.portable-executable", "application/x-msi"]
+
+    def test_install_entry(self):
+        """What Boswas Files and other file managers offer under "Open with" for .exe and .msi files."""
+        groups = self.entries(PACKAGE / "data" / self.INSTALL_ENTRY)
+        self.assertEqual(list(groups), ["Desktop Entry"])
+        entry = groups["Desktop Entry"]
+        self.assertEqual(entry["Type"], "Application")
+        self.assertEqual(entry["Name"], "Install with Boswas Compatibility Manager")
+        self.assertEqual(entry["Exec"], "boswas-compat-manager --install %f")
+        self.assertEqual(entry["NoDisplay"], "true")                 # not a second entry in the application menu
+        self.assertEqual(entry["Terminal"], "false")
+        self.assertEqual(entry["Icon"], "boswas-compat-manager")
+        self.assertEqual(entry["MimeType"], ";".join(self.INSTALLER_TYPES) + ";")
+        for key in entry:
+            self.assertFalse(key.startswith("X-KDE"), key)
+
+    def test_no_service_menu_is_shipped(self):
+        """The Dolphin context menu entry left with Dolphin."""
+        self.assertFalse((PACKAGE / "data" / "boswas-compat-manager-install.desktop").exists())
+        for path in sorted((PACKAGE / "data").glob("*.desktop")):
+            text = path.read_text(encoding="utf-8")
+            self.assertNotIn("Type=Service", text, path.name)
+            self.assertNotIn("KonqPopupMenu", text, path.name)
+        rules = (PACKAGE / "debian" / "rules").read_text(encoding="utf-8")
+        self.assertNotIn("servicemenus", rules)
+        self.assertNotIn("/kio/", rules)
+        for name in (self.INSTALL_ENTRY, "boswas-mimeapps.list"):
+            self.assertIn(f"data/{name}", rules)
+            self.assertIn(f"/usr/share/applications/{name}", rules)
+
+    def test_install_entry_is_valid(self):
+        validate = shutil.which("desktop-file-validate")
+        if validate is None:
+            self.skipTest("desktop-file-validate is not installed")
+        for name in (self.INSTALL_ENTRY, "com.boswas.CompatibilityManager.desktop"):
+            result = subprocess.run([validate, str(PACKAGE / "data" / name)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertNotIn("error", (result.stdout + result.stderr).lower())
+
+    def test_run_with_boswas_stays_the_default(self):
+        """Opening a Windows program keeps meaning "Run with Boswas", however a default is looked up.
+
+        update-desktop-database writes the entries of a type in the order of
+        their file names, and xdg-mime and GLib take the first when no list
+        names a default: the entry here sorts after "Run with Boswas". Boswas
+        Files orders by name instead, so the package also ships the default.
+        """
+        self.assertGreater(self.INSTALL_ENTRY, self.RUN_ENTRY)
+        defaults = self.entries(PACKAGE / "data" / "boswas-mimeapps.list")
+        self.assertEqual(list(defaults), ["Default Applications"])
+        self.assertEqual(defaults["Default Applications"],
+                         {mime: self.RUN_ENTRY for mime in self.INSTALLER_TYPES})
+        other = REPOSITORY / "compatibility" / "desktop" / self.RUN_ENTRY
+        if not other.is_file():
+            self.skipTest("boswas-compat is not in this tree")
+        run = self.entries(other)["Desktop Entry"]
+        self.assertEqual(run["Name"], "Run with Boswas")
+        # Every type "Run with Boswas" opens has its default named, and the new entry declares no other type.
+        self.assertEqual(sorted(filter(None, run["MimeType"].split(";"))), sorted(self.INSTALLER_TYPES))
+
+    def test_boswas_files_opens_with_run_and_offers_install(self):
+        """The application index of Boswas Files, on the two entries as they are installed."""
+        apps = REPOSITORY / "packages" / "boswas-apps"
+        other = REPOSITORY / "compatibility" / "desktop" / self.RUN_ENTRY
+        if not (apps / "boswas_apps" / "files" / "desktopapps.py").is_file() or not other.is_file():
+            self.skipTest("Boswas Files or boswas-compat is not in this tree")
+        sys.path.insert(0, str(apps))
+        try:
+            from boswas_apps.files import desktopapps
+        finally:
+            sys.path.remove(str(apps))
+        with tempfile.TemporaryDirectory() as tmp:
+            applications = Path(tmp) / "applications"
+            applications.mkdir()
+            for source in (other, PACKAGE / "data" / self.INSTALL_ENTRY, PACKAGE / "data" / "boswas-mimeapps.list",
+                           PACKAGE / "data" / "com.boswas.CompatibilityManager.desktop"):
+                shutil.copy(source, applications / source.name)
+            shipped = desktopapps.AppIndex(app_dirs=[str(applications)],
+                                           list_files=[str(applications / "boswas-mimeapps.list")]).load()
+            for mime in self.INSTALLER_TYPES:
+                with self.subTest(mime=mime):
+                    self.assertEqual(shipped.default_for([mime]).app_id, self.RUN_ENTRY)
+                    self.assertEqual([app.app_id for app in shipped.apps_for([mime])],
+                                     [self.RUN_ENTRY, self.INSTALL_ENTRY])
+            install = shipped.apps[self.INSTALL_ENTRY]
+            self.assertTrue(install.no_display)
+            self.assertNotIn(install, shipped.visible_apps())
+            self.assertEqual(desktopapps.expand_exec(install, ["/home/me/Downloads/set up.exe"]),
+                             [["boswas-compat-manager", "--install", "/home/me/Downloads/set up.exe"]])
+            # Without the list of defaults Files would take the first name, which is why it is shipped.
+            bare = desktopapps.AppIndex(app_dirs=[str(applications)], list_files=[]).load()
+            self.assertEqual(bare.default_for([self.INSTALLER_TYPES[0]]).app_id, self.INSTALL_ENTRY)
+            # The user's own choice comes first.
+            own = Path(tmp) / "mimeapps.list"
+            own.write_text(f"[Default Applications]\napplication/x-msi={self.INSTALL_ENTRY}\n", encoding="utf-8")
+            chosen = desktopapps.AppIndex(app_dirs=[str(applications)],
+                                          list_files=[str(own), str(applications / "boswas-mimeapps.list")]).load()
+            self.assertEqual(chosen.default_for(["application/x-msi"]).app_id, self.INSTALL_ENTRY)
+            self.assertEqual(chosen.default_for(["application/x-msdownload"]).app_id, self.RUN_ENTRY)
 
     def test_icon_is_self_contained(self):
         svg = (PACKAGE / "data" / "boswas-compat-manager.svg").read_text(encoding="utf-8")

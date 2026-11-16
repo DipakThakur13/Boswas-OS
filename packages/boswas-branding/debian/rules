@@ -6,18 +6,17 @@
 #   desktop/ui/         Boswas UI tokens and the Prism colour schemes
 #   desktop/ui/qt/      boswas_fluent, the Qt toolkit of the Boswas applications
 #                       (to the private module directory /usr/lib/boswas/python)
-#   desktop/presets/    the ten presets: colour schemes, wallpapers, Konsole
-#                       schemes, boswas-preset (install.sh)
+#   desktop/presets/    the ten presets: colour schemes, wallpapers,
+#                       boswas-preset (install.sh)
 #   desktop/icons/      the Boswas Prism icon pack and the earlier Boswas
 #                       icon themes (install.sh)
-#   desktop/terminal/   the Boswas terminal prompt and welcome
+#   desktop/terminal/   the prompt and welcome of Boswas Terminal
 #   desktop/defaults/   system-wide defaults for KDE applications and Firefox
 #
 # The desktop itself (compositor, shell, lock and login screens) is the
 # package boswas-desktop; the boot screen is boswas-bootsplash.
 
 REPO   := $(abspath $(CURDIR)/../..)
-SUBST  := $(REPO)/build/scripts/subst-release.sh
 INLINE := python3 $(REPO)/build/scripts/inline-svg.py
 DESK   := $(REPO)/desktop
 B      := build
@@ -49,7 +48,6 @@ override_dh_auto_build:
 	$(INLINE) $(DESK)/branding/login-logo.svg $(B)/boswas-login-logo.svg
 	# Defaults for KDE applications: the Prism colour scheme and icon pack
 	cat $(DESK)/defaults/kde-settings/kdeglobals.header $(DESK)/ui/color-schemes/BoswasPrism.colors > $(B)/kdeglobals
-	$(SUBST) < $(DESK)/defaults/kde-settings/kcm-about-distrorc.in > $(B)/kcm-about-distrorc
 
 override_dh_auto_install:
 	install -D -m 0644 $(B)/boswas-logo.svg $(BRAND)/boswas-logo.svg
@@ -68,22 +66,17 @@ override_dh_auto_install:
 	install -D -m 0644 $(DESK)/ui/tokens.json $(SHARE)/boswas/ui/tokens.json
 	for scheme in BoswasPrism BoswasPrismLight; do \
 		install -D -m 0644 $(DESK)/ui/color-schemes/$$scheme.colors $(SHARE)/color-schemes/$$scheme.colors || exit 1; \
-		install -D -m 0644 $(DESK)/ui/konsole/$$scheme.colorscheme $(SHARE)/konsole/$$scheme.colorscheme || exit 1; \
 	done
 	# boswas_fluent: the Qt toolkit every Boswas application imports
 	install -d -m 0755 $(FLUENT) $(FLUENT)/widgets
 	install -m 0644 $(DESK)/ui/qt/boswas_fluent/*.py $(FLUENT)/
 	install -m 0644 $(DESK)/ui/qt/boswas_fluent/widgets/*.py $(FLUENT)/widgets/
-	# The Prism terminal profiles (the default one is named in konsolerc)
-	for profile in "Boswas Prism" "Boswas Prism Light"; do \
-		install -D -m 0644 "$(DESK)/ui/konsole/$$profile.profile" "$(SHARE)/konsole/$$profile.profile" || exit 1; \
-	done
-	# The ten presets (colour schemes, wallpapers, lock-screen art, Konsole
-	# schemes and profiles, boswas-preset) and the icon themes: Boswas Prism
-	# (the default) and the earlier Boswas themes
+	# The ten presets (colour schemes, wallpapers, lock-screen art,
+	# boswas-preset) and the icon themes: Boswas Prism (the default) and the
+	# earlier Boswas themes
 	sh $(DESK)/presets/install.sh $(CURDIR)/$(PKG)
 	sh $(DESK)/icons/install.sh $(CURDIR)/$(PKG) all
-	# Terminal: prompt and welcome for the Boswas Konsole profiles
+	# Terminal: the prompt and welcome Boswas Terminal starts bash with
 	install -D -m 0644 $(DESK)/terminal/bashrc $(SHARE)/boswas/terminal/bashrc
 	install -D -m 0755 $(DESK)/terminal/boswas-welcome $(PKG)/usr/bin/boswas-welcome
 	install -D -m 0644 $(DESK)/terminal/boswas-welcome.1 $(SHARE)/man/man1/boswas-welcome.1
@@ -91,7 +84,5 @@ override_dh_auto_install:
 	# Defaults for KDE applications (an XDG config dir that boswas-session
 	# appends, so /etc/xdg and the user's own settings keep precedence)
 	install -D -m 0644 $(B)/kdeglobals $(KDEDEF)/kdeglobals
-	install -D -m 0644 $(DESK)/defaults/kde-settings/konsolerc $(KDEDEF)/konsolerc
-	install -D -m 0644 $(B)/kcm-about-distrorc $(KDEDEF)/kcm-about-distrorc
 	# Firefox ESR: no Debian package search among the user's search engines
 	install -D -m 0644 $(DESK)/defaults/firefox/policies.json $(PKG)/usr/lib/firefox-esr/distribution/policies.json

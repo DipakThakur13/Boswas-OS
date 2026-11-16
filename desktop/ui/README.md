@@ -6,9 +6,8 @@ generated from it or built on it.
 | Path | What it is |
 |------|------------|
 | `tokens.json` | The single source of truth: the palette, the dark and light themes, strokes, fills and materials, the icon hues, radii, spacing, type, elevation, motion and the fixed sizes of the shell |
-| `tools/build_kde_colors.py` | Generates the KDE and Konsole colour schemes from the tokens (Python 3 standard library) |
+| `tools/build_kde_colors.py` | Generates the KDE colour schemes from the tokens, and holds the terminal palette of Prism (Python 3 standard library) |
 | `color-schemes/BoswasPrism.colors`, `color-schemes/BoswasPrismLight.colors` | The generated KDE schemes (committed; do not edit by hand) |
-| `konsole/` | The generated Konsole colour schemes and profiles (committed; do not edit by hand) |
 | `tests/test_tokens.py` | Unit tests (standard library only) |
 | `qt/` | `boswas_fluent`, the PySide6 toolkit that gives the Boswas applications this look ([qt/README.md](qt/README.md), ADR-0039) |
 
@@ -152,10 +151,10 @@ applications pick it up with the next `boswas-branding`.
 
 ## The KDE colour schemes
 
-KDE applications (Dolphin, Konsole, Okular, ...) take their colours from a
-KDE colour scheme. They are no longer in the image (ADR-0040) but run
-when installed. Two schemes map the tokens onto KDE's colour roles, so
-their windows match the shell and the window frames:
+KDE applications take their colours from a KDE colour scheme. They are no
+longer in the image (ADR-0040) but run when a user installs one. Two
+schemes map the tokens onto KDE's colour roles, so their windows match the
+shell and the window frames:
 
 | Scheme | File | Installed as |
 |--------|------|--------------|
@@ -167,25 +166,27 @@ The selection is the same in both: white text on `iris.600`. Warnings are
 Boswas applications do not use these schemes: they take the tokens
 through the Qt toolkit.
 
-Konsole draws its terminal with a colour scheme of its own, chosen by a
-profile. The same tool writes both from the tokens: `konsole/BoswasPrism.colorscheme`
-and `konsole/BoswasPrismLight.colorscheme`, and the profiles
-`konsole/Boswas Prism.profile` (the default, named in
-`../defaults/kde-settings/konsolerc`) and `konsole/Boswas Prism Light.profile`,
-installed to `/usr/share/konsole/`. The tests hold every terminal colour
-to 4.5:1 against its background.
+The same tool holds the terminal palette of Prism: `TERMINAL`, the token
+references of the sixteen terminal colours for dark and for light, and
+`terminal_colours()`, which resolves them. Boswas Terminal draws with
+these colours (it keeps the same table in
+`packages/boswas-apps/boswas_apps/terminal/schemes.py`, and its tests
+compare the two). The tests here hold every terminal colour to 4.5:1
+against its background. Nothing is generated from the table: the Konsole
+colour schemes and profiles that used to be written from it are gone
+(ADR-0042).
 
 `boswas-branding` also builds the system-wide default `kdeglobals` for KDE
 applications from `../defaults/kde-settings/kdeglobals.header` plus
 `BoswasPrism.colors`, and installs it in `/usr/share/boswas/kde-settings`,
 which `boswas-session` appends to `XDG_CONFIG_DIRS`. A user's own settings
 and `/etc/xdg` take precedence; a preset replaces the colours for a user
-([presets](../presets/README.md#the-native-boswas-desktop)).
+([presets](../presets/README.md#applying-a-preset)).
 
 Regenerate after changing `tokens.json`:
 
 ```sh
-python3 desktop/ui/tools/build_kde_colors.py           # rewrite the schemes and profiles
+python3 desktop/ui/tools/build_kde_colors.py           # rewrite the two schemes
 python3 desktop/ui/tools/build_kde_colors.py --check   # exit 1 if they are stale
 ```
 
@@ -209,7 +210,8 @@ They check that:
   button 46 by 32, every stroke and fill opacity lies between 0 and 0.25,
   and every material's tint resolves;
 - icon glyphs stay readable on their tiles;
-- the committed colour schemes are what the generator produces now;
+- the committed colour schemes are what the generator produces now, and
+  it writes nothing else;
 - text meets WCAG AA (4.5:1) on every background of both schemes, window
   titles are readable, the terminal colours are readable, and the schemes
   have every group KDE reads.

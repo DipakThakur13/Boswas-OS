@@ -46,9 +46,9 @@ SIGNAL_WORDS = {"excellent": "Excellent signal", "good": "Good signal", "ok": "F
 BLUETOOTH_ICONS = {
     "audio-headphones": "audio-headphones-symbolic", "audio-headset": "audio-headphones-symbolic",
     "audio-card": "audio-volume-high-symbolic", "input-keyboard": "input-keyboard-symbolic",
-    "input-mouse": "input-mouse-symbolic", "input-tablet": "input-mouse-symbolic", "phone": "phone",
+    "input-mouse": "input-mouse-symbolic", "input-tablet": "input-tablet-symbolic", "phone": "phone",
     "computer": "computer", "camera-photo": "camera-photo-symbolic", "camera-video": "camera-video-symbolic",
-    "printer": "printer", "input-gaming": "input-mouse-symbolic",
+    "printer": "printer", "input-gaming": "input-gaming-symbolic",
 }
 BLUETOOTH_KINDS = {
     "audio-headphones": "Headphones", "audio-headset": "Headset", "audio-card": "Audio device",

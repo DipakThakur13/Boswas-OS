@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Install with Boswas Compatibility Manager
+GenericName=Windows Application Installer
+Comment=Check a Windows program or installer package and install it in an isolated Boswas sandbox
+Exec=boswas-compat-manager --install %f
+Icon=boswas-compat-manager
+Terminal=false
+NoDisplay=true
+StartupNotify=true
+MimeType=application/x-msdownload;application/x-ms-dos-executable;application/vnd.microsoft.portable-executable;application/x-msi;
+Categories=System;

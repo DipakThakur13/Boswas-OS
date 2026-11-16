@@ -492,7 +492,7 @@ def session_env(sh: "Shell") -> str:
 def in_session(cmd: str, background: bool = False) -> str:
     """A shell snippet that runs CMD (plain words, no quotes) with the live user's
     complete desktop session environment, as if started from the launcher
-    (XDG_CONFIG_DIRS brings the Boswas defaults: Konsole profile, icons, colours)."""
+    (XDG_CONFIG_DIRS brings the Boswas defaults for KDE applications: icons, colours)."""
     run = (f"xargs -0 -a /proc/$p/environ sh -c 'exec env -i \"$@\" "
            f"env -u WAYLAND_SOCKET -u BOSWAS_COMPOSITOR_FD {cmd}' _")
     if background:
@@ -584,13 +584,11 @@ def scenario_usb(iso: Path, workdir: Path, outdir: Path, timeout: float) -> None
         check("Boswas OS" in out and "debian" not in out.lower(),
               "identity: console banners, message of the day and hostnamectl say Boswas OS (no Debian)")
         rc, out = sh.run("getent passwd boswas | cut -d: -f5; cat /run/boswas/session; "
-                         "grep '^Variant=' /usr/share/boswas/kde-settings/kcm-about-distrorc; "
                          "grep -c 'Exec=boswas-control-center --page install' "
                          "/usr/local/share/applications/com.boswas.InstallBoswasOS.desktop")
         lines = out.splitlines()
         check(bool(lines) and lines[0].startswith("Boswas OS Live"), f"live session: user shown as Boswas OS Live ({lines[:1]})")
-        check("live" in lines and "Variant=Live session" in lines,
-              "live session: marked as Live session (Control Center, About this System, terminal)")
+        check("live" in lines, "live session: marked as Live session (Control Center, terminal)")
         check(lines[-1:] == ["1"], "live session: \"Install Boswas OS\" is offered in the application menu (optional)")
 
         # The desktop, directly
@@ -668,7 +666,9 @@ def scenario_usb(iso: Path, workdir: Path, outdir: Path, timeout: float) -> None
 
         # The ten presets in the running session: each applies (exit 0, recorded),
         # switches the user's colour scheme to its own, and changes the screen
-        # while the desktop panel (gold Boswas launcher) stays.
+        # while the desktop panel (gold Boswas launcher) stays. The colour scheme
+        # is read from the user's kdeglobals as a file: no KDE tool is needed
+        # (this shell is the live user's).
         rc, out = sh.run(in_session("boswas-preset --json list"))
         presets = {p.get("id"): p for p in _json(out).get("presets", [])}
         check(sorted(presets) == sorted(PRESET_IDS), f"presets: ten Boswas OS presets ({len(presets)})")
@@ -678,8 +678,8 @@ def scenario_usb(iso: Path, workdir: Path, outdir: Path, timeout: float) -> None
         # preset, Horizon included, must visibly change the screen.
         for preset in PRESET_IDS[1:] + PRESET_IDS[:1]:
             vm.nudge()
-            rc, out = sh.run(in_session(f"boswas-preset apply {preset}") + " >/dev/null 2>&1; echo rc=$?; " +
-                             in_session("kreadconfig6 --file kdeglobals --group General --key ColorScheme") + "; " +
+            rc, out = sh.run(in_session(f"boswas-preset apply {preset}") + " >/dev/null 2>&1; echo rc=$?; "
+                             "sed -n '/^\\[General\\]/,/^\\[/s/^ColorScheme=//p' ~/.config/kdeglobals; " +
                              in_session("boswas-preset current"), timeout=300)
             vm.pump(25)
             vm.nudge()
@@ -1027,7 +1027,7 @@ def scenario_android(iso: Path, workdir: Path, outdir: Path, timeout: float) -> 
     The real Debian kernel (binder_linux), boswas-sysops android-runtime-install
     (the Waydroid project's repository with the pinned key, Waydroid's own
     launchers hidden), android-init (VANILLA images), the container service, a
-    Waydroid session in the Plasma (Wayland) session, then a real signed APK:
+    Waydroid session in the Boswas (Wayland) session, then a real signed APK:
     the F-Droid client, downloaded by boswas-android with its signer
     certificate checked, installed, launched, found in the launcher and
     removed. Google Play must be absent throughout.
@@ -1386,7 +1386,7 @@ def device_management_checks(vm: "VM", sh: "Shell", outdir: Path, workdir: Path,
                              timeout: float) -> None:
     """Session agent, Compatibility Manager and the Control Plane with the real kernel's AppArmor."""
     rc, out = sh.run("systemctl --user is-active boswas-session-agent.service")
-    check(out.strip() == "active", "the user's session agent runs in the Plasma session (systemd user unit)")
+    check(out.strip() == "active", "the user's session agent runs in the Boswas session (systemd user unit)")
     connected = False
     for _ in range(12):
         if _json(sh.run("boswas-device --json status")[1]).get("agent", {}).get("sessions", {}).get("connected"):
@@ -1403,7 +1403,7 @@ def device_management_checks(vm: "VM", sh: "Shell", outdir: Path, workdir: Path,
     to_png(vm.screendump("compat-manager"), outdir / "compat-manager.png")
     rc, out = sh.run("pgrep -u boswas -f boswas-compat-manager >/dev/null && echo running; "
                      "tail -5 /tmp/compat-manager.log")
-    check("running" in out, "the Compatibility Manager starts on the Plasma session (screenshot compat-manager.png)")
+    check("running" in out, "the Compatibility Manager starts in the Boswas session (screenshot compat-manager.png)")
     sh.run("pkill -u boswas -f boswas-compat-manager")
 
     if fixtures is None:
@@ -1603,16 +1603,16 @@ def scenario_serial(iso: Path, workdir: Path, outdir: Path, timeout: float, fixt
         # The graphical session (greetd's automatic sign-in -> the Boswas
         # desktop) under emulation may take a while; give it time, then
         # capture the screen.
-        plasma = False
+        session_up = False
         deadline = time.time() + min(900, timeout)
         while time.time() < deadline:
             rc, out = sh.run("pgrep -u boswas -x boswas-shell >/dev/null && echo running")
             if "running" in out:
-                plasma = True
+                session_up = True
                 break
             vm.pump(20)
-        check(plasma, "the Boswas desktop session started for the live user (automatic sign-in)")
-        if plasma:
+        check(session_up, "the Boswas desktop session started for the live user (automatic sign-in)")
+        if session_up:
             vm.pump(60)
             to_png(vm.screendump("desktop"), outdir / "serial-desktop.png")
             if fixtures is not None:

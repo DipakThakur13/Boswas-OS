@@ -207,7 +207,7 @@ for path in glob.glob("desktop/**/*.svg", recursive=True) + glob.glob("installer
     for m in re.finditer(r"<text[^>]*>([^<]*)", open(path, encoding="utf-8").read()):
         if "debian" in m.group(1).lower():
             bad.append(f"{path}: {m.group(1)}")
-# Names and descriptions users see in settings (Global Themes, wallpapers, applets).
+# Names users see in settings (the wallpaper packages).
 for path in glob.glob("desktop/**/metadata.json", recursive=True):
     plugin = json.load(open(path, encoding="utf-8")).get("KPlugin", {})
     for key, value in plugin.items():
@@ -231,6 +231,36 @@ check "Plasma, KWin, SDDM and Plymouth are pinned out of the image" \
 		done"
 check "the image manifest installs the Boswas desktop, the boot screen and greetd" \
 	bash -c "for p in boswas-desktop boswas-bootsplash greetd; do grep -rqx \"\$p\" $lists || exit 1; done"
+# ADR-0042: nothing is generated, installed or run for KDE programs that are
+# not shipped (Plasma, Konsole, System Settings, Dolphin). What stays serves
+# KDE applications a user installs: the colour schemes and the kdeglobals
+# defaults.
+check_not "no Plasma Global Theme, Konsole profile or colour scheme, konsolerc, System Settings module file or service menu is in the tree" \
+	bash -c "test -e desktop/presets/look-and-feel || test -e desktop/presets/konsole || test -e desktop/ui/konsole ||
+		[ \"\$(ls desktop/defaults/kde-settings)\" != kdeglobals.header ] ||
+		find desktop packages compatibility -path '*/target' -prune -o \\( -name '*.colorscheme' -o -name '*.profile' -o -name konsolerc \
+			-o -name 'kcm-about*' -o -name '*servicemenu*' \\) -print | grep -q . ||
+		grep -rlE --include='*.desktop' --exclude-dir=target 'Type=Service|KonqPopupMenu' desktop packages compatibility | grep -q ."
+check_not "no package installs into /usr/share/plasma, /usr/share/konsole or /usr/share/kio (rules and install scripts)" \
+	grep -qE 'share/(plasma|konsole|kio)|/konsole/|look-and-feel|servicemenus|kcm-about|konsolerc' \
+	packages/*/debian/rules desktop/presets/install.sh desktop/icons/install.sh
+check_not "boswas-preset starts no program and names no KDE program (it writes the user's files itself)" \
+	grep -qiE 'subprocess|os\.system|os\.popen|os\.exec|os\.spawn|Popen|kwriteconfig|kreadconfig|plasma|konsole|kscreenlocker|qdbus|lookandfeel|systemsettings|kcmshell|dolphin' \
+	desktop/presets/boswas_preset/__init__.py desktop/presets/boswas_preset/cli.py desktop/presets/bin/boswas-preset
+check_not "nothing shipped runs KDE's configuration tools, and no package depends on them or builds with netpbm" \
+	bash -c "grep -rIlE 'kwriteconfig|kreadconfig' packages desktop config build installer \
+			--exclude-dir=target --exclude-dir=tests --exclude-dir=__pycache__ --exclude='*.md' | grep -q . ||
+		grep -qE 'libkf6config-bin|libkf6kcmutils-bin|kde-cli-tools' packages/*/debian/control ||
+		grep -q netpbm packages/boswas-branding/debian/control"
+check "the Compatibility Manager's \"Open with\" entry cannot take the place of \"Run with Boswas\" (file name order, shipped defaults)" \
+	bash -c "d=packages/boswas-compat-manager/data; e=\$d/com.boswas.CompatibilityManager.Install.desktop
+		grep -qx 'NoDisplay=true' \$e && grep -qx 'Exec=boswas-compat-manager --install %f' \$e &&
+		[ \"\$(grep -rlE --include='*.desktop' --exclude-dir=target '^MimeType=(.*;)?application/x-msdownload;' packages compatibility desktop |
+			sed 's|.*/||' | LC_ALL=C sort | tr '\\n' ' ')\" = 'boswas-winapp-install.desktop com.boswas.CompatibilityManager.Install.desktop ' ] &&
+		for t in \$(sed -n 's/^MimeType=//p' \$e | tr ';' ' '); do
+			grep -qx \"\$t=boswas-winapp-install.desktop\" \$d/boswas-mimeapps.list &&
+				grep -qE \"^MimeType=(.*;)?\$t;\" compatibility/desktop/boswas-winapp-install.desktop || exit 1
+		done"
 state=packages/boswas-desktop/crates/boswas-compositor/src/state.rs
 check "compositor: the privileged protocols are offered by client trust (layer shell, session lock, window list, clipboard control)" \
 	bash -c "grep -q 'WlrLayerShellState::new_with_filter::<Self, _>(&dh, privileged)' $state &&

@@ -67,13 +67,32 @@ for f in \
 	usr/share/icons/hicolor/scalable/apps/boswas-logo.svg \
 	usr/share/boswas/branding/boswas-about-logo.svg usr/share/boswas/branding/login-background.png \
 	usr/share/boswas/branding/boswas-os-mark.svg usr/share/fonts/truetype/orbitron/Orbitron-SemiBold.ttf \
-	usr/share/boswas/kde-settings/kdeglobals usr/share/boswas/kde-settings/kcm-about-distrorc \
+	usr/share/boswas/kde-settings/kdeglobals \
 	etc/issue.d/boswas.issue; do
 	check "branding/identity file /$f" test -s "$root/$f"
 done
 contains "KDE applications default to the Boswas Prism icons" "$root/usr/share/boswas/kde-settings/kdeglobals" "Theme=Boswas-Prism"
 contains "KDE applications default to the Prism colour scheme" "$root/usr/share/boswas/kde-settings/kdeglobals" "ColorScheme=BoswasPrism"
-contains "About page shows Boswas OS" "$root/usr/share/boswas/kde-settings/kcm-about-distrorc" "Name=Boswas OS"
+# Nothing of Boswas is installed for programs the image does not have (ADR-0042): Plasma (Global
+# Themes), Konsole (profiles, colour schemes, a default profile), System Settings (the About
+# module's file), Dolphin (service menus). The lists are dpkg's, so files of Debian packages do
+# not count.
+check "the Boswas packages' file lists are present (dpkg)" bash -c "ls '$root'/var/lib/dpkg/info/boswas-branding.list '$root'/var/lib/dpkg/info/boswas-compat-manager.list"
+check_not "no Boswas package installs anything under /usr/share/plasma, /usr/share/konsole or /usr/share/kio" \
+	bash -c "grep -qE '^/usr/share/(plasma|konsole|kio)(/|\$)' '$root'/var/lib/dpkg/info/boswas-*.list"
+check_not "no Konsole default profile and no System Settings module file among the KDE application defaults" \
+	bash -c "test -e '$root/usr/share/boswas/kde-settings/konsolerc' || test -e '$root/usr/share/boswas/kde-settings/kcm-about-distrorc'"
+check "\"Install with Boswas Compatibility Manager\" is offered for Windows installers (a hidden entry with --install %f)" \
+	bash -c "e='$root/usr/share/applications/com.boswas.CompatibilityManager.Install.desktop'
+		grep -qx 'NoDisplay=true' \$e && grep -qx 'Exec=boswas-compat-manager --install %f' \$e &&
+		grep -q '^MimeType=.*application/x-msi;' \$e"
+check "the Boswas desktop's defaults name \"Run with Boswas\" for Windows programs and installer packages" \
+	bash -c "for t in application/x-msdownload application/x-ms-dos-executable application/vnd.microsoft.portable-executable application/x-msi; do
+			grep -qx \"\$t=boswas-winapp-install.desktop\" '$root/usr/share/applications/boswas-mimeapps.list' || exit 1
+		done"
+check_not "boswas-preset names no KDE program" \
+	grep -rqiE 'kwriteconfig|kreadconfig|plasma|konsole|kscreenlocker|qdbus|lookandfeel' \
+	"$root/usr/lib/boswas/python/boswas_preset" "$root/usr/bin/boswas-preset"
 contains "os-release names Boswas OS" "$root/etc/os-release" 'NAME="Boswas OS"'
 contains "os-release keeps ID_LIKE=debian for Debian tooling" "$root/etc/os-release" 'ID_LIKE=debian'
 check "ten Boswas OS presets installed (colour schemes and wallpapers)" \

@@ -663,6 +663,32 @@ class BluetoothTest(SectionCase if PYSIDE else unittest.TestCase):
         self.assertFalse(section.add_card.isVisibleTo(self.host))
         self.assertFalse(section.paired_title.isVisibleTo(self.host))
 
+    def test_every_kind_of_device_has_an_icon_of_the_pack(self):
+        icons = connectivity.BLUETOOTH_ICONS
+        self.assertEqual(icons["input-gaming"], "input-gaming-symbolic")
+        self.assertEqual(icons["input-tablet"], "input-tablet-symbolic")
+        self.assertEqual(icons["input-mouse"], "input-mouse-symbolic")
+        self.assertEqual(set(icons), set(connectivity.BLUETOOTH_KINDS))
+        pack = Path(__file__).resolve().parents[3] / "desktop" / "icons" / "Boswas-Prism" / "scalable"
+        if not pack.is_dir():
+            self.skipTest("the icon pack is not in this tree")
+        shipped = {path.stem for path in pack.glob("*/*.svg")}
+        for name in sorted(set(icons.values()) | {"bluetooth-active-symbolic"}):
+            self.assertIn(name, shipped)
+
+    def test_a_game_controller_and_a_tablet_show_their_own_icons(self):
+        section = self.section(connectivity.BluetoothSection)
+        with mock.patch.object(connectivity.fluent, "icon", wraps=connectivity.fluent.icon) as icon:
+            self.bridge.set_state(sb.BLUETOOTH, devices=(BT("AA:BB:CC:00:11:77", "Pad", "input-gaming", True),
+                                                         BT("AA:BB:CC:00:11:88", "Slate", "input-tablet", True)))
+            pad, slate = section.paired.row("AA:BB:CC:00:11:77"), section.paired.row("AA:BB:CC:00:11:88")
+        asked = [call.args[0] for call in icon.call_args_list]
+        self.assertIn("input-gaming-symbolic", asked)
+        self.assertIn("input-tablet-symbolic", asked)
+        self.assertNotIn("input-mouse-symbolic", asked)
+        self.assertIn("Game controller", pad.description())
+        self.assertIn("Tablet", slate.description())
+
     def test_a_device_without_a_name_shows_its_address(self):
         section = self.section(connectivity.BluetoothSection)
         self.bridge.set_state(sb.BLUETOOTH, devices=(BT("AA:BB:CC:00:11:66", "", "", False),))

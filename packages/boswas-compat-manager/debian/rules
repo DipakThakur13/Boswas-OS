@@ -23,7 +23,12 @@ override_dh_auto_install:
 	install -m 0644 boswas_manager/ui/*.py $(PYDIR)/ui/
 	install -D -m 0644 data/com.boswas.CompatibilityManager.desktop \
 		$(PKG)/usr/share/applications/com.boswas.CompatibilityManager.desktop
-	install -D -m 0644 data/boswas-compat-manager-install.desktop \
-		$(PKG)/usr/share/kio/servicemenus/boswas-compat-manager-install.desktop
+	# "Install with Boswas Compatibility Manager" for Windows programs and
+	# installer packages: an entry file managers offer under "Open with". Its
+	# file name sorts after boswas-winapp-install.desktop, and the list of
+	# defaults names that one, so "Run with Boswas" stays what opens a file.
+	install -D -m 0644 data/com.boswas.CompatibilityManager.Install.desktop \
+		$(PKG)/usr/share/applications/com.boswas.CompatibilityManager.Install.desktop
+	install -D -m 0644 data/boswas-mimeapps.list $(PKG)/usr/share/applications/boswas-mimeapps.list
 	install -D -m 0644 data/boswas-compat-manager.svg \
 		$(PKG)/usr/share/icons/hicolor/scalable/apps/boswas-compat-manager.svg

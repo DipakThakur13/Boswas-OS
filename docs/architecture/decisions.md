@@ -589,7 +589,8 @@ able to install a policy.
   AppArmor or bubblewrap, or edit permissions.
 - **Default handler unchanged:** "Run with Boswas" stays the default handler
   for Windows executables. The Manager adds a Dolphin service menu and its
-  own install flow.
+  own install flow. *(Since ADR-0042 an "Open with" entry takes the place
+  of the service menu; the default handler is still unchanged.)*
 
 **Why.**
 
@@ -1216,7 +1217,8 @@ reviewable and lets a designer change a value without reading Rust.
 - The ten presets still change wallpaper, the scheme (dark or light) and
   the colours of KDE applications, but the shell and the window frames
   ignore a preset's accent colour. The Plasma Global Theme data of the
-  presets is still generated and is unused.
+  presets is still generated and is unused. *(It was removed later:
+  ADR-0042.)*
 - Third-party icon coverage is what the pack contains; other icons fall
   back to Breeze (`breeze-icon-theme`).
 - The palette was chosen and contrast-checked by tooling; it has had no
@@ -2232,3 +2234,123 @@ conversation with `passwd` or AccountsService differs, when passwords set
 for others must use the system's hashing scheme, when an administrator
 must lock a setting that is not policy today, or when settings have to
 follow a user between devices.
+
+## ADR-0042 Nothing is built for KDE programs that are not shipped; the presets are native only
+
+Follows ADR-0026 (Plasma, KWin and SDDM left the image) and ADR-0040
+(KDE's applications left it). Until now the tree still generated,
+installed and tested data and code for four of those programs.
+
+**Decision.**
+
+- **Removed: Plasma.** The ten Global Themes of the presets
+  (`desktop/presets/look-and-feel/`, installed under
+  `/usr/share/plasma/look-and-feel`), their panel layout scripts and
+  previews, and the JPEG preview that made `netpbm` a build dependency of
+  `boswas-branding`. In `boswas-preset`: the Plasma branch
+  (`plasma-apply-lookandfeel`, `plasma-apply-wallpaperimage`, the
+  `kscreenlockerrc` entry), the `--layout` option, the test of
+  `XDG_CURRENT_DESKTOP` that chose between two ways of applying, and the
+  fallback of `current` to an active Global Theme. In `presets.json`
+  (now schema 2): `icon_theme`, `plasma_style` and `panel`; the one thing
+  the preview picture needed of `panel` is now `preview`. In Control
+  Center: the "Also apply the panel layout" box and the reset that
+  applied Horizon with its panels.
+- **Removed: Konsole.** The colour schemes and profiles of the ten
+  presets and of Prism (`/usr/share/konsole`), the default profile
+  (`konsolerc`), the step of `boswas-preset` that switched it, and the
+  `terminal` palettes of `presets.json`. The terminal palette of Prism
+  stays as a table in `desktop/ui/tools/build_kde_colors.py`, because
+  Boswas Terminal draws with it and its tests compare the two.
+- **Removed: System Settings and Dolphin.** `kcm-about-distrorc`, the
+  file of the About module of Plasma's System Settings, and the service
+  menu the Compatibility Manager installed for Dolphin
+  (`/usr/share/kio/servicemenus`).
+- **`boswas-preset` starts no program.** It ran KDE's `kwriteconfig6` to
+  record the applied preset (`[Preset] Current` in `~/.config/boswasrc`).
+  It now edits that file itself and keeps every other group and key, so
+  `boswas-branding` no longer depends on `libkf6config-bin`. Files
+  written by earlier versions have the same format and are read as
+  before.
+- **One careful way to write the user's files.** `appearance.toml`,
+  `kdeglobals` and `boswasrc` are written the same way: the new content
+  of all three is prepared before the first is written; each is replaced
+  atomically (a new file with mode 0600 and an unpredictable name in the
+  same directory, synced, renamed); a target that is a symbolic link or
+  not a regular file is refused, and so is a link in the place of
+  `~/.config/boswas`. This is what Control Center's `userfiles.py` does
+  for the same directory (ADR-0041).
+- **What stays, for KDE applications a user installs.** They run as
+  ordinary clients, so three things remain: the `.colors` schemes in
+  `/usr/share/color-schemes` (the ten presets and the two Prism
+  schemes); the default `kdeglobals` in `/usr/share/boswas/kde-settings`
+  (Prism colours, the Boswas Prism icons, the Breeze widget style of
+  `kde-style-breeze`), which `boswas-session` appends to
+  `XDG_CONFIG_DIRS`; and the step of `boswas-preset` that merges a
+  preset's colours into the user's `kdeglobals`. The icons of the pack
+  that are named after KDE applications stay as well.
+- **Windows installers from Boswas Files.** In the place of the service
+  menu the Compatibility Manager ships a desktop entry,
+  `com.boswas.CompatibilityManager.Install.desktop`: hidden from the
+  menu, declaring the four types of Windows programs and installer
+  packages, running `boswas-compat-manager --install %f`. File managers
+  offer it under "Open with". "Run with Boswas" (ADR-0021) stays what
+  opens such a file, by two means. The file name of the new entry sorts
+  after `boswas-winapp-install.desktop`, which is the order of
+  `mimeinfo.cache` that `xdg-mime` and GLib fall back to. And the package
+  ships `/usr/share/applications/boswas-mimeapps.list`, the defaults of
+  the Boswas desktop for these four types, because Boswas Files orders
+  the applications of a type by name and would otherwise open with the
+  new entry. A user's own choice still comes first.
+
+**Why.**
+
+- **It was dead weight that looked alive.** More than seventy installed
+  files and three test modules described a desktop nobody can start from
+  the image. A reader of the tree could not tell which path a preset
+  really takes.
+- **A tool that runs another desktop's programs depends on them.** One
+  key in one file kept a KDE Frameworks tool in the dependencies of the
+  package every Boswas application needs.
+- **The old writers were not careful.** They wrote to a temporary file
+  with a fixed name, followed a symbolic link when reading, replaced a
+  link by a file without saying so, and could stop after the first of
+  the files had changed.
+- **A second handler for a type is a risk to the default.** Nothing in
+  the tree named a default application for Windows programs: the order
+  of names decided. Adding an entry without fixing the default would
+  have changed what a double click does in Boswas Files.
+
+**Consequences.**
+
+- `boswas-preset apply ID --layout` is a usage error now, and the JSON of
+  `apply` has no `layout` field. `current` no longer reports a preset
+  because of a `LookAndFeelPackage` left in a `kdeglobals`.
+- The three user files get mode 0600 (they had the mode the umask gave).
+  A user whose `kdeglobals`, `boswasrc` or `appearance.toml` is a
+  symbolic link, as some dotfile managers make them, gets an error that
+  names the file; earlier versions replaced the link by a file.
+- A preset no longer changes anything in Konsole, and Konsole or Plasma
+  installed by hand find no Boswas profile or Global Theme.
+- `/usr/share/applications/boswas-mimeapps.list` belongs to
+  `boswas-compat-manager`. Another default application of the Boswas
+  desktop needs a line in that file, or the file moved to another package.
+- **Left as they are:** the wallpaper directories keep their layout
+  (`metadata.json`, `contents/images`, `contents/images_dark`), which
+  Control Center reads. The lock screen art, the login background and
+  `boswas-about-logo.svg` are still installed and nothing reads them. The
+  preview pictures still sketch the panel as the Plasma image had it.
+  The live-session script still looks for `kcm-about-distrorc` and now
+  finds none.
+- **Not verified yet:** no preset was applied in a running Boswas
+  session, and the entry was not tried from Boswas Files on a device.
+  Which application is the default was checked in a scratch directory
+  only: with `update-desktop-database` 0.27, `gio mime` (GLib 2.80) and
+  `xdg-mime` 1.1.3, each with and without the list of defaults, and with
+  the application index of Boswas Files in a test. The versions of
+  Debian 13 on an image were not run.
+
+**Revisit when** presets must recolour the shell (ADR-0031), a KDE
+application becomes part of the image again, the Boswas desktop needs
+defaults for more file types than these four, or users with linked
+configuration files need presets to follow the link.

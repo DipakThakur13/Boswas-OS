@@ -255,23 +255,29 @@ class BackendActionTest(RigTestCase):
 
     def test_apply_preset(self):
         self.backend.apply_preset("boswas-light")
-        self.backend.apply_preset("boswas-light", layout=True)
         self.assertEqual(self.rig.commands.ran_program("boswas-preset"),
-                         [[E["boswas-preset"], "apply", "boswas-light"],
-                          [E["boswas-preset"], "apply", "boswas-light", "--layout"]])
+                         [[E["boswas-preset"], "apply", "boswas-light"]])
         self.assertEqual(self.rig.commands.timeouts[-1], 180.0)
-        for bad in ("../x", "--layout", "x;rm", ""):
+        for bad in ("../x", "--layout", "x;rm", "", "ocean --layout", None):
             with self.assertRaises(ValueError):
                 self.backend.apply_preset(bad)
+        self.assertEqual(len(self.rig.commands.ran_program("boswas-preset")), 1)
+
+    def test_a_preset_command_is_the_id_and_nothing_else(self):
+        """The panel layout option left with Plasma: there is no second argument to pass."""
+        self.assertEqual(self.backend.preset_command("classic"), [E["boswas-preset"], "apply", "classic"])
+        with self.assertRaises(TypeError):
+            self.backend.preset_command("classic", True)
+        with self.assertRaises(TypeError):
+            self.backend.apply_preset("classic", layout=True)
+        self.assertFalse(hasattr(self.backend, "native_desktop"))
 
     def test_reset_look(self):
-        self.assertFalse(self.backend.native_desktop())
-        self.backend.environ["XDG_CURRENT_DESKTOP"] = "Boswas"
-        self.assertTrue(self.backend.native_desktop())
-        self.backend.environ["XDG_CURRENT_DESKTOP"] = "KDE"
-        self.assertFalse(self.backend.native_desktop())
-        self.backend.reset_look()
-        self.assertEqual(self.rig.commands.ran_program("boswas-preset")[-1], [E["boswas-preset"], "reset"])
+        # The same command whatever the session calls itself: there is one desktop.
+        for desktop in ("Boswas", "KDE", ""):
+            self.backend.environ["XDG_CURRENT_DESKTOP"] = desktop
+            self.backend.reset_look()
+            self.assertEqual(self.rig.commands.ran_program("boswas-preset")[-1], [E["boswas-preset"], "reset"])
         self.assertEqual(self.rig.commands.timeouts[-1], 180.0)
         self.rig.commands.outputs[(E["boswas-preset"], "reset")] = fx.completed("", 1, "step 'colours' failed")
         with self.assertRaises(CommandFailed) as raised:

@@ -1,6 +1,6 @@
 """Everything Control Center can read or do, as blocking calls.
 
-Sources, all read-only except the five actions at the end:
+Sources, all read-only except the actions at the end:
 
   boswas --json status        posture checks of boswas-cli (exit 1 = a check FAILed)
   device agent socket         agent.status, device.config, runtime.status
@@ -13,8 +13,9 @@ Sources, all read-only except the five actions at the end:
 
 Actions: start a program of the catalog (Files, the Compatibility Manager),
 open an application (gio launch <desktop entry>), apply a preset
-(boswas-preset apply <id> [--layout]) and, in a live session only, restart
-(systemctl reboot). Every variable argument is validated here before
+(boswas-preset apply <id>), return to the default look (boswas-preset
+reset) and, in a live session only, restart (systemctl reboot). Every
+variable argument is validated here before
 commands.argv() builds the argument list. The native settings sections
 (ui/settings) have their own backends: the services bridge, the compositor's
 configuration, and the modules named in their docstrings.
@@ -240,24 +241,20 @@ class Backend:
         self._start(self.launch_command(item))
 
     @staticmethod
-    def preset_command(preset_id: str, layout: bool = False) -> list[str]:
+    def preset_command(preset_id: str) -> list[str]:
         if not vm.valid_preset_id(preset_id):
             raise ValueError(f"invalid preset ID {preset_id!r}")
-        return argv("boswas-preset", "apply", preset_id, *(["--layout"] if layout else []))
-
-    def native_desktop(self) -> bool:
-        """Whether this session is the native Boswas desktop (the same test boswas-preset makes)."""
-        return "Boswas" in (self.environ.get("XDG_CURRENT_DESKTOP") or "").split(":")
+        return argv("boswas-preset", "apply", preset_id)
 
     def reset_look(self) -> None:
-        """Return to the default look: Boswas Prism on the native desktop."""
+        """Return to the default look, Boswas Prism, which is no preset."""
         command = argv("boswas-preset", "reset")
         result = self._run(command, PRESET_APPLY_TIMEOUT)
         if result.code != 0:
             raise commands.failure(command, result, "Resetting the appearance")
 
-    def apply_preset(self, preset_id: str, layout: bool = False) -> None:
-        command = self.preset_command(preset_id, layout)
+    def apply_preset(self, preset_id: str) -> None:
+        command = self.preset_command(preset_id)
         result = self._run(command, PRESET_APPLY_TIMEOUT)
         if result.code != 0:
             raise commands.failure(command, result, "Applying the preset")

@@ -260,16 +260,23 @@ Verification status of the native desktop
   (`/usr/share/boswas/ui/tokens.json`), both icon packs and the Qt toolkit
   `boswas_fluent` (and therefore depends on PySide6), and no longer has a
   postinst or triggers (it selected the Plymouth theme).
-- **`boswas-preset`** *(native desktop)*: on the native desktop `apply`
-  writes `~/.config/boswas/appearance.toml` (light or dark, wallpaper),
-  merges the preset's colours into the user's `kdeglobals` for KDE
-  applications, sets the Konsole profile and asks the compositor to reload.
-  The new `reset` command returns to the default look (Boswas Prism on the
-  native desktop, Horizon with its layout on Plasma); Control Center's
-  "Reset to Boswas Default" button runs it. The default Konsole profile is
-  now `Boswas Prism`, generated from the tokens with its colour scheme.
-  On a Plasma session `apply` works as before
-  ([desktop/presets](desktop/presets/README.md)).
+- **`boswas-preset`** *(native desktop)*: `apply` writes
+  `~/.config/boswas/appearance.toml` (light or dark, wallpaper), merges
+  the preset's colours into the user's `kdeglobals` for KDE applications,
+  records the choice in `~/.config/boswasrc` and asks the compositor to
+  reload. The new `reset` command returns to the default look, Boswas
+  Prism; Control Center's "Reset to Boswas Default" button runs it.
+  - The tool writes the three files itself and starts no program. It no
+    longer runs KDE's `kwriteconfig6`, so `boswas-branding` no longer
+    depends on `libkf6config-bin`; a `boswasrc` written by an earlier
+    version is read as before.
+  - The new content of all three files is prepared before the first is
+    written. Each is replaced atomically with mode 0600, and a file that
+    is a symbolic link or not a regular file is refused with a message
+    that names it (earlier versions replaced a link by a file).
+  - It has one way of applying: the Plasma branch, the `--layout` option
+    and the `layout` field of the JSON answer are gone (ADR-0042,
+    [desktop/presets](desktop/presets/README.md)).
 - **`boswas-cli`** *(native desktop)*: `boswas-info` shows `Boswas Desktop
   <version>`; the `screen-lock` check reads the compositor's lock policy
   (`/usr/share/boswas/compositor/compositor.toml`,
@@ -295,8 +302,19 @@ Verification status of the native desktop
     Qt toolkit, and no KDE helper program is used any more.
   - About Boswas OS shows the desktop (Boswas Desktop and its version)
     where it showed the Plasma version.
+  - Personalization lists and applies the presets and resets to the
+    default look. The box that also applied a preset's panel layout is
+    gone with the layouts (ADR-0042).
+  - In the Bluetooth list a game controller and a tablet show their own
+    icons (they had the mouse's).
 - **Compatibility Manager** *(native desktop)*: built on the Boswas Qt
-  toolkit instead of a style sheet of its own.
+  toolkit instead of a style sheet of its own. "Install with Boswas
+  Compatibility Manager" is now a desktop entry for Windows programs and
+  installer packages, which Boswas Files offers under "Open with", in
+  place of the Dolphin service menu. Opening such a file still means "Run
+  with Boswas": the package ships the Boswas desktop's defaults for these
+  types (`/usr/share/applications/boswas-mimeapps.list`), because Files
+  would otherwise go by the name of the application (ADR-0042).
 - **`boswas-sysops`** *(native desktop)*: the package policy refuses to
   install the pinned Plasma, KWin, SDDM, System Settings and Plymouth
   packages, and protects `greetd` in place of SDDM, plasma-workspace and
@@ -335,6 +353,20 @@ Verification status of the native desktop
   configuration and theme settings (`desktop/defaults/sddm/`), the Plasma
   environment script (`desktop/defaults/plasma-workspace-env/`) and the
   `ksplashrc` and `kscreenlockerrc` defaults.
+- **What was still built for KDE programs that are not shipped**
+  *(native desktop, ADR-0042)*:
+  - Plasma: the Global Themes of the ten presets with their panel layout
+    scripts and previews (`/usr/share/plasma/look-and-feel/com.boswas.*`),
+    and the `netpbm` build dependency their JPEG preview needed;
+  - Konsole: the colour schemes and profiles of the presets and of Prism
+    (`/usr/share/konsole`) and the default profile (`konsolerc`);
+  - System Settings: `kcm-about-distrorc`, the file of its About module;
+  - Dolphin: the service menu of the Compatibility Manager
+    (`/usr/share/kio/servicemenus`).
+  - What KDE applications a user installs need stays: the colour schemes
+    in `/usr/share/color-schemes`, the `kdeglobals` defaults in
+    `/usr/share/boswas/kde-settings`, and the merge of a preset's colours
+    into the user's `kdeglobals`.
 
 ### Security
 - **Protocol trust** *(native desktop)*: ordinary applications get the
@@ -417,8 +449,10 @@ Verification status of the native desktop
   shell or the compositor's own surfaces.
 - **Presets** *(native desktop)*: the taskbar, Start and the lock screen
   follow a preset's light or dark variant and wallpaper, not its accent
-  colour. The Plasma Global Themes are still generated and installed but
-  are used only on a Plasma session.
+  colour. The preview pictures still sketch the panel of the Plasma image.
+  The presets' lock screen art is installed and not shown. No preset has
+  been applied in a running session since the tool writes its files
+  itself; the tests run in a temporary home.
 
 ## [1.0~alpha3] - 2026-10-04 (Device Agent, Compatibility Manager, Control Plane, Boswas OS experience)
 

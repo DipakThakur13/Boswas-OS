@@ -375,13 +375,19 @@ def _toml_string(value: str) -> str:
 
 
 def appearance_text(preset: dict) -> str:
-    """<config>/boswas/appearance.toml: light or dark and the wallpaper,
-    read by boswas-compositor and passed on to the shell. The file is
-    rewritten as a whole."""
+    """The content of <config>/boswas/appearance.toml: light or dark and the
+    wallpaper, read by boswas-compositor and passed on to the shell."""
     return ("# Written by boswas-preset; changes made here are replaced by the next preset.\n"
             "[appearance]\n"
             f"scheme = {_toml_string(preset['variant'])}\n"
             f"wallpaper = {_toml_string(wallpaper_image(preset))}\n")
+
+
+def write_appearance(env: Mapping[str, str], preset: dict) -> None:
+    """Write <config>/boswas/appearance.toml for a preset. The file belongs
+    to the look and is rewritten as a whole (Control Center writes the same
+    file when the user changes the colour mode or the background)."""
+    replace_user_file(env, APPEARANCE, appearance_text(preset))
 
 
 def _ini_groups(text: str) -> list[tuple[str | None, str, list[str]]]:
@@ -445,31 +451,45 @@ def _entry_key(line: str) -> str | None:
 def edit_kconfig(text: str, group: str, key: str, value: str | None) -> str:
     """KConfig text with `key` of `[group]` set to `value`, or removed when
     `value` is None. Every other line stays as it is: other groups, other
-    keys, comments, empty lines. A `[group]` left without any line is
-    removed with its header."""
+    keys, comments, empty lines. The key is written once, in the first
+    `[group]` of the text (where it was, if it was there); a `[group]` left
+    without any line is removed with its header, and at the end of the text
+    with the empty lines that set it apart."""
     header = f"[{group}]"
+    entry = None if value is None else f"{key}={value}"
     groups = _ini_groups(text)
     first = None
     for index, (name, _line, body) in enumerate(groups):
-        if name == header:
-            body[:] = [line for line in body if _entry_key(line) != key]
-            if first is None:
-                first = index
-    if value is None:
-        groups = [entry for entry in groups if entry[0] != header or any(line.strip() for line in entry[2])]
-    elif first is None:
-        name, _line, body = groups[-1]
-        if (name is not None or body) and (not body or body[-1].strip()):
-            body.append("")
-        groups.append((header, header, [f"{key}={value}"]))
-    else:
+        if name != header:
+            continue
+        kept = []
+        for line in body:
+            if _entry_key(line) != key:
+                kept.append(line)
+            elif first is None and entry is not None:
+                kept.append(entry)                  # in the place of the old value
+                entry = None
+        body[:] = kept
+        if first is None:
+            first = index
+    if entry is not None and first is not None:
         body = groups[first][2]
         position = len(body)
         while position > 0 and not body[position - 1].strip():
             position -= 1
-        body.insert(position, f"{key}={value}")
+        body.insert(position, entry)
+    elif entry is not None:
+        name, _line, body = groups[-1]
+        if (name is not None or body) and (not body or body[-1].strip()):
+            body.append("")
+        groups.append((header, header, [entry]))
     out: list[str] = []
-    for name, line, body in groups:
+    for index, (name, line, body) in enumerate(groups):
+        if name == header and not any(item.strip() for item in body):
+            if index == len(groups) - 1:
+                while out and not out[-1].strip():
+                    out.pop()
+            continue
         if name is not None:
             out.append(line)
         out.extend(body)
@@ -537,8 +557,7 @@ def _colours_step(env: Mapping[str, str], name: str) -> Step:
 def apply_steps(env: Mapping[str, str], preset: dict) -> list[Step]:
     def appearance() -> Callable[[], None]:
         check_user_file(env, APPEARANCE)
-        text = appearance_text(preset)
-        return lambda: replace_user_file(env, APPEARANCE, text)
+        return lambda: write_appearance(env, preset)
 
     def record() -> Callable[[], None]:
         text = edit_kconfig(read_user_file(env, RECORD) or "", RECORD_GROUP, RECORD_KEY, preset["id"])

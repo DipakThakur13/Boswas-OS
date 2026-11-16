@@ -27,7 +27,8 @@ import cc_fixtures as fx  # noqa: E402
 try:
     from PySide6.QtCore import QCoreApplication, QEvent, Qt, qInstallMessageHandler
     from PySide6.QtGui import QGuiApplication, QKeyEvent
-    from PySide6.QtWidgets import QAbstractButton, QAbstractSpinBox, QApplication, QLabel, QLineEdit
+    from PySide6.QtWidgets import (QAbstractButton, QAbstractSpinBox, QApplication, QCheckBox, QLabel, QLineEdit,
+                                   QPushButton)
     PYSIDE = True
 except ImportError:                       # PySide6 is not a build dependency: skip the widget tests
     PYSIDE = False
@@ -251,7 +252,16 @@ class PersonalizationTest(UiTestCase):
         self.assertTrue(cards["boswas-light"].apply.isEnabled())
         self.assertIsNotNone(cards["boswas-dark"].preview.pixmap)          # decoded on a worker thread
         self.assertIsNone(cards["classic"].preview.pixmap)
-        self.assertFalse(w.page("personalization").layout_box.isChecked())
+
+    def test_no_panel_layout_option(self):
+        """A preset changes colours and wallpaper; the page offers nothing about panels."""
+        w = self.window()
+        page = w.page("personalization")
+        self.assertFalse(hasattr(page, "layout_box"))
+        texts = [box.text() for box in page.findChildren(QCheckBox)] + \
+                [button.text() for button in page.findChildren(QPushButton)]
+        self.assertFalse([text for text in texts if "panel" in text.lower() or "layout" in text.lower()], texts)
+        self.assertNotIn("panel", page.reset_button.accessibleDescription().lower())
 
     def test_apply_runs_the_exact_command(self):
         w = self.window()
@@ -259,79 +269,72 @@ class PersonalizationTest(UiTestCase):
         self.settle(w)
         self.assertEqual(self.rig.commands.ran_program("boswas-preset")[-2],
                          [E["boswas-preset"], "apply", "boswas-light"])
-        self.assertEqual(self.questions, [])                               # no layout: no question
+        self.assertEqual(self.questions, [])                               # applying asks nothing
         self.assertEqual(w.page("personalization").banner.level, "ok")
         self.assertEqual(self.rig.commands.ran_program("boswas-preset")[-1], [E["boswas-preset"], "--json", "list"])
 
-    def test_layout_needs_confirmation(self):
+    def test_apply_never_passes_a_second_argument(self):
+        w = self.window()
+        for name in ("classic", "boswas-light"):
+            self.cards(w)[name].apply.click()
+            self.settle(w)
+        applied = [c for c in self.rig.commands.ran_program("boswas-preset") if c[1] == "apply"]
+        self.assertEqual(applied, [[E["boswas-preset"], "apply", "classic"], [E["boswas-preset"], "apply", "boswas-light"]])
+        self.assertEqual(self.questions, [])
+
+    def test_reset_returns_to_prism_after_asking(self):
+        # The default look is no preset: the fixture list has no "horizon", and none is needed.
+        for desktop in ("Boswas", "KDE", None):
+            self.rig.commands.ran.clear()
+            self.questions.clear()
+            if desktop is None:
+                self.rig.environ.pop("XDG_CURRENT_DESKTOP", None)
+            else:
+                self.rig.environ["XDG_CURRENT_DESKTOP"] = desktop
+            with self.subTest(desktop=desktop):
+                w = self.window()
+                page = w.page("personalization")
+                self.assertTrue(page.reset_button.isEnabled())
+                self.assertIn(vm.DEFAULT_LOOK, page.reset_button.toolTip())
+                self.assertIn(vm.DEFAULT_LOOK, page.reset_button.accessibleDescription())
+                self.answer = False
+                page.reset_button.click()
+                self.settle(w)
+                self.assertEqual(len(self.questions), 1)
+                self.assertIn(vm.DEFAULT_LOOK, self.questions[0][1])
+                for word in ("panel", "terminal profile", "Konsole", "Plasma"):
+                    self.assertNotIn(word, self.questions[0][1])
+                self.assertNotIn([E["boswas-preset"], "reset"], self.rig.commands.ran_program("boswas-preset"))
+                self.answer = True
+                page.reset_button.click()
+                self.settle(w)
+                self.assertIn([E["boswas-preset"], "reset"], self.rig.commands.ran_program("boswas-preset"))
+                self.assertFalse(any(c[1] == "apply" for c in self.rig.commands.ran_program("boswas-preset")))
+                self.assertEqual(page.banner.level, "ok")
+                self.assertTrue(page.reset_button.isEnabled())
+
+    def test_reset_failure_is_shown(self):
+        self.rig.commands.outputs[(E["boswas-preset"], "reset")] = fx.completed(
+            "", 1, "boswas-preset: step 'colours' failed: /home/u/.config/kdeglobals is a symbolic link")
         w = self.window()
         page = w.page("personalization")
-        page.layout_box.setChecked(True)
-        self.answer = False
-        self.cards(w)["classic"].apply.click()
+        page.reset_button.click()
         self.settle(w)
-        self.assertEqual(len(self.questions), 1)
-        self.assertIn("replaces your panels", self.questions[0][1])
-        self.assertFalse(any(c[1] == "apply" for c in self.rig.commands.ran_program("boswas-preset")))
-        self.answer = True
-        self.cards(w)["classic"].apply.click()
-        self.settle(w)
-        self.assertIn([E["boswas-preset"], "apply", "classic", "--layout"],
-                      self.rig.commands.ran_program("boswas-preset"))
+        self.assertEqual(page.banner.level, "error")
+        self.assertIn("could not be reset", page.banner.text.text())
+        self.assertIn("symbolic link", page.banner.text.text())
+        self.assertTrue(page.reset_button.isEnabled())
 
-    def test_reset_to_default_applies_the_default_preset_with_its_layout_after_asking(self):
-        # The fixture list has no "horizon": the reset is disabled and says why.
+    def test_reset_needs_the_preset_tool(self):
+        self.rig.commands.outputs[(E["boswas-preset"], "--json", "list")] = fx.completed("", 1, "no presets file")
         w = self.window()
         page = w.page("personalization")
         self.assertFalse(page.reset_button.isEnabled())
-        self.assertIn("not installed", page.reset_button.toolTip())
-        # With the default preset installed.
-        doc = fx.preset_doc(self.rig.root)
-        doc["presets"].append({"id": "horizon", "name": "Horizon", "description": "The Boswas OS default.",
-                               "variant": "dark", "accent": "#D9B26E", "preview": None})
-        self.rig.commands.outputs[(E["boswas-preset"], "--json", "list")] = fx.completed(json.dumps(doc))
-        w2 = self.window()
-        page = w2.page("personalization")
-        self.assertTrue(page.reset_button.isEnabled())
-        self.answer = False
-        page.reset_button.click()
-        self.settle(w2)
-        self.assertEqual(len(self.questions), 1)
-        self.assertIn("panels", self.questions[0][1])
-        self.assertFalse(any(c[1] == "apply" for c in self.rig.commands.ran_program("boswas-preset")))
-        self.answer = True
-        page.reset_button.click()
-        self.settle(w2)
-        self.assertIn([E["boswas-preset"], "apply", "horizon", "--layout"], self.rig.commands.ran_program("boswas-preset"))
-        self.assertEqual(page.banner.level, "ok")
-
-    def test_reset_on_the_native_desktop_returns_to_prism_after_asking(self):
-        # No "horizon" in the fixture list, and none is needed: Prism is no preset.
-        self.rig.environ["XDG_CURRENT_DESKTOP"] = "Boswas"
-        w = self.window()
-        page = w.page("personalization")
-        self.assertTrue(page.reset_button.isEnabled())
-        self.assertIn(vm.NATIVE_DEFAULT_LOOK, page.reset_button.toolTip())
-        self.answer = False
-        page.reset_button.click()
+        self.assertIn("not available", page.reset_button.toolTip())
+        page.reset_to_default()
         self.settle(w)
-        self.assertEqual(len(self.questions), 1)
-        self.assertIn(vm.NATIVE_DEFAULT_LOOK, self.questions[0][1])
-        self.assertNotIn("panels", self.questions[0][1])
+        self.assertEqual(self.questions, [])
         self.assertNotIn([E["boswas-preset"], "reset"], self.rig.commands.ran_program("boswas-preset"))
-        self.answer = True
-        page.reset_button.click()
-        self.settle(w)
-        self.assertIn([E["boswas-preset"], "reset"], self.rig.commands.ran_program("boswas-preset"))
-        self.assertFalse(any(c[1] == "apply" for c in self.rig.commands.ran_program("boswas-preset")))
-        self.assertEqual(page.banner.level, "ok")
-        self.assertTrue(page.reset_button.isEnabled())
-
-    def test_default_preset_matches_the_shipped_presets(self):
-        shipped = json.loads((Path(__file__).resolve().parents[3] / "desktop/presets/presets.json").read_text())
-        self.assertEqual(shipped["default"], vm.DEFAULT_PRESET)
-        names = {p["id"]: p["name"] for p in shipped["presets"]}
-        self.assertEqual(names[vm.DEFAULT_PRESET], vm.DEFAULT_PRESET_NAME)
 
     def test_apply_failure(self):
         self.rig.commands.outputs[(E["boswas-preset"], "apply", "classic")] = fx.completed("", 2, "theme missing")

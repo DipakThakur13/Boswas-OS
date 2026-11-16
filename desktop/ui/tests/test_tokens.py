@@ -131,12 +131,15 @@ class KdeColourSchemes(unittest.TestCase):
                     name = f"Color{index}{suffix}"
                     self.assertGreaterEqual(contrast(colours[name], background), 4.5, f"{scheme} {name}")
 
-    def test_terminal_profiles_use_their_scheme(self):
-        for scheme, (file_id, name) in self.generator.SCHEMES.items():
-            profile = (UI / "konsole" / f"{name}.profile").read_text(encoding="utf-8")
-            self.assertIn(f"ColorScheme={file_id}\n", profile)
-            self.assertIn(f"Name={name}\n", profile)
-            self.assertTrue((UI / "konsole" / f"{file_id}.colorscheme").is_file())
+    def test_only_the_colour_schemes_are_generated(self):
+        """The terminal palette is a table for Boswas Terminal; no Konsole scheme or profile is written."""
+        self.assertEqual(sorted(path.relative_to(UI).as_posix() for path in self.generator.outputs(self.tokens)),
+                         ["color-schemes/BoswasPrism.colors", "color-schemes/BoswasPrismLight.colors"])
+        self.assertFalse((UI / "konsole").exists())
+        for scheme in ("dark", "light"):
+            self.assertEqual(set(self.generator.terminal_colours(self.tokens, scheme)),
+                             {"Background", "Foreground"} | {f"Color{index}{suffix}" for index in range(8)
+                                                             for suffix in ("", "Intense")})
 
     def test_window_titles_are_readable(self):
         for scheme in ("dark", "light"):

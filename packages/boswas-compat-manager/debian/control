@@ -27,7 +27,9 @@ Description: Boswas OS Compatibility Manager for Windows applications
     display, audio, GPU, AppArmor confinement)
   * health of Wine, AppArmor and bubblewrap, of the device agent and of the
     Control Plane connection
-  * "Install with Boswas Compatibility Manager" in the Dolphin context menu
+  * "Install with Boswas Compatibility Manager" under "Open with" in Boswas
+    Files and other file managers, for .exe and .msi files; "Run with
+    Boswas" stays their default application
  .
  The Compatibility Manager runs as the user and never runs programs itself:
  every operation goes through the user's Boswas session service, so the

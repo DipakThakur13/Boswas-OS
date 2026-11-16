@@ -362,7 +362,7 @@ class InstallFlowWidget(QWidget):
             self.check_file(self.flow.path)
 
     def check_file(self, path: str) -> None:
-        """Start checking an installer (also used by --install FILE and the Dolphin service menu)."""
+        """Start checking an installer (also used by --install FILE, which the "Open with" entry runs)."""
         if self.flow.state in (self.flow.CHECKING, self.flow.INSTALLING):
             return
         self.file_field.setText(path)

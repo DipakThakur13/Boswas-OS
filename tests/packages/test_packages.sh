@@ -124,8 +124,8 @@ rm -rf "$ctl"
 
 # Compatibility Manager package
 manager_deb="$debs/boswas-compat-manager_${BOSWAS_VERSION_ID}_all.deb"
-check "Compatibility Manager: command, desktop entry and service menu shipped" \
-	bash -c "grep -qE '^-rwxr-xr-x root/root .* \./usr/bin/boswas-compat-manager$' <\"\$1\" && grep -q '\./usr/share/applications/com.boswas.CompatibilityManager.desktop$' <\"\$1\" && grep -q '\./usr/share/kio/servicemenus/boswas-compat-manager-install.desktop$' <\"\$1\"" _ "$listing_file"
+check "Compatibility Manager: command, desktop entry and the \"Open with\" entry for Windows installers shipped" \
+	bash -c "grep -qE '^-rwxr-xr-x root/root .* \./usr/bin/boswas-compat-manager$' <\"\$1\" && grep -q '\./usr/share/applications/com.boswas.CompatibilityManager.desktop$' <\"\$1\" && grep -q '\./usr/share/applications/com.boswas.CompatibilityManager.Install.desktop$' <\"\$1\" && grep -q '\./usr/share/applications/boswas-mimeapps.list$' <\"\$1\"" _ "$listing_file"
 check "Compatibility Manager depends on PySide6 and the device agent (its backend)" \
 	bash -c "dpkg-deb -f '$manager_deb' Depends | grep -q python3-pyside6.qtwidgets && dpkg-deb -f '$manager_deb' Depends | grep -q boswas-device-agent"
 
@@ -151,9 +151,10 @@ check "Control Center: command and its four desktop entries shipped (no Install 
 		for e in ControlCenter SecurityCenter SoftwareCenter UpdateCenter; do
 			grep -q \"\\./usr/share/applications/com.boswas.\$e.desktop$\" <\"\$1\" || exit 1; done &&
 		! grep -q 'InstallBoswasOS' <\"\$1\"" _ "$listing_file"
-check "Control Center depends on PySide6, KDE's module launcher, the CLI, the device agent and the branding (presets)" \
-	bash -c "d=\$(dpkg-deb -f '$cc_deb' Depends); for p in python3-pyside6.qtwidgets libkf6kcmutils-bin boswas-cli boswas-device-agent boswas-branding; do
-		grep -q \"\$p\" <<<\"\$d\" || exit 1; done"
+check "Control Center depends on PySide6, the CLI, the device agent and the branding (presets); no KDE program or library in its Depends and Recommends" \
+	bash -c "d=\$(dpkg-deb -f '$cc_deb' Depends); for p in python3-pyside6.qtwidgets boswas-cli boswas-device-agent boswas-branding; do
+		grep -q \"\$p\" <<<\"\$d\" || exit 1; done
+		! dpkg-deb -f '$cc_deb' Depends Recommends | grep -qiE '(^|[ ,|:(])(libkf[0-9]|kde-cli-tools|systemsettings|plasma|kwin)'"
 
 # boswas-os: the installer's last step, the sources it writes, the required firmware list
 check "boswas-os ships the installer's finish step, the signed Debian sources template and the required firmware list" \
@@ -246,6 +247,19 @@ check "boot screen: the daemon reports its version and checks its own sandbox" \
 check_not "branding no longer depends on Plymouth or ships a Plymouth theme" \
 	bash -c "dpkg-deb -f '$debs/boswas-branding_${BOSWAS_VERSION_ID}_all.deb' Depends | grep -q plymouth ||
 		test -e '$extract/usr/share/plymouth/themes/boswas'"
+# boswas-preset writes the user's files itself (ADR-0042): no KDE configuration tool is a dependency,
+# and the installed tool names no KDE program and imports nothing that starts one.
+check_not "branding: no KDE program or library in its Depends and Recommends (the Breeze icon theme it recommends is data)" \
+	bash -c "dpkg-deb -f '$debs/boswas-branding_${BOSWAS_VERSION_ID}_all.deb' Depends Recommends |
+		grep -qiE '(^|[ ,|:(])(libkf[0-9]|kde-cli-tools|systemsettings|plasma|kwin|konsole|dolphin)'"
+preset_py="$extract/usr/lib/boswas/python"
+check_not "branding: boswas-preset names no KDE program and imports nothing that starts one" \
+	grep -rqiE 'kwriteconfig|kreadconfig|plasma|konsole|kscreenlocker|qdbus|lookandfeel|subprocess|os\.system|os\.popen|Popen' \
+	"$preset_py/boswas_preset" "$extract/usr/bin/boswas-preset"
+preset_count="$(BOSWAS_PRESETS_FILE="$extract/usr/share/boswas/presets/presets.json" PYTHONPATH="$preset_py" \
+	python3 -B -m boswas_preset.cli --json list 2>/dev/null |
+	python3 -c 'import json, sys; print(len(json.load(sys.stdin)["presets"]))' 2>/dev/null)"
+check "branding: the shipped boswas-preset runs and lists the ten presets ($preset_count)" test "$preset_count" = 10
 
 # The native desktop (boswas-desktop): compositor, shell, session, login.
 desktop_deb="$debs/boswas-desktop_${BOSWAS_VERSION_ID}_amd64.deb"
@@ -278,13 +292,17 @@ check "desktop: depends on greetd, a session bus and the Mesa drivers; no Plasma
 	bash -c "d=\$(dpkg-deb -f '$desktop_deb' Depends Recommends Suggests);
 		for p in greetd dbus-user-session libegl1 libgl1-mesa-dri libseat1 libinput10; do grep -q \"\$p\" <<<\"\$d\" || exit 1; done;
 		! grep -qE 'plasma-workspace|plasma-desktop|kwin|sddm' <<<\"\$d\""
-check "desktop: KDE application defaults select the Prism colours and the Boswas Prism icons" \
+check "desktop: KDE application defaults select the Prism colours and the Boswas Prism icons, and are the only file of that directory" \
 	bash -c "d='$extract/usr/share/boswas/kde-settings'; grep -qx 'Theme=Boswas-Prism' \$d/kdeglobals &&
 		grep -qx 'ColorScheme=BoswasPrism' \$d/kdeglobals && ! grep -q LookAndFeelPackage \$d/kdeglobals &&
-		grep -qx 'DefaultProfile=Boswas Prism.profile' \$d/konsolerc &&
-		grep -qx 'ColorScheme=BoswasPrism' '$extract/usr/share/konsole/Boswas Prism.profile' &&
-		test -s '$extract/usr/share/konsole/BoswasPrism.colorscheme' &&
+		[ \"\$(ls \$d)\" = kdeglobals ] &&
 		test -s '$extract/usr/share/color-schemes/BoswasPrism.colors' && test -s '$extract/usr/share/boswas/ui/tokens.json'"
+check "presets: ten colour schemes and ten wallpapers (light and dark artwork) are shipped" \
+	bash -c "[ \$(ls '$extract'/usr/share/color-schemes/Boswas*.colors | grep -vc BoswasPrism) -eq 10 ] &&
+		[ \$(ls -d '$extract'/usr/share/wallpapers/Boswas-* | wc -l) -eq 10 ] &&
+		for w in '$extract'/usr/share/wallpapers/Boswas-*; do
+			test -s \$w/metadata.json && test -s \$w/contents/images/3840x2160.png && test -s \$w/contents/images_dark/3840x2160.png || exit 1
+		done"
 check "icons: Boswas Prism and Boswas Prism Light are installed with the launcher, lock and panel status icons" \
 	bash -c "for t in Boswas-Prism Boswas-Prism-Light; do
 			for f in index.theme scalable/apps/boswas-logo.svg scalable/apps/boswas-control-center.svg scalable/places/folder.svg \
@@ -294,6 +312,50 @@ check "icons: Boswas Prism and Boswas Prism Light are installed with the launche
 check_not "desktop: no Plasma shell, KSplash, SDDM or Plasma session file is shipped by a Boswas package" \
 	bash -c "test -e '$extract/usr/share/plasma/plasmoids' || test -e '$extract/usr/share/plasma/look-and-feel/com.boswas.splash' ||
 		test -e '$extract/etc/sddm.conf.d' || test -e '$extract/usr/share/sddm' || test -e '$extract/etc/xdg/plasma-workspace'"
+# Nothing is shipped for programs that are not: Plasma (Global Themes, panel layouts), Konsole
+# (profiles, colour schemes, its default profile), System Settings (the About module's file)
+# and Dolphin (service menus). ADR-0042.
+check_not "no Boswas package ships anything under /usr/share/plasma, /usr/share/konsole or /usr/share/kio" \
+	grep -qE ' \./usr/share/(plasma|konsole|kio)(/|$)' "$listing_file"
+check_not "no Boswas package ships a Konsole profile or colour scheme, a konsolerc, a System Settings module file or a service menu anywhere" \
+	grep -qiE '\.(profile|colorscheme)$|/konsolerc$|/kcm-about-distrorc$|/servicemenus/|/look-and-feel/' "$listing_file"
+# In the place of the service menu: "Install with Boswas Compatibility Manager" is an entry file
+# managers offer under "Open with" (hidden from the menu, the installer types, --install %f). It
+# must not take the place of "Run with Boswas" (boswas-compat) as what opens a Windows program:
+#   * without a list of defaults, xdg-mime and GLib take the first entry of mimeinfo.cache, which
+#     update-desktop-database writes in the byte order of the file names;
+#   * Boswas Files would go by the name of the application, so the Compatibility Manager ships the
+#     Boswas desktop's defaults for these types.
+apps_dir="$extract/usr/share/applications"
+install_entry="$apps_dir/com.boswas.CompatibilityManager.Install.desktop"
+installer_types="application/x-msdownload application/x-ms-dos-executable application/vnd.microsoft.portable-executable application/x-msi"
+check "Compatibility Manager: \"Install with Boswas Compatibility Manager\" is a hidden entry that runs --install %f" \
+	bash -c "grep -qx 'Type=Application' '$install_entry' && grep -qx 'NoDisplay=true' '$install_entry' &&
+		grep -qx 'Name=Install with Boswas Compatibility Manager' '$install_entry' &&
+		grep -qx 'Exec=boswas-compat-manager --install %f' '$install_entry'"
+for t in $installer_types; do
+	first="$(grep -lE "^MimeType=(.*;)?$t;" "$apps_dir"/*.desktop 2>/dev/null | sed 's|.*/||' | LC_ALL=C sort | tr '\n' ' ')"
+	check "Windows installers ($t): offered by \"Run with Boswas\" first, then the Compatibility Manager; the default is \"Run with Boswas\"" \
+		bash -c "[ '$first' = 'boswas-winapp-install.desktop com.boswas.CompatibilityManager.Install.desktop ' ] &&
+			grep -qx '$t=boswas-winapp-install.desktop' '$apps_dir/boswas-mimeapps.list'"
+done
+check "Compatibility Manager: its list of defaults names nothing but \"Run with Boswas\" for those four types" \
+	bash -c "[ \"\$(grep -c = '$apps_dir/boswas-mimeapps.list')\" = 4 ] && [ \"\$(grep -vc '^#' '$apps_dir/boswas-mimeapps.list')\" = 5 ] &&
+		grep -qx '\[Default Applications\]' '$apps_dir/boswas-mimeapps.list'"
+if command -v desktop-file-validate >/dev/null 2>&1; then
+	check "Compatibility Manager: both desktop entries are valid (desktop-file-validate)" \
+		desktop-file-validate "$apps_dir/com.boswas.CompatibilityManager.desktop" "$install_entry"
+else
+	skip "Compatibility Manager: desktop entries validated (desktop-file-validate is not installed)"
+fi
+if command -v update-desktop-database >/dev/null 2>&1; then
+	cache_dir="$extract/boswas-mime-cache-check"
+	mkdir -p "$cache_dir" && cp "$apps_dir"/*.desktop "$cache_dir/" && update-desktop-database "$cache_dir" >/dev/null 2>&1
+	check "mimeinfo.cache of the Boswas entries lists \"Run with Boswas\" first for Windows programs" \
+		grep -qE '^application/x-msdownload=boswas-winapp-install\.desktop;' "$cache_dir/mimeinfo.cache"
+else
+	skip "mimeinfo.cache order of the Windows installer entries (update-desktop-database is not installed)"
+fi
 # The system applications (boswas-apps) and the toolkit they are built on.
 apps_deb="$debs/boswas-apps_${BOSWAS_VERSION_ID}_all.deb"
 apps_listing="$(dpkg-deb -c "$apps_deb")"

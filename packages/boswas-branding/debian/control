@@ -2,14 +2,13 @@ Source: boswas-branding
 Section: misc
 Priority: optional
 Maintainer: Boswas OS Platform Team <os-platform@boswas.invalid>
-Build-Depends: debhelper-compat (= 13), fonts-lato, librsvg2-bin, netpbm, python3:any
+Build-Depends: debhelper-compat (= 13), fonts-lato, librsvg2-bin, python3:any
 Standards-Version: 4.7.2
 Rules-Requires-Root: no
 
 Package: boswas-branding
 Architecture: all
-Depends: libkf6config-bin,
-         python3,
+Depends: python3,
          python3-pyside6.qtcore,
          python3-pyside6.qtdbus,
          python3-pyside6.qtgui,
@@ -29,10 +28,10 @@ Description: Boswas OS visual identity
     earlier Boswas and Boswas Light icon themes stay available
   * Orbitron, the brand typeface (SIL Open Font License 1.1)
   * ten Boswas OS presets (Horizon, Midnight, Aurora, Slate, Carbon, Pearl,
-    Ocean, Ember, Nebula, Classic): colour schemes, light, dark and lock
-    wallpapers and Konsole profiles, and boswas-preset to switch between
-    them
-  * the Boswas terminal prompt and welcome (boswas-welcome)
+    Ocean, Ember, Nebula, Classic): light or dark, wallpapers, lock screen
+    art and colour schemes for KDE applications, and boswas-preset to
+    switch between them
+  * the prompt and welcome of Boswas Terminal (boswas-welcome)
   * boswas_fluent, the Qt (PySide6) toolkit that gives the Boswas
     applications the Boswas UI look: theme, widgets and helpers, from the
     same design tokens
@@ -40,6 +39,8 @@ Description: Boswas OS visual identity
  The desktop that uses them is the package boswas-desktop; the boot screen
  is boswas-bootsplash.
  .
- Defaults for KDE applications are delivered through an XDG configuration
- directory (/usr/share/boswas/kde-settings), so /etc/xdg and per-user
- settings keep precedence and no file of another package is modified.
+ No KDE program is needed or started. For KDE applications a user
+ installs, defaults (the Prism colours, the Boswas Prism icons and the
+ Breeze widget style) are delivered through an XDG configuration directory
+ (/usr/share/boswas/kde-settings), so /etc/xdg and per-user settings keep
+ precedence and no file of another package is modified.

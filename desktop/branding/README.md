@@ -60,10 +60,10 @@ them.
 | File | Used for |
 |------|----------|
 | `boswas-mark.svg` | The `boswas-logo` icon in the hicolor theme: the mark on a navy tile with a gold edge. The fallback for the taskbar's Start button, which takes `boswas-logo` from the icon theme first (Boswas Prism draws its own) |
-| `boswas-about-logo.svg` | The mark on a navy tile for KDE's About this System page (`kcm-about-distrorc`). Installed; that page exists only on a Plasma session. Control Center > About Boswas OS draws the mark itself |
+| `boswas-about-logo.svg` | The mark on a navy tile. It was the logo of the About page of Plasma's System Settings; the file that named it (`kcm-about-distrorc`) is gone (ADR-0042). The picture is still installed as `/usr/share/boswas/branding/boswas-about-logo.svg` and nothing in the tree uses it: Control Center > About Boswas OS draws the mark itself |
 | `boot-splash.svg` | Live/installer ISO boot menu (GRUB, 800x600) |
 | `boswas-os-mark.svg` | The boot screen: `packages/boswas-bootsplash` rasterises the mark at build time ([README](../../packages/boswas-bootsplash/README.md)). The boot screen shows no wordmark (ADR-0038) |
-| `../presets/` | The ten presets: wallpapers (light, dark, lock), colour schemes for applications, Konsole profiles, and Plasma Global Themes ([presets README](../presets/README.md)) |
+| `../presets/` | The ten presets: wallpapers (light, dark, lock) and colour schemes for KDE applications ([presets README](../presets/README.md)) |
 | `../icons/` | The Boswas Prism icon pack (the default, in the Prism palette) and the earlier Boswas and Boswas Light themes in the brand palette ([icons README](../icons/README.md)) |
 | `../../installer/branding/installer-banner.svg` | Debian Installer banner |
 | `../../config/live-build/config/bootloaders/grub-pc/live-theme/theme.txt` | Boot menu colours |
@@ -95,8 +95,8 @@ Installed systems get `quiet splash` and a hidden GRUB menu from
 | Source | What it becomes |
 |--------|-----------------|
 | `../ui/` | Boswas UI: the design tokens, the Prism colour schemes for KDE applications, and the Qt toolkit of the Boswas applications ([ui README](../ui/README.md)) |
-| `../terminal/` | The Boswas terminal: `boswas-welcome`, a fast, files-only summary with version, kernel, architecture, live or installed session, and AppArmor and device agent state, plus the prompt (`bashrc`, used by Boswas Terminal and by the Boswas Konsole profiles; it sources `~/.bashrc` first). Turn the welcome off per user with `~/.config/boswas/no-welcome` |
-| `../defaults/` | System-wide defaults for KDE applications (the Boswas Prism colour scheme and icon theme, Breeze widget style, the Konsole profile), installed in `/usr/share/boswas/kde-settings`, which `boswas-session` appends to `XDG_CONFIG_DIRS`; and a Firefox policy (removes the "Debian packages" search engine) |
+| `../terminal/` | The Boswas terminal: `boswas-welcome`, a fast, files-only summary with version, kernel, architecture, live or installed session, and AppArmor and device agent state, plus the prompt (`bashrc`, with which Boswas Terminal starts bash; it sources `~/.bashrc` first). Turn the welcome off per user with `~/.config/boswas/no-welcome` |
+| `../defaults/` | System-wide defaults for KDE applications a user installs (the Boswas Prism colour scheme and icon theme, Breeze widget style), installed in `/usr/share/boswas/kde-settings`, which `boswas-session` appends to `XDG_CONFIG_DIRS`; and a Firefox policy (removes the "Debian packages" search engine) |
 
 Start is part of `boswas-shell`. The Boswas Launcher applet that was
 in `../launcher/` (KDE's Kickoff under the Boswas name) is gone with

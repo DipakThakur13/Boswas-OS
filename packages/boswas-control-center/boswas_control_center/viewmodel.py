@@ -1083,10 +1083,8 @@ def filter_apps(items: list[AppItem], text: object) -> list[AppItem]:
 # --- presets (boswas-preset --json list) ----------------------------------------------------------------
 
 PRESET_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
-# The image's default preset ("default" in desktop/presets/presets.json; a test keeps them equal).
-DEFAULT_PRESET, DEFAULT_PRESET_NAME = "horizon", "Boswas Horizon"
-# The native desktop's own default look (Boswas UI v2); `boswas-preset reset` returns to it.
-NATIVE_DEFAULT_LOOK = "Boswas Prism"
+# The default look of the desktop (Boswas UI): no preset of its own; `boswas-preset reset` returns to it.
+DEFAULT_LOOK = "Boswas Prism"
 _ACCENT_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 PREVIEW_SUFFIXES = (".png", ".jpg", ".jpeg", ".svg", ".webp")
 VARIANT_LABELS = {"light": "Light", "dark": "Dark"}

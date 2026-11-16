@@ -1,6 +1,0 @@
-# Boswas OS terminal default (installed by boswas-branding as
-# /usr/share/boswas/kde-settings/konsolerc): the Prism profile generated
-# from the Boswas UI tokens (desktop/ui). boswas-preset switches the profile
-# with the preset; users can pick any profile in Konsole.
-[Desktop Entry]
-DefaultProfile=Boswas Prism.profile

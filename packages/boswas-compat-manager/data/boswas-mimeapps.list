@@ -1,0 +1,13 @@
+# Default applications of the Boswas desktop for Windows programs and
+# installer packages (installed as /usr/share/applications/boswas-mimeapps.list,
+# which is read where XDG_CURRENT_DESKTOP names Boswas).
+#
+# Two entries declare these types: "Run with Boswas" (boswas-compat) and
+# "Install with Boswas Compatibility Manager" (this package). Opening such a
+# file keeps meaning "Run with Boswas"; the second entry is offered under
+# "Open with". A user's own choice in ~/.config/mimeapps.list comes first.
+[Default Applications]
+application/x-msdownload=boswas-winapp-install.desktop
+application/x-ms-dos-executable=boswas-winapp-install.desktop
+application/vnd.microsoft.portable-executable=boswas-winapp-install.desktop
+application/x-msi=boswas-winapp-install.desktop
