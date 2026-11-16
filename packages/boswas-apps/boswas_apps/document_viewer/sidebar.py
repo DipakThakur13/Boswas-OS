@@ -164,7 +164,9 @@ class ResultsModel(QAbstractListModel):
             return None
         hit = self.hits[index.row()]
         if role == Qt.ItemDataRole.DisplayRole:
-            return f"Page {self.labels(hit.page)}:  {hit.line()}"
+            # The match has to be in sight in a narrow list: only a few words lead up to it.
+            before = hit.before if len(hit.before) <= 14 else "…" + hit.before[-13:].lstrip()
+            return f"{self.labels(hit.page)}:  {before}{hit.text}{hit.after}"
         if role == Qt.ItemDataRole.ToolTipRole:
             return f"Page {self.labels(hit.page)}\n{hit.line()}"
         return None
@@ -177,7 +179,7 @@ class Sidebar(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setMinimumWidth(190)
+        self.setMinimumWidth(200)
         self.pivot = fluent.Pivot()
         self.pivot.add_item("thumbnails", "Pages")
         self.pivot.add_item("outline", "Outline")

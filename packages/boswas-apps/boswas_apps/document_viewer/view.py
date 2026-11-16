@@ -79,6 +79,7 @@ class PdfView(QAbstractScrollArea):
         self._hit_source = None                          # page → list of rectangle lists
         self._current_hit: tuple[int, list] | None = None
         self._press: QPoint | None = None
+        self._last_press: QPoint | None = None
         self._press_link: Link | None = None
         self._press_page = -1
         self._press_point = (0.0, 0.0)
@@ -317,8 +318,10 @@ class PdfView(QAbstractScrollArea):
         if y is not None and self._sizes()[page][1] > 0 and self.rotation == 0:
             top += rect[3] * max(0.0, min(1.0, y / self._sizes()[page][1]))
         top += rect[3] * max(0.0, min(1.0, fraction))
-        self.verticalScrollBar().setValue(round(top - (lay.MARGIN / 2 if self.continuous and not fraction and not y
-                                                       else 0)))
+        if self.continuous and not fraction and not y:
+            # The top of the page with the gap above it; the first page with the margin, so the view starts at 0.
+            top -= lay.MARGIN if rect[1] <= lay.MARGIN else lay.GAP
+        self.verticalScrollBar().setValue(round(top))
         if self._layout.width <= self.viewport().width():
             self.horizontalScrollBar().setValue(0)
         self._update_page(force=page if not self.continuous else None)
@@ -660,7 +663,9 @@ class PdfView(QAbstractScrollArea):
         self._panning = False
         if self._press_link is not None:
             return
-        self._clicks = self._clicks + 1 if self._click_timer.isActive() else 1
+        near = self._last_press is not None and (self._press - self._last_press).manhattanLength() <= 6
+        self._clicks = self._clicks + 1 if self._click_timer.isActive() and near else 1
+        self._last_press = self._press
         self._click_timer.start()
         page, x, y = self._page_at(position)
         self._press_page, self._press_point = page, (x, y)
@@ -697,6 +702,7 @@ class PdfView(QAbstractScrollArea):
             return
         if (position.toPoint() - self._press).manhattanLength() < QApplication.startDragDistance():
             return
+        self._click_timer.stop()                    # a drag is not the first half of a double click
         x, y = self._nearest_page_point(position, self._press_page)
         selection = self.document.qt.getSelection(self._press_page, QPointF(*self._press_point), QPointF(x, y))
         if selection.isValid():
@@ -805,7 +811,10 @@ class PdfView(QAbstractScrollArea):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        anchor, position = self._top_anchor()
+        # What is at the top left corner stays there (a scroll bar that appears resizes the viewport too,
+        # and must not undo the anchor of a zoom).
+        position = QPointF(0, 0)
+        anchor = self._anchor(position)
         self._relayout()
         self._restore(anchor, position)
         self._update_page()

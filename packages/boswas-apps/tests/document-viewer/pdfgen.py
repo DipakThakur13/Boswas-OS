@@ -202,9 +202,25 @@ def make_pdf(path, pages: int | list = 3, *, size: tuple = (595, 842), sizes: li
     return Path(path)
 
 
-def temp_home(case) -> None:
-    """Nothing: FluentTestCase already gives every test private XDG directories."""
+def enter_scratch_directory() -> tuple[str, str]:
+    """Make an empty directory the working directory; returns (previous directory, scratch directory).
+
+    The tests are started from the source tree, where nothing may ever be
+    written. Every test runs in an empty directory of its own and checks
+    afterwards that it is still empty: a path that silently falls back to
+    "the current directory" is a bug.
+    """
+    import tempfile
+    previous = os.getcwd()
+    scratch = tempfile.mkdtemp(prefix="bw-viewer-cwd-")
+    os.chdir(scratch)
+    return previous, scratch
 
 
-__all__ = ["make_pdf", "page_lines", "PYSIDE", "HERE"]
-_ = os
+def leave_scratch_directory(state: tuple[str, str]) -> list[str]:
+    import shutil
+    previous, scratch = state
+    os.chdir(previous)
+    written = sorted(os.listdir(scratch))
+    shutil.rmtree(scratch, ignore_errors=True)
+    return written

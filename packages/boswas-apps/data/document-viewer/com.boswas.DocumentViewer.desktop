@@ -1,0 +1,18 @@
+[Desktop Entry]
+Type=Application
+Name=Document Viewer
+GenericName=PDF Reader
+Comment=Read, search and print PDF documents
+Exec=boswas-document-viewer %F
+Icon=okular
+Terminal=false
+StartupNotify=true
+StartupWMClass=com.boswas.DocumentViewer
+Categories=Office;Viewer;Qt;
+Keywords=pdf;document;reader;viewer;read;print;
+MimeType=application/pdf;
+Actions=NewWindow;
+
+[Desktop Action NewWindow]
+Name=New Window
+Exec=boswas-document-viewer

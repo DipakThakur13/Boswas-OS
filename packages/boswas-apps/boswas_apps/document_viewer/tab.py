@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 import threading
 
-from PySide6.QtCore import QFileSystemWatcher, QObject, Qt, QTimer, Signal
+from PySide6.QtCore import QFileSystemWatcher, QObject, QPoint, Qt, QTimer, Signal
 from PySide6.QtWidgets import QHBoxLayout, QSplitter, QStackedWidget, QToolButton, QVBoxLayout, QWidget
 
 import boswas_fluent as fluent
@@ -126,7 +126,7 @@ class DocumentTab(QWidget):
     status = Signal(str)                     # text for the status line (a link under the pointer)
     web_link = Signal(str)
     changed_on_disk = Signal()
-    context_requested = Signal(object)
+    context_requested = Signal(QPoint)
 
     def __init__(self, path: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -167,7 +167,7 @@ class DocumentTab(QWidget):
         self.splitter.addWidget(self.view)
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
-        self.splitter.setSizes([220, 900])
+        self.splitter.setSizes([250, 900])
         content = QWidget()
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(0, 0, 0, 0)
@@ -179,8 +179,7 @@ class DocumentTab(QWidget):
         self.password_box.setFixedWidth(280)
         self.unlock_button = fluent.Button("Open", accent=True)
         self.password_title = fluent.Label("This document is protected", "subtitle")
-        self.password_text = fluent.Label("", "body", tone="secondary", wrap=True)
-        self.password_text.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        self.password_text = fluent.Label("Enter its password to open it.", "body", tone="secondary")
         self.password_error = fluent.Label("", "caption", tone="danger")
         self.password_error.setMinimumHeight(self.password_error.fontMetrics().height() + 2)
         password_page = QWidget()
@@ -241,7 +240,6 @@ class DocumentTab(QWidget):
             self.stack.setCurrentWidget(self._content)
             self.view.setFocus()
         elif self.state in (NEEDS_PASSWORD, WRONG_PASSWORD):
-            self.password_text.setText(f"Enter the password of “{self.title()}” to open it.")
             self.password_error.setText("That password is not correct. Try again." if self.state == WRONG_PASSWORD
                                         else "")
             self.password_box.clear()
