@@ -142,6 +142,21 @@ class GroupingTest(unittest.TestCase):
         grouper.set_index(AppIndex([]))
         self.assertEqual(grouper.groups(second)[0].kind, "background")
 
+    def test_unchanged_rows_are_the_same_objects(self):
+        grouper = grouping.Grouper(APPS, ME)
+        procs = table(proc(20, "boswas-terminal", 1), proc(21, "bash", 20), proc(30, "pipewire", 1))
+        first = {g.root.pid: g for g in grouper.groups(procs)}
+        again = dict(procs)
+        again[21] = procs[21]._replace(cpu=5.0)                   # one process of the terminal did something
+        second = {g.root.pid: g for g in grouper.groups(again)}
+        self.assertIs(second[30], first[30])
+        self.assertIsNot(second[20], first[20])
+        self.assertEqual(second[20].cpu, 5.0)
+        third = {g.root.pid: g for g in grouper.groups(dict(again))}
+        self.assertIs(third[20], second[20])
+        again[22] = proc(22, "vim", 21)
+        self.assertEqual(len({g.root.pid: g for g in grouper.groups(again)}[20].members), 3)
+
     def test_many_processes(self):
         procs = table(*[proc(pid, f"p{pid % 50}", 1 if pid % 7 == 0 else pid - 1) for pid in range(10, 3010)])
         groups = grouping.Grouper(APPS, ME).groups(procs)

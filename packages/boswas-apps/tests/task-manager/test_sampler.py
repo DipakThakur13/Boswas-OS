@@ -286,8 +286,9 @@ class DiskIoTest(SamplerCase):
     def test_bytes_per_second(self):
         self.system.add_process(100, "copy", io=(1000, 2000))
         self.assertEqual(self.sampler.tick({"procs", "io"}).procs[100].disk, 0.0)
-        self.system.update(100, io=(1000 + 3_000_000, 2000 + 1_000_000))
+        self.system.update(100, io=(1000 + 3_000_000, 2000 + 1_000_000), utime=3)
         self.assertAlmostEqual(self.step(seconds=2.0).procs[100].disk, 2_000_000.0)
+        self.assertEqual(self.step().procs[100].disk, 0.0)        # and nothing since
 
     def test_unreadable_io_file(self):
         self.system.add_process(100, "theirs", uid=1001)
@@ -308,10 +309,72 @@ class DiskIoTest(SamplerCase):
     def test_rate_spans_the_time_since_the_counter_was_last_read(self):
         self.system.add_process(100, "p", io=(0, 0))
         self.sampler.tick({"procs", "io"})
-        self.system.update(100, io=(4000, 0))
+        self.system.update(100, io=(4000, 0), utime=1)
         self.step(parts=frozenset({"procs"}))                     # Details page: no io
+        self.system.use_cpu(100, 1)
         self.step(parts=frozenset({"procs"}))
+        self.system.use_cpu(100, 1)
         self.assertAlmostEqual(self.step().procs[100].disk, 4000 / 3)
+
+
+class IdleProcessTest(SamplerCase):
+    def test_a_process_that_did_not_run_is_the_same_object_again(self):
+        self.system.add_process(101, "idle", io=(5, 5))           # 101: not due for a full read in these ticks
+        self.system.add_process(102, "busy")
+        first = self.sampler.tick({"procs", "io"}).procs
+        self.system.use_cpu(102, 40)
+        second = self.step(busy=40, idle=360).procs
+        self.assertIs(second[101], first[101])
+        self.assertIsNot(second[102], first[102])
+        self.assertAlmostEqual(second[102].cpu, 10.0)
+        third = self.step().procs                                 # 102 stopped running: once more a new object
+        self.assertEqual((third[102].cpu, third[102].disk), (0.0, 0.0))
+        self.assertIsNot(third[102], second[102])
+        self.assertIs(third[101], first[101])
+        fourth = self.step().procs
+        self.assertIs(fourth[102], third[102])
+
+    def test_only_the_stat_file_of_an_idle_process_is_read(self):
+        for pid in range(101, 108):
+            self.system.add_process(pid, "idle")
+        self.sampler.tick({"procs", "io"})
+        self.step()
+        calls = []
+        real = os.pread
+
+        def counting(fd, size, offset):
+            calls.append(fd)
+            return real(fd, size, offset)
+
+        with unittest.mock.patch("os.pread", counting):
+            self.step()
+        full = sum(1 for pid in range(101, 108) if (self.sampler._tick + pid) % sampler_module.FULL_PERIOD == 0)
+        self.assertEqual(len(calls), 7 + 2 * full)               # stat for each; statm and io only where due
+
+    def test_changes_without_cpu_time_show_after_a_few_ticks(self):
+        self.system.add_process(100, "quiet", io=(0, 0), resident=1000, shared=200)
+        self.sampler.tick({"procs", "io"})
+        self.system.update(100, io=(8000, 0), shared=600)         # the stat line stays as it is
+        seen = [self.step().procs[100] for _ in range(sampler_module.FULL_PERIOD)]
+        self.assertEqual(seen[-1].mem, 400 * fx.PAGE)
+        self.assertEqual(max(proc.disk for proc in seen), 8000.0)  # all of it in the tick it was noticed
+        self.assertEqual(sum(1 for proc in seen if proc.disk), 1)
+
+    def test_idle_time_is_not_counted_into_the_next_rate(self):
+        self.system.add_process(101, "sleeper", io=(0, 0))
+        self.sampler.tick({"procs", "io"})
+        for _ in range(5):
+            self.step()
+        self.system.update(101, io=(6000, 0), utime=1)
+        self.assertEqual(self.step().procs[101].disk, 6000.0)     # in one second, not spread over six
+
+    def test_stopped_and_reniced_processes_are_noticed_at_once(self):
+        self.system.add_process(101, "p")
+        self.sampler.tick({"procs"})
+        self.system.update(101, state="T")
+        self.assertEqual(self.step().procs[101].state, "T")
+        self.system.update(101, nice=7)
+        self.assertEqual(self.step().procs[101].nice, 7)
 
 
 class PssTest(SamplerCase):

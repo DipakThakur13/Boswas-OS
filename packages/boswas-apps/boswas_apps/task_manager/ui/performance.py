@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QModelIndex, QRectF, QSize, Qt
-from PySide6.QtGui import QPainter
-from PySide6.QtWidgets import (QAbstractItemView, QFrame, QGridLayout, QHBoxLayout, QListWidget, QListWidgetItem,
-                               QScrollArea, QSizePolicy, QStyle, QStyledItemDelegate, QVBoxLayout, QWidget)
+from PySide6.QtCore import QEvent, QModelIndex, QRect, QRectF, QSize, Qt
+from PySide6.QtGui import QFontMetrics, QPainter
+from PySide6.QtWidgets import (QAbstractItemView, QFrame, QHBoxLayout, QListWidget, QListWidgetItem, QScrollArea,
+                               QSizePolicy, QStyle, QStyledItemDelegate, QToolTip, QVBoxLayout, QWidget)
 
 import boswas_fluent as fluent
 from boswas_fluent import paint
@@ -17,6 +17,7 @@ from .graph import CompositionBar, CoreGrid, GraphWidget, Legend, paint_mini
 from .pages import Page
 
 KEY_ROLE = Qt.ItemDataRole.UserRole
+_LEFT = int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 _LIST_WIDTH = 252
 _ROW_HEIGHT = 68
 
@@ -27,6 +28,13 @@ class _ListDelegate(QStyledItemDelegate):
     def __init__(self, page: "PerformancePage") -> None:
         super().__init__(page)
         self._page = page
+        self._theme = None
+
+    def _prepare(self) -> None:
+        self._theme = fluent.theme()
+        self._body, self._caption = fluent.font("body"), fluent.font("caption")
+        self._body_metrics, self._caption_metrics = QFontMetrics(self._body), QFontMetrics(self._caption)
+        self._text, self._secondary = fluent.qcolor("text"), fluent.qcolor("text-secondary")
 
     def sizeHint(self, option, index: QModelIndex) -> QSize:
         return QSize(_LIST_WIDTH - 24, _ROW_HEIGHT)
@@ -46,65 +54,102 @@ class _ListDelegate(QStyledItemDelegate):
             return
         graph_box = QRectF(rect.left() + 12, rect.top() + 10, 68, rect.height() - 20)
         paint_mini(painter, graph_box, item.graphs[0] if item.graphs else None, item.kind)
-        text_left = graph_box.right() + 12
-        width = rect.right() - text_left - 6
-        paint.elided(painter, QRectF(text_left, rect.top() + 7, width, 20), item.title, fluent.font("body"), "text")
-        y = rect.top() + 27
+        if self._theme is not fluent.theme():
+            self._prepare()
+        text_left = int(graph_box.right()) + 12
+        width = int(rect.right()) - text_left - 6
+        elide = Qt.TextElideMode.ElideRight
+        painter.setFont(self._body)
+        painter.setPen(self._text)
+        painter.drawText(QRect(text_left, int(rect.top()) + 7, width, 20), _LEFT,
+                         self._body_metrics.elidedText(item.title, elide, width))
+        painter.setFont(self._caption)
+        painter.setPen(self._secondary)
+        y = int(rect.top()) + 27
         for line in item.summary[:2]:
-            paint.elided(painter, QRectF(text_left, y, width, 16), line, fluent.font("caption"), "text-secondary")
+            painter.drawText(QRect(text_left, y, width, 16), _LEFT, self._caption_metrics.elidedText(line, elide, width))
             y += 16
 
 
 class _Pairs(QWidget):
-    """Label and value pairs in a grid; the labels and values are updated in place."""
+    """Label and value pairs, painted in a grid.
+
+    ``big``: a small label above a larger value, ``columns`` cells per row
+    (the figures under the graph). Otherwise label and value side by side,
+    one pair per line (the facts beside them). The values change every
+    second, so the widget paints the text itself instead of keeping a
+    QLabel per value: nothing is laid out again when a number changes.
+    """
 
     def __init__(self, big: bool, columns: int, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._big, self._columns = big, columns
-        self._labels: list[str] = []
-        self._values: list[fluent.Label] = []
-        self._widgets: list[QWidget] = []
-        self._grid = QGridLayout(self)
-        self._grid.setContentsMargins(0, 0, 0, 0)
-        self._grid.setHorizontalSpacing(24 if big else 12)
-        self._grid.setVerticalSpacing(10 if big else 4)
+        self._pairs: list[tuple[str, str]] = []
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setAccessibleName("Figures" if big else "Facts")
 
     def set_pairs(self, pairs: list[tuple[str, str]]) -> None:
-        labels = [label for label, _value in pairs]
-        if labels != self._labels:
-            while self._grid.count():
-                self._grid.takeAt(0)
-            for widget in self._widgets:
-                widget.hide()
-                widget.setParent(None)
-                widget.deleteLater()
-            self._labels, self._values, self._widgets = labels, [], []
-            for index, label in enumerate(labels):
-                name = fluent.Label(label, "caption" if self._big else "body", tone="secondary")
-                value = fluent.Label("", "body-large" if self._big else "body", selectable=not self._big)
-                value.setAccessibleName(label.rstrip(":"))
-                name.setParent(self)
-                value.setParent(self)
-                self._widgets += [name, value]
-                if self._big:
-                    cell = QVBoxLayout()
-                    cell.setSpacing(0)
-                    cell.addWidget(name)
-                    cell.addWidget(value)
-                    self._grid.addLayout(cell, index // self._columns, index % self._columns)
-                else:
-                    value.setWordWrap(True)
-                    self._grid.addWidget(name, index, 0, Qt.AlignmentFlag.AlignTop)
-                    self._grid.addWidget(value, index, 1)
-                self._values.append(value)
-            if not self._big:
-                self._grid.setColumnStretch(1, 1)
-        for widget, (_label, value) in zip(self._values, pairs):
-            if widget.text() != value:
-                widget.setText(value)
+        if pairs == self._pairs:
+            return
+        resized = len(pairs) != len(self._pairs)
+        self._pairs = list(pairs)
+        self.setAccessibleDescription("; ".join(f"{label.rstrip(':')} {value}" for label, value in pairs))
+        if resized:
+            self.updateGeometry()
+        self.update()
 
     def value(self, label: str) -> str:
-        return self._values[self._labels.index(label)].text() if label in self._labels else ""
+        return next((value for name, value in self._pairs if name == label), "")
+
+    def _rows(self) -> int:
+        return -(-len(self._pairs) // self._columns) if self._big else len(self._pairs)
+
+    def sizeHint(self) -> QSize:
+        return QSize(260 if self._big else 240, self._rows() * (48 if self._big else 22))
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(180, self.sizeHint().height())
+
+    def paintEvent(self, _event) -> None:
+        if not self._pairs:
+            return
+        painter = QPainter(self)
+        elide = Qt.TextElideMode.ElideRight
+        secondary, text = fluent.qcolor("text-secondary"), fluent.qcolor("text")
+        if self._big:
+            small, large = fluent.font("caption"), fluent.font("body-large")
+            small_metrics, large_metrics = QFontMetrics(small), QFontMetrics(large)
+            cell = self.width() // self._columns
+            for index, (label, value) in enumerate(self._pairs):
+                left, top = index % self._columns * cell, index // self._columns * 48
+                width = cell - 12
+                painter.setFont(small)
+                painter.setPen(secondary)
+                painter.drawText(QRect(left, top, width, 18), _LEFT, small_metrics.elidedText(label, elide, width))
+                painter.setFont(large)
+                painter.setPen(text)
+                painter.drawText(QRect(left, top + 18, width, 24), _LEFT, large_metrics.elidedText(value, elide, width))
+            return
+        body = fluent.font("body")
+        metrics = QFontMetrics(body)
+        painter.setFont(body)
+        label_width = min(max(metrics.horizontalAdvance(label) for label, _value in self._pairs) + 12,
+                          self.width() // 2)
+        for index, (label, value) in enumerate(self._pairs):
+            top = index * 22
+            painter.setPen(secondary)
+            painter.drawText(QRect(0, top, label_width - 8, 22), _LEFT, metrics.elidedText(label, elide, label_width - 8))
+            painter.setPen(text)
+            width = self.width() - label_width
+            painter.drawText(QRect(label_width, top, width, 22), _LEFT, metrics.elidedText(value, elide, width))
+
+    def event(self, event) -> bool:
+        if event.type() == QEvent.Type.ToolTip and not self._big:
+            index = event.pos().y() // 22                 # a value that is cut off shows whole as a tool tip
+            if 0 <= index < len(self._pairs):
+                QToolTip.showText(event.globalPos(), f"{self._pairs[index][0]} {self._pairs[index][1]}", self)
+                return True
+        return super().event(event)
 
 
 class _GraphBlock(QWidget):
@@ -265,10 +310,8 @@ class PerformancePage(Page):
                 self.list.blockSignals(blocked)
         for row, item in enumerate(items):
             entry = self.list.item(row)
-            text = f"{item.title}: {', '.join(item.summary)}"
-            if entry.data(Qt.ItemDataRole.AccessibleTextRole) != text:
+            if entry.text() != item.title:               # (a disk that got another number)
                 entry.setText(item.title)
-                entry.setData(Qt.ItemDataRole.AccessibleTextRole, text)
         self.list.viewport().update()
         self.show_item(self.window.history.item(self.current_key))
 

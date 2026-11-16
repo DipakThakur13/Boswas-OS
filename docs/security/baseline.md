@@ -20,7 +20,7 @@ Results are a **local self-assessment**, not remote attestation.
 | Administrative access | Root locked by the installer. The installer-created user is in `sudo`; sudo with password, `use_pty`, 5-minute timestamp. No NOPASSWD, no hidden accounts | `root-account` (as root) | WARN if root has a password |
 | Passwords | pam_pwquality: min 12 chars, 2 classes, dictionary and username checks, enforced for root | (none) | (none) |
 | Screen lock | Owned by the compositor (ADR-0028): locks after at most 10 minutes without input, before suspend and hibernate, and on Super+L. The maximum is a `[policy]` value that a user's configuration cannot raise. A crashed lock screen leaves the session locked and blank | `screen-lock` | WARN if the lock is off or users may turn it off |
-| Desktop isolation | The compositor offers ordinary applications the application protocols only: no screen capture, no window list, no clipboard control, no panels or overlays, no input injection. Privileged protocols go only to programs the compositor starts itself; sandboxed clients never get them (ADR-0026) | test suite | (none) |
+| Desktop isolation | The compositor offers ordinary applications the application protocols only: no window list, no clipboard control, no panels or overlays, no input injection. Privileged protocols go only to programs the compositor starts itself; sandboxed clients never get them (ADR-0026). A program gets pictures of the screen only after the user has allowed it in a dialog of the shell, and a mark on the taskbar shows while it may (ADR-0037). X11 applications share one X server and are not isolated from each other (ADR-0034) | test suite | (none) |
 | Login | greetd with the Boswas greeter, which runs as the unprivileged user `_greetd`; authentication by PAM in greetd. No automatic login on installed systems; text-login fallback (ADR-0030) | test suite | (none) |
 | Boot screen and disk passphrase prompt | `boswas-bootsplash` (ADR-0029): root-only control socket with peer check; after start-up `no_new_privs`, a Landlock domain and three capabilities; the passphrase is wiped after use and never logged. Falls back to the text console | test suite | (none) |
 | Kernel hardening | kptr/dmesg restrict, no unprivileged BPF, ptrace scope 1, no kexec, restricted SysRq, no ICMP redirects. **User namespaces stay enabled** (Flatpak and browser sandboxes) | (none) | (none) |
@@ -30,7 +30,7 @@ Results are a **local self-assessment**, not remote attestation.
 | Removable media | Policy file and reporting only (`MODE=allow`) | `usb-policy` | INFO, not enforced |
 | Windows applications | `boswas-winapp`: one prefix per application, never as root, bubblewrap sandbox (no home, D-Bus, other prefixes; network and devices only when granted), `boswas-winapp` AppArmor profile enforced or nothing runs, catalog statuses incl. `blocked`, fail-closed policy ([details](../compatibility/README.md#security-model)) | `winapp-confinement` (as root) | WARN if the profile is not enforcing on an installed system |
 | Device management | `boswas-device-agent.service` sandboxed (ProtectSystem=strict, one capability, no new privileges, system-call filter). Control Plane traffic over mutual TLS with a pinned CA. Only typed commands, no remote shell (ADR-0019). Policies Ed25519-signed and verified before use; they can never disable AppArmor (ADR-0020). Local API authorised by kernel peer credentials. Privacy allowlists on every message. Standalone without a Control Plane ([details](../device-management/README.md)) | `agent`, `enrollment` (informational) | (none) |
-| Service minimisation | Network-listening and unmanaged-install software pinned out of the image: KDE Connect, Discover/PackageKit, cups-browsed, openssh-server, fingerprint PAM. The replaced desktop is pinned out as well (Plasma shell and session, KWin, SDDM, System Settings, Plymouth), and no X server is installed | test suite | (none) |
+| Service minimisation | Network-listening and unmanaged-install software pinned out of the image: KDE Connect, Discover/PackageKit, cups-browsed, openssh-server, fingerprint PAM. The replaced desktop is pinned out as well (Plasma shell and session, KWin, SDDM, System Settings, Plymouth). The only X server is Xwayland, started by the compositor for the session, without an abstract socket (ADR-0034) | test suite | (none) |
 
 Compliance states:
 
@@ -55,53 +55,146 @@ Compliance states:
 
 ## Desktop security model
 
-The desktop is the native Boswas desktop (ADR-0026 to ADR-0032): a Wayland
-compositor, a shell, a lock screen, a login screen and a boot screen, all
-written in Rust. In the shipped code `unsafe` is confined to six audited
-files, and the static test stage fails if it appears in any other.
+The desktop is the native Boswas desktop (ADR-0026 to ADR-0038): a Wayland
+compositor, a shell with the session's services, a lock screen, a login
+screen and a boot screen, all written in Rust. In the shipped code
+`unsafe` is confined to seven audited files, and the static test stage
+fails if it appears in any other.
 
 ### What an ordinary application cannot do
 
 An application that connects to the compositor (any Qt, GTK, Wine or
 Android window) is an ordinary client. It cannot:
 
-- **read the screen** or the contents of another window: no screen-capture
-  protocol is offered to applications. (Consequence: screenshots and screen
-  sharing from applications do not work yet. A portal with a visible
-  indicator is planned.)
+- **read the screen** or the contents of another window without the
+  user's say. The screen-capture protocol (`wlr-screencopy`) is offered
+  to programs outside a sandbox, but a program gets its first picture
+  only after the user has answered the shell's question, see
+  [Screen capture](#screen-capture).
 - **see which windows exist**, their titles or their applications: the
   window list is offered to the shell only.
 - **receive keys or pointer events meant for another window.** A focused
   client may ask to receive the window-management shortcuts itself (a
   remote desktop or a virtual machine); Super+L and virtual-terminal
   switching always stay with the compositor.
-- **inject input**: there is no virtual keyboard or pointer protocol.
+- **inject input**: there is no virtual pointer protocol, and the
+  virtual-keyboard and input-method protocols are offered only to the
+  input method the administrator configured (none is shipped).
 - **read or replace the clipboard in the background**: it gets the
   selection only while it has keyboard focus. Clipboard control is offered
   to the shell only.
 - **draw panels or overlays**, or become the lock screen: layer shell and
   session lock are offered to the shell only.
 - **take focus without the user**: an activation request is honoured only
-  with a token from the client that currently has focus.
+  with a token from the client that currently has focus. Any other
+  request marks the window as wanting attention.
 - **move or resize itself without a press** from the user, or position
   itself on the screen at all.
 - **unlock the session, list windows, take a screenshot or end the
   session through the control socket**: a connection to the socket file
-  gets `version`, `lock` and `reload-config`.
+  gets `version`, `lock`, `reload-config`, `outputs` (the monitors and
+  their modes, which every client sees anyway) and `capture`, which only
+  opens the shell's capture screen for the user. A static test pins this
+  set.
 
 Windows and Android applications reach the screen through the same
-interfaces and get no extra rights. The WinCompat sandbox binds only the
-Wayland socket when the display is granted; there is no X server, so the
-earlier X11 caveat (clients observing each other) no longer applies.
+interfaces and get no extra rights.
+
+### X11 applications
+
+The session has an X server again (Xwayland, ADR-0034). It is an
+unprivileged client of the compositor: it gets no privileged protocol
+and is not offered screen capture, and it has no abstract socket. But
+X11 itself does not separate its clients:
+
+- applications connected to the X server can see each other's windows
+  and input, and inject input into each other. They cannot see Wayland
+  applications;
+- the X server is given the clipboard of Wayland applications only while
+  an X11 window has the keyboard, and then every X11 application can
+  read it;
+- the WinCompat sandbox binds the X11 socket next to the Wayland socket
+  whenever `DISPLAY` names one, which it does for applications started
+  from Start or the taskbar. Wine then prefers its X11 driver, so such a
+  Windows application is an X11 client. The earlier caveat (X11 clients
+  observing each other) applies again. Which driver Wine uses on the
+  desktop has not been tested.
+
+`[xwayland] enabled = false` turns the X server off, but it is an
+ordinary setting that a user's file can override. A device that must not
+run X11 applications leaves the `xwayland` package out.
+
+### Screen capture
+
+- The Print key opens the shell's capture screen: the user sees the
+  picture, chooses what to keep and confirms.
+- A program that asks the compositor for pictures (a screenshot tool, a
+  recorder, the portal back end behind screen sharing) waits until the
+  shell has asked "Allow screen capture? NAME wants to see your screen."
+  and the user has allowed it. Neither button is the default, Enter
+  alone allows nothing, and "Allow" works only after the dialog has been
+  visible for a moment.
+- The permission covers that program while it keeps capturing and ends
+  five seconds after its last picture. A refusal holds for twenty
+  seconds. A mark on the taskbar shows while any program may capture; a
+  click on it stops them all.
+- Nothing is captured while the session is locked, and locking ends
+  every permission.
+- Sandboxed clients are not offered the protocol; they go through the
+  portal.
+
+Limits (ADR-0037): the name in the question is the kernel's name for the
+process, which a program can set itself, so the question shows that a
+capture starts, not who starts it. An allowed program sees everything on
+every monitor. This does not stop a program that already runs unsandboxed
+as the user from acting in other ways; it closes the silent, direct way
+to the pixels. Capture through the portal has not been tested.
+
+### Services in the shell
+
+The shell runs the session's services (ADR-0035): it is the notification
+service, the tray host and the polkit authentication agent, and it talks
+to NetworkManager, BlueZ, UPower, logind and the sound server.
+
+- **Input from other programs is not trusted.** Notifications, tray items
+  and media players can send anything: values are read by type, text is
+  stripped of control characters and bidirectional overrides and cut to
+  fixed lengths, markup is removed and not interpreted, image data in
+  notifications is dropped unread, tray pictures are size-limited, and
+  every list is bounded.
+- **Authentication.** Requests are accepted only from the connection that
+  owns polkit's bus name. The password is checked by polkit's own setuid
+  helper, not by the shell; the copy the shell holds is wiped after it
+  was written to the helper. Five wrong answers fail a request. When
+  several administrators may authorise an action, the dialog lets the
+  person choose which of them authenticates.
+- **Wi-Fi passphrases** are wiped from the shell's memory after use. The
+  copy inside the D-Bus message to NetworkManager is not.
+- **Bluetooth.** A device that asks to pair on its own is refused: the
+  agent agrees only for a device the person asked to connect to in the
+  last 60 seconds.
+- **The lock screen and the login screen** run a restricted set: they
+  show the state of the network and the battery, change nothing but the
+  volume and the brightness, own no bus name, and register no agent.
+- **Settings** gets the same backends through
+  `boswas-services-bridge`, which runs as the user and offers no power
+  actions, notifications or authentication.
+
+None of this has run against the real daemons; the polkit helper
+protocol in particular is tested against a stand-in only.
 
 ### Who is trusted
 
-- **Programs the compositor starts itself**: `boswas-shell` (panel,
-  launcher, wallpaper), `boswas-shell --lock` and, on the login screen,
-  `boswas-shell --greeter`. Each gets a Wayland connection and a control
-  descriptor that the compositor created for that one process. A program
-  cannot obtain them by connecting to a socket, and the shell removes both
-  from the environment of every application it starts.
+- **Programs the compositor starts itself**: `boswas-shell` (taskbar,
+  Start, flyouts, wallpaper), `boswas-shell --lock`, on the login screen
+  `boswas-shell --greeter`, and an input method if `[input_method]
+  command` names one (none is shipped). Each gets a Wayland connection
+  and a control descriptor that the compositor created for that one
+  process. A program cannot obtain them by connecting to a socket, and
+  the shell removes both from the environment of every application it
+  starts. Which programs these are is read from the system files only: a
+  user's configuration cannot name them. A configured input method has
+  the same trust as the shell.
 - **Sandboxed clients** (connected through the security-context protocol,
   as Flatpak does) never get privileged protocols, whatever the policy.
 - **`policy.privileged_protocols = "all"`** is a development setting that
@@ -161,13 +254,16 @@ for on the text console.
 
 Tested in the development environment: the trust filtering, the limits of
 the public control socket, the lock staying in place across crashed lock
-screens (end-to-end tests against the real compositor, headless); the
-policy layering; the greeter's message handling; the boot screen's
-protocol, sandbox and passphrase path with Debian's unmodified unlock
-helper. **Not yet verified:** anything on a real boot (QEMU or hardware):
-the DRM and input path, greetd login and PAM on the image, suspend and
-resume, the boot screen on an encrypted disk. No external security review
-has taken place.
+screens, the screen-capture question (end-to-end tests against the real
+compositor, headless); the policy layering; the service backends and the
+polkit agent against stand-ins of the system daemons; the greeter's
+message handling; the boot screen's protocol, sandbox and passphrase path
+with Debian's unmodified unlock helper. **Not yet verified:** anything on
+a real boot (QEMU or hardware) or against a real system service: the DRM
+and input path, greetd login and PAM on the image, suspend and resume,
+the boot screen on an encrypted disk, polkit, NetworkManager and BlueZ,
+the portal. No external security review has taken place. The full list
+is in [verification.md](../architecture/verification.md).
 
 ## Live session
 
@@ -203,17 +299,26 @@ installed system never inherits the live user.
 - **Desktop, same-user programs:** the trust model separates applications
   from the shell at the protocol level. It is not a boundary against a
   program that runs **unsandboxed as the same user**. The configuration
-  is closed to it: `[policy]`, `[shell] command` and `[lock] command`
-  (the programs the compositor starts as trusted) are read from the
-  system files only and ignored in `~/.config/boswas/compositor.toml`.
+  is closed to it: `[policy]`, `[shell] command`, `[lock] command` and
+  `[input_method] command` (the programs the compositor starts as
+  trusted) are read from the system files only and ignored in
+  `~/.config/boswas/compositor.toml`.
   But such a program can still edit the user's other files, such as
   `~/.profile`, and attach a debugger to the user's processes where the
   kernel allows it. Confining untrusted programs is the job of the
   sandboxes (Flatpak, WinCompat with AppArmor).
-- **Desktop, missing controls:** no screen-capture portal with consent and
-  indicator; `loginctl lock-session` and D-Bus screen-saver requests are
-  not handled; no fingerprint or smart-card unlock; no limit on password
-  attempts at the lock screen beyond PAM's delay.
+- **Desktop, X11:** X11 applications are not isolated from each other,
+  and a Windows application started with `DISPLAY` set is one of them
+  (see [X11 applications](#x11-applications)).
+- **Desktop, screen capture:** the consent question names a process name
+  that a program can choose, and allows all screens or none; the portal
+  path is untested (see [Screen capture](#screen-capture)).
+- **Desktop, missing controls:** D-Bus screen-saver requests are not
+  handled (`loginctl lock-session` is, while the shell runs); no
+  fingerprint or smart-card unlock; no limit on password attempts at the
+  lock screen beyond PAM's delay.
 - **Desktop, verification:** the native desktop and the boot screen have
-  not run on a real boot yet (see above), and their Rust dependencies come
-  from crates.io without an automated advisory check (ADR-0032).
+  not run on a real boot yet, and the shell's services and its polkit
+  agent have not run against the real daemons (see above). Their Rust
+  dependencies come from crates.io without an automated advisory check
+  (ADR-0032).

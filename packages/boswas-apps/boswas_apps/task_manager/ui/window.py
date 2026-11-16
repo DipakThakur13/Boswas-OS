@@ -6,7 +6,7 @@ import signal
 from typing import Callable
 
 from PySide6.QtCore import QEvent, QTimer
-from PySide6.QtWidgets import QHBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QWidget
 
 import boswas_fluent as fluent
 
@@ -123,6 +123,9 @@ class TaskManagerWindow(fluent.FluentWindow):
         nav.current_changed.connect(self._page_changed)
         self._page_changed(start)
         self.sampling.start()
+        application = QApplication.instance()
+        if application is not None:
+            application.aboutToQuit.connect(self.shut_down)
         self.reload_applications()
 
     # --- pages ---
@@ -213,10 +216,15 @@ class TaskManagerWindow(fluent.FluentWindow):
             self._update_sampling()
 
     def closeEvent(self, event) -> None:
-        self._closed = True
-        self.sampling.stop()
-        self.worker.shutdown()
+        self.shut_down()
         super().closeEvent(event)
+
+    def shut_down(self) -> None:
+        """Stop the sampler thread and the worker (when the window closes or the application quits)."""
+        if not self._closed:
+            self._closed = True
+            self.sampling.stop()
+            self.worker.shutdown()
 
     # --- settings ---
     def save_settings(self) -> None:

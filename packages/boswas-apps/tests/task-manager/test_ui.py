@@ -680,7 +680,8 @@ class PerformanceTest(UiCase):
         self.assertEqual(page.current_key, "disk:nvme0n1")
         testing.key(page.list, Qt.Key.Key_Down)
         self.assertEqual(page.current_key, "net:eth0")
-        self.assertEqual(page.list.item(3).data(Qt.ItemDataRole.AccessibleTextRole)[:15], "Ethernet (eth0)")
+        self.assertEqual(page.list.item(3).text(), "Ethernet (eth0)")
+        self.assertIn("Send", page.stats.accessibleDescription())
 
     def test_history_keeps_sixty_samples_and_marks_what_was_missed(self):
         window = self.window("performance")

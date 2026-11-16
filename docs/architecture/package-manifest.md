@@ -18,7 +18,7 @@ This page must be updated whenever a list changes.
 | dbus-user-session | Per-user D-Bus, required by modern desktops |
 | locales, console-setup, keyboard-configuration, tzdata | Localisation |
 | bash-completion, less, man-db | Usable shell and documentation |
-| network-manager | Network management (Wi-Fi, VPN, wired). Used by Control Center, the device agent and the panel's network state; set up with `nmtui` or `nmcli` until the native network settings exist |
+| network-manager | Network management (Wi-Fi, VPN, wired). Used by the shell's quick settings and network state (`boswas-services`, ADR-0035), Control Center and the device agent. `nmtui` and `nmcli` stay available in a terminal |
 | ca-certificates, curl, wget | TLS trust store and HTTP clients |
 | openssh-client | Outbound SSH for engineers. No server |
 | sudo | Explicit, auditable administration |
@@ -36,38 +36,40 @@ This page must be updated whenever a list changes.
 The desktop itself is Boswas software: the compositor, the shell, the lock
 screen and the login screen are the package `boswas-desktop`, and the boot
 screen is `boswas-bootsplash` (both in `boswas-components.list.chroot`;
-ADR-0026 to ADR-0030). This list holds what they need around them and the
-applications. KDE Plasma is not installed; KDE's applications are, as
-ordinary Wayland clients.
+ADR-0026 to ADR-0030, ADR-0033 to ADR-0038). This list holds what they
+need around them and the applications. KDE Plasma is not installed; KDE's
+applications are, as ordinary Wayland clients.
 
 | Package | Why |
 |---------|-----|
 | greetd | Login daemon (ADR-0030). `boswas-desktop` points it at `/etc/boswas/greetd.toml` with a systemd drop-in; it runs the Boswas greeter and, as a fallback, its own text login (`agreety`) |
-| xwayland | The X server for X11 applications. `boswas-compositor` starts it and manages its windows like any other (`[xwayland] enabled`) |
+| xwayland | The X server for X11 applications (ADR-0034). `boswas-compositor` starts it and manages its windows like any other (`[xwayland] enabled`) |
 | xdg-desktop-portal-gtk | Portal back end for file dialogues and settings of Flatpak and other sandboxed applications (`XDG_CURRENT_DESKTOP=Boswas`, `boswas-portals.conf`). It has no screen-capture portal |
-| xdg-desktop-portal-wlr | Portal back end for screen sharing and screenshots (browsers, meetings, sandboxed applications). It asks the compositor for pictures through wlr-screencopy; the compositor asks the user first. Configured without a chooser program (`/etc/xdg/xdg-desktop-portal-wlr/Boswas`): it shares the first monitor. Not tested in this build environment |
+| xdg-desktop-portal-wlr | Portal back end for screen sharing and screenshots (browsers, meetings, sandboxed applications). It asks the compositor for pictures through wlr-screencopy; the compositor asks the user first (ADR-0037). Configured without a chooser program (`/etc/xdg/xdg-desktop-portal-wlr/Boswas`): it shares the first monitor. Not tested in this build environment |
 | pipewire-bin, wireplumber | `pw-dump` and `wpctl`: how the shell and Settings read and set sound devices and volumes (`boswas-services`) |
 | upower | Battery state for the taskbar, quick settings and Settings |
 | power-profiles-daemon | The power modes (power saver, balanced, performance) in quick settings and Settings |
 | accountsservice | User accounts in Settings (name, picture, password, adding and removing users), authorised through polkit |
 | xdg-user-dirs | Standard user folders |
-| qt6-wayland | Qt 6 platform plugin for Wayland: Control Center, the Compatibility Manager and the KDE applications draw on the compositor directly (there is no X server) |
+| qt6-wayland | Qt 6 platform plugin for Wayland: Control Center, the Compatibility Manager and the KDE applications draw on the compositor directly. The session asks Qt for Wayland first and X11 second (`QT_QPA_PLATFORM=wayland;xcb`) |
 | breeze-cursor-theme | Cursor theme the compositor and the applications load (`breeze_cursors`) |
 | breeze-icon-theme | Fallback for icons the Boswas Prism pack does not contain |
-| kde-style-breeze | Widget style of the KDE and PySide6 applications (`widgetStyle=Breeze`), coloured by the generated Prism colour scheme |
+| kde-style-breeze | Widget style of the KDE applications (`widgetStyle=Breeze`), coloured by the generated Prism colour scheme. The Boswas applications take their look from `boswas_fluent` instead (ADR-0039) |
 | pipewire-audio | Audio stack |
 | pavucontrol-qt | Per-application volumes; the shell's quick settings and Settings cover devices and the main volume |
 | konsole, dolphin, kwrite, ark, okular, gwenview, kcalc | Core applications: terminal, files, editor, archives, PDF, images, calculator |
 | firefox-esr | Browser on Debian's long-term security-supported channel |
 | fonts-hack | Monospace font of the Boswas terminal profiles (`Font=Hack,11`); Plasma used to pull it in |
-| fonts-inter | Inter, the Boswas UI typeface (ADR-0031): shell, window titles, lock and login screens |
+| fonts-inter | Inter, the Boswas UI typeface (ADR-0031, ADR-0033): shell, window titles, lock and login screens and the Boswas Qt applications. Also a build dependency of `boswas-bootsplash`, which embeds bitmaps of its glyphs (ADR-0038) |
 | fonts-lato | Secondary text in Boswas artwork (the brand typeface, Orbitron, is not in Debian and ships in `boswas-branding`) |
 | fonts-liberation2 | Metric-compatible with common Windows fonts (documents, Wine) |
 | fonts-noto-core | Broad Unicode coverage |
 
 ### Removed with the native desktop
 
-These were in the list up to 1.0~alpha3.
+These were in the list up to 1.0~alpha3. `polkit-kde-agent-1`, which the
+first version of the native desktop added, is gone again: the shell is
+the polkit agent (ADR-0035).
 
 | Package | Why removed |
 |---------|-------------|
@@ -76,11 +78,11 @@ These were in the list up to 1.0~alpha3.
 | sddm, sddm-theme-breeze, kde-config-sddm | Login manager, its theme and its settings module. Replaced by greetd with the Boswas greeter (ADR-0030); `sddm` is pinned out |
 | systemsettings | Plasma's settings application. It configures Plasma and KWin, which are gone; pinned out. Control Center is the settings hub |
 | kinfocenter | Built on System Settings and the Plasma workspace. Control Center's Hardware and About pages cover it |
-| plasma-nm, plasma-pa, bluedevil | Plasma applets and settings modules for network, audio and Bluetooth; they live in the Plasma shell and System Settings. NetworkManager, PipeWire and BlueZ themselves stay. Native quick settings are planned |
-| powerdevil | Plasma's power management service. systemd-logind handles the lid and the power key; idle locking is the compositor's (ADR-0028). Display dimming and power profiles are open |
-| kscreen | Display configuration through KWin's interface, which the new compositor does not have. Output configuration is planned |
+| plasma-nm, plasma-pa, bluedevil | Plasma applets and settings modules for network, audio and Bluetooth; they live in the Plasma shell and System Settings. NetworkManager, PipeWire and BlueZ themselves stay. The shell's quick settings take their place (ADR-0035) |
+| powerdevil | Plasma's power management service. systemd-logind handles the lid and the power key; idle locking is the compositor's (ADR-0028), which also turns the screens off after a time without input (ADR-0036); the power mode is set in quick settings through `power-profiles-daemon`. Display dimming is open |
+| kscreen | Display configuration through KWin's interface, which the new compositor does not have. Monitors are set per connector in the compositor's configuration (ADR-0036) |
 | xdg-desktop-portal-kde | Portal back end that needs KWin and the Plasma session. Replaced by `xdg-desktop-portal-gtk` |
-| kde-spectacle | Screenshot tool; it needs a screen-capture interface the compositor does not offer to applications yet |
+| kde-spectacle | Screenshot tool. The shell's screen capture (the Print key) takes its place; other capture tools go through the compositor's consent question (ADR-0037) |
 | plasma-systemmonitor | Depends on the Plasma libraries and services. `htop` stays in the base list |
 
 ## Security (`boswas-security.list.chroot`)
@@ -106,7 +108,9 @@ These were in the list up to 1.0~alpha3.
 ## Hardware (`boswas-hardware.list.chroot`)
 
 The selected redistributable firmware is listed in
-`docs/deployment/hardware-compatibility.md`. firmware-cirrus (laptop
+`docs/deployment/hardware-compatibility.md`. `bluez`, the Bluetooth
+service the shell's quick settings talk to, and `bluez-firmware` are in
+this list too. firmware-cirrus (laptop
 speaker amplifiers), firmware-bnx2/bnx2x (Broadcom NetXtreme II),
 firmware-libertas and firmware-zd1211 (older Wi-Fi) were added with the
 installer firmware work (ADR-0023). Independently, the **installer medium**
@@ -120,16 +124,16 @@ network exists; `config/boswas/firmware-required.list` is the build gate.
 |---------|-----|
 | boswas-os | Release identity, `/etc/boswas`, login banner; depends on the others |
 | boswas-cli | `boswas`, `boswas-info`, `boswas-status` |
-| boswas-branding | Visual identity: artwork, the Boswas UI tokens, the Prism colour schemes and icon pack, the ten presets, defaults for KDE applications |
+| boswas-branding | Visual identity: artwork, the Boswas UI tokens, the Prism colour schemes and icon pack, the ten presets, defaults for KDE applications, and the Qt toolkit `boswas_fluent` in `/usr/lib/boswas/python` (ADR-0039). Because of the toolkit it depends on PySide6: `python3-pyside6.qtcore`, `qtgui`, `qtwidgets`, `qtsvg`, `qtdbus` and `qtnetwork` |
 | boswas-security | Security baseline configuration |
 | boswas-compat | WinCompat: `boswas-winapp`, Wine AppArmor profile, compatibility catalog and policy. Depends on `wine`, `wine64`, `bubblewrap`, `apparmor` (all already in the manifest) |
 | boswas-device-agent | Device agent service, per-user session agent, `boswas-device`. Depends on `boswas-compat`, `openssl` (device key, policy signatures) and `systemd` |
-| boswas-compat-manager | Compatibility Manager GUI. Depends on PySide6 (`python3-pyside6.qtcore`, `qtgui`, `qtwidgets`, Debian's LGPL Qt bindings, about 30 MB with their Qt libraries) and `boswas-device-agent` |
+| boswas-compat-manager | Compatibility Manager GUI. Depends on PySide6 (`python3-pyside6.qtcore`, `qtgui`, `qtwidgets`, Debian's LGPL Qt bindings, about 30 MB with their Qt libraries), on `boswas-branding` for the toolkit and on `boswas-device-agent` |
 | boswas-sysops | The only privileged helper (ADR-0024): fixed operations started with pkexec, one polkit action each. Depends on `apt`, `pkexec`, `polkitd` |
-| boswas-control-center | Control Center, Security Center and Software Center (PySide6). Depends on `kde-cli-tools` and `libkf6kcmutils-bin`; the Plasma settings modules it can open are no longer installed (see the roadmap) |
+| boswas-control-center | Control Center, Security Center and Software Center (PySide6, on the toolkit of `boswas-branding`). Depends on `kde-cli-tools` and `libkf6kcmutils-bin`; the Plasma settings modules it can open are no longer installed. Its native settings pages are reserved for ADR-0041 |
 | boswas-android | Android runtime manager and APK inspection (ADR-0025). The Android runtime (Waydroid) itself is **not** in the image: it is installed on request after installation |
-| boswas-desktop | The native desktop (ADR-0026 to ADR-0028, ADR-0030): `boswas-compositor`, `boswas-shell` (taskbar, Start, quick settings, notifications, the polkit agent, lock screen, greeter), `boswas-services-bridge` (the same service backends for Settings), the session, the greetd drop-in and the lock screen's PAM service. Rust, `amd64`. Depends on `greetd`, `dbus-user-session`, `libegl1`, `libgles2`, `libgl1-mesa-dri`, `libpam-runtime`, `xkb-data` and, through its shared libraries, libseat, libinput, libudev, GBM, pixman, xkbcommon and PAM. Recommends `boswas-branding`, `breeze-cursor-theme`, `fonts-inter`, `qt6-wayland`, `xwayland`, `xdg-desktop-portal-gtk`, `xdg-desktop-portal-wlr`, `polkitd`, `network-manager`, `bluez`, `pipewire-bin`, `wireplumber`, `upower`, `power-profiles-daemon` (all in the manifest): each is optional at run time, and what it serves shows as not available without it |
-| boswas-bootsplash | The boot, disk-unlock and shutdown screens (ADR-0029). Rust, `amd64`. Depends on `initramfs-tools`; conflicts with `plymouth` |
+| boswas-desktop | The native desktop (ADR-0026 to ADR-0028, ADR-0030, ADR-0033 to ADR-0037): `boswas-compositor`, `boswas-shell` (taskbar, Start, quick settings, notifications, the polkit agent, lock screen, greeter), `boswas-services-bridge` (the same service backends for Settings), the session, the greetd drop-in and the lock screen's PAM service. Rust, `amd64`. Depends on `greetd`, `dbus-user-session`, `libegl1`, `libgles2`, `libgl1-mesa-dri`, `libpam-runtime`, `xkb-data` and, through its shared libraries, libseat, libinput, libudev, GBM, pixman, xkbcommon and PAM. Recommends `boswas-branding`, `breeze-cursor-theme`, `fonts-inter`, `qt6-wayland`, `xwayland`, `xdg-desktop-portal-gtk`, `xdg-desktop-portal-wlr`, `polkitd`, `network-manager`, `bluez`, `pipewire-bin`, `wireplumber`, `upower`, `power-profiles-daemon` (all in the manifest): each is optional at run time, and what it serves shows as not available without it |
+| boswas-bootsplash | The boot, disk-unlock and shutdown screens (ADR-0029, ADR-0038). Rust, `amd64`. Depends on `initramfs-tools`; conflicts with `plymouth`. Build-depends on `fonts-inter`: the glyphs of the typeface are built into the program, and the font itself is not installed by this package |
 
 The Control Plane (`boswas-control-plane`, a server package), the Android
 runtime (`waydroid`, `lxc`, `python3-gbinder`) and any Google Play / Google
@@ -156,9 +160,12 @@ the build fails if anything requires them.
 Not selected (would arrive with a profile later): LibreOffice, printing
 (CUPS), the KDE PIM suite, games, `task-kde-desktop`.
 
-No X server is installed on purpose (no `xwayland`, no `xserver-xorg`): the
-compositor does not start one (ADR-0026). They are not pinned; nothing in
-the manifest asks for them.
+`xwayland` is the only X server the manifest names (ADR-0034, which
+supersedes the "no X server" of ADR-0026). `xserver-xorg` is not named
+and not pinned.
+
+The system applications of `boswas-apps` are not in the manifest yet:
+reserved, ADR-0040.
 
 ## Build-time only: Rust crates
 
@@ -171,19 +178,20 @@ package manifest. The direct dependencies:
 
 | Crate | Used by | Why |
 |-------|---------|-----|
-| smithay 0.7 | compositor | Wayland server protocols, DRM/KMS, GBM, EGL/GLES, libinput and libseat bindings, the software (pixman) renderer |
+| smithay 0.7 | compositor | Wayland server protocols, DRM/KMS, GBM, EGL/GLES, libinput and libseat bindings, the software (pixman) renderer, the X11 window manager for Xwayland |
 | smithay-client-toolkit 0.19, wayland-client, wayland-protocols | shell (and the compositor's tests) | Wayland client side: layer shell, session lock |
 | tiny-skia 0.11 | boswas-ui, compositor, shell | Software 2D drawing |
 | cosmic-text 0.12 | boswas-ui | Text shaping and font fallback |
 | resvg 0.45 | boswas-ui, bootsplash (build time) | SVG icons; the boot artwork is rasterised at build time |
-| image 0.25, png 0.17 | boswas-ui, compositor | Wallpaper decoding (PNG, JPEG); screenshots |
+| image 0.25, png 0.17 | boswas-ui, compositor | Wallpaper decoding (PNG, JPEG); screenshots and window thumbnails |
 | xcursor 0.3 | compositor | Cursor themes |
-| toml 0.8, serde, serde_json | compositor, shell | Configuration; the control socket |
+| toml 0.8, serde, serde_json | compositor, shell, services, bridge | Configuration; the control socket; the bridge's JSON lines |
 | rustix 1, libc 0.2, bitflags 2 | compositor, shell, bootsplash | System calls |
-| zeroize 1 | shell, bootsplash | Wiping passwords and the disk passphrase from memory |
-| chrono 0.4 | shell | The panel clock |
+| zeroize 1 | shell, services, bridge, bootsplash | Wiping passwords, Wi-Fi passphrases and the disk passphrase from memory |
+| chrono 0.4 | shell, compositor | The clock and the calendar; the schedule of night light |
+| zbus 5, async-io 2, async-executor 1, async-channel 2, futures-lite 2 | services | D-Bus (NetworkManager, BlueZ, UPower, logind, polkit, notifications, tray, media players) on a small executor per service; no tokio |
 | tracing, tracing-subscriber | compositor, shell | Logging |
 | drm 0.14 | bootsplash | DRM/KMS ioctls (no libdrm) |
 | landlock 0.4 | bootsplash | The daemon's sandbox |
-| fontdue 0.9.3 | bootsplash (build time) | Rasterising the glyph atlas |
-| tempfile 3 | compositor (tests only) | Scratch directories |
+| fontdue 0.9.3 | bootsplash (build time) | Rasterising the glyph atlases from Inter (`fonts-inter` on the build machine) |
+| tempfile 3 | compositor, services, bridge (tests only) | Scratch directories |

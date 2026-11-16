@@ -15,22 +15,28 @@ from __future__ import annotations
 import time
 from typing import Callable
 
-from PySide6.QtCore import QAbstractItemModel, QModelIndex, QPoint, QRect, QRectF, QSize, Qt, Signal
+from PySide6.QtCore import QAbstractItemModel, QEvent, QModelIndex, QPoint, QRect, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFontMetrics, QIcon, QKeySequence, QPainter
-from PySide6.QtWidgets import (QAbstractItemView, QFrame, QHeaderView, QStyle, QStyleOptionViewItem, QTreeView,
-                               QWidget)
+from PySide6.QtWidgets import (QAbstractItemView, QFrame, QHeaderView, QStyle, QStyledItemDelegate,
+                               QStyleOptionViewItem, QTreeView, QWidget)
 
 import boswas_fluent as fluent
 from boswas_fluent import paint
-from boswas_fluent.polish import TreeItemDelegate
 
 HEAT_ROLE = Qt.ItemDataRole.UserRole + 20
 METRIC_ROLE = Qt.ItemDataRole.UserRole + 21
 LEFT = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
 RIGHT = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-_RANGE_THRESHOLD = 12            # more changed rows than this under one parent: one dataChanged for all
+_RANGE_THRESHOLD = 24            # more changed cells than this in one update: one dataChanged for everything
 HEADER_HEIGHT = 48
 ROW_HEIGHT = 34
+_ROW_FLAGS = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+_HEADER_FLAGS = Qt.ItemFlag.ItemIsEnabled
+_NO_FLAGS = Qt.ItemFlag.NoItemFlags
+_LEFT_INT, _RIGHT_INT = int(LEFT), int(RIGHT)
+_SELECTED = QStyle.StateFlag.State_Selected.value
+_HOVERED = QStyle.StateFlag.State_MouseOver.value
+_HEAT_STEPS = 48
 
 
 class Column:
@@ -50,12 +56,14 @@ class Column:
 
 class Row:
     """A row to show: ``key`` identifies it between updates, ``sig`` changes when what it shows changes."""
-    __slots__ = ("key", "data", "sig", "children", "section", "header")
+    __slots__ = ("key", "data", "sig", "children", "section", "header", "sort_for", "sort_value")
 
     def __init__(self, key: str, data: object, sig: object, children: list["Row"] | None = None,
                  section: int = 0, header: bool = False) -> None:
         self.key, self.data, self.sig, self.children = key, data, sig, children
         self.section, self.header = section, header
+        self.sort_for: object = None          # the column ``sort_value`` was worked out for
+        self.sort_value: object = None
 
 
 class _Node:
@@ -70,6 +78,7 @@ class _Node:
 
 class TreeModel(QAbstractItemModel):
     sort_changed = Signal(str, bool)
+    metric_changed = Signal(int)               # the section whose figure above the title changed
 
     def __init__(self, columns: list[Column], parent=None) -> None:
         super().__init__(parent)
@@ -108,7 +117,7 @@ class TreeModel(QAbstractItemModel):
             self._metrics[key] = text
             section = self.column_index(key)
             if section >= 0:
-                self.headerDataChanged.emit(Qt.Orientation.Horizontal, section, section)
+                self.metric_changed.emit(section)
 
     # --- sorting ---
     def sort_key(self) -> tuple[str, bool]:
@@ -131,7 +140,11 @@ class TreeModel(QAbstractItemModel):
         for row in rows:
             if row.header:
                 continue
-            value = column.sort(row)
+            if row.sort_for is column:           # a row object that is shown again keeps its key
+                value = row.sort_value
+            else:
+                value = row.sort_value = column.sort(row)
+                row.sort_for = column
             (without if value is None else keyed).append((value, row))
         try:
             keyed.sort(key=lambda pair: pair[0], reverse=self._descending)
@@ -172,19 +185,32 @@ class TreeModel(QAbstractItemModel):
         else:
             self.updates += 1
         if changed:
-            last = len(self.columns) - 1
-            by_parent: dict[int, list[_Node]] = {}
+            # Only cells that were shown before and show something else now are announced, one by one:
+            # the view then repaints those cells and nothing else. (A range of cells makes it repaint
+            # everything it shows.)
+            cells: list[tuple[_Node, int]] = []
+            columns = self.columns
             for node in changed:
-                by_parent.setdefault(node.parent.id, []).append(node)
-            for nodes in by_parent.values():
-                if len(nodes) > _RANGE_THRESHOLD:
-                    siblings = nodes[0].parent.children
+                row, texts = node.row, node.texts
+                for column, old in enumerate(texts):
+                    if old is None:
+                        continue
+                    text = "" if row.header and column else columns[column].text(row)
+                    if text != old:
+                        texts[column] = text
+                        cells.append((node, column))
+            if len(cells) > _RANGE_THRESHOLD:
+                first, last = self._root.children[0], self._root.children[-1]
+                self.dataChanged.emit(self.createIndex(0, 0, first.id),
+                                      self.createIndex(last.position, len(columns) - 1, last.id))
+                for parent_id in {node.parent.id for node, _column in cells if node.parent is not self._root}:
+                    siblings = self._nodes[parent_id].children
                     self.dataChanged.emit(self.createIndex(0, 0, siblings[0].id),
-                                          self.createIndex(len(siblings) - 1, last, siblings[-1].id))
-                else:
-                    for node in nodes:
-                        self.dataChanged.emit(self.createIndex(node.position, 0, node.id),
-                                              self.createIndex(node.position, last, node.id))
+                                          self.createIndex(len(siblings) - 1, len(columns) - 1, siblings[-1].id))
+            else:
+                for node, column in cells:
+                    index = self.createIndex(node.position, column, node.id)
+                    self.dataChanged.emit(index, index)
 
     def _index_of(self, node: _Node) -> QModelIndex:
         return QModelIndex() if node is self._root else self.createIndex(node.position, 0, node.id)
@@ -245,7 +271,6 @@ class TreeModel(QAbstractItemModel):
                 existing[row.key] = node
                 made.add(node.id)
             self.endInsertRows()
-        columns = len(self.columns)
         wanted = []
         for row in ordered:
             node = existing[row.key]
@@ -253,9 +278,10 @@ class TreeModel(QAbstractItemModel):
             if node.id in made:
                 continue
             old = node.row
+            if old is row:                       # the same object as at the last update: nothing to do
+                continue
             node.row = row
             if old.sig != row.sig:
-                node.texts = [None] * columns
                 changed.append(node)
             if row.children or node.children:
                 self._sync(node, row.children or [], changed, reorders)
@@ -290,12 +316,10 @@ class TreeModel(QAbstractItemModel):
         return self.rowCount(parent) > 0
 
     def flags(self, index: QModelIndex) -> Qt.ItemFlag:
-        node = self._nodes.get(index.internalId()) if index.isValid() else None
+        node = self._nodes.get(index.internalId())
         if node is None:
-            return Qt.ItemFlag.NoItemFlags
-        if node.row.header:
-            return Qt.ItemFlag.ItemIsEnabled
-        return Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+            return _NO_FLAGS
+        return _HEADER_FLAGS if node.row.header else _ROW_FLAGS
 
     def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole):
         node = self._nodes.get(index.internalId())
@@ -315,7 +339,7 @@ class TreeModel(QAbstractItemModel):
             heat = self.columns[column].heat
             return None if heat is None or node.row.header else heat(node.row)
         if role == Qt.ItemDataRole.TextAlignmentRole:
-            return int(RIGHT if self.columns[column].right else LEFT)
+            return _RIGHT_INT if self.columns[column].right else _LEFT_INT
         if role == Qt.ItemDataRole.DecorationRole:
             icon = self.columns[column].icon
             return None if icon is None or node.row.header else icon(node.row)
@@ -343,6 +367,17 @@ class TreeModel(QAbstractItemModel):
             metric = self._metrics.get(column.key)
             return f"{column.title}, {metric}" if metric else column.title
         return None
+
+    # --- for the delegate: the same answers as data(), without going through Qt ---
+    def node_at(self, index: QModelIndex) -> _Node | None:
+        return self._nodes.get(index.internalId())
+
+    def cell_text(self, node: _Node, column: int) -> str:
+        text = node.texts[column]
+        if text is None:
+            text = "" if node.row.header and column else self.columns[column].text(node.row)
+            node.texts[column] = text
+        return text
 
     # --- finding rows ---
     def row_at(self, index: QModelIndex) -> Row | None:
@@ -380,26 +415,11 @@ def heat_colour(level: float) -> QColor:
     return colour
 
 
-class CellDelegate(TreeItemDelegate):
-    """Cells as the toolkit draws them, with the heat-map fill behind the columns that have one."""
-
-    def __init__(self, parent=None, tree: bool = True) -> None:
-        super().__init__(parent)
-        self._tree = tree
-
-    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
-        level = index.data(HEAT_ROLE)
-        if level is not None:
-            painter.fillRect(option.rect.adjusted(1, 1, -1, -1), heat_colour(level))
-        super().paint(painter, option, index)
-        if index.column() == 0 and option.state & QStyle.StateFlag.State_Selected and not self._tree:
-            # A table without a tree column has no branch area for the style to draw the selection mark in.
-            rect = QRectF(option.rect)
-            paint.rounded_rect(painter, QRectF(rect.left(), rect.center().y() - 8, 3, 16), 1.5, "accent")
+class RowDelegate(QStyledItemDelegate):
+    """Gives the rows their height. The cells are painted by ``TableView.drawRow``."""
 
     def sizeHint(self, option, index) -> QSize:
-        hint = super().sizeHint(option, index)
-        return QSize(hint.width(), max(hint.height(), ROW_HEIGHT))
+        return QSize(40, ROW_HEIGHT)
 
 
 class MetricHeader(QHeaderView):
@@ -443,7 +463,10 @@ class MetricHeader(QHeaderView):
         painter.restore()
 
     def sizeHint(self) -> QSize:
-        return QSize(super().sizeHint().width(), HEADER_HEIGHT)
+        return QSize(240, HEADER_HEIGHT)
+
+    def sectionSizeFromContents(self, logical: int) -> QSize:
+        return QSize(72, HEADER_HEIGHT)        # the columns have the widths the pages give them
 
 
 class TableView(QTreeView):
@@ -461,8 +484,11 @@ class TableView(QTreeView):
         self._stretch = stretch                 # the key of the column that takes the spare width (None: the last)
         self._typed = ""
         self._typed_at = 0.0
+        self._tree = tree
+        self._hover_id = 0
+        self._theme = None
         self.setHeader(MetricHeader(self))
-        self.setItemDelegate(CellDelegate(self, tree))
+        self.setItemDelegate(RowDelegate(self))
         self.setModel(model)
         self.setFrameShape(QFrame.Shape.NoFrame)
         self.setUniformRowHeights(True)
@@ -482,6 +508,7 @@ class TableView(QTreeView):
         header.setSortIndicatorShown(True)
         header.sectionClicked.connect(self._header_clicked)
         model.sort_changed.connect(lambda _key, _descending: self._show_sort())
+        model.metric_changed.connect(header.updateSection)
         model.modelReset.connect(self._apply_widths)
         model.rowsInserted.connect(self._span_headers)
         self._apply_widths()
@@ -521,6 +548,103 @@ class TableView(QTreeView):
         key, descending = self._model.sort_key()
         self._model.set_sort(column.key, (not descending) if key == column.key else column.descending_first)
         self._show_sort()
+
+    # --- painting ---
+    #
+    # A table that changes every second repaints many rows. Drawn by QTreeView, every cell of a row goes
+    # through the style sheet and asks the model several questions; drawn here, a row is a few fills and
+    # one text per cell. The look is the one the toolkit gives tree rows: the same token colours, the
+    # same selection mark and chevrons.
+
+    def _prepare(self) -> None:
+        self._theme = fluent.theme()
+        self._text_colour = fluent.qcolor("text")
+        self._layer = fluent.qcolor("fill-subtle-hover")
+        self._accent = fluent.qcolor("accent")
+        self._font = fluent.font("body")
+        self._strong = fluent.font("body-strong")
+        self._metrics = QFontMetrics(self._font)
+        self._strong_metrics = QFontMetrics(self._strong)
+        self._heat = [heat_colour(step / (_HEAT_STEPS - 1)) for step in range(_HEAT_STEPS)]
+
+    def drawRow(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
+        if self._theme is not fluent.theme():
+            self._prepare()
+        model = self._model
+        node = model.node_at(index)
+        if node is None:
+            return
+        row = node.row
+        header = self.header()
+        top, height = option.rect.top(), option.rect.height()
+        first = header.sectionViewportPosition(0)
+        full = QRect(first, top, header.length(), height)
+        selected = not row.header and self.selectionModel().isSelected(index)
+        if selected or (node.id == self._hover_id and not row.header):
+            painter.fillRect(full, self._layer)
+        indent = 0
+        if self._tree:
+            depth = 1
+            parent = node.parent
+            while parent is not None and parent.row is not None:
+                depth += 1
+                parent = parent.parent
+            indent = depth * self.indentation()
+            if node.children:
+                glyph = "chevron-down" if self.isExpanded(index) else "chevron-right"
+                paint.glyph(painter, QRect(first + indent - self.indentation(), top, self.indentation(), height),
+                            glyph, "text-secondary", 12)
+        painter.setPen(self._text_colour)
+        if row.header:
+            painter.setFont(self._strong)
+            left = first + indent + 8
+            width = full.right() - 8 - left
+            painter.drawText(QRect(left, top, width, height), _LEFT_INT,
+                             self._strong_metrics.elidedText(model.cell_text(node, 0), Qt.TextElideMode.ElideRight, width))
+            return
+        painter.setFont(self._font)
+        metrics = self._metrics
+        heat = self._heat
+        for number, column in enumerate(model.columns):
+            width = header.sectionSize(number)
+            if width <= 0:
+                continue
+            left = header.sectionViewportPosition(number)
+            if column.heat is not None:
+                level = column.heat(row)
+                if level is not None:
+                    step = int(max(0.0, min(1.0, level)) * (_HEAT_STEPS - 1) + 0.5)
+                    painter.fillRect(QRect(left + 1, top + 1, width - 2, height - 2), heat[step])
+            right = left + width - 8
+            left += 8
+            if number == 0:
+                left += indent
+                if column.icon is not None:
+                    icon = column.icon(row)
+                    if icon is not None and not icon.isNull():
+                        icon.paint(painter, QRect(left, top + (height - 16) // 2, 16, 16))
+                        left += 24
+            text = model.cell_text(node, number)
+            if text and right - left > 4:
+                painter.drawText(QRect(left, top, right - left, height), _RIGHT_INT if column.right else _LEFT_INT,
+                                 metrics.elidedText(text, Qt.TextElideMode.ElideRight, right - left))
+        if selected:
+            paint.rounded_rect(painter, QRectF(first, top + height / 2 - 8, 3, 16), 1.5, self._accent)
+
+    def drawBranches(self, painter: QPainter, rect: QRect, index: QModelIndex) -> None:
+        pass                                   # drawRow draws the chevrons
+
+    def viewportEvent(self, event) -> bool:
+        kind = event.type()
+        if kind in (QEvent.Type.HoverMove, QEvent.Type.HoverEnter, QEvent.Type.HoverLeave, QEvent.Type.Leave):
+            node = None
+            if kind in (QEvent.Type.HoverMove, QEvent.Type.HoverEnter):
+                node = self._model.node_at(self.indexAt(event.position().toPoint()))
+            hover = node.id if node is not None else 0
+            if hover != self._hover_id:
+                self._hover_id = hover
+                self.viewport().update()
+        return super().viewportEvent(event)
 
     # --- rows ---
     def current_row(self) -> Row | None:

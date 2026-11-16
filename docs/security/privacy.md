@@ -34,7 +34,33 @@ TLS, exactly as listed in "Device agent messages" below.
 | Security events | Changes to identity files, sudoers, security config, kernel modules, clock | auditd log (root-only), max retention set by the journal policy | **Not forwarded** in 1.0~alpha3 (only the agent's own management and security events) | Local administrators |
 | Application inventory | Boswas packages and Windows apps | dpkg database; per-user WinCompat records (`~/.local/share/boswas/wine/<id>/app.json`) | Enrolled devices: application IDs, versions, statuses, states and installation **counts**, never user names | Control Plane operators |
 | User content | Documents, browser history, e-mail, files in /home | Never by Boswas OS | **Never** | Only the user (and company-approved backup, once defined) |
-| Private user activity | Keystrokes, screen contents, command lines, file reads | **Never** | **Never** | Nobody |
+| Private user activity | Keystrokes, screen contents, command lines, file reads | **Never** by the system. The desktop keeps two small records in the user's own home for the user's convenience (see [The desktop](#the-desktop-what-stays-in-the-users-home)) | **Never** | Nobody but the user |
+
+## The desktop: what stays in the user's home
+
+The desktop shell (`boswas-shell`) writes these files in the user's home
+directory. Nothing reads them but the shell; the device agent does not,
+and its messages have closed field lists (below).
+
+| File | Content | Why |
+|------|---------|-----|
+| `~/.local/state/boswas/launcher-usage.json` | How often each application was started: an application ID and a count, no times | Ranks search results in Start and fills its list of the most used applications |
+| `~/.local/state/boswas/run-history.json` | The last 50 commands typed into the Run dialog | The arrow keys recall them |
+| `~/.config/boswas/shell.toml` | The applications pinned to the taskbar and to Start | The user's arrangement |
+
+Each is an ordinary file of the user and can be deleted; the shell reads
+it when it starts.
+
+- **Notifications** are held in the shell's memory until they are
+  dismissed. They are not written to disk and not sent anywhere.
+- **Screenshots.** The screen is captured only when the user asks (the
+  Print key) or when the user allows a program that asked, in a dialog of
+  the shell, with a mark on the taskbar for as long as that program may
+  capture (`docs/security/baseline.md`). Pictures the user takes are
+  saved to the user's Pictures folder. Neither Boswas OS nor the device
+  agent captures the screen, and there is no remote command for it.
+- **Wi-Fi passphrases** typed in quick settings go to NetworkManager,
+  which stores the connection as it does for every other tool.
 
 ## Windows applications (WinCompat)
 
@@ -81,7 +107,10 @@ list show the remote commands that were run.
 Boswas OS does **not** and will not implement:
 
 - keystroke logging
-- screen capture or screen recording
+- screen capture or screen recording by the system, by administrators or
+  by the Control Plane (the user's own screenshots, and capture by a
+  program the user allows each time, are functions of the desktop: see
+  [The desktop](#the-desktop-what-stays-in-the-users-home))
 - silent inspection of personal files or browsing
 - logging of the commands users type (the audit rules exclude `execve` on purpose)
 

@@ -126,15 +126,18 @@ class ProcIo(NamedTuple):
 
 def parse_io(data: bytes) -> ProcIo | None:
     """/proc/PID/io: the two counters of real storage traffic."""
-    read = write = None
-    for line in data.split(b"\n"):
-        if line.startswith(b"read_bytes:"):
-            read = _int(line[11:])
-        elif line.startswith(b"write_bytes:"):
-            write = _int(line[12:])
-    if read is None or write is None:
+    start = data.find(b"read_bytes:")
+    if start < 0:
         return None
-    return ProcIo(read, write)
+    end = data.find(b"\n", start)
+    write = data.find(b"\nwrite_bytes:", start)
+    if end < 0 or write < 0:
+        return None
+    stop = data.find(b"\n", write + 1)
+    try:
+        return ProcIo(int(data[start + 11:end]), int(data[write + 13:stop if stop >= 0 else len(data)]))
+    except ValueError:
+        return None
 
 
 def _int(data: bytes) -> int | None:

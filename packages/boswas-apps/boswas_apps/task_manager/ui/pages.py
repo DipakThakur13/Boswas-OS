@@ -228,6 +228,8 @@ class ProcessesPage(ProcessTablePage):
         self._base_columns, self._command_column = base, command
         self.grouper = grouping.Grouper(AppIndex([]), window.backend.uid)
         self.groups: list[Group] = []
+        self._row_cache: dict[str, tuple[Group, Row]] = {}
+        self._row_flags: tuple = ()
         bar = self.bar
         self.run_action = bar.add_command("Run new task", "list-add-symbolic", window.run_new_task, shortcut="Ctrl+N")
         self.end_action = bar.add_command("End task", "window-close-symbolic", self.end_selected,
@@ -289,10 +291,19 @@ class ProcessesPage(ProcessTablePage):
         grouped = self.window.settings.group_by_type
         rows: list[Row] = []
         counts = {kind: 0 for kind in SECTION_RANK}
+        if self._row_flags != (with_command, grouped):
+            self._row_flags = (with_command, grouped)
+            self._row_cache = {}
+        cache, self._row_cache = self._row_cache, {}
         for group in self.groups:
             if needle and not (needle in group.name.casefold() or any(matches(needle, proc) for proc in group.members)):
                 continue
             counts[group.kind] += 1
+            cached = cache.get(group.key)
+            if cached is not None and cached[0] is group:      # the same Group object: the same row
+                self._row_cache[group.key] = cached
+                rows.append(cached[1])
+                continue
             disk = None if group.disk is None else int(group.disk / _TENTH_MB)
             children = None
             if len(group.members) > 1:
@@ -301,10 +312,12 @@ class ProcessesPage(ProcessTablePage):
                                  None if proc.disk is None else int(proc.disk / _TENTH_MB),
                                  proc.args if with_command else None))
                             for proc in group.members]
-            rows.append(Row("g" + group.key, group,
-                            (group.title, group.root.state, int(group.cpu * 10), int(group.mem / _TENTH_MB), disk,
-                             group.icon, group.root.args if with_command else None),
-                            children, SECTION_RANK[group.kind] if grouped else 0))
+            row = Row("g" + group.key, group,
+                      (group.title, group.root.state, int(group.cpu * 10), int(group.mem / _TENTH_MB), disk,
+                       group.icon, group.root.args if with_command else None),
+                      children, SECTION_RANK[group.kind] if grouped else 0)
+            self._row_cache[group.key] = (group, row)
+            rows.append(row)
         if grouped:
             for kind, rank in SECTION_RANK.items():
                 if counts[kind]:
@@ -359,6 +372,7 @@ class DetailsPage(ProcessTablePage):
         super().__init__(window, columns, tree=False)
         self._now: float | None = None
         self._pending_pid: int | None = None
+        self._row_cache: dict[int, Row] = {}
         bar = self.bar
         bar.add_command("Run new task", "list-add-symbolic", window.run_new_task)
         self.end_action = bar.add_command("End task", "window-close-symbolic", self.end_selected,
@@ -415,13 +429,18 @@ class DetailsPage(ProcessTablePage):
     def rebuild(self) -> None:
         needle = self.filter_text
         rows = []
-        for proc in self.procs.values():
+        cache, self._row_cache = self._row_cache, {}
+        for pid, proc in self.procs.items():
             if needle and not matches(needle, proc):
                 continue
-            rows.append(Row(proc_key(proc), proc,
-                            (proc.name, proc.state, proc.user, int(proc.cpu * 10), int(proc.rss / _TENTH_MB),
-                             None if proc.pss is None else int(proc.pss / _TENTH_MB), proc.threads, proc.nice,
-                             proc.args)))
+            row = cache.get(pid)
+            if row is None or row.data is not proc:            # the same Proc object: the same row
+                row = Row(proc_key(proc), proc,
+                          (proc.name, proc.state, proc.user, int(proc.cpu * 10), int(proc.rss / _TENTH_MB),
+                           None if proc.pss is None else int(proc.pss / _TENTH_MB), proc.threads, proc.nice,
+                           proc.args))
+            self._row_cache[pid] = row
+            rows.append(row)
         self.show_rows(rows, len(self.procs))
         if self._pending_pid is not None and self._pending_pid in self.procs:
             pid, self._pending_pid = self._pending_pid, None
@@ -500,6 +519,7 @@ class UsersPage(ProcessTablePage):
         ]
         super().__init__(window, columns, tree=True, stretch="name")
         self._now: float | None = None
+        self._row_cache: dict[int, Row] = {}
         self.sessions: list[Session] | None = None           # None: logind was not asked yet or cannot be
         self.logind_error = ""
         self._asked_at = -1e9
@@ -584,6 +604,7 @@ class UsersPage(ProcessTablePage):
         assigned = grouping.assign_sessions(self.procs, sessions)
         needle = self.filter_text
         rows = []
+        cache, self._row_cache = self._row_cache, {}
         for session in sessions:
             procs = assigned.get(session.id, [])
             if needle and needle not in session.user.casefold():
@@ -591,9 +612,14 @@ class UsersPage(ProcessTablePage):
                 if not procs:
                     continue
             data = SessionRow(session, procs)
-            children = [Row(proc_key(proc), proc, (proc.name, proc.state, int(proc.cpu * 10), int(proc.mem / _TENTH_MB),
-                                                  proc.tty))
-                        for proc in procs]
+            children = []
+            for proc in procs:
+                row = cache.get(proc.pid)
+                if row is None or row.data is not proc:
+                    row = Row(proc_key(proc), proc, (proc.name, proc.state, int(proc.cpu * 10),
+                                                     int(proc.mem / _TENTH_MB), proc.tty))
+                self._row_cache[proc.pid] = row
+                children.append(row)
             rows.append(Row(session.key, data, (data.title, session.state, session.place, session.since,
                                                 int(data.cpu * 10), int(data.mem / _TENTH_MB)), children))
         self.show_rows(rows, len(sessions))

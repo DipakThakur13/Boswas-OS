@@ -3,22 +3,25 @@
 **Boswas OS v1** is the Boswas Group company-managed desktop operating
 system, built on **Debian 13 "trixie"** with the **native Boswas desktop**:
 its own Wayland compositor, shell, lock and login screens and boot screen,
-written in Rust. It is an internal platform for Boswas Group employees and
-company-owned hardware, not a public Linux distribution.
+written in Rust, in the Fluent design language with Boswas's own colours,
+icons and typeface. It is an internal platform for Boswas Group employees
+and company-owned hardware, not a public Linux distribution.
 
 > **Status: v1 alpha (1.0~alpha3). Not production-ready.**
 > This release contains:
 > - **the native Boswas desktop** (unreleased, see
 >   [Status of the native desktop](#status-of-the-native-desktop)):
 >   `boswas-compositor` (Rust, on Smithay) in place of KWin, `boswas-shell`
->   (panel, launcher, lock screen, login screen) in place of Plasma and
->   SDDM, and `boswas-bootsplash` in place of Plymouth. KDE applications
->   (Dolphin, Konsole, Okular, ...) keep running on it as ordinary Wayland
->   clients
-> - the Boswas OS experience: Boswas OS identity, Boswas UI (the Prism
->   palette and design tokens), the Boswas Prism icon pack, ten presets,
->   Boswas Control Center (with the Security, Software and Update Centers)
->   and a branded terminal, on a Debian 13 base
+>   (taskbar, Start, quick settings, notifications, lock screen, login
+>   screen) in place of Plasma and SDDM, and `boswas-bootsplash` in place
+>   of Plymouth. KDE applications (Dolphin, Konsole, Okular, ...) keep
+>   running on it as ordinary Wayland clients, and X11 applications run
+>   through Xwayland
+> - the Boswas OS experience: Boswas OS identity, Boswas UI (the Fluent
+>   design language with the Prism colours, in one token file), the Boswas
+>   Prism icon pack, ten presets, Boswas Control Center (with the Security,
+>   Software and Update Centers) and a branded terminal, on a Debian 13
+>   base
 > - a Live USB that boots straight to a usable desktop; installation only
 >   by explicit choice
 > - security baseline and encrypted installer
@@ -59,22 +62,48 @@ speaks, and the native compositor implements it.
 The native desktop replaces KDE Plasma, KWin, SDDM and Plymouth in the image
 manifest (they are pinned out; ADRs in
 [docs/architecture/decisions.md](docs/architecture/decisions.md)). It is new
-and has **not yet booted on real hardware**.
+and has **not yet booted**, neither in a virtual machine nor on real
+hardware, and it has not run against the real system services.
+
+What it does today:
+
+- **Windows:** Fluent window frames with rounded corners and shadows,
+  animations, snap layouts, a window picker (Alt+Tab), Task View with
+  several desktops, a window menu, and the Windows shortcuts.
+- **Shell:** a centred taskbar with Start and search, the tray and the
+  clock; quick settings for Wi-Fi, Bluetooth, sound, brightness, night
+  light and the power mode; notifications with a calendar; Run; screen
+  capture; the password dialog for administrator actions.
+- **Displays and input:** settings per monitor (mode, scale, position,
+  rotation), night light, touch screens, touchpad gestures, drawing
+  tablets, support for an input method.
+- **Applications:** Wayland applications, and X11 applications through
+  Xwayland. A program gets pictures of the screen only after the user has
+  allowed it.
 
 | Verified in the development sandbox | Not yet verified |
 |-------------------------------------|------------------|
-| Rust unit tests of the compositor, shell, UI library and boot screen | Building the ISO with the new manifest |
-| Compositor end-to-end tests on its headless backend with real Wayland clients: protocol trust, the control socket, window management, the session lock | The QEMU boot test (`tests/boot/qemu_boot_test.py`, rewritten for the new desktop) |
-| The same compositor nested in a window with the GLES renderer | The hardware path: DRM/KMS, libinput, libseat (compiled, not run) |
-| All package builds and lintian; the static, unit and package test stages | The greetd login on a real boot; the boot screen on real hardware, including the disk-unlock prompt |
+| Rust unit tests of the compositor, shell, service backends, UI library and boot screen | Building the ISO with the new manifest |
+| Compositor end-to-end tests on its headless backend with real clients: protocol trust, the control socket, window management, screen capture behind consent, an X11 program, the session lock | The QEMU boot test (`tests/boot/qemu_boot_test.py`, rewritten for the new desktop) |
+| The service backends against stand-ins of NetworkManager, BlueZ, UPower, logind, polkit and the sound server | The same backends against the real daemons; first of all the polkit agent, which every administrator action from the desktop needs |
+| The Qt toolkit and the applications on it, on Qt's offscreen platform | The hardware path: DRM/KMS, libinput, libseat (compiled, not run) |
+| | The greetd login on a real boot; the boot screen on real hardware, including the disk-unlock prompt |
+| | Screen sharing through the portal; Wine and Waydroid on the new desktop |
 | | Whether Debian trixie resolves the new image manifest's dependencies |
 
-Known gaps of this first version: no XWayland (X11-only applications do
-not run), no notification service, system tray or quick settings (Wi-Fi,
-Bluetooth, volume), no screen capture or screen sharing, no input methods,
-one GPU only, no HDR or variable refresh rate. Control Center pages that
-open Plasma settings modules show them as unavailable. The full list is in
-[docs/experience/README.md](docs/experience/README.md#known-gaps).
+The full account, with test counts, is in
+[docs/architecture/verification.md](docs/architecture/verification.md).
+
+Known gaps: no live blur behind translucent surfaces, X11 windows are not
+sharp on scaled monitors and X11 applications are not isolated from each
+other, Bluetooth devices that need a PIN and enterprise Wi-Fi cannot be
+set up from the desktop, no input method is in the image, one GPU only, no
+HDR or variable refresh rate, no screen reader for the shell. The full
+list is in [docs/experience/README.md](docs/experience/README.md#known-gaps).
+
+The system applications (`packages/boswas-apps`) and the native settings
+pages of Control Center are being written and are not described in the
+documentation yet (ADR-0040 and ADR-0041 are reserved for them).
 
 ## Build
 
@@ -152,8 +181,8 @@ boswas-device status        # device agent: state, identity, Control Plane conne
 | Area | Implementation |
 |------|----------------|
 | Base | Debian 13.x trixie, amd64, Linux 6.12, systemd |
-| Desktop | The native Boswas desktop (`boswas-desktop`): `boswas-compositor`, a Wayland compositor in Rust on Smithay (window management, snapping, four workspaces, server-side window frames, compositor-owned session lock, privileged protocols only for its own shell), and `boswas-shell` (panel, launcher, lock screen, login screen behind greetd). KDE applications (Dolphin, Konsole, KWrite, Okular, Gwenview, Ark, KCalc) and Firefox ESR run on it as ordinary Wayland clients. Ten presets, Boswas Control Center ([docs/experience](docs/experience/README.md)) |
-| Design system | Boswas UI v2: the Prism palette and the design tokens in one file ([desktop/ui](desktop/ui/README.md)), used by the shell, the window frames, the boot screen, the KDE colour schemes and the Boswas Prism icon pack ([desktop/icons](desktop/icons/README.md)) |
+| Desktop | The native Boswas desktop (`boswas-desktop`): `boswas-compositor`, a Wayland compositor in Rust on Smithay (Fluent window frames, animations, snap layouts, Task View with several desktops, per-monitor settings, night light, Xwayland for X11 applications, compositor-owned session lock, privileged protocols only for its own shell, screen capture only with the user's consent), and `boswas-shell` (taskbar, Start, quick settings, notifications, tray, the polkit dialog, lock screen, login screen behind greetd). KDE applications (Dolphin, Konsole, KWrite, Okular, Gwenview, Ark, KCalc) and Firefox ESR run on it as ordinary Wayland clients. Ten presets, Boswas Control Center ([docs/experience](docs/experience/README.md)) |
+| Design system | Boswas UI v3: the Fluent design language with Boswas's own colours (the Prism palette), icons and typeface, as design tokens in one file ([desktop/ui](desktop/ui/README.md)). The shell, the window frames, the boot screen, the Qt toolkit of the Boswas applications ([desktop/ui/qt](desktop/ui/qt/README.md)), the KDE colour schemes and the Boswas Prism icon pack ([desktop/icons](desktop/icons/README.md)) all read it |
 | Branding | Built from the official Boswas Group logo and lettering ([desktop/branding](desktop/branding/README.md)) |
 | Boot | GRUB for BIOS and UEFI; Debian-signed shim/GRUB/kernel for Secure Boot; Boswas boot menu; the Boswas boot screen (`boswas-bootsplash`, Rust: boot, shutdown, restart and the disk-unlock prompt, [packages/boswas-bootsplash](packages/boswas-bootsplash/README.md)) |
 | Installer | Debian Installer (live mode), Boswas banner, policy: full-disk encryption, root locked, host `boswas-device`; firmware pool on the medium, no network needed, signed APT sources and an installation report written at the end |
@@ -171,6 +200,7 @@ boswas-device status        # device agent: state, identity, Control Plane conne
 | Package manifest and rationale | [docs/architecture/package-manifest.md](docs/architecture/package-manifest.md) |
 | Update channels and repositories | [docs/architecture/update-architecture.md](docs/architecture/update-architecture.md) |
 | Roadmap | [docs/architecture/roadmap.md](docs/architecture/roadmap.md) |
+| What has and has not been verified | [docs/architecture/verification.md](docs/architecture/verification.md) |
 | Building | [docs/development/building.md](docs/development/building.md) |
 | Repository layout | [docs/development/repository-layout.md](docs/development/repository-layout.md) |
 | Security baseline | [docs/security/baseline.md](docs/security/baseline.md) |
@@ -181,9 +211,10 @@ boswas-device status        # device agent: state, identity, Control Plane conne
 | Windows compatibility | [docs/compatibility/README.md](docs/compatibility/README.md) |
 | Android applications | [docs/android/README.md](docs/android/README.md) |
 | Privileged helper (boswas-sysops) | [docs/administration/sysops.md](docs/administration/sysops.md) |
-| Platform contracts (sysops, Android, Control Center) | [docs/architecture/platform-contracts.md](docs/architecture/platform-contracts.md) |
+| Platform contracts (sysops, Android, Control Center, the desktop's configuration, control socket and service bridge) | [docs/architecture/platform-contracts.md](docs/architecture/platform-contracts.md) |
 | The Boswas OS experience | [docs/experience/README.md](docs/experience/README.md) |
 | Boswas UI tokens and the Prism palette | [desktop/ui/README.md](desktop/ui/README.md) |
+| The Qt toolkit of the Boswas applications | [desktop/ui/qt/README.md](desktop/ui/qt/README.md) |
 | Boot screen | [packages/boswas-bootsplash/README.md](packages/boswas-bootsplash/README.md) |
 | Debian references audit | [docs/experience/debian-references.md](docs/experience/debian-references.md) |
 | Live USB checklist | [docs/experience/live-usb-checklist.md](docs/experience/live-usb-checklist.md) |

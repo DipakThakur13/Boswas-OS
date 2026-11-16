@@ -2,13 +2,15 @@
 
 The brand: the official Boswas OS mark, the Orbitron lettering and the
 navy, gold and silver brand palette. They are used where the product is
-named: the boot menu, the boot screen, the installer banner, the launcher
-button, About pages and application icons.
+named: the boot menu, the installer banner, About pages and application
+icons. The mark alone, without lettering, is on the boot screen and is
+the Start button of the taskbar.
 
-The **interface** of the native Boswas desktop (panel, launcher, window
-frames, lock and login screens, the colours of applications) is not drawn
-in the brand palette. It uses Boswas UI and its Prism palette, which live
-in [`../ui/`](../ui/README.md). The mark keeps its gold and silver
+The **interface** of the native Boswas desktop (taskbar, Start, window
+frames, lock and login screens, the boot screen's text, the colours of
+applications) is not drawn in the brand palette. It uses Boswas UI, the
+Fluent design language with the Prism colours, which lives in
+[`../ui/`](../ui/README.md). The mark keeps its gold and silver
 everywhere; they are never used as interface colours.
 
 ## Sources of truth
@@ -57,10 +59,10 @@ them.
 
 | File | Used for |
 |------|----------|
-| `boswas-mark.svg` | The `boswas-logo` icon in the hicolor theme: the mark on a navy tile with a gold edge. The fallback for the panel's launcher button, which takes `boswas-logo` from the icon theme first (Boswas Prism draws its own) |
+| `boswas-mark.svg` | The `boswas-logo` icon in the hicolor theme: the mark on a navy tile with a gold edge. The fallback for the taskbar's Start button, which takes `boswas-logo` from the icon theme first (Boswas Prism draws its own) |
 | `boswas-about-logo.svg` | The mark on a navy tile for KDE's About this System page (`kcm-about-distrorc`). Installed; that page exists only on a Plasma session. Control Center > About Boswas OS draws the mark itself |
 | `boot-splash.svg` | Live/installer ISO boot menu (GRUB, 800x600) |
-| `boswas-os-mark.svg`, `wordmark-boswas-os.svg` | The boot screen: `packages/boswas-bootsplash` rasterises them at build time ([README](../../packages/boswas-bootsplash/README.md)) |
+| `boswas-os-mark.svg` | The boot screen: `packages/boswas-bootsplash` rasterises the mark at build time ([README](../../packages/boswas-bootsplash/README.md)). The boot screen shows no wordmark (ADR-0038) |
 | `../presets/` | The ten presets: wallpapers (light, dark, lock), colour schemes for applications, Konsole profiles, and Plasma Global Themes ([presets README](../presets/README.md)) |
 | `../icons/` | The Boswas Prism icon pack (the default, in the Prism palette) and the earlier Boswas and Boswas Light themes in the brand palette ([icons README](../icons/README.md)) |
 | `../../installer/branding/installer-banner.svg` | Debian Installer banner |
@@ -75,7 +77,7 @@ The package `boswas-branding` installs the mark as
 | Source | What it becomes |
 |--------|-----------------|
 | `boot-splash.svg` | The live and installation medium's boot menu (GRUB) |
-| `boswas-os-mark.svg`, `wordmark-boswas-os.svg`, Orbitron Medium | The Boswas boot screen (boot, shutdown, restart, disk-unlock prompt), drawn by `boswas-bootsplash`. Its colours are Prism tokens; the mark keeps its gold and silver |
+| `boswas-os-mark.svg` | The Boswas boot screen (boot, disk-unlock prompt; shutdown and restart show no mark), drawn by `boswas-bootsplash`: the mark and a ring of dots, with text in Inter. The glyphs come from Debian's `fonts-inter` at build time and are built into the program; Orbitron is used only when a plain `cargo build` finds no Inter. Its colours are Boswas UI tokens; the mark keeps its gold and silver |
 | `login-logo.svg` | The horizontal lockup, inlined to `/usr/share/boswas/branding/boswas-login-logo.svg`. It was the SDDM login screen's logo; the Boswas login screen does not show it yet, so the file is installed but unused |
 
 The Plymouth theme (`plymouth/`), the session start-up splash (`splash/`,
@@ -92,11 +94,11 @@ Installed systems get `quiet splash` and a hidden GRUB menu from
 
 | Source | What it becomes |
 |--------|-----------------|
-| `../ui/` | Boswas UI: the design tokens and the Prism colour schemes for KDE applications ([ui README](../ui/README.md)) |
+| `../ui/` | Boswas UI: the design tokens, the Prism colour schemes for KDE applications, and the Qt toolkit of the Boswas applications ([ui README](../ui/README.md)) |
 | `../terminal/` | The Boswas terminal: `boswas-welcome`, a fast, files-only summary with version, kernel, architecture, live or installed session, and AppArmor and device agent state, plus the prompt (`bashrc`, used by the Boswas Konsole profiles; it sources `~/.bashrc` first). Turn the welcome off per user with `~/.config/boswas/no-welcome` |
 | `../defaults/` | System-wide defaults for KDE applications (the Boswas Prism colour scheme and icon theme, Breeze widget style, the Konsole profile), installed in `/usr/share/boswas/kde-settings`, which `boswas-session` appends to `XDG_CONFIG_DIRS`; and a Firefox policy (removes the "Debian packages" search engine) |
 
-The launcher is part of `boswas-shell`. The Boswas Launcher applet that was
+Start is part of `boswas-shell`. The Boswas Launcher applet that was
 in `../launcher/` (KDE's Kickoff under the Boswas name) is gone with
 Plasma.
 
@@ -113,11 +115,12 @@ Plasma.
   - "Orbitron" is a Reserved Font Name, so a modified version must not use
     that name.
 * **Secondary text** in artwork (versions, "Installer") uses Lato.
-* **The desktop UI** (panel, launcher, window titles, lock and login
-  screens) uses Inter, with Noto Sans, Lato and DejaVu Sans as fallbacks
-  (`type.family` in `../ui/tokens.json`). Orbitron is the display face:
-  besides the lettering it sets the boot screen's few lines and the clock
-  of the lock and login screens. It is not used for running text.
+* **The desktop UI** (taskbar, Start, window titles, lock and login
+  screens with their clock, the boot screen, the Boswas applications)
+  uses Inter, with Noto Sans, Lato and DejaVu Sans as fallbacks
+  (`type.family` in `../ui/tokens.json`). Orbitron is the face of the
+  lettering only: no screen sets text in it any more, although
+  `type.display-family` still names it.
 * **The Control Plane dashboard** uses the system UI font: its
   Content-Security-Policy and tests allow no web fonts.
 

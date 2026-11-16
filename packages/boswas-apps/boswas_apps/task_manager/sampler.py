@@ -7,6 +7,13 @@ and to cost little:
 * ``/proc/PID/stat``, ``statm`` and ``io`` are kept open and read again
   with ``pread`` (one system call per file per tick) as long as the file
   descriptor limit allows; beyond that the files are opened and closed.
+* A process whose ``stat`` line is byte for byte what it was at the last
+  tick has not run since: nothing else is read for it and the previous
+  ``Proc`` object is handed out again (with 0 % CPU). On a desktop that is
+  most processes most of the time. Every ``FULL_PERIOD`` ticks each process
+  is read in full all the same, so that memory that was reclaimed, or
+  traffic of a process that used less than a clock tick of CPU time, shows
+  after a few seconds at the latest.
 * What rarely changes about a process (user, command line, executable,
   control group) is read when the process is first seen, when its name
   changes (it called ``exec``), and again every ``SLOW_PERIOD`` ticks.
@@ -41,6 +48,7 @@ from .textutil import decode
 
 PARTS = frozenset({"cpu", "memory", "disks", "net", "gpu", "battery", "procs", "io", "pss"})
 SLOW_PERIOD = 16             # ticks between two looks at the slow attributes of a process
+FULL_PERIOD = 8              # ticks between two full reads of a process whose stat line does not change
 PSS_BATCH = 8
 IO_RETRY = 120               # ticks before an unreadable io file is tried again
 DEVICE_PERIOD = 30           # ticks between two looks for disks, interfaces, cards and batteries
@@ -187,7 +195,7 @@ class _State:
     """What the sampler remembers about one process between ticks."""
     __slots__ = ("dir", "stat_fd", "statm_fd", "io_fd", "start_ticks", "comm", "name", "uid", "user", "args",
                  "exe", "cgroup", "ticks", "io_total", "io_time", "io_retry", "pss", "pss_blocked", "slow_tick",
-                 "seen", "start", "cpu", "disk")
+                 "seen", "start", "cpu", "disk", "raw", "proc")
 
     def __init__(self, directory: str) -> None:
         self.dir = directory
@@ -211,6 +219,8 @@ class _State:
         self.start = 0.0
         self.cpu = 0.0
         self.disk: float | None = None
+        self.raw: bytes | None = None             # the stat line as it was read last
+        self.proc: Proc | None = None             # what was handed out for it
 
 
 def raise_fd_limit(wanted: int = 16384) -> int:
@@ -557,9 +567,23 @@ class Sampler:
             if fresh:
                 state = _State(f"{self.proc}/{name}")
             try:
-                parsed = parse_stat(self._read(state, "stat_fd", "stat", _STAT_SIZE))
+                raw = self._read(state, "stat_fd", "stat", _STAT_SIZE)
+                if (raw == state.raw and (tick + pid) % FULL_PERIOD and state.proc is not None
+                        and (state.proc.kthread or tick - state.slow_tick < SLOW_PERIOD)):
+                    # Not a byte of the line has changed: the process has not run.
+                    proc = state.proc
+                    if not hold:
+                        if proc.cpu or proc.disk:
+                            state.cpu = 0.0
+                            state.disk = None if proc.disk is None else 0.0
+                            proc = state.proc = proc._replace(cpu=0.0, disk=state.disk)
+                        state.io_time = now
+                    state.seen = tick
+                    result[pid] = proc
+                    continue
+                parsed = parse_stat(raw)
             except OSError:
-                parsed = None
+                raw = parsed = None
                 if not fresh:
                     # The descriptor belongs to a process that is gone; the number may be in use again.
                     self._release(state)
@@ -567,7 +591,8 @@ class Sampler:
                     state = _State(f"{self.proc}/{name}")
                     fresh = True
                     try:
-                        parsed = parse_stat(self._read(state, "stat_fd", "stat", _STAT_SIZE))
+                        raw = self._read(state, "stat_fd", "stat", _STAT_SIZE)
+                        parsed = parse_stat(raw)
                     except OSError:
                         parsed = None
             if parsed is None or parsed.pid != pid:
@@ -628,9 +653,14 @@ class Sampler:
                         else:
                             disk = state.disk if state.disk is not None else 0.0
                         state.disk = disk
-            result[pid] = Proc(pid, parsed.ppid, state.name, parsed.state, state.uid, state.user, cpu, ticks, mem,
-                               rss, state.pss, parsed.threads, parsed.nice, state.start, parsed.starttime,
-                               state.args, state.exe, disk, kthread, parsed.session, parsed.tty_nr, state.cgroup)
+            state.raw = raw
+            proc = Proc(
+                pid, parsed.ppid, state.name, parsed.state, state.uid, state.user, cpu, ticks, mem, rss, state.pss,
+                parsed.threads, parsed.nice, state.start, parsed.starttime, state.args, state.exe, disk, kthread,
+                parsed.session, parsed.tty_nr, state.cgroup)
+            if proc == state.proc:               # a full read that found nothing new: the old object stays
+                proc = state.proc
+            state.proc = result[pid] = proc
         if len(states) != len(result):
             for pid in [pid for pid, state in states.items() if state.seen != tick]:
                 self._release(states.pop(pid))
@@ -686,9 +716,9 @@ class Sampler:
                 continue
             except OSError:
                 continue
-            if "Pss" in rollup:
+            if "Pss" in rollup and rollup["Pss"] != state.pss:
                 state.pss = rollup["Pss"]
-                result[pid] = result[pid]._replace(pss=state.pss)
+                state.proc = result[pid] = result[pid]._replace(pss=state.pss)
 
     # --- disks ---
     def _scan_disks(self) -> None:

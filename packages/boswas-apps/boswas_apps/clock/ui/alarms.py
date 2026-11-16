@@ -70,7 +70,8 @@ class AlarmCard(ClickCard):
         top = QHBoxLayout()
         self.time_label = fluent.Label("", "title-large", self)
         self.switch = fluent.ToggleSwitch("", self, show_state=False)
-        self.switch.toggled.connect(lambda on: page.set_enabled(self.alarm_id, on))
+        self._showing = False
+        self.switch.toggled.connect(lambda on: None if self._showing else page.set_enabled(self.alarm_id, on))
         top.addWidget(self.time_label, 1)
         top.addWidget(self.switch, 0, Qt.AlignmentFlag.AlignTop)
         self.next_label = fluent.Label("", "caption", self, tone="secondary")
@@ -93,9 +94,9 @@ class AlarmCard(ClickCard):
         self.days.set_days(alarm["days"])
         self.days.setVisible(bool(alarm["days"]))
         self.once_label.setVisible(not alarm["days"])
-        blocked = self.switch.blockSignals(True)
+        self._showing = True                # the switch animates through its signal: it is not blocked
         self.switch.setChecked(alarm["enabled"])
-        self.switch.blockSignals(blocked)
+        self._showing = False
         self.switch.setAccessibleName(f"{name}, {time_text}")
         self.setAccessibleName(f"{name}, {time_text}, {textfmt.weekdays_text(alarm['days'])}")
         self.show_next(alarm, context)

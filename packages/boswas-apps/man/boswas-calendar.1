@@ -1,0 +1,153 @@
+.TH BOSWAS-CALENDAR 1 "November 2026" "boswas-apps 1.0~alpha3" "Boswas OS"
+.SH NAME
+boswas-calendar \- a calendar kept on this computer, with iCalendar import and export
+.SH SYNOPSIS
+.B boswas-calendar
+.RB [ \-\-new ]
+.RB [ \-\-show
+.I uid
+.RB [ \-\-occurrence
+.IR start ]]
+.RI [ file.ics " ...]"
+.br
+.B boswas-calendar
+.BR \-\-version " | " \-\-help
+.SH DESCRIPTION
+.B boswas-calendar
+is Calendar, the calendar application of the Boswas desktop. It keeps
+events in calendars on this computer. It has no accounts and never uses
+the network.
+.SS Views
+Month, week, work week, day, and an agenda that lists the next 30 days.
+An event that lasts several days, or all day, is drawn as one bar across
+its days; events that overlap in a day stand side by side; in the week and
+day views a line marks the current time and the working hours are shown
+lighter. A month cell that has more events than fit says how many more;
+clicking that opens the day. The pane on the left has a small month with
+week numbers to pick a day from, and the list of calendars, each of which
+can be hidden, renamed, recoloured, exported and deleted.
+.SS Events
+An event has a title, a calendar, a start and an end (or whole days), a
+time zone, a repeat rule, reminders, a place and notes. Times are kept as
+local times of the event's time zone and shown in the time zone of the
+computer; an event set to
+.I Same local time everywhere
+keeps its clock time wherever the computer is. A repeating event keeps its
+local time when summer time begins or ends.
+.PP
+An event repeats daily, weekly on chosen weekdays, monthly on a day of the
+month or on a weekday of the month (the second Tuesday, the last Friday),
+or yearly; every 1 to 999 periods; for ever, until a date, or a number of
+times. Rules from imported files that the editor cannot express are kept
+and shown as
+.IR Custom .
+Changing or deleting an occurrence of a series asks whether it is for this
+event, this and the following events, or all events. These are stored the
+way iCalendar does it: a changed occurrence is an event of its own with a
+RECURRENCE\-ID, a deleted one an EXDATE, and "this and following" ends the
+series with UNTIL and starts a new one.
+.PP
+Reminders are shown by
+.BR boswas\-reminders (1),
+also while Calendar is closed: at the time of the event, 5, 10, 15 or 30
+minutes, 1 or 2 hours, 1 or 2 days or a week before, or at a lead time of
+your own; an all\-day event is reminded at 09:00 on the day or on a day
+before. Events of a hidden calendar do not remind.
+.SS Pointer and keys
+Double click (or Enter on the chosen day or time) makes an event in a small
+popup that asks for a title; Ctrl+N opens the full dialog. Dragging across
+days of the month, or across a stretch of time in the week, makes an event
+for that span. Dragging an event moves it; in the week and day views
+dragging its lower edge changes when it ends. A dragged occurrence of a
+series becomes a changed occurrence. Double click or Enter opens an event,
+Delete deletes it, Ctrl+Z and Ctrl+Y undo and redo every change. Tab goes
+through the events on show, the arrow keys choose a day or a time, Page Up
+and Page Down change the period. Ctrl+F searches the titles, places and
+notes of all events. Alt+Left and Alt+Right go to the previous and next
+period, Ctrl+T to today; Ctrl+Alt+1 to 5 choose the day, work week, week,
+month and agenda views. Ctrl+O imports, Ctrl+S exports, Ctrl+, opens the
+settings.
+.SS Files of other programs
+Opening an
+.B .ics
+file (from the command line, the file manager, or with Ctrl+O) shows the
+events it holds and asks which calendar they go into, an existing one or a
+new one named after the file; a calendar of public holidays is imported
+this way as a calendar of its own (Calendar has no holiday data built in).
+Importing a file again updates the events it brought before. One calendar
+or all calendars can be exported to an
+.B .ics
+file.
+.PP
+What is read: VEVENT with DTSTART, DTEND or DURATION, dates and date\-times
+(local, UTC, with TZID), SUMMARY, LOCATION, DESCRIPTION, RRULE, RDATE,
+EXDATE, RECURRENCE\-ID, SEQUENCE, CREATED, LAST\-MODIFIED, and VALARM with a
+trigger relative to the start or end (an absolute trigger only for an event
+that does not repeat). Other properties of an event are kept and written
+back. A TZID is matched to a zone of the system's time\-zone database by its
+name, a Windows time\-zone name, or the offsets of its VTIMEZONE; when
+nothing fits, the times are converted with the file's own definition and
+kept in UTC. Tasks, journal entries and free/busy data are skipped, and the
+import dialog says how many. RECURRENCE\-ID with RANGE=THISANDFUTURE is read
+as a change of that one occurrence.
+.PP
+What is written: RFC 5545 with CRLF line ends, lines folded at 75 octets,
+escaped text, the UID each event always had, and for every time zone used a
+VTIMEZONE computed from the time\-zone database (the transitions of the years
+the events cover, and the yearly rule from the year it holds).
+.PP
+Files are not trusted. A file larger than 16 MB is refused; at most 50 000
+events are read; a line longer than 64 kB is cut. Repeat rules are expanded
+only for the period on show and within fixed bounds: a series with COUNT of
+more than 50 000 occurrences that cannot be computed is treated as endless,
+and a rule that has no occurrence for a long stretch (120 years, 400 months,
+800 weeks, 4000 days) is taken to have ended.
+.SH OPTIONS
+.TP
+.I file.ics
+Show the events of the file and ask which calendar to import them into.
+.TP
+.B \-\-new
+Open the dialog for a new event.
+.TP
+.BI \-\-show " uid"
+Go to the event with this UID and open it. With
+.BI \-\-occurrence " start"
+the occurrence of a repeating event that starts then, written as the series
+has it
+.RB ( 2026\-11\-17T09:00:00 ,
+or
+.B 2026\-11\-17
+for an all\-day event). The reminder service uses these.
+.TP
+.B \-\-version
+Print the version and exit.
+.TP
+.B \-\-help
+Print a summary of the options and exit.
+.PP
+Only one Calendar runs per session; starting it again brings the window
+forward and passes the arguments on.
+.SH FILES
+.TP
+.I $XDG_DATA_HOME/com.boswas.Calendar/calendar.json
+The calendars and events. It is replaced atomically a moment after each
+change. A file that cannot be read is set aside as
+.IR calendar.json.damaged .
+.TP
+.I $XDG_CONFIG_HOME/com.boswas.Calendar/settings.json
+The settings: first day of the week and time format (by default those of
+the system's locale), first view, default reminder and length of a new
+event, working hours and days, default calendar.
+.TP
+.I $XDG_STATE_HOME/com.boswas.Calendar/window.ini
+The size of the window.
+.SH EXIT STATUS
+0 on success (also when a running Calendar was brought forward); 4 when
+started as root, which Calendar refuses.
+.SH NOTES
+Calendar does not print. Undo covers the changes made since Calendar was
+opened.
+.SH SEE ALSO
+.BR boswas\-reminders (1),
+.BR boswas\-clock (1)

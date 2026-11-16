@@ -1,0 +1,18 @@
+[Desktop Entry]
+Type=Application
+Name=Calendar
+GenericName=Calendar
+Comment=Your events and reminders, kept on this computer
+Exec=boswas-calendar %F
+Icon=office-calendar
+Terminal=false
+StartupNotify=true
+StartupWMClass=com.boswas.Calendar
+MimeType=text/calendar;
+Categories=Office;Calendar;Qt;
+Keywords=calendar;event;appointment;reminder;schedule;agenda;ics;icalendar;
+Actions=new-event;
+
+[Desktop Action new-event]
+Name=New Event
+Exec=boswas-calendar --new

@@ -52,7 +52,7 @@ class Ticker(QObject):
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
         if obj is self._page:
             if event.type() == QEvent.Type.Show:
-                QTimer.singleShot(0, self.kick)
+                QTimer.singleShot(0, self, self.kick)
             elif event.type() == QEvent.Type.Hide:
                 self._timer.stop()
         return False

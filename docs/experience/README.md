@@ -4,9 +4,11 @@ Boswas OS presents one product identity, from the boot menu to the
 desktop. From the boot screen on, what the user sees is drawn by Boswas
 components: the boot screen, the login screen, the desktop shell, the
 window frames and the lock screen. They share one design system, **Boswas
-UI** ([desktop/ui](../../desktop/ui/README.md)): the Prism palette, an 8 px
-window radius, a 4 px grid, and the Inter typeface. The official mark keeps
-its gold and silver, and brand lettering stays in Orbitron.
+UI** ([desktop/ui](../../desktop/ui/README.md)): the Fluent design
+language (the layout, geometry, materials and motion that Windows 11
+users know) with Boswas's own colours (the Prism palette), icons (Boswas
+Prism) and typeface (Inter). The official mark keeps its gold and silver
+and is the Start button; brand lettering stays in Orbitron (ADR-0033).
 
 Design rule: **Boswas owns the desktop layer, Debian stays the system
 layer**.
@@ -19,28 +21,36 @@ layer**.
 - Applications are unchanged. Dolphin, Konsole, KWrite, Okular, Gwenview,
   Ark, KCalc, Firefox ESR and the Boswas applications run as ordinary
   Wayland clients; KDE applications take the Boswas Prism colours and icons
-  from system-wide defaults.
+  from system-wide defaults. Applications that only speak X11 run through
+  Xwayland (ADR-0034). Control Center and the Compatibility Manager take
+  their look from the Boswas Qt toolkit (ADR-0039).
 - Package management, the kernel, the boot chain (shim, GRUB, Secure Boot)
   and Debian's archive stay unmodified.
 - What could not be changed safely is listed in
   [debian-references.md](debian-references.md).
 
 **Status.** The native desktop is new. It is tested in the development
-sandbox (unit tests, end-to-end tests of the compositor with real Wayland
-clients on its headless back end, a nested run with the GLES renderer). It
-has not yet run on real hardware, and the image build and the boot test
-with it are still to be done. [Known gaps](#known-gaps) lists what this
-first version does not do.
+sandbox: unit tests, end-to-end tests of the compositor with real clients
+on its headless back end, and tests of the service backends against
+stand-ins of the system daemons. It has not yet run on real hardware or
+against the real system services, and the image build and the boot test
+with it are still to be done
+([what is verified](../architecture/verification.md)).
+[Known gaps](#known-gaps) lists what it does not do.
+
+The system applications and the settings pages are being written and are
+not described here yet: see [Boswas applications](#boswas-applications)
+and [Settings](#settings).
 
 ## Identity
 
 | Surface | What users see |
 |---------|----------------|
 | Boot menu (USB/DVD) | Boswas OS mark, Orbitron wordmark, "Boswas OS v1 Alpha - Live session" (default), "Install Boswas OS" |
-| Boot, shutdown, restart, disk unlock | The Boswas boot screen: the mark, the BOSWAS OS wordmark and a progress arc on a near-black background; for encrypted disks a passphrase field with one dot per character, a Caps Lock hint and the last error |
-| Login screen | The Boswas login screen: clock, user name and password fields over the Boswas background. If graphics cannot start, a text login takes its place |
-| Desktop | The Prism background (or the preset's wallpaper), the panel with the Boswas mark, Boswas Prism icons |
-| Lock screen | Clock, the user's name and a password field; applications are neither shown nor given input |
+| Boot, shutdown, restart, disk unlock | The Boswas boot screen: the mark and a ring of dots on a dark background, with no name written; for encrypted disks "Unlock your disk", the disk's name and a text box with one dot per character, a Caps Lock hint and a line for a rejected passphrase. Shutdown and restart show the ring and one line of text |
+| Login screen | The Boswas login screen: first the clock over the background, then, after a key or a click, the people who can sign in and a password field. Another user name can be typed. If graphics cannot start, a text login takes its place |
+| Desktop | The background (or the preset's wallpaper), the taskbar with the Boswas mark as the Start button, Boswas Prism icons |
+| Lock screen | First the clock, then, after a key or a click, the user's name and a password field; applications are neither shown nor given input, and no notifications appear |
 | Control Center > About Boswas OS, `hostnamectl`, console | "Boswas OS v1 Alpha" (`/etc/os-release`: `NAME="Boswas OS"`, `ID=boswas`, `ID_LIKE=debian`); the desktop is shown as "Boswas Desktop" with its version |
 | Terminal | "Welcome to Boswas OS" summary and the Boswas prompt |
 | Live session | User "Boswas OS Live"; "Live session" in Control Center and the terminal |
@@ -84,28 +94,64 @@ Power on -> Boswas boot menu -> Boswas boot splash -> Boswas OS desktop (signed 
 
 `boswas-shell` draws everything that is not an application window. The
 compositor starts it over a trusted connection and restarts it if it
-exits; open windows are not affected.
+exits; open windows are not affected. `boswas-shell(1)` is the reference.
 
-- **Background:** drawn in code from the Prism palette, exact at every
-  resolution. A preset replaces it with the preset's wallpaper.
-- **Panel:** 48 px along the bottom edge of each screen.
-  - Left: the launcher button (the Boswas mark).
-  - Middle: pinned applications (Control Center, Files, Terminal, Browser,
-    Compatibility Manager) and the windows of the current workspace. A
-    click activates a window, or minimises it when it is already active; a
-    bar under the icon marks running and active windows.
-  - Right: network status, battery status (on machines with a battery),
-    the time and the date. These are indicators read from the kernel's
-    files; they are not menus.
-- **Launcher:** opens with the Super key (tap it) or the panel button.
-  - Search matches installed applications, ranked by how often they were
-    started. It is local: nothing is sent anywhere.
-  - Below it, a grid of all applications (Windows applications included, as
-    the menu entries `boswas-winapp` creates).
-  - Lock, Log out, Restart and Shut down. Restart, Shut down and Log out
-    ask for a second click.
-  - Keys: type to search, arrow keys to move, Enter to start, Escape to
-    close.
+- **Background:** drawn in code from the palette, exact at every
+  resolution. A preset replaces it with the preset's wallpaper. A
+  right-click on it opens a short menu.
+- **Taskbar:** 48 px along the bottom edge of each screen.
+  - In the centre, as one group: Start (the Boswas mark), Task View, and
+    the pinned and running applications. A click on an application shows
+    its window, starts it, or goes through its windows; the secondary
+    button opens its menu (new window, pin or unpin, the application's
+    own actions, close); the middle button starts another instance.
+    Resting the pointer on a running application shows its windows. A
+    mark under the icon shows running and active applications.
+  - At the right: tray icons, the keyboard layout when there is more than
+    one, the network, volume and battery icons (one button, which opens
+    quick settings), and the clock (which opens notifications and the
+    calendar).
+  - While a program may capture the screen, a red mark sits in front of
+    the tray; a click on it stops the capture.
+- **Start:** opens with the Super key (tap it) or its button.
+  - Search finds applications, pages of Boswas Control Center, and runs a
+    command. It ranks applications by how often they were started and is
+    local: nothing is sent anywhere.
+  - Below it: the pinned applications, all applications by letter
+    (Windows applications included, as the menu entries `boswas-winapp`
+    creates), and the applications used most.
+  - The user menu and the power menu. Signing out, restarting and
+    shutting down ask first when windows are open.
+- **Quick settings** (Super+A): Wi-Fi with the list of networks,
+  Bluetooth with the list of devices, airplane mode, night light, the
+  power mode, do not disturb, media controls, brightness, and volume with
+  the choice of the sound output. A part whose system service is not
+  running shows as not available.
+- **Notifications** (Super+N): up to three at a time above the taskbar,
+  and the notification centre with a calendar. While do not disturb is on
+  only critical notifications pop up; nothing pops up while the session
+  is locked. Notifications are kept in memory until they are dismissed
+  or the shell restarts; they are not written to disk.
+- **The volume and brightness keys** show a small display of the level,
+  on the lock screen as well.
+- **Run** (Super+R) starts a program with its arguments. There is no
+  shell behind it and nothing is expanded.
+- **Screen capture** (Print for the screen, Shift+Print or Super+Shift+S
+  for a region): the capture screen shows the picture, the user chooses
+  what to keep and confirms. The result is saved to the Screenshots
+  folder under Pictures and copied to the clipboard.
+- **Passwords for administrator actions:** when polkit needs a password
+  (Control Center installing an update, for example) the shell shows the
+  dialog, with a choice of administrator when several may authorise the
+  action.
+- **"Allow screen capture?":** when another program (a screenshot tool, a
+  recorder, screen sharing in a browser) asks for pictures of the screen,
+  the shell asks first. Neither answer is the default, and Enter alone
+  allows nothing ([Screen capture by programs](#screen-capture-by-programs)).
+- **Keyboard:** every flyout and dialog can be used without a pointer:
+  Tab and Shift+Tab go through the controls, the arrow keys move to the
+  nearest control in that direction, Enter or Space activates it, Escape
+  closes.
 - **Presets:** ten Boswas OS presets
   ([presets](../../desktop/presets/README.md)), chosen in Control Center >
   Personalization or with `boswas-preset`. On the native desktop a preset
@@ -119,26 +165,47 @@ exits; open windows are not affected.
   file types, and the symbolic status and action icons. Everything it does
   not draw comes from Breeze.
 
+The pins are kept in `~/.config/boswas/shell.toml`; how often each
+application was started and the last commands typed into Run are in
+`~/.local/state/boswas/`. None of it leaves the device.
+
 ## Windows and shortcuts
 
-The compositor draws the window frames: a 32 px title bar with the title
-and minimise, maximise and close buttons, rounded corners and a shadow.
-Applications that draw their own frame (GTK applications, Firefox) keep it.
+The compositor draws the window frames: a 32 px title bar with the
+application's icon and title and the minimise, maximise and close
+buttons, a thin border, rounded corners and a shadow. Applications that
+draw their own frame (GTK applications, Firefox) keep it. Windows open,
+close, minimise and come back with short animations, and desktops slide
+when switched; `[appearance] reduced_motion` turns that off. X11
+applications get the same frame and behave like every other window.
+`boswas-compositor(1)` is the reference.
 
 | Keys | Action |
 |------|--------|
-| Super (tap) | Open or close the launcher |
+| Super (tap) | Open or close Start |
+| Super+A | Quick settings |
+| Super+N | Notifications and calendar |
+| Super+R | Run |
+| Super+E, Super+I, Ctrl+Alt+T, Ctrl+Shift+Esc | The file manager, the settings application, the terminal and the task manager (the programs named in `[apps]`) |
 | Super+L | Lock the session |
-| Alt+Tab, Alt+Shift+Tab | Switch windows, most recently used first |
+| Super+1 ... Super+9 | Start or switch to the taskbar application at that place; with Shift, another window of it |
+| Alt+Tab, Alt+Shift+Tab | Pick a window, most recently used first; live previews, Escape cancels |
+| Super+Tab | Task View: every window and the desktops |
 | Alt+F4 | Close the window |
-| Super+Up | Maximise |
-| Super+Down | Restore; minimise a floating window |
-| Super+Left, Super+Right | Snap to the left or right half |
-| Super+F11 | Fullscreen |
-| Super+1 ... Super+4 | Switch to workspace 1 to 4 |
-| Super+Shift+1 ... 4 | Move the window to that workspace |
-| Super+E | File manager (Dolphin) |
-| Ctrl+Alt+T | Terminal (Konsole) |
+| Alt+Space | The window menu: Restore, Move, Size, Minimize, Maximize, Close |
+| F11, Super+F11 | Full screen |
+| Super+Up | Maximise; a snapped half goes to its upper quarter |
+| Super+Down | Restore; a snapped half goes to its lower quarter; minimise a restored window |
+| Super+Left, Super+Right | Snap to a half; at the edge, on to the next monitor |
+| Super+Shift+Left, Super+Shift+Right | Move the window to the next monitor |
+| Super+D | Show the desktop, and bring the windows back |
+| Super+M, Super+Shift+M | Minimise every window; restore them |
+| Super+Ctrl+D | New desktop |
+| Super+Ctrl+Left, Super+Ctrl+Right | Previous or next desktop |
+| Super+Ctrl+F4 | Close the desktop (its windows move to the neighbour) |
+| Super+Space | Next keyboard layout |
+| Print; Shift+Print, Super+Shift+S | Capture the screen; capture a region |
+| Volume, brightness and media keys | Handled by the shell, also on the lock screen |
 | Ctrl+Alt+F1 ... F12 | Switch virtual terminal |
 
 With the pointer:
@@ -146,9 +213,23 @@ With the pointer:
 - drag a title bar to move a window; drag it to the top edge to maximise,
   to a side for that half, to the outer quarter of a side for that corner.
   A preview shows where the window will go;
-- double-click a title bar to maximise; drag a border to resize;
+- rest the pointer on the maximise button for the snap layouts (two
+  halves, a half beside two quarters, four quarters) and click a zone;
+- double-click a title bar to maximise; right-click it for the window
+  menu, which also sends the window to another monitor or desktop; drag a
+  border or a corner to resize;
 - Super+left drag moves and Super+right drag resizes from anywhere on a
   window.
+
+After Move or Size from the window menu the arrow keys move or resize the
+window (with Ctrl by single pixels) until Enter or Escape.
+
+On a touch screen a finger does what the pointer does on title bars,
+buttons, the window picker and Task View. On a touchpad, three or four
+fingers sideways go to the next or previous desktop, up opens Task View
+and down shows the desktop. Drawing tablets and pens are supported with
+pressure, tilt and their buttons. None of this has been tried on real
+devices yet.
 
 Shortcuts use the key's position on the Latin layout, so they work the
 same while another keyboard layout is active. Super+L and the virtual
@@ -156,43 +237,79 @@ terminal keys work even when an application (a remote desktop, a virtual
 machine) has taken the other shortcuts. The shortcuts are fixed in this
 version; there is no shortcut editor.
 
-There are four workspaces. The panel shows the windows of the current one;
-there is no workspace switcher on the panel yet.
+Desktops are created and closed as needed: a session starts with one.
+Task View shows them in a strip under the windows.
+
+## Screen capture by programs
+
+An application cannot read the screen on its own. When a program asks the
+compositor for pictures of it, the shell asks "Allow screen capture? NAME
+wants to see your screen." (ADR-0037):
+
+- "Allow" covers that program while it keeps capturing (a recording, a
+  shared screen) and ends a few seconds after its last picture. The next
+  request asks again.
+- "Don't allow" holds for twenty seconds, so a program that retries does
+  not ask again and again.
+- While any program may capture, a red mark on the taskbar says which. A
+  click on it stops them all.
+- Nothing is captured while the session is locked.
+- Sandboxed applications (Flatpak) are not offered this at all; they go
+  through the desktop portal, which is the program the question then
+  names.
+
+The name in the question is the name the program runs under, and a
+program can choose it. An allowed program sees everything on every
+screen until it stops. Screen sharing from browsers and meetings goes
+through `xdg-desktop-portal-wlr`, which shares the first monitor; this
+path has not been tested yet.
 
 ## Lock, login and boot
 
-- **Lock screen.** The compositor owns the lock. Super+L, the launcher's
-  Lock button, ten minutes without input, suspend and hibernate lock the
+- **Lock screen.** The compositor owns the lock. Super+L, Lock in Start's
+  user menu, ten minutes without input, suspend and hibernate lock the
   session: every screen is blanked and input is taken away from
-  applications first, then the lock screen is started. It checks the
-  password through PAM. If the lock screen crashes, the screens stay blank
-  and it is started again; nothing but a correct password unlocks. A video
-  player or presentation that asks the compositor to stay awake holds the
-  idle lock off while it runs.
+  applications first, then the lock screen is started. It shows the
+  clock and, after a key or a click, asks for the password, which it
+  checks through PAM. If the lock screen crashes, the screens stay blank
+  and it is started again; nothing but a correct password unlocks. A
+  video player or presentation that asks the compositor to stay awake
+  holds the idle lock off while it runs. The lock screen shows no
+  notifications and offers no way to restart or shut down; the volume and
+  brightness keys work.
   - An administrator sets the timeout in `/etc/boswas/compositor.toml`. A
     user may shorten it, not lengthen or disable it.
-  - `loginctl lock-session` is not handled yet; scripts use
-    `boswas-compositor --send lock`.
+  - `loginctl lock-session` locks the session while the shell runs;
+    scripts can also use `boswas-compositor --send lock`.
+  - The screens turn off after five minutes without input (`[power]
+    screen_off_seconds`) and back on with any input. That is separate
+    from the lock.
 - **Login screen.** greetd runs the Boswas login screen on the first
-  virtual terminal: user name, password, Enter. After a successful login it
-  starts `boswas-session`. If the graphical login cannot start, greetd's
-  text login is used, so there is always a way to sign in. The live session
-  signs in automatically.
-- **Boot screen.** `boswas-bootsplash` shows the mark and a progress arc
+  virtual terminal: the clock, then the people who can sign in (regular
+  accounts with a login shell) and the password. Another user name can be
+  typed. After a successful login it starts `boswas-session`. If the
+  graphical login cannot start, greetd's text login is used, so there is
+  always a way to sign in. The live session signs in automatically.
+- **Boot screen.** `boswas-bootsplash` shows the mark and a ring of dots
   from the initramfs to the login screen, the passphrase prompt of an
   encrypted disk, and the shutdown and restart screens. Escape switches
   between the boot screen and the text console. `nosplash` on the kernel
-  command line turns it off
+  command line turns it off, `boswas.splash=static` keeps it without
+  motion
   ([packages/boswas-bootsplash](../../packages/boswas-bootsplash/README.md)).
 
 ## Settings
 
+*The native settings pages of Control Center are being written (ADR-0041,
+reserved). This section will describe them when the work lands. What
+follows is what works without them.*
+
 | What | Where |
 |------|-------|
+| Wi-Fi (networks, passphrase), Bluetooth devices, airplane mode, night light, power mode, do not disturb, brightness, volume and sound output | Quick settings (Super+A) |
 | Preset (light or dark, wallpaper, application colours, terminal profile) | Control Center > Personalization, or `boswas-preset apply <id>`; recorded in `~/.config/boswas/appearance.toml` |
-| Keyboard layout and repeat, pointer (tap to click, natural scrolling, speed, cursor), display scale (1.0 to 2.0), lock timeout | `~/.config/boswas/compositor.toml`; system-wide in `/etc/boswas/compositor.toml`. `boswas-compositor(1)` lists every key. `boswas-compositor --send reload-config` applies keyboard, appearance, cursor and lock settings at once; the rest applies at the next login |
-| Wi-Fi and other connections | Control Center > Network shows the state and switches Wi-Fi on and off; a new network and its password: `nmtui` in the terminal |
-| Volume, output and input devices | `pavucontrol-qt` (PulseAudio Volume Control) |
+| Keyboard layout and repeat, mouse and touchpad, cursor, each monitor (mode, scale, position, rotation, on or off), night light and its schedule, the time until the screens turn off, lock timeout | `~/.config/boswas/compositor.toml`; system-wide in `/etc/boswas/compositor.toml`. `boswas-compositor(1)` lists every key. `boswas-compositor --send reload-config` applies them to the running session, and `--send outputs` lists the monitors with their names and modes |
+| Per-application volumes | `pavucontrol-qt` (PulseAudio Volume Control) |
 | Software, updates, security, Windows and Android applications | Control Center |
 
 Example, a user's `~/.config/boswas/compositor.toml`:
@@ -200,44 +317,54 @@ Example, a user's `~/.config/boswas/compositor.toml`:
 ```toml
 [keyboard]
 layout = "us,in"
-options = "grp:alt_shift_toggle"
 
-[pointer]
+[touchpad]
 natural_scroll = true
+
+[outputs.HDMI-A-1]
+scale = 1.5
+position = [1920, 0]
 
 [lock]
 idle_seconds = 300
 ```
 
-A file that does not parse, or that contains an unknown key, is reported
-in the log and ignored as a whole; the desktop then starts with the
-defaults.
+Super+Space goes to the next keyboard layout. A file that does not
+parse, or that contains an unknown key, is reported in the log and
+ignored as a whole; the desktop then starts without it.
 
 ## Known gaps
 
-This first version of the native desktop does not have:
+The native desktop does not have, or has not shown yet:
 
-- **XWayland.** Applications that only speak X11 do not run.
-- **Notifications, a system tray, quick settings.** No notification
-  service runs, so applications' notifications are not shown. The panel
-  has no Wi-Fi, Bluetooth, volume or brightness controls.
-- **Settings pages for the desktop.** Control Center pages and buttons
-  that open Plasma settings modules show them as unavailable
-  ([control-center.md](control-center.md)). Keyboard, pointer, display
-  scale and lock timeout are set in the configuration file above. There is
-  no display arrangement or resolution setting: each screen runs at its
-  preferred mode, side by side.
-- **Screen capture and screen sharing.** No screenshot tool and no
-  screen-sharing portal; applications cannot read the screen at all.
-- **Input methods** (for example for Indic, Chinese, Japanese or Korean
-  text entry) and an on-screen keyboard.
+- **A run on real hardware or against the real system services.** See
+  [what is verified](../architecture/verification.md). In particular the
+  password dialog for administrator actions has only run against a
+  stand-in for polkit.
+- **Live blur.** The taskbar and the flyouts are drawn on a blurred copy
+  of the wallpaper; a window behind them does not show through.
+- **Sharp X11 windows on scaled monitors.** X11 applications are drawn at
+  scale 1 and enlarged. They can also observe each other, as on any X
+  server; they cannot observe Wayland applications.
+- **Tested screen sharing.** The portal for it is installed and
+  configured, shares the first monitor, and has not been run.
+- **Bluetooth devices that need a PIN or passkey,** and **enterprise
+  Wi-Fi (802.1X):** neither can be set up from quick settings.
+- **An input method in the image** (for example for Indic, Chinese,
+  Japanese or Korean text entry) and an on-screen keyboard. The
+  compositor supports an input method that the administrator configures;
+  none has been run.
 - **More than one GPU**, HDR and variable refresh rate.
-- **Animations.** Windows and shell surfaces appear without transitions.
 - **A screen reader for the shell.** See [Accessibility](#accessibility).
-- **Per-preset accents in the shell.** The panel, launcher and lock screen
-  follow a preset's light or dark variant, not its accent colour.
+- **Per-preset accents in the shell.** The taskbar, Start and the lock
+  screen follow a preset's light or dark variant, not its accent colour.
+- **A shortcut editor,** desktop icons, and a taskbar at another edge.
 
 ## Boswas applications
+
+*The system applications of `boswas-apps` are being written (ADR-0040,
+reserved). This section will describe them when the work lands. The table
+below is unchanged from the first version of the native desktop.*
 
 | Application | What it is |
 |-------------|------------|
@@ -267,19 +394,24 @@ The Boswas Konsole profiles start bash with `/usr/share/boswas/terminal/bashrc`.
   - Boswas applications set accessible names.
   - They support full keyboard use (sidebar arrows, Tab order, Ctrl+F, F5).
   - They show status as icon plus text.
-- **The shell:** the launcher, the lock screen and the login screen are
-  fully usable from the keyboard. The panel, launcher, lock and login
-  screens do not expose an accessibility tree yet, so a screen reader
-  cannot read them; no screen reader is in the image.
+- **The shell:** every flyout and dialog, the lock screen and the login
+  screen can be used from the keyboard, and so can the window picker,
+  Task View and the window menu of the compositor. None of them exposes
+  an accessibility tree yet, so a screen reader cannot read them; no
+  screen reader is in the image.
 - **High contrast:** Boswas Carbon is the high-contrast preset for
   applications (WCAG AAA body text). The shell uses the Prism dark or light
   theme, whose text meets WCAG AA.
 - **Contrast:** the Prism colour schemes and every preset keep body text at
   4.5:1 or more; the tests check it.
-- **Scaling:** one display scale from 1.0 to 2.0 for all screens
-  (`[output] scale`).
-- **Motion:** the desktop has no animations. The boot screen's animation
-  can be turned off with `boswas.splash=static` on the kernel command line.
+- **Scaling:** 1.0 to 2.0 in steps of 0.25, for all screens (`[output]
+  scale`) or per monitor (`[outputs.NAME] scale`).
+- **Motion:** `[appearance] reduced_motion` turns the animations of
+  windows, desktops and the shell off; the Boswas Qt applications follow
+  the same setting. The boot screen's animation can be turned off with
+  `boswas.splash=static` on the kernel command line.
+- **Colour temperature:** night light, in quick settings or
+  `[night_light]`.
 
 ## Performance
 
@@ -288,12 +420,16 @@ choices that matter:
 
 - **The compositor draws only when something changed** and only the
   damaged regions; an idle desktop draws nothing.
-- **The shell is one process** for the background, panel and launcher. It
-  redraws a surface only when its content changes (the clock once a
-  minute). The default background is rendered once per screen size.
-- **No new background services in the session:** Control Center, the
-  presets tool and the welcome banner run only when used; the welcome
-  reads files only, so terminals open instantly.
+- **The shell is one process** for the background, the taskbar and every
+  flyout. It redraws a surface only when what it shows changes. The
+  default background is rendered once per screen size, and the blurred
+  copy of the wallpaper behind the taskbar and the flyouts once per
+  wallpaper and blur radius.
+- **The session's services are threads of the shell,** one per service,
+  not processes of their own (ADR-0035). Each reads the system at most
+  about five times a second, however many change signals arrive.
+- **Control Center, the presets tool and the welcome banner run only when
+  used;** the welcome reads files only, so terminals open instantly.
 - **Boot screen:** nothing is parsed at boot (artwork and glyphs are
   embedded at build time), and a frame repaints only the items that
   changed.

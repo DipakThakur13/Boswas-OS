@@ -18,7 +18,7 @@ from __future__ import annotations
 import math
 
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen, QPolygonF
 from PySide6.QtWidgets import QSizePolicy, QToolTip, QWidget
 
 import boswas_fluent as fluent
@@ -52,6 +52,7 @@ def _paths(values, box: QRectF, top: float) -> tuple[QPainterPath, QPainterPath]
     if count < 2 or top <= 0:
         return line, area
     step = box.width() / (count - 1)
+    left, bottom, height = box.left(), box.bottom(), box.height()
     run: list[QPointF] = []
 
     def flush() -> None:
@@ -59,13 +60,8 @@ def _paths(values, box: QRectF, top: float) -> tuple[QPainterPath, QPainterPath]
             return
         if len(run) == 1:                       # a single sample between two gaps: a short stroke
             run.append(QPointF(run[0].x() + min(step, 2.0), run[0].y()))
-        line.moveTo(run[0])
-        area.moveTo(QPointF(run[0].x(), box.bottom()))
-        area.lineTo(run[0])
-        for point in run[1:]:
-            line.lineTo(point)
-            area.lineTo(point)
-        area.lineTo(QPointF(run[-1].x(), box.bottom()))
+        line.addPolygon(QPolygonF(run))
+        area.addPolygon(QPolygonF([QPointF(run[0].x(), bottom), *run, QPointF(run[-1].x(), bottom)]))
         area.closeSubpath()
         run.clear()
 
@@ -73,8 +69,8 @@ def _paths(values, box: QRectF, top: float) -> tuple[QPainterPath, QPainterPath]
         if value is None:
             flush()
             continue
-        ratio = max(0.0, min(1.0, value / top))
-        run.append(QPointF(box.left() + index * step, box.bottom() - ratio * box.height()))
+        ratio = value / top
+        run.append(QPointF(left + index * step, bottom - (0.0 if ratio < 0 else 1.0 if ratio > 1 else ratio) * height))
     flush()
     return line, area
 
@@ -86,27 +82,27 @@ def paint_series(painter: QPainter, box: QRectF, graph: Graph, kind: str, *, gri
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
     colour = series_colour(kind)
     if grid:
-        pen = QPen(series_colour(kind, 0.16), 1)
-        painter.setPen(pen)
+        faint = series_colour(kind, 0.16)        # hairlines as one-pixel fills: the cheapest way to draw them
         length = max((len(series.values) for series in graph.series), default=history.LENGTH)
         step = box.width() / max(1, length - 1)
         offset = (length - 1 - phase) % _GRID_COLUMNS
         index = offset
         while index < length - 1:
             if index > 0:
-                x = round(box.left() + index * step) + 0.5
-                painter.drawLine(QPointF(x, box.top()), QPointF(x, box.bottom()))
+                painter.fillRect(QRectF(round(box.left() + index * step), box.top(), 1, box.height()), faint)
             index += _GRID_COLUMNS
         for row in range(1, _GRID_ROWS):
-            y = round(box.top() + row * box.height() / _GRID_ROWS) + 0.5
-            painter.drawLine(QPointF(box.left(), y), QPointF(box.right(), y))
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            painter.fillRect(QRectF(box.left(), round(box.top() + row * box.height() / _GRID_ROWS), box.width(), 1),
+                             faint)
     painter.setClipRect(box)
     top = graph.top()
     for number, series in enumerate(graph.series):
         line, area = _paths(series.values, box, top)
         if number == 0:
+            # The wash is filled without smoothing (its edge is under the line anyway): much cheaper.
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
             painter.fillPath(area, series_colour(kind, 0.14))
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         pen = QPen(colour, width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
         if series.dashed:
             pen.setStyle(Qt.PenStyle.CustomDashLine)

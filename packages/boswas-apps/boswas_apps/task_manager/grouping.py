@@ -104,10 +104,15 @@ class Grouper:
         self.index = index
         self.uid = uid
         self._known: dict[int, _Known] = {}
+        self._groups: dict[int, Group] = {}
+        self._procs: dict[int, Proc] | None = None       # the table of the previous call
+        self._root_of: dict[int, int] = {}                # and which row each of its processes was in
 
     def set_index(self, index: AppIndex) -> None:
         self.index = index
         self._known.clear()
+        self._groups.clear()
+        self._procs = None
 
     def _look(self, proc: Proc) -> _Known:
         known = self._known.get(proc.pid)
@@ -126,10 +131,28 @@ class Grouper:
         return self._look(proc).app
 
     def groups(self, procs: dict[int, Proc]) -> list[Group]:
+        """The rows for ``procs``. A row whose processes are the same objects as at the previous call
+        is the same ``Group`` object as then."""
         if len(self._known) > 2 * len(procs) + 64:
             self._known = {pid: known for pid, known in self._known.items() if pid in procs}
-        root_of: dict[int, int] = {}
         kernel_root = 2 if 2 in procs and procs[2].kthread else None
+        # Which processes are one row depends on what they are and who started them, not on what they
+        # use. When none of that changed since the previous call, the rows are made up as they were.
+        before = self._procs
+        same = before is not None and len(before) == len(procs)
+        if same:
+            for pid, proc in procs.items():
+                old = before.get(pid)
+                if old is proc:
+                    continue
+                if (old is None or old.ppid != proc.ppid or old.name != proc.name or old.exe != proc.exe
+                        or old.args != proc.args or old.uid != proc.uid or old.cgroup != proc.cgroup
+                        or old.start_ticks != proc.start_ticks):
+                    same = False
+                    break
+        self._procs = procs
+        root_of: dict[int, int] = self._root_of if same else {}
+        self._root_of = root_of
 
         def resolve(pid: int) -> int:
             chain = []
@@ -161,12 +184,25 @@ class Grouper:
             return root_of[pid]
 
         members: dict[int, list[Proc]] = {}
-        for pid in procs:
-            members.setdefault(resolve(pid), []).append(procs[pid])
+        if same:
+            for pid, proc in procs.items():
+                members.setdefault(root_of[pid], []).append(proc)
+        else:
+            for pid in procs:
+                members.setdefault(resolve(pid), []).append(procs[pid])
         result = []
+        previous, self._groups = self._groups, {}
         for root_pid, rows in members.items():
             root = procs[root_pid]
-            rows.sort(key=lambda proc: (proc.pid != root_pid, proc.pid))
+            if len(rows) > 1:
+                rows.sort(key=lambda proc: (proc.pid != root_pid, proc.pid))
+            old = previous.get(root_pid)
+            if old is not None and len(old.members) == len(rows) and all(a is b for a, b in zip(old.members, rows)):
+                # The very same process objects as last time (the sampler hands them out again while a
+                # process does nothing): the row is the same too.
+                self._groups[root_pid] = old
+                result.append(old)
+                continue
             known = self._look(root)
             if root.kthread:
                 group = Group("system", root, rows, KERNEL_GROUP if root_pid == kernel_root else root.name)
@@ -185,6 +221,7 @@ class Grouper:
                 if proc.disk is not None:
                     disk = proc.disk if disk is None else disk + proc.disk
             group.cpu, group.mem, group.disk = min(100.0, cpu), mem, disk
+            self._groups[root_pid] = group
             result.append(group)
         return result
 

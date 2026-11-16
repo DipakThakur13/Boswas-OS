@@ -68,9 +68,12 @@ class TimerCard(fluent.Card):
         for button in (self.edit_button, self.expand_button, self.delete_button):
             top.addWidget(button)
         self.ring = RingProgress(self, minimum=170 if not expanded else 220)
+        if not expanded:
+            self.ring.setMaximumSize(250, 250)
         buttons = QHBoxLayout()
         buttons.setSpacing(12)
-        self.start_button = fluent.IconButton("media-playback-start-symbolic", "Start", self, size=44, icon_size=20)
+        self.start_button = fluent.IconButton(fluent.icon("media-playback-start-symbolic", color="on-accent"), "",
+                                              self, size=44, icon_size=20)
         self.start_button.setProperty("accent", True)
         self.reset_button = fluent.IconButton("view-refresh-symbolic", "Reset", self, size=44, icon_size=20)
         self.start_button.clicked.connect(lambda: page.toggle(self.timer_id))
@@ -80,7 +83,7 @@ class TimerCard(fluent.Card):
         buttons.addWidget(self.reset_button)
         buttons.addStretch(1)
         self.body.addLayout(top)
-        self.body.addWidget(self.ring, 1)
+        self.body.addWidget(self.ring, 1, Qt.AlignmentFlag.AlignHCenter if not expanded else Qt.AlignmentFlag(0))
         self.body.addLayout(buttons)
 
     def show_timer(self, timer: dict, context: Context) -> float:
@@ -103,7 +106,8 @@ class TimerCard(fluent.Card):
         running = phase == "running"
         tip = "Pause" if running else "Restart" if phase == "done" else "Start"
         if self.start_button.toolTip() != tip:
-            self.start_button.set_icon("media-playback-pause-symbolic" if running else "media-playback-start-symbolic")
+            self.start_button.set_icon(fluent.icon("media-playback-pause-symbolic" if running
+                                                   else "media-playback-start-symbolic", color="on-accent"))
             self.start_button.setToolTip(tip)
             self.start_button.setAccessibleName(f"{tip} {name}")
         self.reset_button.setEnabled(phase != "idle")

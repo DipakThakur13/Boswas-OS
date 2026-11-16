@@ -27,7 +27,7 @@ packages built from `packages/` (seven in 1.0~alpha3; added since:
 - `boswas-cli`: `boswas`, `boswas-info`, `boswas-status`.
 - `boswas-branding`: artwork, design tokens, colour schemes, presets,
   icons and About (until ADR-0026 also the KDE look-and-feel and the login
-  theme).
+  theme; since ADR-0039 also the Qt toolkit `boswas_fluent`).
 - `boswas-security`: the security baseline.
 - `boswas-compat`: WinCompat (`boswas-winapp`, the Wine AppArmor profile,
   the compatibility catalog and its policy); since 1.0~alpha2.
@@ -227,6 +227,12 @@ replaces the traced SVG.
 text face. The mark, the wordmarks and Orbitron are unchanged; gold stays a
 brand colour and is no longer the UI accent.
 
+*Since ADR-0033 and ADR-0038* no Boswas screen sets running text in
+Orbitron any more: the clock of the lock and login screens and the text of
+the boot screen are Inter, and the boot screen shows the mark without the
+wordmark. Orbitron remains the typeface of the wordmarks (boot menu,
+installer banner) and stays installed.
+
 ## ADR-0009 Reproducible, containerised builds
 
 **Decision.** `build.sh` runs natively on Debian 13 as root, or re-executes
@@ -318,6 +324,10 @@ display-sharing design.
 clients under Plasma Wayland; not applicable since ADR-0026, which has no
 X server: Wine draws through its Wayland driver). Direct `/usr/bin/wine` use is not mediated;
 restricting it remains an open item (roadmap).
+
+*The parenthesis above is superseded by ADR-0034:* the session runs
+Xwayland again, so the limit applies to the X11 clients of that server,
+and a Windows application started with `DISPLAY` set is one of them.
 
 ## ADR-0013 Compatibility manifest format v1 and a layered catalog
 
@@ -571,7 +581,8 @@ able to install a policy.
 **Decision.**
 
 - **Toolkit:** the Compatibility Manager (`boswas-compat-manager`) is a
-  PySide6 (Qt Widgets, LGPL) application.
+  PySide6 (Qt Widgets, LGPL) application (since ADR-0039 styled by the
+  shared toolkit `boswas_fluent` instead of a style sheet of its own).
 - **What it talks to:** the user's session agent for application operations,
   and read-only device-agent operations for status.
 - **What it never does:** start processes, touch prefixes, manifests,
@@ -726,6 +737,20 @@ weakening Secure Boot, and an honest position on Google Play.
 
 ## ADR-0026 A native compositor (boswas-compositor) replaces KWin and KDE Plasma
 
+> **Partly superseded (2026-11-16).** The decision itself stands: the
+> compositor, the three trust levels and the control socket. These
+> statements of the first version no longer hold and are marked where they
+> appear below; the text is kept as the record of that version:
+>
+> - "No XWayland" and "X11-only applications do not run": ADR-0034.
+> - The missing desktop functions (notifications, tray, quick settings):
+>   ADR-0035. Screen capture: ADR-0037.
+> - Four workspaces, one scale for all outputs, no input methods, no
+>   output configuration: ADR-0036.
+> - The public control socket now also answers `outputs` and `capture`
+>   (ADR-0036, ADR-0037).
+> - `loginctl lock-session`: handled through the shell (ADR-0035).
+
 **Decision.**
 
 - **What is replaced.** KDE's compositor (KWin), the Plasma shell, the
@@ -752,7 +777,9 @@ weakening Secure Boot, and an honest position on Google Play.
     compositor (a client may ask to draw its own), snap layouts by dragging
     or with Super+arrow keys, four workspaces, Alt+Tab in
     most-recently-used order, maximise, fullscreen and minimise, one scale
-    for all outputs (1.0 to 2.0 in steps of 0.25).
+    for all outputs (1.0 to 2.0 in steps of 0.25). *(Superseded by
+    ADR-0036: desktops are created and closed as needed, and each monitor
+    has its own settings.)*
   - **Rendering:** damage-tracked. A frame is drawn only when something
     changed and the previous one has been shown.
 - **Client trust.** Every client has one of three levels:
@@ -769,7 +796,11 @@ weakening Secure Boot, and an honest position on Google Play.
   list (`ext-foreign-toplevel-list`) and clipboard control
   (`wlr-data-control`). Protocols for screen capture, input injection,
   global key grabs and output configuration are not implemented, so no
-  client has them.
+  client has them. *(Superseded in two points. Screen capture is offered
+  to every client outside a sandbox and guarded by the user's consent:
+  ADR-0037. The input-method and virtual-keyboard protocols exist and
+  join the privileged set: ADR-0036. There is still no protocol for
+  global key grabs or for output configuration.)*
 - **`policy.privileged_protocols`.** `"shell"` is the shipped value. `"all"`
   offers the privileged globals to `Normal` clients too; it exists for
   development. The `[policy]` table is read from the system files only
@@ -779,7 +810,10 @@ weakening Secure Boot, and an honest position on Google Play.
   may send `version`, `lock` and `reload-config`. The window list, window
   control, workspaces, screenshots and `quit` need the descriptor of a
   `Shell` client. Contract: `docs/architecture/platform-contracts.md`.
-- **No XWayland.** The compositor starts no X server.
+  *(Since ADR-0036 and ADR-0037 a connection to the socket file may also
+  send `outputs` and `capture`.)*
+- **No XWayland.** The compositor starts no X server. *(Superseded by
+  ADR-0034.)*
 
 **Why.**
 
@@ -804,21 +838,29 @@ A compositor without a library would repeat years of protocol work.
 - **X11-only applications do not run.** Wine uses its Wayland driver: the
   WinCompat sandbox binds the Wayland socket and sets no `DISPLAY`. The
   earlier limit "X11 clients can observe each other" (ADR-0012) no longer
-  applies, because there is no X server.
+  applies, because there is no X server. *(Superseded by ADR-0034, which
+  also says what Xwayland means for Wine.)*
 - **Missing desktop functions**, all planned work (see the roadmap): a
   notification daemon, a system tray, quick settings for Wi-Fi, Bluetooth
   and volume, a screen-capture portal (screenshots and screen sharing from
   applications), input methods, outputs on a second GPU, HDR and variable
   refresh rate, per-output scale, a display configuration tool. Wi-Fi is
   set up with `nmtui` or `nmcli` for now; volume with `pavucontrol-qt`.
+  *(Superseded: notifications, the tray and quick settings exist,
+  ADR-0035; screen capture for applications, ADR-0037; input-method
+  support and per-monitor settings, ADR-0036. Still missing: outputs on a
+  second GPU, HDR and variable refresh rate. The display configuration
+  tool belongs to the settings pages, ADR-0041.)*
 - **Control Center:** the entries that open Plasma settings modules
   (`kcmshell6`: network, Bluetooth, display, sound, power, users, input
   devices, region, notifications and others) are unavailable, because the
   modules are no longer installed. Its own pages (updates, security,
   software, storage, hardware, compatibility, Android, about) do not
-  depend on Plasma. Native settings pages are planned work.
+  depend on Plasma. Native settings pages are planned work. *(The native
+  settings pages are the subject of ADR-0041, reserved.)*
 - **`loginctl lock-session`** is not handled; locking goes through the
-  compositor (ADR-0028).
+  compositor (ADR-0028). *(Superseded by ADR-0035: the shell passes
+  logind's lock request on to the compositor.)*
 - **Maintenance:** Boswas now owns a compositor. Hardware regressions that
   KWin's developers would have fixed are ours to find and fix.
 - **Not verified yet:** the `udev` back end has been compiled but has not
@@ -828,11 +870,14 @@ A compositor without a library would repeat years of protocol work.
   end-to-end tests that drive the real binary on its headless back end
   (trust filtering, control-socket limits, window life cycle, lock), a
   nested run on the `winit` back end with OpenGL ES, the package build and
-  lintian.
+  lintian. *(The numbers are those of the first version; the current
+  state is in `verification.md`. The `udev` back end has still not run on
+  a device.)*
 
 **Revisit when** hardware validation shows a class of devices the `udev`
 back end cannot drive, or an application Boswas must support needs X11
-(then: XWayland as an opt-in, confined client).
+(then: XWayland as an opt-in, confined client). *(X11 support was
+decided in ADR-0034, on by default and not as a confined client.)*
 
 ## ADR-0027 Boswas Shell is written in Rust on boswas-ui, not in Qt/QML
 
@@ -847,6 +892,11 @@ and reads windows and workspaces from the control descriptor (ADR-0026).
 
 The project plan's first draft names Qt 6/QML for the shell. This decision
 replaces that part of the plan.
+
+*Since ADR-0035* the same program also draws Start, quick settings, the
+notification centre, toasts, the tray and the dialogs, and runs the
+session's services. The decision to write it in Rust on `boswas-ui`
+stands; the two consequences marked below changed.
 
 **Why.**
 
@@ -870,21 +920,28 @@ replaces that part of the plan.
   (AT-SPI), no on-screen keyboard. Qt would have provided the first.
 - **Boswas maintains its own toolkit:** every new control (a slider, a
   list, a menu) is written and tested here. Today it has what the panel,
-  the launcher and the password prompt need, no more.
+  the launcher and the password prompt need, no more. *(The last sentence
+  is superseded by ADR-0035: the shell now has flyouts, menus, buttons,
+  sliders, switches, scroll bars and text fields, all written here.)*
 - **Text:** shaping and font fallback come from cosmic-text; complex
   scripts and right-to-left layout in the shell have not been reviewed.
 - **Applications are unaffected:** Control Center and the Compatibility
   Manager stay PySide6/Qt applications, and KDE applications keep the
-  Breeze widget style with the Prism colour scheme.
+  Breeze widget style with the Prism colour scheme. *(Since ADR-0039 the
+  two Boswas applications take their look from the toolkit
+  `boswas_fluent`; KDE applications are as described.)*
 - **Not verified yet:** the shell has run against the headless and nested
   compositor (panel, launcher, search, lock) but not on hardware; the
   greeter's conversation with greetd has unit tests for the message format
-  and has not run against a real greetd.
+  and has not run against a real greetd. *(Still so for hardware and
+  greetd; the current list is in `verification.md`.)*
 
 **Revisit when** the shell needs views that are costly to build by hand
 (a settings application, rich notifications) or when an accessibility
 requirement is set. A Qt shell would then be a `Shell`-trust client like
-any other; the compositor does not change.
+any other; the compositor does not change. *(Notifications were built in
+the shell, ADR-0035. Settings is a Qt application, not part of the shell:
+ADR-0039 and ADR-0041. The accessibility point is still open.)*
 
 ## ADR-0028 The compositor owns the session lock; a user cannot relax the lock timeout policy
 
@@ -933,6 +990,9 @@ handles every window never sees it.
 
 - `loginctl lock-session` and the `org.freedesktop.ScreenSaver` D-Bus
   interface are not handled. Tools that lock that way do nothing.
+  *(Superseded for `loginctl lock-session` by ADR-0035: while the shell
+  runs, logind's lock request locks the session. logind's unlock request
+  is ignored, and the ScreenSaver interface is still not provided.)*
 - The sleep hook locks through the control sockets in `/run/user/*`; a
   session whose compositor does not answer is not locked by it.
 - There is no way to unlock a session whose lock screen cannot start (for
@@ -958,9 +1018,19 @@ handles every window never sees it.
 
 **Revisit when** a managed policy needs more than a maximum timeout (lock
 on smart-card removal, a grace period), or when logind integration is
-needed for remote "lock this device" commands.
+needed for remote "lock this device" commands. *(The logind lock request
+is handled since ADR-0035.)*
+
+*Since ADR-0036 and ADR-0037* the same rule covers one more program:
+`[input_method] command` is read from the system files only, like
+`[lock] command` and `[shell] command`. And a locked session gives no
+pictures of the screen to any program.
 
 ## ADR-0029 boswas-bootsplash replaces Plymouth
+
+*What the boot screen shows and which typeface it uses were changed by
+ADR-0038. The programs, the display and unlock paths, the sandbox and the
+failure behaviour decided here are unchanged.*
 
 **Decision.** The boot screen, the disk passphrase prompt and the shutdown
 and restart screens are one Rust package, `boswas-bootsplash`. Plymouth is
@@ -1023,7 +1093,8 @@ animation cheap on machines without a working GPU driver.
   the development environment: 107 unit and integration tests (scene and
   damage, control protocol, Plymouth-compatible client, password agent,
   the unlock helper's call sequence in a scratch root), the package build
-  and lintian.
+  and lintian. *(124 tests since ADR-0038; what is not verified is
+  unchanged.)*
 
 **Revisit when** the boot test or hardware validation shows a display the
 daemon cannot drive, or when localised boot text is required.
@@ -1048,7 +1119,8 @@ daemon cannot drive, or when localised boot text is required.
   login profile, the session environment, the compositor, then the systemd
   user target `boswas-session.target`, which pulls in
   `graphical-session.target` (the device session agent, the polkit agent,
-  XDG autostart entries).
+  XDG autostart entries). *(Since ADR-0035 the polkit agent is the shell,
+  which the compositor starts; the target no longer starts one.)*
 - **Fallback.** If the graphical greeter fails within ten seconds of its
   start, `boswas-greeter` runs greetd's text login (`agreety`) with the
   same session command, so there is always a way to sign in.
@@ -1069,7 +1141,10 @@ its Wayland greeter depends on a compositor Boswas no longer ships.
   installed in `/usr/share/wayland-sessions` for tools that list sessions.
 - No user list with pictures, no password-change dialogue for expired
   passwords, no remote or guest login. The greeter asks for a user name
-  and a password.
+  and a password. *(Since the shell of ADR-0035 the greeter lists the
+  people who can sign in, by name and without pictures: regular accounts
+  with a login shell, at most eight, read from `/etc/passwd`. Another
+  user name can still be typed. The rest of this point stands.)*
 - The greeter leaves authentication to greetd and its PAM service
   (`/etc/pam.d/greetd` from the Debian package, built on the `login`
   stack). The password goes to greetd once, over its socket, and is wiped
@@ -1085,6 +1160,11 @@ its Wayland greeter depends on a compositor Boswas no longer ships.
 list), or if greetd leaves Debian.
 
 ## ADR-0031 Boswas UI v2: one token file ("Prism") for colour, geometry, type and motion
+
+> **Values superseded by ADR-0033 (2026-11-16):** the token file is now
+> version 3 and follows the Fluent design language. The mechanism decided
+> here stands: one file, the same consumers, generated outputs, tests.
+> The text below is kept as the record of version 2.
 
 **Decision.**
 
@@ -1166,7 +1246,10 @@ values, not the mechanism) or presets must recolour the shell.
   set-up) and in the shell's `control.rs` and `pam.rs` (the inherited
   descriptor, the libpam binding). A new source file with `unsafe` fails
   the static stage until it is reviewed and listed. Test programs are not
-  shipped and are not covered by the list.
+  shipped and are not covered by the list. *(Since ADR-0037 the list has
+  one more file, the compositor's `handlers/screencopy.rs`: the copy into
+  a program's shared-memory buffer. The crates added since,
+  `boswas-services` and `boswas-services-bridge`, contain no `unsafe`.)*
 
 **Why.** Debian's toolchain is the one that receives Debian's security
 support and is in the builder image; a second toolchain would be one more
@@ -1192,9 +1275,674 @@ adds a large source tree that has to be reviewed and licensed as a whole.
 - A package build downloads and compiles a few hundred crates (the lock
   files name 329 and 86 packages, not all of them for Linux), which takes
   several minutes. `build-packages.sh` builds in a scratch tree, so nothing
-  is reused between builds.
+  is reused between builds. *(366 and 86 since the service backends of
+  ADR-0035, which added zbus and its dependencies. The boot screen
+  package also needs `fonts-inter` at build time, ADR-0038.)*
 - No automated advisory check (`cargo audit`) and no SBOM for the crates
   yet (M9).
 
 **Revisit when** vendoring is in place (then: `--offline` in
 `debian/rules`), or when Debian packages the needed crates.
+
+## ADR-0033 Boswas UI v3: the Fluent design language with Boswas's own colours, icons and typeface
+
+Supersedes the values of ADR-0031. Its mechanism (one token file, its
+consumers, generated outputs, tests) is unchanged.
+
+**Decision.**
+
+- **The design language is Fluent.** The desktop follows the Fluent
+  (WinUI) design language, with Windows 11 as the target look: the layout
+  of the shell (a centred taskbar, Start, quick settings, a notification
+  centre), the geometry of windows and controls, the materials and the
+  motion curves. `desktop/ui/tokens.json` is now version 3 and says so in
+  its `design` field.
+- **What is Boswas's own.** The colours (the Prism hue families, with iris
+  as the accent), the icons (the Boswas Prism pack), the typeface (Inter)
+  and the mark, which is the Start button. Nothing of Microsoft's is
+  taken as an asset: no font, icon, logo or wallpaper of Microsoft is in
+  the repository, and `type.family` names Inter, Noto Sans, Lato and
+  DejaVu Sans.
+- **What version 3 changes in the token file:**
+  - `neutral`, a grey family of twelve steps: the surface, border and
+    text roles of both themes are now steps of it, or white. `ink` and
+    `cloud` stay in the palette for the icon pack, the terminal colours
+    and one group of the light KDE colour scheme.
+  - The dark theme's accent is `iris.400` with dark text on it
+    (`on-accent` is `ink.950`); the light theme keeps `iris.600` with
+    white text. The focus colour is white on dark and `neutral.950` on
+    light. A new role, `chrome`, is the taskbar's.
+  - `stroke` and `fill`: one-pixel outlines and the state layers of
+    controls, as opacities of white (dark theme) or black (light theme)
+    over whatever lies beneath.
+  - `material`: mica, acrylic, chrome and smoke, each a tint, a tint
+    opacity and a blur radius. How they are drawn is ADR-0036.
+  - `radius`: windows and flyouts 8, controls, cards and tooltips 4.
+  - `type.ramp`: caption 12, body and body-strong 14, body-large 16,
+    subtitle 20, title 28, title-large 40, each with its line height and
+    weight. The sizes are those of `type.scale`, which is unchanged.
+  - `elevation`: five levels (desktop, tooltip, window, flyout, dialog).
+  - `motion.curves`: decelerate, accelerate and standard, as the control
+    points of a cubic Bézier curve. The durations stay 150, 200 and
+    250 ms.
+  - `shell`: the fixed sizes of the shell and the window frames in
+    logical pixels, among them a 48 px taskbar, a 32 px title bar and
+    46 by 32 px caption buttons, and two literal reds for the hover and
+    pressed states of the close button. In the token file those two are
+    the only interface colours that are not palette references.
+- **Consumers.** Those of ADR-0031, and the Qt toolkit `boswas_fluent`
+  (ADR-0039), which reads the installed file at run time. `boswas-ui`
+  exposes the new sections. The KDE and Konsole colour schemes were
+  regenerated. The icon hues are unchanged.
+- **Checks.** `desktop/ui/tests` gains `test_the_fluent_geometry`: flyouts
+  share the window radius and cards the control radius, the taskbar,
+  title bar and caption buttons have the sizes above, every stroke and
+  fill opacity lies between 0 and 0.25, and every material's tint
+  resolves. The checks of ADR-0031 still run, among them WCAG AA for the
+  text of the generated colour schemes. The toolkit has its own contrast
+  tests (ADR-0039).
+
+**Why.** Windows 11 was set as the target look of the desktop for this
+round, as a product decision, like the Prism palette before it
+(ADR-0031). A design language can be followed in its layout, geometry and
+motion. Logos, wallpapers, icons and typefaces are another company's
+property and are not taken; Boswas has its own. Keeping every value in
+the one token file keeps the shell, the window frames, the boot screen,
+the Qt toolkit and the colours of KDE applications in step.
+
+**Consequences.**
+
+- Of the values ADR-0031 lists, window radius 8, control radius 4, the
+  4 px grid, the type sizes, 150 to 250 ms and Inter still hold, and
+  `test_the_specification_values` still pins them. "Four elevation
+  levels" is now five, and "ink and cloud neutrals" no longer describes
+  the themes.
+- `type.display-family` (Orbitron) is still in the file and `boswas-ui`
+  still exposes it, but no Boswas surface draws text in it any more
+  (ADR-0008).
+- As before, a token change needs the Rust packages rebuilt, and a preset
+  changes light or dark and the wallpaper of the shell, not its accent.
+- The resemblance to another vendor's desktop is deliberate. The
+  repository records no legal review of it and no design review; the
+  layout follows an existing design, and the palette is as unreviewed as
+  ADR-0031 says.
+
+**Revisit when** a designer delivers a reviewed palette or layout (the
+values change, the mechanism stays), or when a review asks for more
+distance from the model.
+
+## ADR-0034 X11 applications run through Xwayland
+
+Supersedes "No XWayland" in ADR-0026.
+
+**Decision.**
+
+- **One X server per session.** `boswas-compositor` starts Xwayland
+  (Debian package `xwayland`) and is its window manager. `[xwayland]
+  enabled` is `true` by default; the package is in the image and a
+  Recommends of `boswas-desktop`. Where the program is missing, the
+  session runs without X11 and the compositor logs that.
+- **An X11 window is an ordinary window:** the Boswas frame unless the
+  application draws its own, snapping, the taskbar, the window picker and
+  Task View. Menus and tooltips are shown where they place themselves.
+- **The X server is an unprivileged client.** It connects to the
+  compositor like an application and is offered none of the privileged
+  protocols and not the screen-capture protocol (ADR-0037). It listens on
+  its socket file only: the abstract socket is switched off, because it
+  would be reachable from every network namespace, sandboxes included.
+- **Clipboard.** Shared in both directions. The X server is given the
+  clipboard of Wayland applications only while an X11 window has the
+  keyboard; the compositor cannot tell the X11 applications apart, so
+  that gate is for all of them together.
+- **`DISPLAY`.** The compositor sets it for the programs it starts (the
+  shell, and through the shell the applications) and removes a stale one
+  when there is no X server. `boswas-session-ready` does not publish it
+  to the systemd user manager or to D-Bus activation.
+- **Wayland stays the first choice.** The session still tells the
+  toolkits to use Wayland (`QT_QPA_PLATFORM=wayland;xcb`,
+  `GDK_BACKEND=wayland` and the others in `boswas-session`).
+
+**Why.** Without an X server, applications that only speak X11 did not
+run at all (ADR-0026). Xwayland is the X server Debian packages for use
+under a Wayland compositor, and Smithay supplies the window-manager side,
+so the Boswas code is the mapping of X11 windows onto the desktop's own
+windows.
+
+**Alternatives.** ADR-0026 expected X11 support as an opt-in with a
+confined client. It is on by default instead, so that an X11 application
+works without a setting, and it is not confined beyond what the first two
+points above say. Starting one X server per application, each in its own
+sandbox, would restore isolation between X11 applications; it was not
+attempted.
+
+**Consequences.**
+
+- **X11 has no isolation between its clients.** Applications connected to
+  the X server can see each other's windows and input. They cannot see
+  Wayland applications. The known limit of ADR-0012 applies again.
+- **Windows applications.** The WinCompat sandbox binds the X11 socket
+  whenever `DISPLAY` names a local socket (`boswas_compat/sandbox.py`,
+  unchanged since the Plasma releases), next to the Wayland socket. A
+  Windows application started from Start or the taskbar inherits
+  `DISPLAY` from the shell, and Wine then prefers its X11 driver
+  (`docs/compatibility/README.md`). Such an application is an X11 client
+  and can observe other X11 clients, though not Wayland ones. An
+  application started by the session agent (the Compatibility Manager,
+  remote commands) gets `DISPLAY` only if the systemd user manager has
+  it, which the session does not arrange. ADR-0026's statement that the
+  X11 limit no longer applies is withdrawn. None of this has been run on
+  the desktop: which driver Wine uses in each case is not verified.
+- **Scaling.** X11 windows are drawn at scale 1 and enlarged on a scaled
+  monitor, so they look soft there.
+- **Not a policy.** `[xwayland] enabled` is an ordinary setting: a user's
+  file can turn it back on after an administrator turned it off. A device
+  that must not run X11 applications leaves the package out.
+- **Not verified yet:** Xwayland on real graphics hardware; the clipboard
+  between X11 and Wayland applications, which has no automated test; Wine
+  through Xwayland. Verified: one end-to-end test starts a real X11
+  program through Xwayland on the headless back end and checks that its
+  window is listed as an X11 window, gets a frame, is maximised and
+  closes. The test is skipped where Xwayland or the test program is not
+  installed.
+
+**Revisit when** X11 applications have to be kept apart from each other
+(then: one confined X server per application), when the WinCompat
+sandbox should stop offering the X11 socket so that Wine stays on
+Wayland, or when X11 windows must be sharp on scaled monitors.
+
+## ADR-0035 The shell hosts the session's services; one set of backends serves the shell and Settings
+
+Replaces the "missing desktop functions" of ADR-0026 for notifications,
+the tray and quick settings, and the KDE polkit agent of the first
+version.
+
+**Decision.**
+
+- **One crate talks to the system.** `boswas-services` (in the
+  `boswas-desktop` workspace) holds ten services: notifications, tray,
+  media players, network, Bluetooth, audio, power, brightness, session
+  and authentication. Each runs on its own thread, takes commands and
+  reports its whole state as an event whenever it changes. It uses zbus
+  on async-io; there is no tokio.
+- **The shell runs them in its own process.** In its desktop role
+  `boswas-shell` therefore:
+  - owns `org.freedesktop.Notifications` on the session bus and shows
+    what applications send as toasts and in the notification centre;
+  - owns `org.kde.StatusNotifierWatcher` and shows the tray items
+    registered there, with their menus;
+  - is registered with polkit as the session's authentication agent and
+    draws the password dialog itself, with a choice of administrator when
+    several may authorise the action. The password is checked by polkit's
+    own helper (`polkit-agent-helper-1`), not by Boswas code;
+  - shows and changes Wi-Fi, Bluetooth, sound, brightness and the power
+    mode in quick settings, and controls media players (MPRIS);
+  - passes logind's lock request (`loginctl lock-session`) and the
+    announcement of sleep on to the compositor as `lock`.
+
+  KDE's polkit agent is no longer started by the session and no longer in
+  the image.
+- **Three sets of services.** The desktop runs everything. The lock
+  screen and the login screen run the five status services only and obey
+  nothing but refresh, volume, mute and brightness: they own no bus name,
+  show no notifications, register no pairing or authentication agent.
+  The third set is for Settings.
+- **A bridge for Settings.** `/usr/libexec/boswas/boswas-services-bridge`
+  runs the network, Bluetooth, audio, power and brightness services for
+  the Settings application, which is written in Python, and speaks JSON
+  lines on its standard input and output. It offers the commands of
+  those five services only: no power actions, no notifications, no
+  authentication. It runs as the user who started it and ends when its
+  input closes. A Wi-Fi passphrase travels on that pipe and never on a
+  command line. Contract: `docs/architecture/platform-contracts.md`.
+- **What the services talk to:** NetworkManager, BlueZ, UPower,
+  power-profiles-daemon and logind over D-Bus; the sound server through
+  `pw-dump` and `wpctl`; the backlight through `/sys/class/backlight` and
+  logind. A daemon that is not running is "not available", never an
+  error, and is picked up when it appears.
+- **Other programs are not trusted.** What notification senders, tray
+  items, media players and even the system daemons send is read by type,
+  stripped of control characters, cut to fixed lengths and bounded in
+  number. Notification markup is removed, not interpreted. Signals of the
+  system daemons are accepted from the owner of the daemon's name only.
+  `packages/boswas-desktop/crates/boswas-services/README.md` lists the
+  limits.
+
+**Why.**
+
+- The surfaces that show these things (toasts, the tray, the password
+  dialog) are overlays, and overlays are offered only to programs the
+  compositor starts itself (ADR-0026). With the services in the shell
+  there is no second trusted program, and no protocol between a daemon
+  and the surface that shows its state.
+- The shell stays a plain event loop: no call to the system runs on the
+  thread that draws.
+- Quick settings and Settings show the same state and behave the same,
+  because one implementation is behind both. A second implementation in
+  Python would have had to repeat the handling of secrets and of
+  untrusted input.
+- The lock screen and the login screen must not show notifications or
+  take over authentication; the restricted set makes that a property of
+  the process, not of the drawing code.
+
+**Alternatives.** The first version started KDE's polkit agent from the
+session target and had neither a notification service nor a tray. An
+agent or a notification daemon as a separate program would be an ordinary
+client: it could show a normal window, not an overlay above a full-screen
+application.
+
+**Consequences.**
+
+- **The services live and die with the shell.** If the shell exits, the
+  compositor starts it again; until then the bus names are free, and what
+  was held in memory is gone: the open notifications (they are not
+  written to disk) and a pending authentication, whose helper is ended.
+- **Administrator actions depend on this agent.** `pkexec`, and with it
+  every `boswas-sysops` operation that Control Center starts (ADR-0024),
+  needs an agent to ask for the password. No other graphical agent is in
+  the image. The conversation with polkit's helper is tested against a
+  stand-in only (see below), and the variant of polkit that reaches its
+  helper through a socket is not handled.
+- **Bluetooth:** the pairing agent declares that it can neither show nor
+  ask for a code, and agrees only to a request that concerns a device the
+  person asked to connect to in the last 60 seconds. Devices that insist
+  on a PIN or passkey cannot be paired from the shell.
+- **Wi-Fi:** open, OWE, WEP, WPA-PSK and SAE networks. Enterprise
+  networks (802.1X) are refused with a message. A new profile is saved
+  for all users when NetworkManager lets the person change system
+  connections, and as the person's own profile otherwise.
+- **Tray:** StatusNotifierItem only. The older X11 tray protocol
+  (XEmbed) is not implemented, so an X11 application that offers only
+  that has no tray icon.
+- **Packages:** `network-manager`, `bluez`, `polkitd`, `pipewire-bin`,
+  `wireplumber`, `upower` and `power-profiles-daemon` join the Recommends
+  of `boswas-desktop`; the last four are also new in the image. Each is
+  optional at run time. `polkit-kde-agent-1` leaves both.
+- **Rust dependencies:** zbus 5 and the async-io family. The lock file of
+  `boswas-desktop` grows from 329 to 366 packages (ADR-0032).
+- **Not verified yet:** everything against the real daemons. The
+  integration tests run each service against two private `dbus-daemon`
+  processes and scripted stand-ins for NetworkManager, BlueZ, UPower, the
+  power profiles daemon, logind, polkit, tray items and media players;
+  `pw-dump`, `wpctl` and the polkit helper are shell scripts the tests
+  write. The builder's report names as the largest risks the polkit
+  helper protocol, the shape of `pw-dump`'s JSON and the arguments of
+  `wpctl`, NetworkManager's settings dictionaries, and BlueZ pairing with
+  PIN devices. The Debian package names of the run-time tools were taken
+  from another distribution's index and are not checked against trixie.
+
+**Revisit when** the shell's restarts cost too much state (then: the
+notification history on disk, or the services in a process of their
+own), when devices with a PIN have to be paired or enterprise Wi-Fi set
+up from the desktop, or when the first run against real polkit shows
+that the helper protocol differs.
+
+## ADR-0036 Window management and effects: what the compositor draws itself, and how
+
+Replaces the window-management bullet of ADR-0026 (four workspaces, one
+scale for all outputs) and its statements that input methods and output
+configuration are missing. The feature list is in
+`boswas-compositor(1)`; this record holds the decisions behind it.
+
+**Decision.**
+
+- **The compositor assembles each output's picture itself** instead of
+  handing its windows to Smithay's generic space renderer. Per-window
+  transforms, the window picker, Task View and the clipped corners all
+  need that.
+- **An animation never changes where a window is.** Opening, closing,
+  minimising, restoring and the slide between desktops change only how a
+  window, or a picture of it taken as it leaves, is drawn for a few
+  frames. `[appearance] reduced_motion` turns all of it off.
+- **Rounded corners by a clip shader, on OpenGL ES only.** The frame
+  (title bar, border, shadow) is drawn by the compositor with 8 px
+  corners. The client's content below the title bar is a rectangle; on
+  the OpenGL ES renderer a fragment shader fades it out outside the
+  frame's rounded lower corners. The software renderer, which only the
+  headless back end uses, draws content unclipped and gives those frames
+  square lower corners.
+- **Materials are drawn from the wallpaper, not from what is behind a
+  surface.** The shell keeps a reduced copy of each output's wallpaper,
+  blurs it once per blur radius and covers it with the material's tint
+  (`material` in the token file). The taskbar and the flyouts therefore
+  show the blurred wallpaper even where a window lies behind them. The
+  compositor's own overlays (the window picker, the snap layouts, the
+  window menu, Task View) are filled with the material's tint alone.
+  There is no live blur of windows.
+- **Night light is a gamma ramp.** The compositor loads a ramp for the
+  colour temperature into each display controller (the DRM gamma
+  tables). `[night_light]` switches it on, sets 2500 to 6500 kelvin and
+  can schedule it by the clock; quick settings switch it through the
+  shell's control connection. No client protocol for gamma is offered.
+- **Each monitor has its own settings.** `[outputs.NAME]`, by connector
+  name: on or off, mode, scale, position and rotation, applied at start,
+  on hotplug and on `reload-config`. The last enabled monitor is never
+  turned off. `[output] scale` is the default for monitors without a
+  setting. There is no output-configuration protocol; a program reads the
+  monitors and their modes with the public `outputs` command and changes
+  them by writing the user's file and asking for a reload.
+- **Desktops are created and closed as needed.** A session starts with
+  one; Task View and Super+Ctrl+D add more.
+- **Shortcuts follow Windows,** and stay fixed: there is no shortcut
+  editor.
+- **Input methods are a trusted program.** Every application may use
+  text input (`text-input-v3`). Being the input method, or a virtual
+  keyboard, means seeing or making key strokes for all applications, so
+  those two protocols join the privileged set, and the compositor starts
+  the program that `[input_method] command` names as a trusted client.
+  Only the system files may name it (ADR-0028). None is configured and
+  none is installed in the image.
+- **Screens turn off** after `[power] screen_off_seconds` without input
+  (shipped: 300) and back on with any input. This is separate from the
+  lock.
+- **Taking focus needs the user.** An activation token that does not come
+  from the focused client marks the window as wanting attention; it does
+  not move the focus.
+
+**Why.**
+
+- On OpenGL ES the clip is part of drawing the content; the software
+  renderer has no shaders. Square lower corners in tests are a difference
+  in looks only.
+- A material made from the wallpaper is computed once per wallpaper and
+  blur radius. Blurring what really lies behind a surface would be work
+  in the compositor on every frame in which that changes, and was not
+  attempted. Mica, the model for the long-lived surfaces, does not
+  sample the windows behind it either.
+- A gamma ramp is loaded when the setting changes and when a display is
+  set up, not per frame, and rendering does not change.
+- Per-monitor settings in the same layered file as every other setting
+  keep one mechanism: the administrator's layer, the user's layer, a
+  reload.
+- An input method sees what is typed everywhere. Deciding which program
+  that is belongs to the administrator, like the lock screen and the
+  shell.
+
+**Consequences.**
+
+- **A configured input method is trusted like the shell.** There are
+  three trust levels (ADR-0026) and it gets the highest: every privileged
+  protocol and a trusted control connection, not only the two it needs.
+- **Night light needs a driver with gamma tables.** On a display
+  controller without them nothing is tinted (a debug message says so).
+  The nested and headless back ends have no colour pipeline: night light
+  can be switched there and changes nothing.
+- **No blur of windows:** a flyout over a window shows the wallpaper's
+  colours, not the window's. Qt applications get the material tints as
+  opaque fills (ADR-0039).
+- **Display arrangement is text for now.** Until the settings pages
+  exist (ADR-0041) monitors are arranged in `compositor.toml`.
+- **Still missing:** outputs on a second GPU, HDR, variable refresh rate,
+  the NVIDIA proprietary driver, a screen reader interface for what the
+  compositor draws.
+- **Not verified yet:** everything that needs hardware. Modes, rotation,
+  the gamma ramp, turning screens off, libinput's per-device settings,
+  touch screens, tablets and touchpad gestures on real devices are
+  compile-checked only. The clip shader is covered by no automated test,
+  because the tests run on the software renderer; during development it
+  was looked at once in a nested run on OpenGL ES with Mesa's software
+  driver, never on a hardware driver. No input method has been run.
+  Verified: unit tests of the clip geometry, the layouts, the shortcut
+  table, the configuration rules and the animation timelines, and
+  end-to-end tests on the headless back end that drive the window
+  picker, Task View, the snap keys and the window menu through injected
+  keys.
+
+**Revisit when** hardware shows a driver on which the clip shader or the
+gamma ramp fails, when translucent surfaces must show the windows behind
+them, when an input method needs less than full trust (a fourth trust
+level), or when an application needs an output-configuration protocol.
+
+## ADR-0037 Screen capture for other programs, behind the user's consent
+
+Replaces ADR-0026's statement that no screen-capture protocol exists. It
+is the one protocol for reading the desktop that is guarded by a question
+to the user and not by client trust.
+
+**Decision.**
+
+- **The protocol.** The compositor implements `wlr-screencopy`, which
+  screenshot tools, screen recorders and the wlroots portal back end
+  use. A program asks for a picture of an output, or of a region of it,
+  and gets it copied into a shared-memory buffer.
+- **Who is offered it.** Every client outside a sandbox. Sandboxed
+  clients (connected through the security-context protocol, as Flatpak
+  does) are not offered it, and neither is the X server (ADR-0034).
+- **Nobody gets a picture without the user's say.** The first frame a
+  program asks for waits while the compositor asks the shell, and the
+  shell asks the user: "Allow screen capture? NAME wants to see your
+  screen." NAME is what the kernel calls the process.
+  - Neither answer is the default; Enter alone allows nothing.
+  - "Allow" works only after the dialog has been on screen for 0.7
+    seconds, so a click or a key press that was meant for something else
+    cannot answer it.
+  - The question is answered "no" without being shown when the session
+    is locked, when another dialog or the capture screen is open, or
+    when no shell is listening. It counts as "no" after 60 seconds.
+- **What "Allow" covers.** That program's connection, for as long as it
+  keeps capturing: a recording or a shared screen goes on without more
+  questions. Five seconds after its last picture the permission is gone,
+  and the next request asks again. It covers every output.
+- **What "Don't allow" covers.** That connection and that program name
+  for twenty seconds, so that a tool which retries, or is started again
+  and again, cannot nag.
+- **An indicator and a stop.** While any program may capture, a red mark
+  on the taskbar names it. A click on the mark ends every permission at
+  once.
+- **Never while locked.** Locking ends every permission and every open
+  question, and no frame is filled while the session is locked.
+- **The shell's own capture is separate.** The Print key, Super+Shift+S
+  and the public `capture` command open the shell's capture screen. The
+  shell is a trusted client and gets its picture without a question; the
+  user chooses a region or the whole screen there and confirms, and the
+  result goes to the Screenshots folder and the clipboard. The public
+  command only opens that screen.
+- **Portal.** `boswas-portals.conf` sends the ScreenCast and Screenshot
+  portals to `xdg-desktop-portal-wlr` and everything else to the GTK back
+  end. The wlroots back end is configured without a chooser program
+  (`/etc/xdg/xdg-desktop-portal-wlr/Boswas`) and shares the first
+  monitor. It reaches the compositor through this same protocol and
+  therefore through the same question.
+
+**Why.**
+
+- **Why not by trust.** Trust has three levels, and the highest is only
+  for programs the compositor starts itself (ADR-0026). A screenshot
+  tool, a recorder and the portal back end are started by the user or by
+  the session's service manager, so they are ordinary clients. Offering
+  capture to trusted clients only would keep all of them out, and
+  telling them apart by name would trust a name that any process can
+  give itself.
+- **Why a question in the shell.** Only a trusted client can draw an
+  overlay and take the keyboard for it. The compositor decides, the shell
+  only carries the question and the answer over its control connection,
+  and the public control socket cannot answer.
+- **What the question guards against:** a program of the user reading
+  the screen silently or in the background. With the question, a capture
+  the user did not start becomes visible at the moment it begins, cannot
+  be confirmed by accident, is shown for as long as it lasts, and can be
+  stopped.
+
+**Consequences.**
+
+- **It does not prove which program asks.** The name shown is the
+  kernel's name for the process: at most 15 characters, and a process
+  can set its own. The question says that some program wants the screen
+  now; whether it is the one the user just started is the user's
+  judgement.
+- **It is all or nothing.** An allowed program can take pictures of
+  everything on every monitor, other applications included, until it
+  stops. There is no choice of one window or one monitor, and no
+  permission that is remembered.
+- **Through the portal the question names the portal.** For screen
+  sharing from a browser or a sandboxed application the program that
+  asks the compositor is the portal back end, not the application that
+  started the sharing. The portal's own dialogs, if it shows any, are not
+  part of Boswas.
+- **It is not a boundary against a program that already runs unsandboxed
+  as the user** and can act in other ways (ADR-0028 says the same of the
+  lock policy). It closes the direct, silent way to the pixels.
+- **`unsafe`:** the copy into the program's buffer is the one `unsafe`
+  block; the file joins the audited list (ADR-0032).
+- The image gains `xdg-desktop-portal-wlr`, and the public control socket
+  gains `capture`.
+- **Not verified yet:** screen sharing and screenshots through the
+  portal (no portal ran in the build environment); capture of a rotated
+  monitor beyond the unit test of its
+  region arithmetic; capture on real hardware; what the question shows
+  for the portal back end. Verified: end-to-end tests with a real
+  screenshot tool (`grim`) on the headless back end: no picture without
+  a shell to ask, a picture of the output's size after "allow", a
+  region, no picture and no second question after "don't allow", and
+  nothing while the session is locked. They are skipped where `grim` is
+  not installed.
+
+**Revisit when** users need to share one window or one monitor (then: a
+chooser, in the shell), when the name in the question must be something a
+program cannot choose (the executable's path, or a sandbox's
+application ID), or when the first test with a real portal shows what
+the back end needs.
+
+## ADR-0038 The boot screen follows Boswas UI: the mark and a ring of dots, text in Inter
+
+Changes what ADR-0029's boot screen shows. The programs, the unlock
+path, the sandbox and the failure behaviour of ADR-0029 are unchanged.
+
+**Decision.**
+
+- **Boot:** a solid `neutral.950` background, the Boswas mark in its own
+  gold and silver, and under it a ring of five white dots that chase each
+  other round. No wordmark and no name. A message from the boot scripts
+  is one line under the ring; a reported progress is a percentage on that
+  line.
+- **Disk unlock:** the mark stays. Under it "Unlock your disk", the name
+  of the disk, and a text box with the outline and the accent line of a
+  focused Boswas UI control: one dot per character (24 at most, so a long
+  passphrase does not show its length), a blinking caret, and a hint
+  that turns into "Caps Lock is on". A rejected passphrase is reported in
+  the danger colour and the box shakes for 0.4 seconds.
+- **Shutdown and restart:** the ring and one line, "Shutting down" or
+  "Restarting". No mark.
+- **Typeface: Inter, as a glyph atlas made at build time.** `build.rs`
+  rasterises the printable ASCII glyphs of Inter Regular and Inter
+  SemiBold from the Debian package `fonts-inter`, which becomes a build
+  dependency, and embeds the bitmaps. No font file is installed by the
+  package or copied into the initramfs, and nothing is parsed at boot,
+  as before. The Debian package build fails without Inter. A plain
+  `cargo build` on a machine without it warns and uses Orbitron from the
+  repository, so the crate still builds and its tests pass.
+- **Scale rule:** one logical pixel is one display pixel up to 1080
+  lines and grows with the height above that, to 3.2 at most. A display
+  with fewer than 600 lines, or narrower than 480 pixels, gets a smaller
+  unit so that the layout fits.
+- **Damage:** an animation frame repaints only the ring, a blink only
+  the caret, a keystroke or a frame of the shake only the text box, and
+  rendering a frame allocates no memory.
+- **`boswas.splash=static`** on the kernel command line keeps the screen
+  without motion: the dots stand still, the caret does not blink, the
+  box does not shake.
+
+**Why.**
+
+- The boot screen is the first Boswas surface a user sees and the last
+  one before the login screen. With the desktop on Boswas UI v3
+  (ADR-0033), the first version's wordmark, progress arc and Orbitron
+  text were a different design.
+- Embedding glyph bitmaps keeps ADR-0029's property that the process
+  holding the disk passphrase parses nothing at boot. The two font files
+  would also add 1.23 MB to the initramfs; the atlases add about 0.2 MB.
+- The scale rule gives the unlock box the size a text box has on the
+  desktop (320 by 36 pixels) on panels up to 1080 lines, and the same
+  proportions on larger ones (640 by 72 at 3840x2160).
+
+**Consequences.**
+
+- `boswas-bootsplash` has a new build dependency, `fonts-inter`, and
+  embeds glyph bitmaps of a font under the SIL Open Font License 1.1.
+  `debian/copyright` carries the notice and the licence.
+- Text is still ASCII and English; other characters are drawn as `?`.
+- A build without Inter looks different from the packaged one.
+  `assets::TYPEFACE` says which typeface a build has.
+- 124 tests where ADR-0029 had 107, the frame-cost test among them.
+- **Not verified yet:** as in ADR-0029, nothing on a real display. The
+  frames were reviewed as still pictures at five sizes; nobody has
+  watched the ring turn, the caret blink or the box shake on a panel.
+  Caps Lock detection has run on a pseudo-terminal only. No real LUKS
+  boot.
+
+**Revisit when** the boot test or hardware shows the scale rule wrong for
+a class of panels, or when localised boot text is required (then: more
+glyphs in the atlas, or a font in the initramfs after all).
+
+## ADR-0039 boswas_fluent: one Qt toolkit for Boswas applications, installed by boswas-branding
+
+**Decision.**
+
+- **One library for the Qt applications.** `boswas_fluent`
+  (`desktop/ui/qt`) is a PySide6 (Qt 6 Widgets) library that gives an
+  application the Boswas UI look from the design tokens (ADR-0033): a
+  theme and a generated style sheet for the standard Qt widgets on top of
+  Qt's Fusion style, and its own widgets where Qt has none (navigation
+  view, settings cards and expanders, command bar, info bars, content
+  dialogs, flyouts, toggle switches), the keyboard focus ring, the Boswas
+  Prism icons and Inter.
+- **It follows the desktop.** The scheme and the reduced-motion setting
+  come from the `[appearance]` table the compositor reads; the two user
+  files are watched, and a change re-styles every open window.
+- **Rules it makes checkable.** No colour, radius, font size or duration
+  outside the theme (the library's tests fail if one of its modules
+  contains a colour value). Text from outside is plain text. Nothing
+  blocks the GUI thread. Applications refuse to run as root and start
+  other programs with argument lists only. `desktop/ui/qt/README.md` is
+  the reference for application authors.
+- **Where it is installed.** `boswas-branding` installs it as
+  `/usr/lib/boswas/python/boswas_fluent`, the private module directory
+  the Boswas programs already put on their path (ADR-0010), and depends
+  on the PySide6 modules it uses: QtCore, QtGui, QtWidgets, QtSvg,
+  QtDBus and QtNetwork.
+- **First users.** Control Center and the Compatibility Manager drop
+  their own style sheets and use it.
+
+**Why.**
+
+- Two applications had two style sheets, and each further Qt application
+  would have brought another. One library with the tokens behind it is
+  the idea of ADR-0031 applied to Qt: the look is data and is tested
+  once.
+- KDE's Breeze style with a colour scheme gives KDE applications the
+  Boswas colours, not the Boswas geometry or controls.
+- `boswas-branding` already installs what the toolkit reads at run time,
+  the token file and the icon packs, so the library and its data arrive
+  and are updated together.
+
+**Consequences.**
+
+- `boswas-branding` is no longer a pure data package: it depends on
+  PySide6, and `boswas-compat-manager` now depends on it.
+- The library reads the installed token file at run time, unlike the
+  Rust programs: a token change reaches the Qt applications with an
+  update of `boswas-branding` alone.
+- **Not implemented:** real mica and acrylic (windows and popups are
+  filled with the material tints, opaque: blurring is the compositor's
+  job and Qt cannot ask for it); shadows of menus, combo box popups and
+  tooltips; animated state changes of standard widgets; the urgency and
+  the action buttons of a notification sent through `fluent.notify`. The
+  README lists the rest.
+- KDE applications (Dolphin, Konsole and the others) do not use it. They
+  keep the Breeze style with the Prism colour scheme, so two looks are on
+  the desktop.
+- Window frames are the compositor's; the toolkit draws none.
+- **Not verified yet:** on a real session. The 128 tests run on Qt's
+  offscreen platform; the widget tests skip themselves where PySide6 is
+  not installed, which is the case in the package build of
+  `boswas-branding` (PySide6 is not a build dependency).
+
+**Revisit when** a Boswas application needs a toolkit other than Qt
+Widgets, or when the compositor can give a client a blurred backdrop.
+
+## ADR-0040 System applications (boswas-apps)
+
+*Reserved. To be written when the work lands.*
+
+## ADR-0041 Native settings in Control Center
+
+*Reserved. To be written when the work lands.*
