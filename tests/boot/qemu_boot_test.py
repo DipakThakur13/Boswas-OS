@@ -1624,6 +1624,14 @@ def scenario_serial(iso: Path, workdir: Path, outdir: Path, timeout: float, fixt
                 break
             vm.pump(20)
         check(session_up, "the Boswas desktop session started for the live user (automatic sign-in)")
+        # What the login looked like, kept with the results: a boot that
+        # ends without a desktop is explained here (ADR-0044).
+        rc, out = sh.run("systemctl is-active greetd.service getty@tty1.service; "
+                         "sed -n '/^\\[initial_session\\]/,$p' /etc/boswas/greetd.toml; "
+                         "sudo -n journalctl -b --no-pager -u greetd.service -t boswas-greeter -t boswas-session "
+                         "| tail -n 60")
+        (outdir / "login.txt").write_text(out + "\n")
+        check('user = "boswas"' in out, "greetd's automatic sign-in names the live user that exists (boswas)")
         if session_up:
             vm.pump(60)
             to_png(vm.screendump("desktop"), outdir / "serial-desktop.png")

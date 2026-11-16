@@ -45,8 +45,10 @@ case "$status" in
 	*) [ $((${ended:-0} - ${started:-0})) -lt 30 ] && fallback=yes ;;
 esac
 if [ "$fallback" = yes ] && [ -x /usr/sbin/agreety ]; then
-	echo "Boswas OS: the graphical login could not start (status $status); this is the text login." >&2
-	[ -n "$log" ] && echo "Why: journalctl -b -t boswas-greeter (as an administrator)" >&2
+	# (Lines of at most 80 characters: this is read on a text console.)
+	echo "Boswas OS: the graphical login could not start (status $status)." >&2
+	[ -n "$log" ] && echo "The reason is in the journal: journalctl -b -t boswas-greeter" >&2
+	echo "This is the text login." >&2
 	exec /usr/sbin/agreety --cmd /usr/libexec/boswas/boswas-text-session
 fi
 exit "$status"

@@ -130,6 +130,15 @@ for initrd in /boot/initrd.img-*; do
 	echo "$listing" | grep -q 'usr/bin/plymouth$' \
 		|| fail "$initrd lacks the boot screen's client under the name the disk-unlock helper calls"
 	echo "$listing" | grep -q 'plymouthd' && fail "$initrd contains Plymouth"
+	# The display's own driver is loaded in the initramfs (the package's
+	# hook copies the DRM drivers; Debian's initramfs-tools does not).
+	echo "$listing" | grep -q 'kernel/drivers/gpu/drm/.*\.ko' \
+		|| fail "$initrd contains no graphics driver for the boot screen"
+done
+for unit in emergency rescue; do
+	grep -qx 'ExecStartPre=-/usr/bin/boswas-bootsplash quit' \
+		"/usr/lib/systemd/system/$unit.service.d/50-boswas-bootsplash.conf" 2>/dev/null \
+		|| fail "$unit mode does not end the boot screen before its shell"
 done
 # The daemon's own check of its sandbox: 0, or 3 where Landlock is not
 # available (a build chroot on an older host kernel).

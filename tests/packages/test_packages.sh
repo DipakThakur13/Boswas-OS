@@ -241,6 +241,15 @@ check "boot screen: conflicts with plymouth and installs nothing under that name
 check "boot screen: hand-over to the login screen, and shutdown, restart and halt screens (systemd units)" \
 	bash -c "for u in quit poweroff reboot halt; do
 			grep -q \"\\./usr/lib/systemd/system/boswas-bootsplash-\$u.service\$\" <<<\"\$1\" || exit 1; done" _ "$splash_listing"
+check "boot screen: emergency and rescue mode end it before their shell starts; the hand-over does not depend on a pid file" \
+	bash -c "x=\$(mktemp -d) && dpkg-deb -x '$splash_deb' \"\$x\" && rc=0;
+		for u in emergency rescue; do
+			grep -qx 'ExecStartPre=-/usr/bin/boswas-bootsplash quit' \"\$x/usr/lib/systemd/system/\$u.service.d/50-boswas-bootsplash.conf\" || rc=1; done;
+		grep -q '^ConditionPathExists=' \"\$x/usr/lib/systemd/system/boswas-bootsplash-quit.service\" && rc=1;
+		rm -rf \"\$x\"; exit \$rc"
+check "boot screen: the initramfs hook brings the graphics drivers itself (Debian's initramfs-tools has no FRAMEBUFFER option)" \
+	bash -c "x=\$(mktemp -d) && dpkg-deb -x '$splash_deb' \"\$x\" && h=\"\$x/usr/share/initramfs-tools/hooks/boswas-bootsplash\" &&
+		grep -q 'copy_modules_dir kernel/drivers/gpu/drm' \"\$h\" && grep -q 'manual_add_modules simpledrm' \"\$h\"; rc=\$?; rm -rf \"\$x\"; exit \$rc"
 check "boot screen: the daemon reports its version and checks its own sandbox" \
 	bash -c "x=\$(mktemp -d) && dpkg-deb -x '$splash_deb' \"\$x\" &&
 		\"\$x/usr/bin/boswas-bootsplash\" --version | grep -q '^boswas-bootsplash ${BOSWAS_VERSION_ID}\$'; rc=\$?; rm -rf \"\$x\"; exit \$rc"
@@ -291,6 +300,13 @@ check "desktop: the Settings bridge is shipped, the shell is the polkit agent, a
 check "desktop: what the login screen cannot start without is a dependency, not a recommendation (polkit for the seat, a font and the font configuration, the logind PAM module)" \
 	bash -c "d=\$(dpkg-deb -f '$desktop_deb' Depends);
 		for p in polkitd fontconfig-config fonts-inter libpam-systemd greetd; do grep -qE \"(^|[ ,])\$p([ ,(]|\$)\" <<<\"\$d\" || exit 1; done"
+check "desktop: the compositor documents its exit statuses, and the login screen's compositor starts no X server" \
+	bash -c "'$extract/usr/bin/boswas-compositor' --help | grep -q 'Exit status: 0' &&
+		grep -A3 '^\[xwayland\]' '$extract/usr/share/boswas/compositor/greeter.toml' | grep -qx 'enabled = false'"
+check "desktop: the compositor's messages go to the journal, from the login screen and from a session" \
+	bash -c "grep -q 'systemd-cat --identifier=boswas-greeter' '$extract/usr/libexec/boswas/boswas-greeter' &&
+		grep -q 'systemd-cat --identifier=boswas-session' '$extract/usr/bin/boswas-session' &&
+		grep -q 'journalctl -b -t boswas-session' '$extract/usr/libexec/boswas/boswas-text-session'"
 check "desktop: a boot never ends without a login: text login if the login screen cannot start, and if greetd fails for good" \
 	bash -c "g='$extract/usr/libexec/boswas/boswas-greeter'; t='$extract/usr/libexec/boswas/boswas-text-session';
 		test -x \$g && test -x \$t && sh -n \$g && sh -n \$t &&
