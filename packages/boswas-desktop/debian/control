@@ -4,6 +4,7 @@ Priority: optional
 Maintainer: Boswas OS Platform Team <os-platform@boswas.invalid>
 Build-Depends: debhelper-compat (= 13),
                cargo,
+               dbus-daemon <!nocheck>,
                libgbm-dev,
                libinput-dev,
                libpam0g-dev,

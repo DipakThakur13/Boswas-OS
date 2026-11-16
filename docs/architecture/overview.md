@@ -124,7 +124,7 @@ applications the image had.
 | Clock | `boswas-clock` | Alarms, timers, stopwatch, world clock, focus sessions |
 | Calendar | `boswas-calendar` | A calendar kept on this computer, with repeating events, reminders and iCalendar import and export |
 | Reminders | `boswas-reminders` | No window: a session service that shows alarms, timers and calendar reminders as notifications while Clock and Calendar are closed |
-| Task Manager | `boswas-task-manager` | Being finished; not described here yet |
+| Task Manager | `boswas-task-manager` | Processes grouped by application, performance graphs (CPU, memory, disks, network, GPU, battery), start-up applications, users, details and services; ends tasks |
 
 Rules they share: they run as the user and refuse root, start other
 programs with argument lists and never through a shell, treat file names
@@ -173,7 +173,7 @@ Licences: Debian components keep their own (see
 |---------------------|----------------|
 | Debian 13 base | **Implemented** |
 | Desktop | **Native Boswas desktop implemented** (`boswas-desktop`; ADR-0026 to ADR-0028, ADR-0030, ADR-0033 to ADR-0037): compositor with Fluent window frames, animations, Task View, snap layouts, per-monitor settings, night light and Xwayland; shell with taskbar, Start, quick settings, notifications, tray, the polkit dialog and screen capture; lock screen and greeter. It replaces KDE Plasma, which shipped up to 1.0~alpha3. **Not yet boot-tested, and not run against real system services.** Open: a second GPU, HDR and variable refresh rate, live blur, a screen reader interface, an input method in the image (see the roadmap) |
-| System applications | **Implemented** (`boswas-apps`, ADR-0040): Files, Terminal, Text Editor, Calculator, Photos, Document Viewer, Archive Manager, Media Player, Camera, Clock, Calendar and a reminders service, in place of KDE's applications; Task Manager is being finished. Firefox ESR is the browser. **Not run on the desktop yet** |
+| System applications | **Implemented** (`boswas-apps`, ADR-0040): Files, Terminal, Text Editor, Calculator, Photos, Document Viewer, Archive Manager, Media Player, Camera, Clock, Calendar, Task Manager and a reminders service, in place of KDE's applications. Firefox ESR is the browser. **Not run on the desktop yet** |
 | Boot screen | **Implemented** (`boswas-bootsplash`, ADR-0029, in the Boswas UI look since ADR-0038), replaces Plymouth. **Not yet boot-tested** |
 | Boswas branding (boot menu, installer, boot screen, login, lock, desktop, icons, About) | **Implemented**; Boswas UI v3 tokens (ADR-0033), the Prism icon pack (ADR-0031) and the Qt toolkit `boswas_fluent` (ADR-0039) |
 | Secure Boot | **Boot chain ready:** the ISO boots with Secure Boot enforced via Debian's signed shim, GRUB and kernel; enforcement policy comes later |

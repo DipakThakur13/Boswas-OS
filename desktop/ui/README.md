@@ -153,8 +153,9 @@ applications pick it up with the next `boswas-branding`.
 ## The KDE colour schemes
 
 KDE applications (Dolphin, Konsole, Okular, ...) take their colours from a
-KDE colour scheme. Two schemes map the tokens onto KDE's colour roles, so
-application windows match the shell and the window frames:
+KDE colour scheme. They are no longer in the image (ADR-0040) but run
+when installed. Two schemes map the tokens onto KDE's colour roles, so
+their windows match the shell and the window frames:
 
 | Scheme | File | Installed as |
 |--------|------|--------------|

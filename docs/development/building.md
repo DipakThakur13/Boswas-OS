@@ -32,11 +32,12 @@ needed on every build host and inside the container.
 
 1. **Preflight.** Checks the host (Debian 13, root), the required tools and
    the free disk space.
-2. **Packages.** Builds the twelve Boswas device packages with
-   `dpkg-buildpackage`, and the Control Plane server package into
-   `server/` (never part of the image). The unit tests of the CLI,
-   WinCompat, the device agent, the Compatibility Manager, the Control
-   Plane, the native desktop and the boot screen run during the build.
+2. **Packages.** Builds the thirteen Boswas device packages (every
+   directory of `packages/`) with `dpkg-buildpackage`, and the Control
+   Plane server package into `server/` (never part of the image). The
+   unit tests of the CLI, WinCompat, the device agent, the Compatibility
+   Manager, Control Center, the system applications, the Control Plane,
+   the native desktop and the boot screen run during the build.
    `boswas-desktop` and `boswas-bootsplash` are compiled with cargo from
    their committed `Cargo.lock` (see [Rust packages](#rust-packages)).
 3. **Metadata.** Writes `/usr/lib/boswas/image-info`: build ID, date, git
@@ -152,7 +153,11 @@ exactly which versions were used.
 1. static checks, including 64-bit-only, no shell execution, no Boswas ID
    implementation and service hardening
 2. Boswas packages (lintian, contents, packaging checks for the agent, the
-   Compatibility Manager and the Control Plane, CLI unit tests)
+   Compatibility Manager and the Control Plane, CLI unit tests; for the
+   desktop: the programs, the service bridge, the session and portal
+   files; for `boswas-apps`: every application's launcher, desktop entry,
+   manual page, module and icon, the reminders autostart entry and the
+   `x-terminal-emulator` alternative)
 3. unit tests: WinCompat, device agent, Compatibility Manager and Control
    Center (Qt offscreen), the system applications, and Control Plane,
    including the real agent against the real Control Plane over mutual
@@ -175,9 +180,10 @@ exactly which versions were used.
    the sources. It covers local and remote install, launch, stop, repair and
    remove with real Wine, policies, offline operation and the audit trail
 9. QEMU boot test: the boot screen, the login screen, the Boswas desktop
-   (shell, a window, the lock), the device agent, the session agent, the
-   Compatibility Manager on the desktop and a Control Plane round trip
-   under the real kernel's AppArmor. **This stage has not been run since
+   (shell, a window, the lock), the Boswas terminal, file manager and
+   calculator, the device agent, the session agent, the Compatibility
+   Manager on the desktop and a Control Plane round trip under the real
+   kernel's AppArmor. **This stage has not been run since
    the native desktop replaced Plasma**; its checks were rewritten for the
    new desktop and are untested until an image is built
 
@@ -265,7 +271,7 @@ cargo run -p boswas-compositor -- --backend headless --headless-size 1280x800 --
 
 - `--print-env` prints `WAYLAND_DISPLAY` and `BOSWAS_COMPOSITOR_SOCKET`
   once the compositor is ready. Start clients with that `WAYLAND_DISPLAY`
-  (`WAYLAND_DISPLAY=wayland-1 konsole`).
+  (`WAYLAND_DISPLAY=wayland-1 firefox-esr`).
 - The compositor starts the shell from `[shell] command`, by default
   `/usr/libexec/boswas/boswas-shell`. From a checkout, pass a
   configuration that names your build:

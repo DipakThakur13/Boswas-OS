@@ -24,6 +24,8 @@ Without AccountsService the accounts are read from /etc/passwd (uid 1000 to
 
 from __future__ import annotations
 
+import os
+
 import hashlib
 import json
 import re
@@ -164,10 +166,63 @@ def suggest_user_name(real_name: str, taken=()) -> str:
     return ""
 
 
-def password_problem(password: str, user_name: str = "") -> str:
+@dataclass(frozen=True)
+class PasswordRules:
+    """What a new password must at least be: the device's pam_pwquality settings, as far as they are checked here."""
+
+    min_length: int = MIN_PASSWORD
+    min_classes: int = 1
+
+
+PWQUALITY_DIR = "/etc/security"
+_CLASS_NAMES = "lower-case letters, upper-case letters, digits and other characters"
+
+
+def password_rules(directory: str = PWQUALITY_DIR) -> PasswordRules:
+    """The password rules of this device, from pwquality.conf and pwquality.conf.d/*.conf (later files win).
+
+    A password that an administrator sets for someone else goes to the
+    accounts service as a hash and never passes PAM, so the length and
+    character-class rules are applied here. Anything unreadable or odd
+    leaves the built-in minimum in force; the rules are never made weaker
+    than that.
+    """
+    files = [os.path.join(directory, "pwquality.conf")]
+    try:
+        extra = sorted(name for name in os.listdir(os.path.join(directory, "pwquality.conf.d")) if name.endswith(".conf"))
+    except OSError:
+        extra = []
+    files += [os.path.join(directory, "pwquality.conf.d", name) for name in extra[:64]]
+    values: dict[str, int] = {}
+    for path in files:
+        try:
+            with open(path, "rb") as handle:
+                text = handle.read(64 * 1024).decode("utf-8", "replace")
+        except OSError:
+            continue
+        for line in text.splitlines():
+            key, sep, value = line.partition("#")[0].partition("=")
+            key, value = key.strip(), value.strip()
+            if sep and key in ("minlen", "minclass") and value.isascii() and value.isdigit() and len(value) <= 4:
+                values[key] = int(value)
+    return PasswordRules(min_length=min(max(values.get("minlen", MIN_PASSWORD), MIN_PASSWORD), 64),
+                         min_classes=min(max(values.get("minclass", 1), 1), 4))
+
+
+def _character_classes(password: str) -> int:
+    kinds = {"lower" if c.islower() else "upper" if c.isupper() else "digit" if c.isdigit() else "other"
+             for c in password}
+    return len(kinds)
+
+
+def password_problem(password: str, user_name: str = "", rules: PasswordRules | None = None) -> str:
     """Why a new password is not accepted here, in words for the user; "" when it is fine."""
-    if len(password) < MIN_PASSWORD:
-        return f"The password needs at least {MIN_PASSWORD} characters."
+    rules = rules or PasswordRules()
+    if len(password) < rules.min_length:
+        return f"The password needs at least {rules.min_length} characters."
+    if _character_classes(password) < rules.min_classes:
+        return (f"The password needs at least {rules.min_classes} kinds of characters "
+                f"({_CLASS_NAMES}).")
     if len(password.encode("utf-8")) > MAX_PASSWORD:
         return "The password is too long."
     if "\0" in password or "\n" in password or "\r" in password:

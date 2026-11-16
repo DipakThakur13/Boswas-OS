@@ -591,3 +591,34 @@ class PseudoTerminalTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PasswordRulesTest(unittest.TestCase):
+    def rules(self, files: dict[str, str]):
+        import tempfile
+        directory = tempfile.mkdtemp()
+        self.addCleanup(__import__("shutil").rmtree, directory, True)
+        os.makedirs(os.path.join(directory, "pwquality.conf.d"))
+        for name, text in files.items():
+            with open(os.path.join(directory, name), "w", encoding="utf-8") as handle:
+                handle.write(text)
+        return ac.password_rules(directory)
+
+    def test_the_devices_rules_apply_to_passwords_set_for_others(self):
+        rules = self.rules({"pwquality.conf": "# defaults\nminlen = 10\n",
+                            "pwquality.conf.d/50-boswas.conf": "minlen = 12\nminclass = 2   # two kinds\n"})
+        self.assertEqual((rules.min_length, rules.min_classes), (12, 2))
+        self.assertIn("at least 12 characters", ac.password_problem("short-1", "u", rules))
+        self.assertIn("2 kinds of characters", ac.password_problem("onlylowercaseletters", "u", rules))
+        self.assertEqual(ac.password_problem("lower-and-12345", "u", rules), "")
+        self.assertEqual(ac.password_problem("Correct Horse Battery", "u", rules), "")
+
+    def test_odd_files_never_weaken_the_built_in_minimum(self):
+        self.assertEqual(self.rules({}), ac.PasswordRules())
+        weak = self.rules({"pwquality.conf": "minlen = 1\nminclass = 0\n"})
+        self.assertEqual((weak.min_length, weak.min_classes), (ac.MIN_PASSWORD, 1))
+        odd = self.rules({"pwquality.conf": "minlen = -5\nminlen = many\nminlen = 99999999\nminclass = 9\n\x00\xff",
+                          "pwquality.conf.d/notes.txt": "minlen = 40\n"})
+        self.assertEqual((odd.min_length, odd.min_classes), (ac.MIN_PASSWORD, 4))
+        self.assertEqual(ac.password_rules("/nonexistent/place"), ac.PasswordRules())
+        self.assertEqual(ac.password_problem("eightchr"), "", "without rules the built-in minimum applies")

@@ -101,6 +101,11 @@ pub enum Trust {
     /// Started by the compositor itself (the shell, the lock screen): may
     /// use the privileged protocols.
     Shell,
+    /// The input method the administrator configured, started by the
+    /// compositor: may use the input-method and virtual-keyboard protocols
+    /// (it sees what is typed and types itself) and nothing else that is
+    /// privileged. It gets no trusted control connection.
+    InputMethod,
     /// An ordinary application.
     Normal,
     /// Connected through a security context (Flatpak and other sandboxes):
@@ -369,8 +374,14 @@ impl Boswas {
         // them: that is for the program the administrator configured, which
         // the compositor starts itself.
         let text_input_state = TextInputManagerState::new::<Self>(&dh);
-        let input_method_state = InputMethodManagerState::new::<Self, _>(&dh, privileged);
-        let virtual_keyboard_state = VirtualKeyboardManagerState::new::<Self, _>(&dh, privileged);
+        // The input method gets these two protocols and no other privilege.
+        let types = move |client: &Client| match client.get_data::<ClientState>().map(|c| c.trust) {
+            Some(Trust::Shell | Trust::InputMethod) => true,
+            Some(Trust::Normal) => trust_all,
+            _ => false,
+        };
+        let input_method_state = InputMethodManagerState::new::<Self, _>(&dh, types);
+        let virtual_keyboard_state = VirtualKeyboardManagerState::new::<Self, _>(&dh, types);
         let alpha_modifier_state = AlphaModifierState::new::<Self>(&dh);
         let content_type_state = ContentTypeState::new::<Self>(&dh);
         let tablet_manager_state = TabletManagerState::new::<Self>(&dh);
@@ -778,6 +789,14 @@ impl Boswas {
     /// `BOSWAS_COMPOSITOR_FD`), so the privilege is tied to the process the
     /// compositor itself started and cannot be claimed by any other client.
     pub fn spawn_trusted(&mut self, command: &[String]) -> Result<Option<u64>, String> {
+        self.spawn_with_trust(command, Trust::Shell)
+    }
+
+    /// [`Boswas::spawn_trusted`] with a chosen trust. Only the shell's
+    /// trust makes the control connection a trusted one; for anything else
+    /// it offers what the public socket offers, and serves to notice when
+    /// the program has gone.
+    pub fn spawn_with_trust(&mut self, command: &[String], trust: Trust) -> Result<Option<u64>, String> {
         let (program, args) = command.split_first().ok_or("empty command")?;
         let (wl_ours, wl_theirs) = UnixStream::pair().map_err(|e| e.to_string())?;
         let (ipc_ours, ipc_theirs) = UnixStream::pair().map_err(|e| e.to_string())?;
@@ -797,9 +816,9 @@ impl Boswas {
         let child = cmd.spawn().map_err(|e| format!("{program}: {e}"))?;
         drop((wl_theirs, ipc_theirs));
         self.display_handle
-            .insert_client(wl_ours, Arc::new(ClientState::new(Trust::Shell)))
+            .insert_client(wl_ours, Arc::new(ClientState::new(trust)))
             .map_err(|e| e.to_string())?;
-        let connection = self.ipc_accept(ipc_ours, true);
+        let connection = self.ipc_accept(ipc_ours, trust == Trust::Shell);
         self.children.push(child);
         Ok(connection)
     }
@@ -869,7 +888,7 @@ impl Boswas {
             return;
         }
         self.input_method.1.push(now);
-        match self.spawn_trusted(&command) {
+        match self.spawn_with_trust(&command, Trust::InputMethod) {
             Ok(connection) => {
                 self.input_method.0 = connection;
                 info!("started the input method: {}", command.join(" "));

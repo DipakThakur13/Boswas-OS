@@ -19,8 +19,8 @@ hardware, not a public Linux distribution.
 >   X11 applications run through Xwayland
 > - **the Boswas system applications** (`boswas-apps`, unreleased): Files,
 >   Terminal, Text Editor, Calculator, Photos, Document Viewer, Archive
->   Manager, Media Player, Camera, Clock and Calendar, in place of KDE's
->   applications; Task Manager is being finished
+>   Manager, Media Player, Camera, Clock, Calendar and Task Manager, in
+>   place of KDE's applications
 > - **native settings** in Boswas Control Center, in place of Plasma's
 >   settings modules: network, Bluetooth, sound, power, display, input,
 >   personalization, date and time, user accounts
@@ -86,9 +86,9 @@ What it does today:
   tablets, support for an input method.
 - **System applications** (`boswas-apps`): Files, Terminal, Text Editor,
   Calculator, Photos, Document Viewer, Archive Manager, Media Player,
-  Camera, Clock and Calendar with reminders. They run as the user, start
-  nothing through a shell and treat files as hostile input. Task Manager
-  is being finished.
+  Camera, Clock and Calendar with reminders, Task Manager. They run as
+  the user, start nothing through a shell and treat files as hostile
+  input.
 - **Settings** in Control Center: Wi-Fi, Bluetooth, sound, power,
   monitors (arrangement, resolution, scale, rotation), night light,
   mouse, touchpad, keyboard layouts, colour mode and background, lock and
@@ -201,7 +201,7 @@ boswas-device status        # device agent: state, identity, Control Plane conne
 |------|----------------|
 | Base | Debian 13.x trixie, amd64, Linux 6.12, systemd |
 | Desktop | The native Boswas desktop (`boswas-desktop`): `boswas-compositor`, a Wayland compositor in Rust on Smithay (Fluent window frames, animations, snap layouts, Task View with several desktops, per-monitor settings, night light, Xwayland for X11 applications, compositor-owned session lock, privileged protocols only for its own shell, screen capture only with the user's consent), and `boswas-shell` (taskbar, Start, quick settings, notifications, tray, the polkit dialog, lock screen, login screen behind greetd). Ten presets ([docs/experience](docs/experience/README.md)) |
-| Applications | The Boswas system applications (`boswas-apps`, PySide6 on the Boswas Qt toolkit): Files, Terminal, Text Editor, Calculator, Photos, Document Viewer, Archive Manager, Media Player, Camera, Clock, Calendar; Firefox ESR as the browser. Boswas Control Center with native settings and the Security, Software and Update Centers ([docs/experience/control-center.md](docs/experience/control-center.md)) |
+| Applications | The Boswas system applications (`boswas-apps`, PySide6 on the Boswas Qt toolkit): Files, Terminal, Text Editor, Calculator, Photos, Document Viewer, Archive Manager, Media Player, Camera, Clock, Calendar, Task Manager; Firefox ESR as the browser. Boswas Control Center with native settings and the Security, Software and Update Centers ([docs/experience/control-center.md](docs/experience/control-center.md)) |
 | Design system | Boswas UI v3: the Fluent design language with Boswas's own colours (the Prism palette), icons and typeface, as design tokens in one file ([desktop/ui](desktop/ui/README.md)). The shell, the window frames, the boot screen, the Qt toolkit of the Boswas applications ([desktop/ui/qt](desktop/ui/qt/README.md)), the KDE colour schemes and the Boswas Prism icon pack ([desktop/icons](desktop/icons/README.md)) all read it |
 | Branding | Built from the official Boswas Group logo and lettering ([desktop/branding](desktop/branding/README.md)) |
 | Boot | GRUB for BIOS and UEFI; Debian-signed shim/GRUB/kernel for Secure Boot; Boswas boot menu; the Boswas boot screen (`boswas-bootsplash`, Rust: boot, shutdown, restart and the disk-unlock prompt, [packages/boswas-bootsplash](packages/boswas-bootsplash/README.md)) |

@@ -21,8 +21,8 @@ which starts the shell,
 .IP \(bu 2
 publishes the session to the user's systemd manager and D-Bus and starts
 \fBboswas\-session.target\fR (and with it \fBgraphical\-session.target\fR:
-the device session agent, the authentication agent, portals, autostart
-entries),
+the device session agent, portals, autostart entries; the shell itself is
+the polkit authentication agent),
 .IP \(bu 2
 stops that target when the compositor exits.
 .PP

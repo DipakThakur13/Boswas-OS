@@ -57,6 +57,9 @@ pub(crate) struct Ctx {
     /// Commands that change the system are not to be obeyed (the lock
     /// screen and the greeter).
     pub restricted: bool,
+    /// A restricted instance that may still suspend, restart and shut down
+    /// (the login screen).
+    pub power_actions: bool,
 }
 
 impl Ctx {

@@ -453,6 +453,32 @@ class SandboxTests(CompatTestCase):
             self.assertNotIn("WAYLAND_DISPLAY", self.env_of(argv), bad)
             self.assertFalse(any("wayland" in part for part in argv), bad)
 
+    def test_a_sandboxed_application_is_not_let_onto_the_sessions_x_server(self):
+        # The Boswas desktop runs an X server for X11 applications. Its
+        # clients can watch each other, so with a Wayland socket to give,
+        # the X11 socket stays outside the sandbox.
+        import socket as socketlib
+        runtime = self.root / "runtime"
+        runtime.mkdir()
+        listener = socketlib.socket(socketlib.AF_UNIX)
+        listener.bind(str(runtime / "wayland-1"))
+        self.addCleanup(listener.close)
+        sock = self.root / "tmp/.X11-unix/X0"
+        sock.parent.mkdir(parents=True)
+        sock.write_text("")
+        xauth = self.tmp / "xauth"
+        xauth.write_text("cookie")
+        env = {"WAYLAND_DISPLAY": "wayland-1", "XDG_RUNTIME_DIR": str(runtime), "DISPLAY": ":0",
+               "XAUTHORITY": str(xauth)}
+        session = sandbox.HostSession.current(self.root / "home", env)
+        self.assertEqual((session.wayland_display, session.display), ("wayland-1", ":0"))
+        argv = self.build(policy.Grants(display=True), session)
+        inside = self.env_of(argv)
+        self.assertEqual(inside["WAYLAND_DISPLAY"], "wayland-1")
+        self.assertNotIn("DISPLAY", inside)
+        self.assertNotIn("XAUTHORITY", inside)
+        self.assertFalse(any("X11" in part for part in argv), argv)
+
     def test_folder_grants(self):
         (self.home / "Documents").mkdir()
         argv = self.build(policy.Grants(folders=("documents", "downloads")))

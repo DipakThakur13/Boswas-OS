@@ -375,6 +375,12 @@ impl Config {
                 apply_layer(&mut merged, table, path, &mut warnings);
             }
         }
+        // X11 applications can watch each other: when the administrator
+        // turns the X server off, a user's file does not turn it back on.
+        let x11_off_by_system = matches!(
+            merged.get("xwayland").and_then(|table| table.get("enabled")),
+            Some(Value::Boolean(false))
+        );
         if let Some(mut table) = user.and_then(|path| read_table(path, &mut warnings)) {
             if table.remove("policy").is_some() {
                 warnings.push("the [policy] table is ignored in a user configuration".into());
@@ -411,6 +417,10 @@ impl Config {
                 Config::default()
             }
         };
+        if x11_off_by_system && config.xwayland.enabled {
+            config.xwayland.enabled = false;
+            warnings.push("[xwayland] enabled is ignored in a user configuration: X11 applications are turned off for this device".into());
+        }
         config.sanitize(&mut warnings);
         (config, warnings)
     }
@@ -812,6 +822,24 @@ mod tests {
         assert_eq!(c.lock.idle_seconds, 100);
         assert_eq!(c.policy.lock_idle_max_seconds, 300);
         assert!(warnings.iter().any(|w| w.contains("appearance.toml")), "{warnings:?}");
+    }
+
+    #[test]
+    fn a_user_cannot_turn_x11_back_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let admin = file(dir.path(), "admin.toml", "[xwayland]\nenabled = false\n");
+        let user = file(dir.path(), "user.toml", "[xwayland]\nenabled = true\n");
+        let (c, warnings) = Config::load_from(&[&admin], Some(&user));
+        assert!(!c.xwayland.enabled);
+        assert!(warnings.iter().any(|w| w.contains("[xwayland]")), "{warnings:?}");
+        // Turning it off for oneself is the user's choice.
+        let user_off = file(dir.path(), "user2.toml", "[xwayland]\nenabled = false\n");
+        let (c, warnings) = Config::load_from(&[], Some(&user_off));
+        assert!(!c.xwayland.enabled);
+        assert!(warnings.is_empty(), "{warnings:?}");
+        // Without a word from the administrator it is on, and stays the user's.
+        let (c, _) = Config::load_from(&[], None);
+        assert!(c.xwayland.enabled);
     }
 
     #[test]

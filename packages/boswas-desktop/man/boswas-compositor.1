@@ -247,13 +247,17 @@ if the policy allows it). \fBcommand\fR: the lock screen program.
 none.
 .PP
 .RS
-The three \fBcommand\fR keys are read from the first two files only. These
-programs are started as trusted clients (an input method sees what is
-typed), so a user's file cannot name them.
+The three \fBcommand\fR keys are read from the first two files only: a
+user's file cannot name these programs. The shell and the lock screen are
+started as trusted clients. The input method is offered the input-method
+and virtual-keyboard protocols only (it sees what is typed and types
+itself) and none of the shell's other privileges.
 .RE
 .TP
 .B [xwayland]
-\fBenabled\fR: run an X server for X11 applications (default: true).
+\fBenabled\fR: run an X server for X11 applications (default: true). A
+user can turn it off; when the first two files turn it off, a user's file
+does not turn it back on.
 .TP
 .B [apps]
 \fBterminal\fR (Ctrl+Alt+T), \fBfiles\fR (Super+E), \fBsettings\fR

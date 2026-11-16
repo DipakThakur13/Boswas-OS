@@ -26,6 +26,10 @@ Comment: This file pins the Rust crates the build downloads from crates.io.
   * winit: Apache-2.0; image, png: MIT or Apache-2.0
   * serde, serde_json, toml, chrono, rustix, libc, bitflags, tracing,
     zeroize, xkbcommon-rs, xcursor: MIT or Apache-2.0
+  * zbus and its zvariant and zbus_names crates (the D-Bus library of the
+    services): MIT; async-io, async-channel, async-executor, futures-lite
+    and the other smol crates they build on: MIT or Apache-2.0; x11rb
+    (X11 window management for Xwayland): MIT or Apache-2.0
   * unicode data crates: Unicode-3.0 (alongside MIT or Apache-2.0)
  .
  The licence texts are in the crates' sources and, for the licences Debian

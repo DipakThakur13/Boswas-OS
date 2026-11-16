@@ -264,6 +264,7 @@ pub fn only(pick: impl FnOnce(&mut Config)) -> Config {
         status: false,
         session: false,
         restricted: false,
+        power_actions: true,
     };
     pick(&mut config);
     config

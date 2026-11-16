@@ -491,6 +491,28 @@ fn a_window_is_mapped_listed_tiled_drawn_and_closed() {
     });
 }
 
+#[test]
+fn the_input_method_gets_its_two_protocols_and_no_other_privilege() {
+    let config = "[shell]\ncommand = []\n[input_method]\ncommand = @HELPER@\n[lock]\nidle_seconds = 0\ncommand = []\n[policy]\nlock_idle_max_seconds = 0\n";
+    // The helper reports what it is offered, as it does for the shell.
+    let compositor = Compositor::start(config, "shell");
+    let report = wait_for("the helper's report", || {
+        let text = compositor.helper_output();
+        text.contains("done").then_some(text)
+    });
+    for interface in ["zwp_input_method_manager_v2", "zwp_virtual_keyboard_manager_v1"] {
+        assert!(report.contains(&format!("global {interface}\n")), "{interface} is not offered to the input method:\n{report}");
+    }
+    for interface in ["zwlr_layer_shell_v1", "ext_session_lock_manager_v1", "ext_foreign_toplevel_list_v1", "zwlr_data_control_manager_v1"] {
+        assert!(!report.contains(&format!("global {interface}\n")), "{interface} is offered to the input method:\n{report}");
+    }
+    // Its control connection is what the public socket is: no window list,
+    // no events.
+    assert!(report.contains("ipc version trusted=false"), "{report}");
+    assert!(report.contains("ipc windows ok=false"), "{report}");
+    assert!(report.contains("ipc subscribe ok=false"), "{report}");
+}
+
 /// Presses or releases a key by its evdev code.
 fn key(control: &mut Control, code: u32, pressed: bool) {
     control.ok(json!({"cmd": "key", "keycode": code, "pressed": pressed}));

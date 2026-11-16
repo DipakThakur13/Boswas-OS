@@ -1937,7 +1937,7 @@ glyphs in the atlas, or a font in the initramfs after all).
   the desktop until the system applications moved to the toolkit as well
   (ADR-0040).
 - Window frames are the compositor's; the toolkit draws none.
-- **Not verified yet:** on a real session. The 128 tests run on Qt's
+- **Not verified yet:** on a real session. Its tests run on Qt's
   offscreen platform; the widget tests skip themselves where PySide6 is
   not installed, which is the case in the package build of
   `boswas-branding` (PySide6 is not a build dependency).
@@ -1971,11 +1971,8 @@ system applications.
   | Camera | `boswas-camera` | nothing: the image had no camera application |
   | Clock | `boswas-clock` | nothing |
   | Calendar | `boswas-calendar` | nothing (the KDE PIM suite was never in the image) |
+  | Task Manager | `boswas-task-manager` | plasma-systemmonitor, which left with Plasma |
   | Reminders | `boswas-reminders` | a session service without a window: it shows alarms, timers and calendar reminders as notifications while Clock and Calendar are closed |
-
-  Task Manager (`boswas-task-manager`) is part of the same package and
-  was still being finished when this record was written; it is not
-  described here.
 - **One package, one module directory.** Each application is a
   sub-package of `boswas_apps` in the private module directory
   `/usr/lib/boswas/python` (ADR-0010), with a launcher
@@ -2020,9 +2017,11 @@ system applications.
 - **Desktop defaults.** Ctrl+Alt+T, Super+E and Ctrl+Shift+Esc start the
   Boswas terminal, file manager and task manager; the taskbar and Start
   of a new user pin the Boswas applications; a desktop entry that asks
-  for a terminal runs in `boswas-terminal`. Files answers
+  for a terminal runs in `boswas-terminal`, which the package also
+  registers as Debian's `x-terminal-emulator`. Files answers
   `org.freedesktop.FileManager1`, so other programs can show a file in
-  it.
+  it. The reminders service starts with the Boswas session through an
+  XDG autostart entry.
 
 **Why.**
 
@@ -2052,6 +2051,10 @@ single set of rules.
   archive reader and parsers for EXIF and media tags are now Boswas
   code. Debian's security support covers Qt, PySide6 and FFmpeg beneath
   them, not this code.
+- **One program runs in the background.** `boswas-reminders` stays in
+  the session so that an alarm rings and a reminder shows while Clock and
+  Calendar are closed. No other application keeps running after its
+  window closes.
 - **They do less than what they replace.** Left out on purpose, by
   application:
   - Terminal: split panes, sixel graphics, the kitty keyboard protocol,
@@ -2077,6 +2080,8 @@ single set of rules.
     import and export; no accounts and no synchronisation; no printing.
     Events of a hidden calendar do not remind.
   - Clock: no choice of alarm sound.
+  - Task Manager: no network column per process, no way to disconnect
+    another user's session.
 - **What can be played or shown follows Qt:** media through Qt
   Multimedia's FFmpeg back end, PDF through Qt PDF, pictures through Qt's
   image plugins.
@@ -2191,10 +2196,13 @@ Replaces ADR-0026's "native settings pages are planned work".
   had is kept; comments and anything the compositor does not know are
   not. When something cannot be kept, the previous file is copied to
   `compositor.toml.bak` first and the user is told.
-- **Passwords set for others are SHA-512 crypt** (5000 rounds), not the
-  yescrypt that Debian 13 uses by default, because the hash is made in
-  Control Center. A person's own password goes through PAM and gets the
-  system's scheme.
+- **Passwords set for others bypass PAM.** They are SHA-512 crypt (5000
+  rounds), not the yescrypt that Debian 13 uses by default, because the
+  hash is made in Control Center; and the `pam_pwquality` rule of the
+  security baseline (12 characters, two classes) does not see them.
+  Control Center's own check asks for 8 characters and refuses the user
+  name. A person's own password goes through `passwd` and PAM and gets
+  the system's scheme and rules.
 - **Left out:** editing a proxy (shown read-only), managing VPN
   connections (status only), a test sound, an automatic suspend time (the
   compositor has no key for it), identifying monitors, a pointer theme,

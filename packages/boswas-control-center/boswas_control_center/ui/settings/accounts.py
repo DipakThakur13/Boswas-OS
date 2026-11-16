@@ -312,7 +312,7 @@ class PasswordDialog(FormDialog):
         if self.current is not None and not self.current.text():
             self.fail("Enter your current password.", self.current)
             return
-        problem = ac.password_problem(new, self.user_name)
+        problem = ac.password_problem(new, self.user_name, ac.password_rules())
         if problem:
             self.fail(problem, self.new)
             return
@@ -370,7 +370,7 @@ class AddUserDialog(FormDialog):
         if name in self.taken:
             self.fail(f"There is a user named {name} already.", self.name)
             return
-        problem = ac.password_problem(password, name)
+        problem = ac.password_problem(password, name, ac.password_rules())
         if problem:
             self.fail(problem, self.password)
             return

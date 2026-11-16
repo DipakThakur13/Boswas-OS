@@ -183,7 +183,9 @@ Verification status of the native desktop
   - **Calendar:** a calendar kept on the computer, with repeating events,
     reminders and iCalendar import and export. A small session service
     shows alarms and reminders while Clock and Calendar are closed.
-  - Task Manager is part of the package and is being finished.
+  - **Task Manager** (Ctrl+Shift+Esc): processes grouped by application
+    with "End task", performance graphs, start-up applications, users,
+    details and services.
   - All of them run as the user (they refuse root), start other programs
     without a shell, and treat file names and file contents as hostile.
 - **Boswas Prism icon pack** *(native desktop)*: the themes `Boswas-Prism`
@@ -323,8 +325,9 @@ Verification status of the native desktop
   out; the image verify hook fails the build if one is installed.
 - **KDE's applications from the image** *(native desktop)*: `konsole`,
   `dolphin`, `kwrite`, `ark`, `okular`, `gwenview` and `kcalc`. The
-  Boswas applications take their place. They are not pinned out and
-  still run when someone installs them.
+  Boswas applications take their place, and Boswas Terminal is the
+  system's `x-terminal-emulator`. The KDE applications are not pinned out
+  and still run when someone installs them.
 - **From the repository** *(native desktop)*: the Plymouth theme
   (`desktop/branding/plymouth/`), the KSplash theme
   (`desktop/branding/splash/`), the Boswas Launcher applet metadata

@@ -13,8 +13,8 @@ Only when granted (manifest sandbox, or policy for unlisted apps):
   network   the host network namespace (otherwise: loopback only)
   display   the Wayland socket of $WAYLAND_DISPLAY (the Boswas desktop: Wine
             draws on the compositor directly, as an ordinary client without
-            access to other windows), and, where the session has one, the
-            X11 socket of $DISPLAY with its Xauthority file
+            access to other windows); only in a session without a Wayland
+            socket, the X11 socket of $DISPLAY with its Xauthority file
   audio     the PulseAudio/PipeWire socket
   gpu       /dev/dri and the sysfs device tree Mesa needs
   folders   the user's Documents, Downloads, ... at <view>/home/<Name>
@@ -235,13 +235,6 @@ def build_command(*, app_id: str, appdir: Path, session: HostSession, grants: Gr
 
     env: dict[str, str] = {}
     if grants.display:
-        sock = x11_socket(session.display)
-        if sock is not None and paths.system_path(str(sock)).exists():
-            argv += ["--ro-bind", str(sock), str(sock)]
-            env["DISPLAY"] = session.display or ""
-            if session.xauthority and _owned_by(session.xauthority, uid, stat.S_IFREG):
-                argv += ["--ro-bind", str(session.xauthority), f"{run_dir}/X11/Xauthority"]
-                env["XAUTHORITY"] = f"{run_dir}/X11/Xauthority"
         # The compositor's public socket: the application is an ordinary
         # Wayland client (no layer shell, lock, window list or clipboard
         # control). Without $DISPLAY Wine uses its Wayland driver.
@@ -250,6 +243,18 @@ def build_command(*, app_id: str, appdir: Path, session: HostSession, grants: Gr
             if _owned_by(wayland, uid, stat.S_IFSOCK):
                 argv += ["--ro-bind", str(wayland), f"{run_dir}/{session.wayland_display}"]
                 env["WAYLAND_DISPLAY"] = session.wayland_display
+        # The X11 socket only where there is no Wayland socket to give (an
+        # X11 session). On the Boswas desktop the session also has an X
+        # server, for X11 applications; clients of one X server can watch
+        # each other's windows and input, so a sandboxed application is not
+        # let onto it.
+        sock = x11_socket(session.display)
+        if "WAYLAND_DISPLAY" not in env and sock is not None and paths.system_path(str(sock)).exists():
+            argv += ["--ro-bind", str(sock), str(sock)]
+            env["DISPLAY"] = session.display or ""
+            if session.xauthority and _owned_by(session.xauthority, uid, stat.S_IFREG):
+                argv += ["--ro-bind", str(session.xauthority), f"{run_dir}/X11/Xauthority"]
+                env["XAUTHORITY"] = f"{run_dir}/X11/Xauthority"
     if grants.audio and session.runtime_dir:
         pulse = session.runtime_dir / "pulse" / "native"
         if _owned_by(pulse, uid, stat.S_IFSOCK):

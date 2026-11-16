@@ -159,8 +159,9 @@ exits; open windows are not affected. `boswas-shell(1)` is the reference.
 - **Presets:** ten Boswas OS presets
   ([presets](../../desktop/presets/README.md)), chosen in Control Center >
   Personalization or with `boswas-preset`. On the native desktop a preset
-  sets light or dark for the shell and the window frames, the wallpaper,
-  the colours of KDE applications and the Konsole profile. A new user
+  sets light or dark for the shell, the window frames and the Boswas
+  applications, and the wallpaper; for KDE applications, where they are
+  installed, also their colours and the Konsole profile. A new user
   starts with the Boswas Prism look, which is not one of the ten;
   `boswas-preset reset`, or "Reset to Boswas Default" in Control Center,
   returns to it.
@@ -414,7 +415,7 @@ light, and each has a manual page (`man boswas-files`, and so on).
 | **Camera** | Photos and videos from a camera of the computer, with a timer, to Pictures/Camera Roll and Videos/Camera Roll |
 | **Clock** | Alarms, timers, a stopwatch, a world clock and focus sessions |
 | **Calendar** | A calendar kept on this computer: month, week and day views, repeating events, reminders, several calendars, import and export of `.ics` files. It has no accounts and does not synchronise |
-| **Task Manager** | Being finished; not described here yet |
+| **Task Manager** | Ctrl+Shift+Esc. What is running, by application, with CPU, memory and disk use, and "End task"; performance graphs for the processor, memory, disks, network, graphics and battery; start-up applications (switch them off or on); the signed-in users; every process in detail; services |
 | **Boswas Control Center** | Settings (see [Settings](#settings)) and the three centres below. It is the application Super+I opens ([control-center.md](control-center.md)) |
 | **Boswas Security Center** | Control Center's Security page: AppArmor, Windows-app sandbox, firewall, Secure Boot, disk encryption, screen lock, automatic security updates, device agent, device policy. Each item is Secure, Warning, Attention, Error or Not available, shown with an icon and text, never colour alone |
 | **Boswas Software Center** | Control Center's Applications page: Boswas, Windows and native applications, searchable. Installing new native software comes with the Boswas Store (M6); there is no unmanaged package installer |

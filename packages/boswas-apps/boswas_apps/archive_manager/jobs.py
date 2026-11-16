@@ -18,7 +18,8 @@ from PySide6.QtCore import QObject, Signal
 
 from . import extract
 
-OVERWRITE, SIZE, PASSWORD = "overwrite", "size", "password"
+# The kinds of question a job may ask the person.
+(OVERWRITE, SIZE, PASSWORD) = ("overwrite", "size", "password")
 _PROGRESS_INTERVAL = 0.04          # seconds between progress signals: enough for a smooth bar, cheap for the GUI
 
 

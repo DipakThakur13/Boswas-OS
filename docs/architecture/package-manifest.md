@@ -34,11 +34,14 @@ This page must be updated whenever a list changes.
 ## Desktop (`boswas-desktop.list.chroot`)
 
 The desktop itself is Boswas software: the compositor, the shell, the lock
-screen and the login screen are the package `boswas-desktop`, and the boot
-screen is `boswas-bootsplash` (both in `boswas-components.list.chroot`;
-ADR-0026 to ADR-0030, ADR-0033 to ADR-0038). This list holds what they
-need around them and the applications. KDE Plasma is not installed; KDE's
-applications are, as ordinary Wayland clients.
+screen and the login screen are the package `boswas-desktop`, the boot
+screen is `boswas-bootsplash` and the system applications are
+`boswas-apps` (all three in `boswas-components.list.chroot`; ADR-0026 to
+ADR-0030, ADR-0033 to ADR-0040). This list holds what they need around
+them and the browser. KDE Plasma is not installed, and neither are KDE's
+applications any more (see [Replaced by the Boswas
+applications](#replaced-by-the-boswas-applications)); they still run as
+ordinary Wayland clients when someone installs them.
 
 | Package | Why |
 |---------|-----|
@@ -50,20 +53,35 @@ applications are, as ordinary Wayland clients.
 | upower | Battery state for the taskbar, quick settings and Settings |
 | power-profiles-daemon | The power modes (power saver, balanced, performance) in quick settings and Settings |
 | accountsservice | User accounts in Settings (name, picture, password, adding and removing users), authorised through polkit |
-| xdg-user-dirs | Standard user folders |
+| xdg-user-dirs | Standard user folders (Documents, Pictures, ...), which Files, Photos, the Media Player, the Camera and the shell's screen capture use |
 | qt6-wayland | Qt 6 platform plugin for Wayland: Control Center, the Compatibility Manager and the KDE applications draw on the compositor directly. The session asks Qt for Wayland first and X11 second (`QT_QPA_PLATFORM=wayland;xcb`) |
 | breeze-cursor-theme | Cursor theme the compositor and the applications load (`breeze_cursors`) |
-| breeze-icon-theme | Fallback for icons the Boswas Prism pack does not contain |
-| kde-style-breeze | Widget style of the KDE applications (`widgetStyle=Breeze`), coloured by the generated Prism colour scheme. The Boswas applications take their look from `boswas_fluent` instead (ADR-0039) |
+| breeze-icon-theme | Fallback for icons the Boswas Prism pack does not contain. It stays although the KDE applications left |
+| kde-style-breeze | Widget style of KDE applications (`widgetStyle=Breeze` in the shipped defaults), coloured by the generated Prism colour scheme. It stays for KDE applications that are installed later; the Boswas applications take their look from `boswas_fluent` instead (ADR-0039) |
 | pipewire-audio | Audio stack |
 | pavucontrol-qt | Per-application volumes; the shell's quick settings and Settings cover devices and the main volume |
-| konsole, dolphin, kwrite, ark, okular, gwenview, kcalc | Core applications: terminal, files, editor, archives, PDF, images, calculator |
 | firefox-esr | Browser on Debian's long-term security-supported channel |
-| fonts-hack | Monospace font of the Boswas terminal profiles (`Font=Hack,11`); Plasma used to pull it in |
+| fonts-hack | Monospace font of Boswas Terminal (also a Recommends of `boswas-apps`) and of the Boswas Konsole profiles (`Font=Hack,11`); Plasma used to pull it in |
 | fonts-inter | Inter, the Boswas UI typeface (ADR-0031, ADR-0033): shell, window titles, lock and login screens and the Boswas Qt applications. Also a build dependency of `boswas-bootsplash`, which embeds bitmaps of its glyphs (ADR-0038) |
 | fonts-lato | Secondary text in Boswas artwork (the brand typeface, Orbitron, is not in Debian and ships in `boswas-branding`) |
 | fonts-liberation2 | Metric-compatible with common Windows fonts (documents, Wine) |
 | fonts-noto-core | Broad Unicode coverage |
+
+### Replaced by the Boswas applications
+
+These were the "core applications" of the list until the Boswas
+applications landed (ADR-0040). They are not pinned out, and they run on
+the desktop when someone installs them.
+
+| Package | Replaced by (`boswas-apps`) |
+|---------|-----------------------------|
+| konsole | Boswas Terminal (`boswas-terminal`), which also provides `x-terminal-emulator` |
+| dolphin | Boswas Files (`boswas-files`) |
+| kwrite | Boswas Text Editor (`boswas-text-editor`) |
+| ark | Boswas Archive Manager (`boswas-archive-manager`) |
+| okular | Boswas Document Viewer (`boswas-document-viewer`), for PDF only |
+| gwenview | Boswas Photos (`boswas-photos`) |
+| kcalc | Boswas Calculator (`boswas-calculator`) |
 
 ### Removed with the native desktop
 
@@ -83,7 +101,7 @@ the polkit agent (ADR-0035).
 | kscreen | Display configuration through KWin's interface, which the new compositor does not have. Monitors are set per connector in the compositor's configuration (ADR-0036) |
 | xdg-desktop-portal-kde | Portal back end that needs KWin and the Plasma session. Replaced by `xdg-desktop-portal-gtk` |
 | kde-spectacle | Screenshot tool. The shell's screen capture (the Print key) takes its place; other capture tools go through the compositor's consent question (ADR-0037) |
-| plasma-systemmonitor | Depends on the Plasma libraries and services. `htop` stays in the base list |
+| plasma-systemmonitor | Depends on the Plasma libraries and services. Boswas Task Manager (`boswas-apps`) takes its place; `htop` stays in the base list |
 
 ## Security (`boswas-security.list.chroot`)
 
@@ -122,15 +140,16 @@ network exists; `config/boswas/firmware-required.list` is the build gate.
 
 | Package | Why |
 |---------|-----|
-| boswas-os | Release identity, `/etc/boswas`, login banner; depends on the others |
+| boswas-os | Release identity, `/etc/boswas`, login banner; depends on the others, `boswas-apps` included |
 | boswas-cli | `boswas`, `boswas-info`, `boswas-status` |
-| boswas-branding | Visual identity: artwork, the Boswas UI tokens, the Prism colour schemes and icon pack, the ten presets, defaults for KDE applications, and the Qt toolkit `boswas_fluent` in `/usr/lib/boswas/python` (ADR-0039). Because of the toolkit it depends on PySide6: `python3-pyside6.qtcore`, `qtgui`, `qtwidgets`, `qtsvg`, `qtdbus` and `qtnetwork` |
+| boswas-branding | Visual identity: artwork, the Boswas UI tokens, the Prism colour schemes and icon pack, the ten presets, defaults for KDE applications, and the Qt toolkit `boswas_fluent` in `/usr/lib/boswas/python` (ADR-0039). Because of the toolkit it depends on PySide6: `python3-pyside6.qtcore`, `qtgui`, `qtwidgets`, `qtsvg`, `qtdbus` and `qtnetwork`. Also depends on `libkf6config-bin` and `python3`; recommends `breeze-icon-theme`, `fonts-inter` and `fonts-lato`, and no longer `konsole` |
 | boswas-security | Security baseline configuration |
 | boswas-compat | WinCompat: `boswas-winapp`, Wine AppArmor profile, compatibility catalog and policy. Depends on `wine`, `wine64`, `bubblewrap`, `apparmor` (all already in the manifest) |
 | boswas-device-agent | Device agent service, per-user session agent, `boswas-device`. Depends on `boswas-compat`, `openssl` (device key, policy signatures) and `systemd` |
 | boswas-compat-manager | Compatibility Manager GUI. Depends on PySide6 (`python3-pyside6.qtcore`, `qtgui`, `qtwidgets`, Debian's LGPL Qt bindings, about 30 MB with their Qt libraries), on `boswas-branding` for the toolkit and on `boswas-device-agent` |
 | boswas-sysops | The only privileged helper (ADR-0024): fixed operations started with pkexec, one polkit action each. Depends on `apt`, `pkexec`, `polkitd` |
-| boswas-control-center | Control Center with native settings (ADR-0041), Security Center and Software Center (PySide6, on the toolkit of `boswas-branding`). Depends on `python3-pyside6.qtnetwork` and `qtdbus`, `qt6-svg-plugins`, `libglib2.0-bin` (`gio launch`), `systemd` (`timedatectl`, `localectl`, `busctl`), `passwd` (the own password), `tzdata` and `xkb-data` (time zones and keyboard layouts it offers); no longer on `kde-cli-tools` and `libkf6kcmutils-bin`. Recommends `boswas-desktop` (the service bridge), `boswas-apps`, `accountsservice` (the Users page), `iproute2`, `locales`, `network-manager` and others |
+| boswas-control-center | Control Center with native settings (ADR-0041), Security Center and Software Center (PySide6, on the toolkit of `boswas-branding`). Depends on `python3-pyside6.qtcore`, `qtgui`, `qtwidgets`, `qtnetwork` and `qtdbus`, `qt6-svg-plugins`, `boswas-branding`, `boswas-cli`, `boswas-device-agent`, `libglib2.0-bin` (`gio launch`), `systemd` (`timedatectl`, `localectl`, `busctl`), `passwd` (the own password), `tzdata` and `xkb-data` (the time zones and keyboard layouts it offers). Recommends `boswas-desktop` (the service bridge), `boswas-apps`, `accountsservice` (the Users page), `boswas-compat-manager`, `boswas-sysops`, `boswas-android`, `network-manager`, `iproute2`, `locales`, `flatpak`, `pci.ids` and `usb.ids`. `kde-cli-tools`, `libkf6kcmutils-bin`, `dolphin` and `kinfocenter` are gone from its relations |
+| boswas-apps | The system applications (ADR-0040): Files, Terminal, Text Editor, Calculator, Task Manager, Photos, Media Player, Camera, Document Viewer, Archive Manager, Clock, Calendar and the reminders service. Python, `all`. **Depends** on `python3` (3.11 or later), `python3-pyside6.qtcore`, `qtgui`, `qtwidgets`, `qtsvg`, `qtdbus`, `qtnetwork`, `qtmultimedia` (Media Player, Camera), `qtpdf` (Document Viewer) and `qtprintsupport` (printing), `qt6-image-formats-plugins` (picture formats), `shared-mime-info` (file types), `tzdata` (Clock, Calendar) and `boswas-branding` (the toolkit). **Recommends** `7zip` (7z archives), `boswas-desktop`, `fonts-hack`, `fonts-noto-color-emoji`, `udisks2` (mounting and ejecting drives in Files) and `xdg-user-dirs`; of these `7zip`, `fonts-noto-color-emoji` and `udisks2` are not in a package list and reach the image as Recommends (ADR-0003). **Suggests**, which are not installed: `7zip-rar` (RAR), `kimageformat6-plugins` (AVIF, HEIF, JPEG XL), `python3-zstandard`, `sound-theme-freedesktop` (the Camera's shutter sound). **Provides** `x-terminal-emulator`: the maintainer scripts register `/usr/bin/boswas-terminal` as an alternative for it with priority 40 and remove it again. `debian/rules` installs the reminders service's desktop entry as `/etc/xdg/autostart/com.boswas.Reminders.desktop` (for the Boswas session only), not among the applications |
 | boswas-android | Android runtime manager and APK inspection (ADR-0025). The Android runtime (Waydroid) itself is **not** in the image: it is installed on request after installation |
 | boswas-desktop | The native desktop (ADR-0026 to ADR-0028, ADR-0030, ADR-0033 to ADR-0037): `boswas-compositor`, `boswas-shell` (taskbar, Start, quick settings, notifications, the polkit agent, lock screen, greeter), `boswas-services-bridge` (the same service backends for Settings), the session, the greetd drop-in and the lock screen's PAM service. Rust, `amd64`. Depends on `greetd`, `dbus-user-session`, `libegl1`, `libgles2`, `libgl1-mesa-dri`, `libpam-runtime`, `xkb-data` and, through its shared libraries, libseat, libinput, libudev, GBM, pixman, xkbcommon and PAM. Recommends `boswas-branding`, `breeze-cursor-theme`, `fonts-inter`, `qt6-wayland`, `xwayland`, `xdg-desktop-portal-gtk`, `xdg-desktop-portal-wlr`, `polkitd`, `network-manager`, `bluez`, `pipewire-bin`, `wireplumber`, `upower`, `power-profiles-daemon` (all in the manifest): each is optional at run time, and what it serves shows as not available without it |
 | boswas-bootsplash | The boot, disk-unlock and shutdown screens (ADR-0029, ADR-0038). Rust, `amd64`. Depends on `initramfs-tools`; conflicts with `plymouth`. Build-depends on `fonts-inter`: the glyphs of the typeface are built into the program, and the font itself is not installed by this package |
@@ -164,9 +183,16 @@ Not selected (would arrive with a profile later): LibreOffice, printing
 supersedes the "no X server" of ADR-0026). `xserver-xorg` is not named
 and not pinned.
 
-*The rows of this page for the system applications (`boswas-apps`,
-ADR-0040) and for the KDE applications that left the list are being
-revised with the final package list and are not complete.*
+**Not checked against Debian 13.** The build environment has no Debian
+trixie package index. The names of the PySide6 module packages
+(`python3-pyside6.qtmultimedia`, `python3-pyside6.qtpdf`,
+`python3-pyside6.qtprintsupport`, `python3-pyside6.qtdbus`,
+`python3-pyside6.qtnetwork`, `python3-pyside6.qtsvg`) and of the
+packages this round added (`xwayland`, `xdg-desktop-portal-wlr`,
+`pipewire-bin`, `wireplumber`, `upower`, `power-profiles-daemon`,
+`accountsservice`, `7zip`, `udisks2`, `qt6-image-formats-plugins`) could
+not be verified there, and the manifest has not been resolved by APT.
+The first image build will show which of them need another name.
 
 ## Build-time only: Rust crates
 

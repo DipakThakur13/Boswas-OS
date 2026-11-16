@@ -188,16 +188,22 @@ pub fn frame_region(
     Some(transform.transform_rect_in(visible, &upright))
 }
 
-/// The name shown for a program that asks to capture: what the kernel calls
-/// the process.
+/// The name shown for a program that asks to capture: the file name of its
+/// executable. (The kernel's short process name is not used: it is cut to
+/// fifteen characters and a process can set its own.)
 fn program_name(client: &Client, dh: &DisplayHandle) -> String {
-    let name = client
-        .get_credentials(dh)
-        .ok()
-        .and_then(|credentials| std::fs::read_to_string(format!("/proc/{}/comm", credentials.pid)).ok())
-        .map(|name| name.trim().chars().filter(|c| !c.is_control()).take(64).collect::<String>())
-        .unwrap_or_default();
-    if name.is_empty() {
+    let pid = client.get_credentials(dh).ok().map(|credentials| credentials.pid);
+    let executable = pid.and_then(|pid| std::fs::read_link(format!("/proc/{pid}/exe")).ok());
+    let name = executable.as_deref().and_then(|path| path.file_name()).map(|name| name.to_string_lossy().into_owned());
+    display_name(name.as_deref().unwrap_or_default())
+}
+
+/// A program's file name made fit to show: without the mark the kernel
+/// adds to a replaced file, without control characters, of bounded length.
+fn display_name(file_name: &str) -> String {
+    let name = file_name.strip_suffix(" (deleted)").unwrap_or(file_name);
+    let name: String = name.chars().filter(|c| !c.is_control()).take(48).collect();
+    if name.trim().is_empty() {
         "A program".to_owned()
     } else {
         name
@@ -613,6 +619,16 @@ mod tests {
             let turned = matches!(transform, Transform::_90 | Transform::_270 | Transform::Flipped90);
             assert_eq!((part.size.w, part.size.h), if turned { (200, 300) } else { (300, 200) }, "{transform:?}");
         }
+    }
+
+    #[test]
+    fn program_names_are_made_fit_to_show() {
+        assert_eq!(display_name("xdg-desktop-portal-wlr"), "xdg-desktop-portal-wlr");
+        assert_eq!(display_name("obs (deleted)"), "obs");
+        assert_eq!(display_name("evil\u{1b}[31m\nname"), "evil[31mname");
+        assert_eq!(display_name(""), "A program");
+        assert_eq!(display_name("   "), "A program");
+        assert_eq!(display_name(&"x".repeat(200)).chars().count(), 48);
     }
 
     #[test]

@@ -535,7 +535,14 @@ fn run(mode: Mode) -> Result<i32, Box<dyn std::error::Error>> {
         }
     };
     if !simulated {
-        let config = if mode == Mode::Desktop { boswas_services::Config::desktop() } else { boswas_services::Config::status_only() };
+        // The desktop runs everything; the lock screen only shows status
+        // and changes the volume and brightness; the login screen may also
+        // suspend, restart and shut down (its power menu).
+        let config = match mode {
+            Mode::Desktop => boswas_services::Config::desktop(),
+            Mode::Greeter => boswas_services::Config::greeter(),
+            _ => boswas_services::Config::status_only(),
+        };
         shell.services = Some(Services::start(config, move |event| {
             let _ = service_sender.send(event);
         }));

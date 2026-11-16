@@ -124,7 +124,11 @@ impl Power {
                     self.set_profile(conn, profile).await;
                     debounce.trigger();
                 }
-                Wake::Command(Command::Power(action)) if !self.ctx.restricted => self.act(conn, action),
+                Wake::Command(Command::Power(action))
+                    if !self.ctx.restricted || (self.ctx.power_actions && action != PowerAction::LogOut) =>
+                {
+                    self.act(conn, action)
+                }
                 Wake::Command(_) => {}
                 Wake::Timer => {
                     if debounce.take_due() {

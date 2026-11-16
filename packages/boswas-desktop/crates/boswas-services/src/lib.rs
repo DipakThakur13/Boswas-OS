@@ -51,6 +51,11 @@ pub struct Config {
     /// instance registers no Bluetooth pairing agent. The lock screen and
     /// the greeter run like this ([`Config::status_only`]).
     pub restricted: bool,
+    /// A restricted instance may still suspend, restart and shut the
+    /// machine down (the login screen's power menu; [`Config::greeter`]).
+    /// The lock screen may not: a locked session is not ended from its
+    /// lock screen.
+    pub power_actions: bool,
 }
 
 impl Config {
@@ -64,6 +69,7 @@ impl Config {
             status: true,
             session: true,
             restricted: false,
+            power_actions: true,
         }
     }
 
@@ -79,6 +85,17 @@ impl Config {
             status: true,
             session: false,
             restricted: true,
+            power_actions: false,
+        }
+    }
+
+    /// The login screen: like [`Config::status_only`], plus the power menu
+    /// (suspend, restart, shut down). Nobody is signed in, so there is no
+    /// session to protect, and logind still decides what is allowed.
+    pub fn greeter() -> Self {
+        Self {
+            power_actions: true,
+            ..Self::status_only()
         }
     }
 
@@ -90,6 +107,7 @@ impl Config {
     pub fn settings() -> Self {
         Self {
             restricted: false,
+            power_actions: true,
             ..Self::status_only()
         }
     }
@@ -212,10 +230,20 @@ fn allowed_when_restricted(command: &Command) -> bool {
     )
 }
 
+/// Suspend, hibernate, restart and shut down: what a login screen's power
+/// menu does. Ending a session is not among them.
+fn is_machine_power_action(command: &Command) -> bool {
+    matches!(
+        command,
+        Command::Power(PowerAction::Suspend | PowerAction::Hibernate | PowerAction::Reboot | PowerAction::PowerOff)
+    )
+}
+
 /// The running services. Dropping it stops them.
 pub struct Services {
     routes: Routes,
     restricted: bool,
+    power_actions: bool,
     /// Dropping this sender ends every service wherever it waits.
     stop: Option<Sender<()>>,
     threads: Vec<JoinHandle<()>>,
@@ -235,6 +263,7 @@ impl Services {
             sink: Arc::new(sink),
             env: Arc::new(environment),
             restricted: config.restricted,
+            power_actions: config.power_actions,
         };
         let (stop, stopped) = async_channel::bounded::<()>(1);
         let mut threads = Vec::new();
@@ -283,6 +312,7 @@ impl Services {
         Self {
             routes,
             restricted: config.restricted,
+            power_actions: config.power_actions,
             stop: Some(stop),
             threads,
         }
@@ -291,7 +321,7 @@ impl Services {
     /// Queues a command. Never blocks; a command for a service that is not
     /// running is dropped.
     pub fn send(&self, command: Command) {
-        if self.restricted && !allowed_when_restricted(&command) {
+        if self.restricted && !allowed_when_restricted(&command) && !(self.power_actions && is_machine_power_action(&command)) {
             return;
         }
         if let Some(route) = self.routes.of(&command) {
@@ -362,7 +392,16 @@ mod tests {
             auth: route("auth", config.auth_agent),
             session: route("session", config.session),
         };
-        (Services { routes, restricted: config.restricted, stop: None, threads: Vec::new() }, receivers)
+        (
+            Services {
+                routes,
+                restricted: config.restricted,
+                power_actions: config.power_actions,
+                stop: None,
+                threads: Vec::new(),
+            },
+            receivers,
+        )
     }
 
     #[test]
@@ -461,6 +500,32 @@ mod tests {
             Command::AuthChooseUser { cookie: "c".into(), user: "root".into() },
         ];
         assert!(!refused.iter().any(allowed_when_restricted));
+    }
+
+    #[test]
+    fn the_login_screen_has_a_power_menu_and_the_lock_screen_has_none() {
+        let (greeter, lock) = (Config::greeter(), Config::status_only());
+        assert!(greeter.restricted && greeter.power_actions);
+        assert!(lock.restricted && !lock.power_actions);
+        // Otherwise the two run the same services.
+        assert_eq!(
+            (greeter.status, greeter.notifications, greeter.tray, greeter.auth_agent, greeter.media, greeter.session),
+            (lock.status, lock.notifications, lock.tray, lock.auth_agent, lock.media, lock.session)
+        );
+        let machine = [PowerAction::Suspend, PowerAction::Hibernate, PowerAction::Reboot, PowerAction::PowerOff];
+        for action in machine {
+            assert!(is_machine_power_action(&Command::Power(action)), "{action:?}");
+        }
+        // Ending a session, and everything that is not a power action,
+        // stays out of the greeter's reach.
+        for command in [
+            Command::Power(PowerAction::LogOut),
+            Command::SetPowerProfile(PowerProfile::Performance),
+            Command::WifiSetEnabled(false),
+            Command::BluetoothForget { address: "a".into() },
+        ] {
+            assert!(!is_machine_power_action(&command) && !allowed_when_restricted(&command), "{command:?}");
+        }
     }
 
     #[test]

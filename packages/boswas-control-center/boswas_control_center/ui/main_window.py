@@ -82,7 +82,7 @@ class Header(QWidget):
 class MainWindow(fluent.FluentWindow):
     def __init__(self, backend, *, runner: Runner | None = None, initial_page: str | None = None,
                  initial_section: str | None = None, parent: QWidget | None = None):
-        super().__init__(APP_ID, APP_NAME, parent, navigation={"search": True, "compact_below": 760},
+        super().__init__(APP_ID, APP_NAME, parent, navigation={"search": True, "compact_below": 1000},
                          icon=app_icon(), size=(1180, 780), minimum_size=(820, 560))
         self.backend = backend
         self.runner = runner or Runner(self)

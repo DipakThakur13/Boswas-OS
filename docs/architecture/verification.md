@@ -30,13 +30,12 @@ Python suites, which were run). The numbers move as work lands.
 | `desktop/presets` (Python) | 75 (2 skipped here) | The presets and `boswas-preset` |
 | `boswas-compat-manager` (Python) | 107 | The Compatibility Manager on the toolkit |
 | `boswas-control-center` (Python) | 584 (4 skipped) | The settings framework and every section against stand-ins (a fake bridge, a model of the compositor's files), the file writer against symbolic links and read-only directories, the safety rules (only one module writes files, only one starts programs, no KDE program is named), the Users page against a stand-in for AccountsService and a scripted `passwd`, SHA-512 crypt against the specification's vectors, the earlier pages |
-| `boswas-apps` (Python), one suite per application | Terminal 302, Archive Manager 255, Files 229, Photos 204, Calculator 160, Media Player 136, Text Editor 131, Calendar 112, Reminders 103, Document Viewer 90, Clock 58, Camera 39 | Each application's logic (parsers, file operations, the terminal emulator against hostile input, 78 extraction tests with hand-built hostile archives) and its window through real clicks and keys on Qt's offscreen platform, with stand-ins where the real thing would touch the system |
+| `boswas-apps` (Python), one suite per application | Terminal 302, Task Manager 261, Archive Manager 255, Files 229, Photos 204, Calculator 160, Media Player 136, Text Editor 131, Calendar 112, Reminders 103, Document Viewer 90, Clock 58, Camera 39 | Each application's logic (parsers, file operations, the terminal emulator against hostile input, 78 extraction tests with hand-built hostile archives) and its window through real clicks and keys on Qt's offscreen platform, with stand-ins where the real thing would touch the system |
 
 One more `#[test]` in the compositor's end-to-end file is a helper
-program for the others and is not counted. Task Manager's suite is not
-listed: the application is being finished (ADR-0040). Three of the
-settings tests run against the real compositor on its headless back end
-and are opt-in (`BOSWAS_TEST_COMPOSITOR=1`).
+program for the others and is not counted. Three of the settings tests
+run against the real compositor on its headless back end and are opt-in
+(`BOSWAS_TEST_COMPOSITOR=1`).
 
 `tests/static/test_sources.sh` checks, for this round: that a public
 control connection gets exactly `version`, `lock`, `reload-config`,
@@ -128,9 +127,10 @@ do on purpose or not yet; "not verified" is what could not be tried here.
 | Archive Manager | No encrypted archives are created; nothing is renamed inside an archive; entries cannot be dragged out; each start is its own window | 7z through `7z` 23.01 only (Debian 13 has 25.01); RAR with no real file |
 | Media Player | No tags for Matroska, AVI, WMA and AIFF; no MPRIS track list; the mini player does not stay on top | Audible output, switching the output device, network streams and files with several tracks ran against a fake back end only. Real Qt Multimedia decoded mp3, flac, ogg, opus, wav, m4a, mp4, mkv, webm, mov and avi without a sound device. Video at 4K was not measured |
 | Camera | Flash, exposure, focus and zoom appear only when the camera reports them | Everything: there is no camera here. Capture, recording, pause, unplugging and the error texts ran against a fake camera |
+| Task Manager | No network column per process; no efficiency mode; no way to disconnect a session. A process that used almost no CPU shows a change of its memory or disk use up to 8 seconds late | A real Wayland session; a real GPU, battery and Wi-Fi adapter (fake sysfs in the tests); the polkit question when a service is started or stopped; "Open file location" against the running Files. Tried live against a real systemd user manager and a real logind on a private bus; its CPU figures were compared with `top` |
 | Clock | No choice of alarm sound | The chime (Qt Multimedia crashes in this environment); logind's wake-up signal |
 | Calendar | No accounts and no synchronisation; no printing; resizing by dragging only in the week and day views; it does not notice when another program changes its file; events of a hidden calendar do not remind | Reminders against the real notification service of the shell (tested against a stand-in on a private bus) |
-| Control Center, settings | Editing a proxy; managing VPN connections; a test sound; an automatic suspend time; identifying monitors; a pointer theme; drawing tablets; more than four keyboard layouts; locking an account. Passwords set for other users are SHA-512 crypt, not Debian 13's default scheme | See the table above. For the Users page: the shape of `busctl`'s replies, the conversation with `passwd` under real PAM modules, polkit's questions through the shell's agent, signing in as a user it created, removing a user with and without the files, the picture on the login screen |
+| Control Center, settings | Editing a proxy; managing VPN connections; a test sound; an automatic suspend time; identifying monitors; a pointer theme; drawing tablets; more than four keyboard layouts; locking an account. Passwords set for other users are SHA-512 crypt, not Debian 13's default scheme, and are not checked by `pam_pwquality` | See the table above. For the Users page: the shape of `busctl`'s replies, the conversation with `passwd` under real PAM modules, polkit's questions through the shell's agent, signing in as a user it created, removing a user with and without the files, the picture on the login screen |
 
 Icons: the applications ask for some symbolic icons the Boswas Prism pack
 does not draw (the reports name them). Ten were added; the others fall

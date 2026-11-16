@@ -99,7 +99,7 @@ screenshot tool; the portal path is not tested).
 | Boswas UI delivery | In Rust (`boswas-ui`) for the shell and the window frames, not the Qt Quick style and QML module of the plan (ADR-0027), and as the Qt Widgets toolkit `boswas_fluent` for the Boswas applications (ADR-0039). KDE colour schemes are generated. Open: a GTK theme |
 | Icons | **Implemented**: Boswas Prism and Boswas Prism Light, 264 designs in 461 files (ADR-0031). The applications name some symbolic icons the pack does not draw yet; those fall back to a similar icon or a text button |
 | Boot screen | **Implemented, not boot-tested**: `boswas-bootsplash` (ADR-0029), in the Boswas UI look since ADR-0038 |
-| System applications | **Implemented, not run on the desktop** (`boswas-apps`, ADR-0040): Files, Terminal, Text Editor, Calculator, Photos, Document Viewer, Archive Manager, Media Player, Camera, Clock, Calendar and a reminders service replace KDE's applications in the image. Task Manager is being finished. Open: what each leaves out (ADR-0040), an office suite, a mail client |
+| System applications | **Implemented, not run on the desktop** (`boswas-apps`, ADR-0040): Files, Terminal, Text Editor, Calculator, Photos, Document Viewer, Archive Manager, Media Player, Camera, Clock, Calendar, Task Manager and a reminders service replace KDE's applications in the image. Open: what each leaves out (ADR-0040), an office suite, a mail client, a print service |
 | Settings | **Implemented against stand-ins** (ADR-0041): native sections in Control Center for network, Bluetooth, sound, power, display, night light, mouse, touchpad, keyboard, personalization, lock and screen timeouts, date and time, region, default and start-up applications, user accounts. Open: proxy and VPN editing, drawing tablets, an automatic suspend time |
 
 ### Done since the first version of the native desktop
@@ -136,8 +136,8 @@ In rough order of what a user misses first:
 2. **Settings**: run every section against the real services, the Users
    page first (AccountsService, polkit, `passwd`); then what ADR-0041
    leaves out.
-3. **System applications**: finish Task Manager; run every application on
-   the desktop and on real devices (a camera, removable drives, sound);
+3. **System applications**: run every application on the desktop and on
+   real devices (a camera, removable drives, sound);
    a print service in the image, so that Print reaches a printer; then
    what ADR-0040 leaves out, by demand.
 4. **Screen sharing through the portal**: test `xdg-desktop-portal-wlr`
