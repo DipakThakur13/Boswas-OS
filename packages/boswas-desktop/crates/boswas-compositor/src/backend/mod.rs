@@ -8,6 +8,8 @@
 pub mod edid;
 pub mod headless;
 #[cfg(feature = "udev")]
+mod seatlog;
+#[cfg(feature = "udev")]
 pub mod udev;
 #[cfg(feature = "winit")]
 pub mod winit;

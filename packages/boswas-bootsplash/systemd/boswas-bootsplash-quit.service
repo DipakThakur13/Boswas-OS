@@ -3,12 +3,19 @@ Description=Hand the screen over from the Boswas OS boot screen
 Documentation=man:boswas-bootsplash(1)
 After=rc-local.service boswas-bootsplash-start.service systemd-user-sessions.service
 Before=greetd.service display-manager.service getty@tty1.service
-ConditionPathExists=/run/boswas-bootsplash/pid
+# No condition on a file of the boot screen: whenever one is running it must
+# be ended here, or the login screen cannot use the display. Without a boot
+# screen the command fails at once and that is ignored.
 
 [Service]
-# --retain: the last frame stays on the display until the greeter shows its
-# own picture, so there is no blank screen in between. If nothing takes the
-# display within a few seconds, the text console returns.
+# The boot screen gives up the display and the keyboard. --retain: its last
+# frame stays until another program puts its own picture on the display, or
+# six seconds have passed. With the login manager greetd that picture is the
+# text console, which greetd clears and switches to before the login screen's
+# compositor starts: the frame goes away then, and the display is black
+# (an empty console) for the moment the compositor needs to draw. The boot
+# screen never takes the display or the console back from a program that has
+# it. A boot screen that does not answer is terminated.
 Type=oneshot
 ExecStart=-/usr/bin/boswas-bootsplash quit --retain
 TimeoutStartSec=20

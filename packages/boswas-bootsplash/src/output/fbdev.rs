@@ -3,6 +3,16 @@
 //! Used when no DRM device is available (for example `vesafb` on old BIOS
 //! machines). Supports the common packed-pixel formats: 32 bits per pixel
 //! with 8-bit channels at any position, and 16 bits per pixel RGB565.
+//!
+//! A firmware frame buffer (`efifb`, `vesafb`) is removed when the real
+//! graphics driver loads, and its memory then belongs to that driver. The
+//! kernel answers every call on the old device with an error from then on;
+//! [`FbOutput::alive`] asks before each frame, so nothing is written into
+//! the old mapping and the daemon looks for the new device. Hiding needs
+//! nothing here: the kernel's console repaints the frame buffer itself when
+//! the daemon puts the console back into text mode. There is no way to
+//! leave a frame for the next program ([`Output::retain`] stays false), so
+//! `quit --retain` on this output is a plain quit.
 
 use std::fs::{File, OpenOptions};
 use std::io;
@@ -113,17 +123,31 @@ pub fn convert_row(row: &[u32], format: PixelFormat, out: &mut [u8]) {
 pub struct FbOutput {
     geometry: Geometry,
     map: Mapping,
-    _file: File,
+    file: File,
 }
 
 impl FbOutput {
     pub fn open(path: &Path) -> io::Result<FbOutput> {
-        let file = OpenOptions::new().read(true).write(true).open(path)?;
+        FbOutput::from_file(OpenOptions::new().read(true).write(true).open(path)?)
+    }
+
+    /// Use a frame buffer device that is already open.
+    pub fn from_file(file: File) -> io::Result<FbOutput> {
         let var = sys::fb_var_screeninfo(file.as_fd())?;
         let fix = sys::fb_fix_screeninfo(file.as_fd())?;
         let geometry = geometry(&var, &fix).map_err(|why| io::Error::new(io::ErrorKind::Unsupported, why))?;
         let map = Mapping::new(file.as_fd(), geometry.length)?;
-        Ok(FbOutput { geometry, map, _file: file })
+        Ok(FbOutput { geometry, map, file })
+    }
+
+    /// Whether the device is still registered and still has the size and
+    /// format it was opened with.
+    fn device_unchanged(&self) -> bool {
+        let (Ok(var), Ok(fix)) = (sys::fb_var_screeninfo(self.file.as_fd()), sys::fb_fix_screeninfo(self.file.as_fd()))
+        else {
+            return false; // unregistered: the kernel refuses the old descriptor
+        };
+        geometry(&var, &fix).is_ok_and(|now| now == self.geometry)
     }
 }
 
@@ -137,6 +161,10 @@ impl Output for FbOutput {
     }
 
     fn present(&mut self, _index: usize, canvas: &Canvas, damage: &[Rect]) -> io::Result<()> {
+        if !self.device_unchanged() {
+            // The mapping may now be another driver's memory: do not draw.
+            return Err(io::Error::from_raw_os_error(libc::ENODEV));
+        }
         let g = self.geometry;
         let bytes = match g.format {
             PixelFormat::Rgb32 { .. } => 4,
@@ -155,6 +183,10 @@ impl Output for FbOutput {
             }
         }
         Ok(())
+    }
+
+    fn alive(&mut self) -> bool {
+        self.device_unchanged()
     }
 }
 
@@ -251,5 +283,33 @@ mod tests {
     fn a_missing_device_is_an_error() {
         assert!(FbOutput::open(Path::new("/nonexistent/fb0")).is_err());
         assert!(FbOutput::open(Path::new("/dev/null")).is_err());
+        assert!(FbOutput::from_file(File::open("/dev/null").unwrap()).is_err());
+    }
+
+    #[test]
+    fn nothing_is_drawn_once_the_device_stops_answering() {
+        // A plain file stands in for a frame buffer that was unregistered:
+        // it can still be mapped, but the frame buffer calls on it fail.
+        let path = std::env::temp_dir().join(format!("boswas-bootsplash-fb-{}", std::process::id()));
+        let file = OpenOptions::new().read(true).write(true).create(true).truncate(true).open(&path).unwrap();
+        let geometry = geometry(
+            &FbVarScreeninfo { xres: 8, yres: 4, ..var32() },
+            &FbFixScreeninfo { visual: FB_VISUAL_TRUECOLOR, line_length: 32, smem_len: 128, ..Default::default() },
+        )
+        .unwrap();
+        file.set_len(geometry.length as u64).unwrap();
+        let map = Mapping::new(file.as_fd(), geometry.length).unwrap();
+        let mut output = FbOutput { geometry, map, file };
+        assert_eq!(output.sizes(), [(8, 4)]);
+        assert!(!output.alive(), "the device no longer answers");
+        let mut canvas = Canvas::new(8, 4);
+        canvas.fill_rect(&Rect::new(0, 0, 8, 4), crate::gfx::Rgb::new(0xff, 0xff, 0xff));
+        let refused = output.present(0, &canvas, &[Rect::new(0, 0, 8, 4)]).unwrap_err();
+        assert_eq!(refused.raw_os_error(), Some(libc::ENODEV));
+        assert!(!output.retain(), "a frame buffer cannot keep a frame for the next program");
+        drop(output);
+        let bytes = std::fs::read(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        assert!(bytes.iter().all(|&b| b == 0), "not one byte was written into the old mapping");
     }
 }

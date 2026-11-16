@@ -427,6 +427,201 @@ fn launcher_supervisor_and_worker() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A boot screen started the way the system starts it (launcher,
+/// supervisor, worker), headless, on a pseudo-terminal.
+struct Launched {
+    dir: std::path::PathBuf,
+    socket: std::path::PathBuf,
+    pid_file: std::path::PathBuf,
+    pty: Pty,
+    /// Every worker seen, to make sure none outlives the test.
+    workers: std::cell::RefCell<Vec<u32>>,
+}
+
+impl Launched {
+    fn new(name: &str) -> Launched {
+        let dir = temp_dir(name);
+        let socket = dir.join("run").join("socket");
+        let pid_file = dir.join("run").join("pid");
+        let launched = Launched { dir, socket, pid_file, pty: open_pty(), workers: Default::default() };
+        assert!(launched.launch(&[]).success());
+        launched
+    }
+
+    fn command(&self, extra: &[&str]) -> Command {
+        let mut command = Command::new(DAEMON);
+        command
+            .arg("--headless=640x480")
+            .arg(format!("--out={}", self.dir.join("out").display()))
+            .arg(format!("--socket={}", self.socket.display()))
+            .arg(format!("--tty={}", self.pty.path.display()))
+            .args(extra)
+            .stdin(Stdio::null());
+        command
+    }
+
+    fn launch(&self, extra: &[&str]) -> std::process::ExitStatus {
+        self.command(extra).status().unwrap()
+    }
+
+    fn worker(&self) -> u32 {
+        let pid = std::fs::read_to_string(&self.pid_file).unwrap().trim().parse::<u32>().unwrap();
+        self.workers.borrow_mut().push(pid);
+        pid
+    }
+
+    fn signal(&self, signal: &str, pid: u32) {
+        Command::new("kill").args([signal, &pid.to_string()]).status().unwrap();
+    }
+}
+
+impl Drop for Launched {
+    fn drop(&mut self) {
+        for pid in self.workers.borrow().iter() {
+            let _ = Command::new("kill").args(["-KILL", &pid.to_string()]).stderr(Stdio::null()).status();
+        }
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+fn running(pid: u32) -> bool {
+    std::path::Path::new(&format!("/proc/{pid}")).exists()
+}
+
+#[test]
+fn a_second_start_leaves_a_boot_screen_that_does_not_answer_alone() {
+    let first = Launched::new("second");
+    let worker = first.worker();
+    assert!(!first.pty.cooked());
+    let lock = first.dir.join("run").join("lock");
+    assert!(exists(&lock), "the lock is in the runtime directory");
+
+    // The boot screen stops answering (here: stopped; on a device: busy for
+    // longer than a client waits). The system starts it "again".
+    first.signal("-STOP", worker);
+    assert!(!boswas_bootsplash::client::ping(&first.socket));
+    let begun = std::time::Instant::now();
+    assert!(first.launch(&["--mode=shutdown"]).success(), "a boot screen is running: not a failure");
+    assert!(begun.elapsed() < Duration::from_secs(15));
+    // Nothing of the first one was touched: its files are there, its console
+    // is still in raw mode, and it is the same process.
+    assert!(exists(&first.socket) && exists(&first.pid_file));
+    assert_eq!(first.worker(), worker);
+    assert!(!first.pty.cooked(), "the console of the running boot screen was not reset");
+    assert!(running(worker));
+    // A worker started in the foreground is refused the same way.
+    let status = first.command(&["--foreground"]).stderr(Stdio::null()).status().unwrap();
+    assert_eq!(status.code(), Some(4));
+    assert!(exists(&first.socket) && exists(&first.pid_file) && !first.pty.cooked());
+
+    // It comes back and serves as before; the hand-over still works.
+    first.signal("-CONT", worker);
+    wait_until("the boot screen to answer again", Duration::from_secs(5), || {
+        boswas_bootsplash::client::ping(&first.socket)
+    });
+    let quit = Command::new(CLIENT).arg("--socket").arg(&first.socket).arg("quit").status().unwrap();
+    assert!(quit.success());
+    wait_until("the daemon to leave", Duration::from_secs(5), || !running(worker) && !exists(&first.socket));
+    assert!(!exists(&first.pid_file));
+    wait_until("the console settings to return", Duration::from_secs(5), || first.pty.cooked());
+    // The lock is free again: the next start is a new boot screen.
+    assert!(first.launch(&[]).success());
+    assert_ne!(first.worker(), worker);
+}
+
+#[test]
+fn quit_ends_a_boot_screen_that_does_not_answer() {
+    let stuck = Launched::new("stuck");
+    let worker = stuck.worker();
+    stuck.signal("-STOP", worker);
+    // The hand-over to the login screen: the boot screen must be gone
+    // afterwards, or nothing else can use the display.
+    let begun = std::time::Instant::now();
+    let quit = Command::new(CLIENT).arg("--socket").arg(&stuck.socket).args(["quit", "--retain"]).status().unwrap();
+    assert!(quit.success(), "the boot screen was ended");
+    assert!(begun.elapsed() < Duration::from_secs(12), "{:?}", begun.elapsed());
+    wait_until("the worker to be gone", Duration::from_secs(5), || !running(worker));
+    // Its supervisor put the console back and removed its files.
+    wait_until("the supervisor to clean up", Duration::from_secs(5), || {
+        !exists(&stuck.socket) && !exists(&stuck.pid_file)
+    });
+    wait_until("the console settings to return", Duration::from_secs(5), || stuck.pty.cooked());
+    // Without a boot screen, quit reports that there was none.
+    let quit = Command::new(CLIENT).arg("--socket").arg(&stuck.socket).arg("quit").status().unwrap();
+    assert_eq!(quit.code(), Some(1));
+
+    // A boot screen whose socket has been removed is found through its pid file.
+    assert!(stuck.launch(&[]).success());
+    let worker = stuck.worker();
+    std::fs::remove_file(&stuck.socket).unwrap();
+    let quit = Command::new(CLIENT).arg("--socket").arg(&stuck.socket).arg("quit").status().unwrap();
+    assert!(quit.success());
+    wait_until("the worker to be gone", Duration::from_secs(5), || !running(worker));
+    wait_until("the console settings to return", Duration::from_secs(5), || stuck.pty.cooked());
+    wait_until("the pid file to be removed", Duration::from_secs(5), || !exists(&stuck.pid_file));
+    // A pid file that names some other program is not acted on.
+    std::fs::create_dir_all(stuck.pid_file.parent().unwrap()).unwrap();
+    std::fs::write(&stuck.pid_file, format!("{}\n", std::process::id())).unwrap();
+    let quit = Command::new(CLIENT).arg("--socket").arg(&stuck.socket).arg("quit").status().unwrap();
+    assert_eq!(quit.code(), Some(1), "this test is not a boot screen and is still alive");
+}
+
+#[test]
+fn the_supervisor_cleans_up_where_paths_no_longer_lead() {
+    let moved = Launched::new("moved");
+    let worker = moved.worker();
+    // After the switch from the initramfs to the real root the supervisor's
+    // paths lead nowhere. Here: the runtime directory gets another name.
+    let elsewhere = moved.dir.join("elsewhere");
+    std::fs::rename(moved.dir.join("run"), &elsewhere).unwrap();
+    assert!(exists(&elsewhere.join("socket")) && exists(&elsewhere.join("pid")));
+    moved.signal("-KILL", worker);
+    wait_until("the supervisor to clean up", Duration::from_secs(5), || {
+        !exists(&elsewhere.join("socket")) && !exists(&elsewhere.join("pid"))
+    });
+    wait_until("the console settings to return", Duration::from_secs(5), || moved.pty.cooked());
+}
+
+#[test]
+fn raw_mode_returns_after_the_console_was_reset() {
+    let mut splash = Splash::start("reset", "800x600", &["--static"]);
+    assert!(!splash.pty.cooked());
+    // What systemd does to the console a moment after it starts.
+    let reset = |pty: &Pty| {
+        use rustix::termios::{tcgetattr, tcsetattr, LocalModes, OptionalActions};
+        let mut sane = tcgetattr(&pty.master).unwrap();
+        sane.local_modes.insert(LocalModes::ECHO | LocalModes::ICANON | LocalModes::ISIG);
+        tcsetattr(&pty.master, OptionalActions::Now, &sane).unwrap();
+    };
+    reset(&splash.pty);
+    assert!(splash.pty.cooked());
+    wait_until("raw mode to return", Duration::from_secs(3), || !splash.pty.cooked());
+    // Escape works at once, without Enter: the screen hides and comes back.
+    let before = splash.snapshot();
+    splash.pty.type_keys(b"\x1b");
+    std::thread::sleep(Duration::from_millis(200));
+    splash.ok(Request::Message { text: "cryptsetup: sda3_crypt: set up successfully".into() });
+    assert!(splash.snapshot().rgb == before.rgb, "hidden: nothing is drawn");
+    splash.pty.type_keys(b"\x1b");
+    splash.wait_for("the message on screen", |f| f.ink(&f.layout().boot_message) > 300);
+    // The console is reset again just before a passphrase is asked for:
+    // what is typed is still not echoed and arrives without line editing.
+    reset(&splash.pty);
+    let ask = splash
+        .client()
+        .args(["ask-password", "--prompt", "Please unlock disk sda3_crypt"])
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    splash.wait_for("the prompt", prompt_shown);
+    assert!(!splash.pty.cooked());
+    let _ = splash.pty.read_output(Duration::from_millis(100));
+    splash.pty.type_keys(b"open sesame\r");
+    let (code, out) = wait_child(ask, Duration::from_secs(5));
+    assert_eq!((code, out), (Some(0), b"open sesame".to_vec()));
+    assert!(!splash.pty.read_output(Duration::from_millis(200)).contains("sesame"), "the passphrase is never echoed");
+}
+
 #[test]
 fn a_start_that_fails_reports_failure_and_leaves_nothing_behind() {
     let dir = temp_dir("fail");

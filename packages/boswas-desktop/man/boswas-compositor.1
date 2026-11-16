@@ -17,7 +17,8 @@ It is normally started by
 .BR boswas-session (1).
 Once it accepts clients it starts the shell
 .RB ( boswas-shell (1))
-as a trusted client and restarts it if it exits.
+as a trusted client and starts it again when it ends (see
+.BR "THE SHELL" ).
 .SH OPTIONS
 .TP
 .BI \-\-backend " KIND"
@@ -57,6 +58,47 @@ Show a summary of the options.
 .TP
 .BR \-V ", " \-\-version
 Show the version.
+.SH STARTING ON REAL HARDWARE
+With the \fBudev\fR backend the compositor gets its devices from the login
+session's seat (libseat, normally through logind), so it has to be started
+from a login session on a virtual terminal: by
+.BR greetd (1)
+or from a login on a text console. It opens the seat and waits up to 4
+seconds for the seat to be enabled before it opens any device. A seat that
+is not enabled ends the compositor with a message that names the usual
+causes: it was not started from such a session; logind refused to activate
+the session because polkit is not running; another display server holds
+the seat. What libseat itself reports is in the log (target
+\fBlibseat\fR).
+.PP
+The outputs of one graphics device are driven: the one the firmware
+started the machine with, else the first that works. When no graphics
+device is there yet (during boot the driver may bind a moment later) the
+compositor waits up to 10 seconds for one. Devices may come and go while it
+runs: when the device in use goes away (a firmware framebuffer that the
+native driver replaces) or none is in use, the next device that appears is
+taken, its monitors are set up, and the windows of the session stay.
+.PP
+A desktop session without a usable monitor keeps running and appears when
+one is connected. The login screen instead ends after 5 seconds without an
+output, so that the text login is shown.
+.PP
+On a device without a hardware renderer (a firmware framebuffer, the
+"safe graphics" start entry) frames are drawn in software and completed
+before they are shown.
+.SH THE SHELL
+The shell is started again at once when it ends. A shell that keeps ending
+right after its start (within 30 seconds) is started again after a pause
+that doubles each time, from 2 seconds up to a minute: the session and its
+applications stay, and the log says when the next try is. A shell that has
+run for 30 seconds counts as working again.
+.PP
+The login screen (the shell command has the argument \fB\-\-greeter\fR) is
+different, because nothing else runs on its compositor: after three failed
+starts in a row the compositor ends with exit status 4 and one line on
+standard error that says how the login screen ended, and
+.BR boswas\-greeter
+shows the text login. No X server is started for the login screen either.
 .SH KEYBOARD
 .TS
 tab(|);
@@ -275,7 +317,7 @@ Read from the first two files only; ignored in a user's file.
 no limit). \fBprivileged_protocols\fR: "shell" (default) or "all" (see
 SECURITY).
 .SH X11 APPLICATIONS
-With \fB[xwayland] enabled\fR the compositor starts
+With \fB[xwayland] enabled\fR the compositor of a desktop session starts
 .BR Xwayland (1)
 and manages its windows like any other: the same frame, snapping, picker
 and Task View. \fBDISPLAY\fR is set for programs the session starts. The
@@ -330,14 +372,35 @@ available to the shell only, on the descriptor the compositor hands it.
 .SH ENVIRONMENT
 .TP
 .B BOSWAS_LOG
-Log filter (for example \fBdebug\fR or \fBboswas_compositor=trace\fR).
-Messages go to standard error.
+Log filter (for example \fBdebug\fR, \fBboswas_compositor=trace\fR or
+\fBinfo,libseat=debug\fR). Messages go to standard error.
 .TP
 .B XCURSOR_THEME
 Cursor theme when \fBpointer.cursor_theme\fR is empty.
 .SH EXIT STATUS
-0 when the session ended normally, 1 when the compositor could not start or
-failed, 2 for a usage error.
+.TP
+.B 0
+The session ended as asked: a login succeeded on the login screen, or the
+user signed out.
+.TP
+.B 1
+Any error that is none of the following.
+.TP
+.B 2
+Usage error.
+.TP
+.B 3
+The compositor could not start: no usable seat, no graphics device within
+the wait, or (login screen only) no output.
+.TP
+.B 4
+The login screen kept failing and the compositor gave up. A desktop
+session never ends this way.
+.PP
+A failure is explained by one error line on standard error. Statuses 3 and
+4 mean that starting the compositor again would end the same way;
+.B boswas\-greeter
+then shows the text login.
 .SH SEE ALSO
 .BR boswas-session (1),
 .BR boswas-shell (1),

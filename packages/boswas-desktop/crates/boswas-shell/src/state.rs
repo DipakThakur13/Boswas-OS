@@ -377,4 +377,37 @@ mod tests {
         st.auth.other_user();
         each(|f, _| lock::draw(f, &st, true), 800.0, 600.0, "greeter, other user");
     }
+
+    /// On a machine without a single usable font nothing panics: the lock
+    /// screen (which has to stay, or the session could not be unlocked) and
+    /// the other surfaces draw their shapes and controls without text.
+    #[test]
+    fn every_surface_draws_without_any_font() {
+        let fontless = |scheme| {
+            let text = boswas_ui::text::TextEngine::from_font_dirs(&[]);
+            assert!(!text.has_fonts());
+            crate::ui::Resources::with_text(boswas_ui::Theme::of(scheme), text)
+        };
+        let mut st = State::for_tests();
+        st.auth.display_name = "Asha Rao".into();
+        st.auth.hint = "Enter your password to unlock".into();
+        for scheme in [Scheme::Dark, Scheme::Light] {
+            for (name, stage, greeter) in [
+                ("lock clock", lock::Stage::Clock, false),
+                ("lock sign-in", lock::Stage::SignIn, false),
+                ("greeter", lock::Stage::SignIn, true),
+            ] {
+                st.auth.stage = stage;
+                st.auth.greeter = greeter;
+                let (canvas, hits) = testing::render_with(fontless(scheme), 1024.0, 768.0, 1.0, None, None, |f| lock::draw(f, &st, true));
+                assert!(canvas.data().chunks_exact(4).any(|p| p[3] > 0), "{name} drew nothing");
+                assert!(testing::hits_are_inside(&hits, 1024.0, 768.0), "{name}");
+            }
+            let (canvas, _) = testing::render_with(fontless(scheme), 1366.0, 48.0, 1.0, None, None, |f| taskbar::draw(f, &st));
+            assert!(canvas.data().chunks_exact(4).any(|p| p[3] > 0), "taskbar drew nothing");
+            let panel = Rect::new(PAD, PAD, 642.0, 726.0);
+            testing::render_with(fontless(scheme), 642.0 + 2.0 * PAD, 726.0 + 2.0 * PAD, 1.0, None, None, |f| start::draw(f, &st, panel));
+            testing::render_with(fontless(scheme), 400.0, 768.0, 1.0, None, None, |f| notify::draw_centre(f, &st, Rect::new(PAD, PAD, 364.0, 720.0)));
+        }
+    }
 }

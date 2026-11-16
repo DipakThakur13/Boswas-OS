@@ -512,6 +512,18 @@ impl Config {
         }
     }
 
+    /// Whether this compositor shows the login screen: its shell is the
+    /// greeter and there is no session of a user behind it.
+    pub fn is_login_screen(&self) -> bool {
+        self.shell.command.iter().skip(1).any(|argument| argument == "--greeter")
+    }
+
+    /// Whether an X server is started for X11 applications. The login
+    /// screen runs none: its only program is the greeter.
+    pub fn runs_xwayland(&self) -> bool {
+        self.xwayland.enabled && !self.is_login_screen()
+    }
+
     /// Whether ordinary (not sandboxed) clients may use the privileged
     /// protocols too.
     pub fn trust_all_clients(&self) -> bool {
@@ -645,6 +657,22 @@ mod tests {
         assert_eq!(c.policy.lock_idle_max_seconds, 600);
         assert_eq!(c.policy.privileged_protocols, "shell");
         assert!(!c.trust_all_clients());
+    }
+
+    #[test]
+    fn the_login_screen_is_known_by_its_shell_and_runs_no_x_server() {
+        let desktop = Config::from_toml("[shell]\ncommand = [\"/usr/libexec/boswas/boswas-shell\"]\n").unwrap();
+        assert!(!desktop.is_login_screen());
+        assert!(desktop.runs_xwayland());
+        let greeter =
+            Config::from_toml("[shell]\ncommand = [\"/usr/libexec/boswas/boswas-shell\", \"--greeter\"]\n").unwrap();
+        assert!(greeter.is_login_screen());
+        assert!(greeter.xwayland.enabled, "the setting itself is untouched");
+        assert!(!greeter.runs_xwayland());
+        let off = Config::from_toml("[xwayland]\nenabled = false\n").unwrap();
+        assert!(!off.runs_xwayland());
+        let none = Config::from_toml("[shell]\ncommand = []\n").unwrap();
+        assert!(!none.is_login_screen());
     }
 
     #[test]

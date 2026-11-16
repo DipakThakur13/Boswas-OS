@@ -1116,9 +1116,17 @@ def scenario_android(iso: Path, workdir: Path, outdir: Path, timeout: float) -> 
         check("Hidden=true" in out or "/usr/local/share/applications/" in out,
               "android: Waydroid's own launcher and APK handler are hidden (they would offer Google Apps images)")
 
-        doc = sysops("android-init", 5400)
+        # The images come from SourceForge mirrors, whose downloads sometimes stop
+        # early; Waydroid then refuses the image (checksum). Retry like a user would.
+        attempts = []
+        for _ in range(3):
+            doc = sysops("android-init", 5400)
+            attempts.append(f"{doc.get('code')}: {str(doc.get('message'))[:120]}")
+            retryable = doc.get("code") == "NETWORK" or "hash doesn't match" in json.dumps(doc)
+            if doc.get("ok") is True or not retryable:
+                break
         if not check(doc.get("ok") is True, f"android: Android images downloaded and verified (android-init, VANILLA; "
-                                            f"{doc.get('code')}: {str(doc.get('message'))[:160]})"):
+                                            f"{len(attempts)} attempt(s): {' | '.join(attempts)})"):
             return
         rc, out = sh.run("sudo -n grep -iE '^(system_ota|vendor_ota|images_path)' /var/lib/waydroid/waydroid.cfg")
         (outdir / "android-waydroid-cfg.txt").write_text(out + "\n")
@@ -1616,6 +1624,14 @@ def scenario_serial(iso: Path, workdir: Path, outdir: Path, timeout: float, fixt
                 break
             vm.pump(20)
         check(session_up, "the Boswas desktop session started for the live user (automatic sign-in)")
+        # What the login looked like, kept with the results: a boot that
+        # ends without a desktop is explained here (ADR-0044).
+        rc, out = sh.run("systemctl is-active greetd.service getty@tty1.service; "
+                         "sed -n '/^\\[initial_session\\]/,$p' /etc/boswas/greetd.toml; "
+                         "sudo -n journalctl -b --no-pager -u greetd.service -t boswas-greeter -t boswas-session "
+                         "| tail -n 60")
+        (outdir / "login.txt").write_text(out + "\n")
+        check('user = "boswas"' in out, "greetd's automatic sign-in names the live user that exists (boswas)")
         if session_up:
             vm.pump(60)
             to_png(vm.screendump("desktop"), outdir / "serial-desktop.png")

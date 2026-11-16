@@ -37,6 +37,16 @@ check "greetd is the display manager and reads the Boswas login configuration" \
 		grep -qx 'command = \"/usr/libexec/boswas/boswas-greeter\"' '$root/etc/boswas/greetd.toml'"
 check_not "the image does not sign a user in automatically (only the live session does, at boot)" \
 	grep -q '^\[initial_session\]' "$root/etc/boswas/greetd.toml"
+check "a text login takes over when greetd fails for good, and the fallback login gives a shell" \
+	bash -c "grep -qx 'OnFailure=boswas-login-fallback.service' '$root/usr/lib/systemd/system/greetd.service.d/10-boswas.conf' &&
+		test -s '$root/usr/lib/systemd/system/boswas-login-fallback.service' && test -x '$root/usr/libexec/boswas/boswas-login-fallback' &&
+		test -x '$root/usr/libexec/boswas/boswas-text-session' && test -x '$root/usr/sbin/agreety'"
+check "what the login screen cannot start without is installed (polkit, the font configuration, Inter, the logind PAM module)" \
+	bash -c "for p in polkitd fontconfig-config fonts-inter libpam-systemd; do
+			[ \"\$(dpkg-query --admindir='$root/var/lib/dpkg' -W -f='\${db:Status-Status}' \$p 2>/dev/null)\" = installed ] || exit 1; done;
+		test -s '$root/etc/fonts/fonts.conf'"
+check "the live session's settings name the live user, and its component reads the name from the kernel command line" \
+	bash -c "grep -qx 'LIVE_USERNAME=\"boswas\"' '$root/etc/live/config.conf.d/boswas.conf' && grep -q 'username=\\*' '$root/usr/lib/live/config/9000-boswas'"
 check "the compositor and the shell run inside the image" \
 	bash -c "chroot '$root' /usr/bin/boswas-compositor --version | grep -q '^boswas-compositor ' &&
 		chroot '$root' /usr/libexec/boswas/boswas-shell --version | grep -q '^boswas-shell '"

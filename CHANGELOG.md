@@ -29,15 +29,81 @@ Verification status of the native desktop
   the service backends against stand-ins of the system daemons; the Qt
   toolkit, the system applications and the settings on Qt's offscreen
   platform.
+- **Booted in a virtual machine** (the built packages on another
+  distribution's base system, software rendering; not the image): the boot
+  screen, the login screen, a sign-in to the desktop, the live session's
+  automatic sign-in, and every text-login fallback of ADR-0044.
 - **Not yet verified:** the ISO build with the new manifest; the QEMU boot
-  test; the hardware path (DRM/KMS, libinput, libseat); the greetd login on
-  a real boot; the boot screen on real hardware and its disk-unlock prompt;
+  test; anything on Debian 13 itself; the hardware path (DRM/KMS on real
+  graphics hardware, libinput, libseat); the greetd login on the image;
+  the boot screen on real hardware and its disk-unlock prompt;
   every service backend against the real daemon (NetworkManager, BlueZ,
   PipeWire, UPower, polkit); the applications on the running desktop and
   with real devices; screen sharing through the portal; dependency
   resolution of the new image manifest on Debian trixie.
 
 ### Fixed
+- **A boot that stopped at a blinking cursor** *(native desktop)*: the
+  live medium did not reach the desktop; the screen stayed black with a
+  text cursor and there was no way to sign in. The live session's
+  automatic sign-in named a user that does not exist (live-config's own
+  default, `user`, instead of the live user `boswas`), greetd refused it
+  five times and stopped, and nothing else offered a login on the first
+  console. The live user's name is now set in one place and read the way
+  live-config reads it (also `username=` on the kernel command line), and
+  an automatic sign-in is written only for a user that exists (ADR-0044).
+- **A boot always ends at a way to sign in** *(native desktop)*: looking
+  for the cause by booting the packages in a virtual machine showed more
+  ways to the same black screen, each corrected (ADR-0044):
+  - If greetd fails for good, the text login (`getty`) is started on the
+    first console (`boswas-login-fallback.service`).
+  - If the login screen cannot start, the text login of greetd is shown.
+    It used to start the same desktop that had just failed; it now opens
+    a shell (`boswas-text-session`) with a note on how to start the
+    desktop and where the log is. The compositor says by its exit status
+    whether trying again is pointless (3: no seat, no graphics device or
+    no output; 4: the login screen kept failing).
+  - Without polkit the compositor could not open the graphics device (the
+    login service refuses to activate the session), and without the font
+    configuration or a font the shell ended at once, again and again.
+    `polkitd`, `fontconfig-config`, `fonts-inter` and `libpam-systemd` are
+    dependencies of `boswas-desktop` now, not recommendations. The shell
+    also finds fonts without the font configuration and ends with one
+    clear line when there is none; the compositor names the causes when it
+    gets no seat, and the log has what libseat reported.
+  - The compositor waits for a graphics device that appears a moment
+    later, and moves to the native driver's device when that replaces
+    the firmware frame buffer under it. Windows stay.
+  - On a firmware frame buffer (software rendering, "safe graphics")
+    parts of the first pictures were missing; frames are completed before
+    they are shown.
+  - After a login on the login screen its compositor did not end until
+    greetd stopped it (about five seconds); it ends at once.
+  - A desktop shell that keeps failing is started again with a growing
+    pause instead of in a tight loop; the login screen is given up after
+    three failed starts and the text login is shown.
+  - A syntax error in `/etc/profile` or `~/.profile` no longer ends the
+    session before it starts.
+  - The compositor's messages appeared as text on the console between the
+    boot screen and the login screen and were kept in no log. They go to
+    the journal (`journalctl -b -t boswas-session`, `-t boswas-greeter`).
+  - The boot screen showed only its moving ring after the display's
+    driver had replaced the firmware frame buffer; it draws the whole
+    picture again. It can follow a graphics device that appears after it
+    has entered its sandbox (its supervisor opens the device for it),
+    there is only ever one boot screen, one that does not answer is
+    terminated at the hand-over, the Escape key keeps working after the
+    switch to the real root, and emergency and rescue mode end it before
+    their shell starts. The initramfs brings the graphics drivers itself
+    on Debian.
+  - The boot menu of the live medium sets a graphics mode for the kernel
+    on BIOS machines, and installed systems keep the boot loader's mode,
+    so the boot screen has a frame buffer to draw on before the graphics
+    driver is loaded.
+- **Android image download** (from the unmerged branch
+  `feature/m2-device-management`): a downloaded image whose checksum does
+  not match is reported as a network error that can be tried again, and
+  the boot test tries the download three times.
 - **Calendar in a narrow window** *(native desktop)*: snapped to half of
   the screen, the toolbar was drawn over itself (the month cut off, the
   search box on top of the view switch). Below 900 pixels the pane with

@@ -105,6 +105,20 @@ Log filter (for example \fBdebug\fR). Messages go to standard error.
 .TP
 .B GREETD_SOCK
 Set by greetd for the login screen.
+.SH EXIT STATUS
+0 when the shell was asked to end. 2 for a wrong option. 1 on an error,
+with one line on standard error that says what was wrong: the compositor could not be reached, or no
+font is installed, so that nothing could be read on the screen. The fonts
+are looked for through fontconfig and, when that finds none, in
+.IR /usr/share/fonts ,
+.I /usr/local/share/fonts
+and the user's own font directories. The lock screen is the exception: it
+stays without text and writes the error to its log, because ending it
+would leave a locked session that cannot be unlocked.
+.PP
+The compositor starts a desktop shell again when it ends, and gives up on
+a login screen that keeps ending; see
+.BR boswas-compositor (1).
 .SH SECURITY
 The shell runs as the user, never as root. Programs it starts get neither
 its trusted Wayland connection nor its control connection to the

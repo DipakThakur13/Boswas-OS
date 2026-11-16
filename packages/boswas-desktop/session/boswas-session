@@ -12,8 +12,10 @@
 if [ -z "${BOSWAS_SESSION_PROFILE:-}" ]; then
 	export BOSWAS_SESSION_PROFILE=1
 	for profile in /etc/profile "$HOME/.profile"; do
+		# A file with a syntax error would end this script when it is
+		# sourced, and with it the login: such a file is skipped.
 		# shellcheck disable=SC1090
-		[ -r "$profile" ] && . "$profile" 2>/dev/null
+		[ -r "$profile" ] && sh -n "$profile" 2>/dev/null && . "$profile" 2>/dev/null
 	done
 fi
 
@@ -50,8 +52,21 @@ fi
 compositor=/usr/bin/boswas-compositor
 ready=/usr/libexec/boswas/boswas-session-ready
 
-"$compositor" "$@" -- "$ready"
+# The messages of the compositor and of what it starts go to the journal
+# ("journalctl -b -t boswas-session"), not onto the console behind the
+# desktop. systemd-cat runs the compositor in its own place, so the exit
+# status is the compositor's.
+log=""
+[ -S /run/systemd/journal/stdout ] && [ -x /usr/bin/systemd-cat ] &&
+	log="/usr/bin/systemd-cat --identifier=boswas-session"
+
+# shellcheck disable=SC2086
+$log "$compositor" "$@" -- "$ready"
 status=$?
+if [ "$status" -ne 0 ]; then
+	echo "boswas-session: the desktop ended with status $status" >&2
+	[ -n "$log" ] && echo "boswas-session: why: journalctl -b -t boswas-session" >&2
+fi
 
 # The session is over: stop what was started for it.
 if command -v systemctl >/dev/null 2>&1; then

@@ -1,0 +1,22 @@
+#!/bin/sh
+# boswas-text-session: what a login on the text login gets.
+#
+# The text login is shown when the graphical login could not start
+# (boswas-greeter). The desktop would not start either, so the session is
+# the user's shell on the console; "boswas-session" tries the desktop.
+user=$(id -un 2>/dev/null)
+shell=$(getent passwd "$user" 2>/dev/null | cut -d: -f7)
+[ -x "$shell" ] || shell=/bin/sh
+
+cat <<'MESSAGE'
+
+Boswas OS: the graphical desktop could not start on this computer, so this
+is a text session.
+  boswas-session                        try to start the desktop from here
+  journalctl -b -t boswas-session       why the desktop did not start for you
+  sudo journalctl -b -t boswas-greeter  why the login screen did not start
+  exit                                  sign out
+
+MESSAGE
+cd "${HOME:-/}" 2>/dev/null || cd /
+exec "$shell" -l

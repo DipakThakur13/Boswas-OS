@@ -8,6 +8,7 @@ mod backend;
 mod config;
 mod cursor;
 mod effects;
+mod exit;
 mod focus;
 mod handlers;
 mod input;
@@ -15,6 +16,7 @@ mod ipc;
 mod render;
 mod shell;
 mod state;
+mod supervise;
 
 use std::{path::PathBuf, time::Duration};
 
@@ -55,6 +57,10 @@ Options:
   -V, --version        show the version
 
 COMMAND is started as an ordinary client once the compositor is ready.
+
+Exit status: 0 the session ended as asked; 3 the compositor could not
+start (no usable seat, no graphics device, no output); 4 the login screen
+kept failing; 2 wrong usage; 1 any other error.
 ";
 
 #[derive(Debug, Default)]
@@ -116,7 +122,7 @@ fn main() {
         Ok(None) => return,
         Err(message) => {
             eprintln!("boswas-compositor: {message}\n\n{USAGE}");
-            std::process::exit(2);
+            std::process::exit(exit::USAGE);
         }
     };
     if let Some(command) = &args.send {
@@ -124,11 +130,11 @@ fn main() {
             Ok(reply) => {
                 println!("{reply}");
                 let ok = serde_json::from_str::<serde_json::Value>(&reply).is_ok_and(|v| v["ok"] == true);
-                std::process::exit(if ok { 0 } else { 1 });
+                std::process::exit(if ok { exit::NORMAL } else { exit::ERROR });
             }
             Err(message) => {
                 eprintln!("boswas-compositor: {message}");
-                std::process::exit(1);
+                std::process::exit(exit::ERROR);
             }
         }
     }
@@ -136,9 +142,11 @@ fn main() {
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
     tracing_subscriber::fmt().with_env_filter(filter).with_writer(std::io::stderr).init();
 
+    // A failure is one line on standard error, and a status that tells the
+    // caller what kind it was.
     if let Err(err) = run(args) {
         error!("{err}");
-        std::process::exit(1);
+        std::process::exit(exit::status_of(err.as_ref()));
     }
 }
 
@@ -205,7 +213,7 @@ fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         #[cfg(feature = "winit")]
         "winit" => backend::winit::init(&mut state)?,
         #[cfg(feature = "udev")]
-        "udev" => backend::udev::init(&mut state)?,
+        "udev" => backend::udev::init(&mut event_loop, &mut state)?,
         other => return Err(format!("backend \"{other}\" is not available in this build").into()),
     }
 
@@ -229,6 +237,7 @@ fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     state.refresh_layouts();
     state.apply_night_light();
     // Before the shell, so that everything it starts knows the X display.
+    // (The login screen runs no X server.)
     state.start_xwayland();
     state.start_shell();
     state.start_input_method();
@@ -263,6 +272,9 @@ fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
     if let Some(path) = &state.ipc.socket_path {
         let _ = std::fs::remove_file(path);
+    }
+    if let Some(failure) = state.failure.take() {
+        return Err(failure.into());
     }
     info!("boswas-compositor stopped");
     Ok(())

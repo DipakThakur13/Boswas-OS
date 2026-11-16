@@ -1,5 +1,7 @@
 # Boswas OS boot screen (installed as
 # /usr/share/initramfs-tools/conf-hooks.d/boswas-bootsplash).
-# Include graphics drivers in the initramfs so the boot screen, and with it
-# the disk passphrase prompt, can be shown as early as possible.
+# Ubuntu's initramfs-tools adds its own choice of frame buffer drivers and
+# its frame buffer set-up script when this is set. Debian's ignores it; the
+# graphics drivers the boot screen needs are copied by the package's own
+# hook (hooks/boswas-bootsplash) on both.
 FRAMEBUFFER=y

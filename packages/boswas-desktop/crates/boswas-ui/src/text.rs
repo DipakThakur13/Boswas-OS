@@ -1,10 +1,18 @@
 //! Text shaping and rasterisation with the system fonts.
 //!
 //! Shaping (HarfBuzz-compatible, through cosmic-text) covers Latin and the
-//! Indic scripts alike, with per-script font fallback. Fonts are read from
-//! the system font directories; nothing is downloaded.
+//! Indic scripts alike, with per-script font fallback. Fonts are the ones
+//! fontconfig's configuration names; when that gives none (no
+//! `/etc/fonts/fonts.conf`), the standard font directories are read
+//! directly. Nothing is downloaded.
+//!
+//! A machine without any usable font is not an error here: the engine then
+//! measures every text as empty and draws nothing ([`TextEngine::has_fonts`]
+//! tells), so a program decides for itself whether it can go on.
 
-use cosmic_text::{Attrs, Buffer, Color, Family, FontSystem, Metrics, Shaping, SwashCache, Weight};
+use std::path::{Path, PathBuf};
+
+use cosmic_text::{fontdb, Attrs, Buffer, Color, Family, FontSystem, Metrics, Shaping, SwashCache, Weight};
 
 use crate::canvas::Canvas;
 use crate::tokens::{tokens, Rgba};
@@ -65,6 +73,8 @@ pub struct TextEngine {
     cache: SwashCache,
     ui_family: Option<String>,
     display_family: Option<String>,
+    /// At least one installed font can be used for shaping.
+    has_fonts: bool,
     /// Widths already measured, by text and style.
     widths: std::collections::HashMap<(String, u32, u16, Face), f32>,
 }
@@ -78,9 +88,60 @@ impl Default for TextEngine {
     }
 }
 
+/// The directories fonts are installed in when no fontconfig configuration
+/// says otherwise: the system's, the administrator's and the user's
+/// (`home` and `data_home` are `$HOME` and `$XDG_DATA_HOME`).
+pub fn standard_font_dirs(home: Option<&Path>, data_home: Option<&Path>) -> Vec<PathBuf> {
+    let mut dirs = vec![PathBuf::from("/usr/share/fonts"), PathBuf::from("/usr/local/share/fonts")];
+    match (data_home, home) {
+        (Some(data), _) => dirs.push(data.join("fonts")),
+        (None, Some(home)) => dirs.push(home.join(".local/share/fonts")),
+        (None, None) => {}
+    }
+    if let Some(home) = home {
+        dirs.push(home.join(".fonts"));
+    }
+    dirs
+}
+
+/// An absolute path from the environment, as the XDG specification asks.
+fn env_dir(name: &str) -> Option<PathBuf> {
+    std::env::var_os(name).map(PathBuf::from).filter(|path| path.is_absolute())
+}
+
 impl TextEngine {
+    /// The engine with the system's fonts: those of fontconfig's
+    /// configuration, else those in [`standard_font_dirs`].
     pub fn new() -> Self {
-        let fonts = FontSystem::new();
+        let engine = Self::with_fonts(FontSystem::new());
+        if engine.has_fonts {
+            return engine;
+        }
+        // No fontconfig configuration, or one that names no directory with
+        // a usable font: the fonts themselves may still be installed.
+        let (locale, mut db) = engine.fonts.into_locale_and_db();
+        let dirs = standard_font_dirs(env_dir("HOME").as_deref(), env_dir("XDG_DATA_HOME").as_deref());
+        load_font_dirs(&mut db, &dirs);
+        Self::with_fonts(FontSystem::new_with_locale_and_db(locale, db))
+    }
+
+    /// An engine with the fonts found in `dirs` (and below them) and no
+    /// others; with no directory, an engine without fonts.
+    pub fn from_font_dirs(dirs: &[PathBuf]) -> Self {
+        let mut db = fontdb::Database::new();
+        load_font_dirs(&mut db, dirs);
+        Self::with_fonts(FontSystem::new_with_locale_and_db("en-US".to_owned(), db))
+    }
+
+    fn with_fonts(mut fonts: FontSystem) -> Self {
+        // The shaper takes its fonts from the upright faces of normal width
+        // (every style drawn here is one) and does not survive finding
+        // none. A file that is listed but cannot be parsed is of no use;
+        // one good face is enough to draw text.
+        let upright = Attrs::new();
+        let ids: Vec<fontdb::ID> =
+            fonts.db().faces().filter(|face| upright.matches(face)).map(|face| face.id).collect();
+        let has_fonts = ids.into_iter().any(|id| fonts.get_font(id).is_some());
         let installed = |name: &str| {
             fonts
                 .db()
@@ -95,8 +156,15 @@ impl TextEngine {
             cache: SwashCache::new(),
             ui_family,
             display_family,
+            has_fonts,
             widths: std::collections::HashMap::new(),
         }
+    }
+
+    /// Whether there is any font to draw with. Without one every text
+    /// measures as empty and nothing is drawn.
+    pub fn has_fonts(&self) -> bool {
+        self.has_fonts
     }
 
     /// The UI family in use, when one of the preferred families is installed.
@@ -104,10 +172,13 @@ impl TextEngine {
         self.ui_family.as_deref()
     }
 
-    fn shape(&mut self, text: &str, style: &TextStyle, scale: f32) -> Buffer {
+    /// Shapes one line. `None` when there is no font to shape with.
+    fn shape(&mut self, text: &str, style: &TextStyle, scale: f32) -> Option<Buffer> {
+        if !self.has_fonts {
+            return None;
+        }
         let size = (style.size * scale).max(1.0);
         let metrics = Metrics::new(size, (style.line_height() * scale).max(1.0));
-        let mut buffer = Buffer::new(&mut self.fonts, metrics);
         let family = match style.face {
             Face::Ui => self.ui_family.as_deref(),
             Face::Display => self.display_family.as_deref().or(self.ui_family.as_deref()),
@@ -115,10 +186,11 @@ impl TextEngine {
         let attrs = Attrs::new()
             .family(family.map_or(Family::SansSerif, Family::Name))
             .weight(Weight(style.weight));
+        let mut buffer = Buffer::new(&mut self.fonts, metrics);
         buffer.set_size(&mut self.fonts, None, None);
         buffer.set_text(&mut self.fonts, text, attrs, Shaping::Advanced);
         buffer.shape_until_scroll(&mut self.fonts, false);
-        buffer
+        Some(buffer)
     }
 
     fn buffer_width(buffer: &Buffer) -> f32 {
@@ -135,7 +207,9 @@ impl TextEngine {
         if let Some(width) = self.widths.get(&key) {
             return (*width, style.line_height());
         }
-        let buffer = self.shape(text, style, 1.0);
+        let Some(buffer) = self.shape(text, style, 1.0) else {
+            return (0.0, style.line_height());
+        };
         let width = Self::buffer_width(&buffer).ceil();
         if self.widths.len() >= MAX_WIDTHS {
             self.widths.clear();
@@ -246,7 +320,9 @@ impl TextEngine {
             return 0.0;
         }
         let scale = canvas.scale();
-        let buffer = self.shape(text, style, scale);
+        let Some(buffer) = self.shape(text, style, scale) else {
+            return 0.0;
+        };
         let width = Self::buffer_width(&buffer) / scale;
         let (ox, oy) = ((x * scale).round() as i32, (y * scale).round() as i32);
         let c = style.color;
@@ -276,6 +352,13 @@ impl TextEngine {
     }
 }
 
+/// Adds every font file in `dirs` and below them to the database.
+fn load_font_dirs(db: &mut fontdb::Database, dirs: &[PathBuf]) {
+    for dir in dirs {
+        db.load_fonts_dir(dir);
+    }
+}
+
 /// Labels are single-line: anything after a line break is dropped, and
 /// control characters never reach the shaper.
 fn first_line(text: &str) -> &str {
@@ -296,6 +379,81 @@ mod tests {
         assert_eq!(first_line("a\u{1b}[31m"), "a");
         assert_eq!(first_line("plain"), "plain");
         assert_eq!(first_line(""), "");
+    }
+
+    /// The Orbitron files of the repository: fonts that are there on every
+    /// machine the tests run on.
+    fn repository_fonts() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../../desktop/fonts/orbitron/static")
+    }
+
+    #[test]
+    fn the_standard_font_directories_cover_system_administrator_and_user() {
+        let dirs = standard_font_dirs(Some(Path::new("/home/asha")), None);
+        assert_eq!(
+            dirs,
+            [
+                Path::new("/usr/share/fonts"),
+                Path::new("/usr/local/share/fonts"),
+                Path::new("/home/asha/.local/share/fonts"),
+                Path::new("/home/asha/.fonts"),
+            ]
+        );
+        let dirs = standard_font_dirs(Some(Path::new("/home/asha")), Some(Path::new("/data")));
+        assert!(dirs.contains(&PathBuf::from("/data/fonts")), "{dirs:?}");
+        assert!(!dirs.contains(&PathBuf::from("/home/asha/.local/share/fonts")), "{dirs:?}");
+        // A service user without a home still gets the system's fonts.
+        assert_eq!(standard_font_dirs(None, None).len(), 2);
+    }
+
+    #[test]
+    fn fonts_are_read_from_a_directory_without_any_fontconfig_configuration() {
+        // A directory above the font files: sub-directories are searched.
+        let dir = repository_fonts().join("..");
+        let mut engine = TextEngine::from_font_dirs(&[dir]);
+        assert!(engine.has_fonts());
+        let style = TextStyle::new(16.0, Rgba::WHITE).face(Face::Display);
+        let (width, _) = engine.measure("Boswas OS", &style);
+        assert!(width > 20.0, "{width}");
+        // The UI face is not among these fonts; text in it is still drawn,
+        // with what there is, in every weight.
+        for weight in [400, 500, 600, 700] {
+            let style = TextStyle::new(16.0, Rgba::WHITE).weight(weight);
+            let mut canvas = Canvas::new(200.0, 30.0, 1.0).unwrap();
+            let drawn = engine.draw(&mut canvas, "Sign in", 4.0, 4.0, None, &style);
+            assert!(drawn > 10.0, "weight {weight}: {drawn}");
+            assert!(canvas.data().chunks_exact(4).any(|p| p[3] > 0), "weight {weight} left no ink");
+        }
+    }
+
+    #[test]
+    fn without_any_font_text_is_empty_instead_of_a_panic() {
+        let missing = PathBuf::from("/nonexistent/boswas/fonts");
+        for mut engine in [TextEngine::from_font_dirs(&[]), TextEngine::from_font_dirs(&[missing])] {
+            assert!(!engine.has_fonts());
+            assert_eq!(engine.ui_family(), None);
+            for face in [Face::Ui, Face::Display] {
+                let style = TextStyle::new(14.0, Rgba::WHITE).weight(600).face(face);
+                assert_eq!(engine.measure("Boswas OS", &style), (0.0, style.line_height()));
+                assert_eq!(engine.elide("Boswas OS", &style, 10.0), "Boswas OS");
+                assert_eq!(engine.wrap("one two", &style, 500.0, 2), ["one two"]);
+                let mut canvas = Canvas::new(100.0, 30.0, 1.0).unwrap();
+                assert_eq!(engine.draw(&mut canvas, "Boswas OS", 2.0, 2.0, Some(90.0), &style), 0.0);
+                engine.draw_centered(&mut canvas, "Boswas OS", 0.0, 0.0, 100.0, 30.0, &style);
+                assert!(canvas.data().chunks_exact(4).all(|p| p[3] == 0), "ink without a font");
+            }
+        }
+    }
+
+    #[test]
+    fn a_file_that_is_not_a_font_does_not_count_as_one() {
+        let dir = std::env::temp_dir().join(format!("boswas-ui-fonts-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("broken.ttf"), b"this is not a font").unwrap();
+        let mut engine = TextEngine::from_font_dirs(&[dir.clone()]);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(!engine.has_fonts());
+        assert_eq!(engine.measure("text", &TextStyle::new(14.0, Rgba::WHITE)).0, 0.0);
     }
 
     #[test]

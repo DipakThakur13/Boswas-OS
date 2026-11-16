@@ -57,16 +57,32 @@ Take the display again.
 .BR quit " [" \-\-retain [=\fISECONDS\fR]]
 End the boot screen and restore the text console. With
 .BR \-\-retain ,
-the last frame stays on the display until the next program (the login
-screen) shows its own picture, for at most
+the boot screen gives up the display and the keyboard at once, but its last
+frame stays on the display until another program puts its own picture
+there, for at most
 .I SECONDS
-(default 6); if nothing takes the display in that time, the text console
-returns.
+(default 6). A login manager that clears the text console before it starts
+the login screen (greetd does) replaces the frame with that empty console;
+the display is then blank until the login screen has drawn. If nothing has
+replaced the frame when the time is up, the text console returns, unless
+another program holds the display or runs a graphical session on the
+console by then: what such a program has taken is never taken back or
+changed. A display driven through a legacy frame buffer cannot keep a
+frame; there
+.B \-\-retain
+is ignored.
+.IP
+A boot screen that accepts the connection but does not answer within three
+seconds is busy or stopped. So that it cannot keep the display from the
+login screen, it is sent a termination signal and, if it is still there two
+seconds later, killed; its supervising process then restores the text
+console. The command succeeds in that case too.
 .TP
 .BI new-root " DIRECTORY"
 Tell the daemon that the system is moving from the initramfs to its real
 root file system at
-.IR DIRECTORY .
+.IR DIRECTORY ,
+so that it changes its root directory to it.
 .TP
 .B agent
 Answer systemd's password requests
@@ -105,7 +121,9 @@ and no file named plymouth is installed on the root file system.
 The command was carried out.
 .TP
 .B 1
-The boot screen is not running, or it refused the command.
+The boot screen is not running, or it refused the command, or (for
+.BR quit )
+it did not answer and could not be ended.
 .TP
 .B 2
 The command line was not understood.

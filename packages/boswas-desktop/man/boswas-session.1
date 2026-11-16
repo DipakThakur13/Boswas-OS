@@ -27,6 +27,30 @@ the polkit authentication agent),
 stops that target when the compositor exits.
 .PP
 Options are passed on to the compositor.
+.SH WHEN THE DESKTOP CANNOT START
+A boot never ends without a way to sign in:
+.IP \(bu 2
+If the login screen cannot be shown (no usable graphics device, no seat,
+a login screen that keeps failing), the greeter script
+.I /usr/libexec/boswas/boswas\-greeter
+starts greetd's text login instead. Signing in there gives the user's
+shell on the console
+.RI ( /usr/libexec/boswas/boswas\-text\-session ),
+with a note on how to try the desktop
+.RB ( boswas\-session )
+and where to look for the reason.
+.IP \(bu 2
+If greetd itself cannot run and systemd stops restarting it, the text
+login of the first virtual terminal is started in its place
+.RI ( boswas\-login\-fallback.service ).
+.IP \(bu 2
+The other virtual terminals (Ctrl+Alt+F2 to F6) keep their text logins.
+.PP
+The messages of the compositor and of the programs it starts go to the
+journal, not to the console: those of a session under the identifier
+\fBboswas\-session\fR (\fBjournalctl \-b \-t boswas\-session\fR), those of
+the login screen under \fBboswas\-greeter\fR (readable by an
+administrator). Without the journal they stay on standard error.
 .SH FILES
 .TP
 .I /usr/share/wayland\-sessions/boswas.desktop
@@ -37,6 +61,10 @@ The login configuration greetd reads on Boswas OS.
 .TP
 .I /usr/lib/systemd/user/boswas\-session.target
 The session target.
+.TP
+.I /usr/lib/systemd/system/greetd.service.d/10\-boswas.conf
+Points greetd at the Boswas login configuration and brings the text login
+back if greetd fails for good.
 .SH SEE ALSO
 .BR boswas-compositor (1),
 .BR boswas-shell (1),

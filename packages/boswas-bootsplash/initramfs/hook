@@ -10,8 +10,6 @@
 # the package conflicts with plymouth so there is never a second one.
 set -e
 
-# shellcheck disable=SC2034
-OPTION=FRAMEBUFFER
 PREREQ=""
 
 prereqs()
@@ -44,12 +42,35 @@ if [ ! -e "${DESTDIR}/usr/bin/plymouth" ] && [ ! -e "${DESTDIR}/bin/plymouth" ];
 	fi
 fi
 
-# Graphics drivers for the earliest moment of boot: the generic frame buffer
-# drivers and the small KMS drivers of virtual machines. initramfs-tools adds
-# its own selection when FRAMEBUFFER=y (see conf-hooks.d/boswas-bootsplash);
-# these are named again here so the boot screen does not depend on that
-# selection. Modules a kernel does not have are skipped. Large drivers
-# (i915, amdgpu, nouveau) are left to initramfs-tools: when they load later,
-# the boot screen moves from the firmware frame buffer to the real driver.
+# Graphics drivers, so that the display's own driver (i915, amdgpu, radeon,
+# nouveau, ...) is loaded before the boot screen starts and the disk
+# passphrase prompt is on it from the first moment. Debian's initramfs-tools
+# brings no graphics drivers by itself (FRAMEBUFFER=y is understood by
+# Ubuntu's only), so this hook copies them, as Debian's Plymouth hook does:
+# every DRM driver with the firmware it names, except drivers for hardware
+# that cannot show a boot screen worth having. With MODULES=dep only the
+# drivers of this machine's graphics devices are taken; with MODULES=list the
+# administrator's list is the whole selection.
+MODULE_EXCLUDE="mga r128 savage sis tdfx via panfrost"
+case "${MODULES-most}" in
+	dep)
+		for device in /sys/class/drm/card*; do
+			module="$(readlink -f "${device}/device/driver/module" 2>/dev/null)" || continue
+			[ -e "${module}" ] || continue
+			manual_add_modules "$(basename "${module}")"
+		done
+		;;
+	list)
+		;;
+	*)
+		# shellcheck disable=SC2086
+		copy_modules_dir kernel/drivers/gpu/drm ${MODULE_EXCLUDE}
+		;;
+esac
+
+# The drivers of the firmware frame buffer and the small KMS drivers of
+# virtual machines, by name, whatever was selected above: until the
+# display's own driver has loaded (or where there is none) the boot screen
+# runs on these. Modules a kernel does not have are skipped.
 manual_add_modules simpledrm bochs cirrus-qemu virtio-gpu vboxvideo vmwgfx hyperv_drm qxl \
 	efifb vesafb simplefb

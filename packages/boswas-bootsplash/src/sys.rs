@@ -1,7 +1,8 @@
 //! The only module with `unsafe` code: thin wrappers around the few system
 //! calls that have no safe binding in the crates this program uses.
 //!
-//! * console ioctls (`KDSETMODE`, `KDGETMODE`, `KDGKBLED`, `VT_GETSTATE`)
+//! * console ioctls (`KDSETMODE`, `KDGETMODE`, `KDGKBLED`, `KDGKBMODE`,
+//!   `VT_GETSTATE`, `VT_GETMODE`)
 //! * frame buffer ioctls and `mmap` for the fbdev fallback
 //! * `signalfd`, so termination signals arrive in the event loop
 //!
@@ -15,6 +16,8 @@ use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
 const KDSETMODE: libc::c_ulong = 0x4B3A;
 const KDGETMODE: libc::c_ulong = 0x4B3B;
 const KDGKBLED: libc::c_ulong = 0x4B64;
+const KDGKBMODE: libc::c_ulong = 0x4B44;
+const VT_GETMODE: libc::c_ulong = 0x5601;
 const VT_GETSTATE: libc::c_ulong = 0x5603;
 const FBIOGET_VSCREENINFO: libc::c_ulong = 0x4600;
 const FBIOGET_FSCREENINFO: libc::c_ulong = 0x4602;
@@ -25,6 +28,12 @@ pub const KD_TEXT: i32 = 0;
 pub const KD_GRAPHICS: i32 = 1;
 /// Caps Lock bit of `KDGKBLED`.
 pub const LED_CAPS: u8 = 0x04;
+/// `K_OFF`: the console delivers no keys to its terminal. Set by the
+/// program that runs a graphical session on the console (logind, seatd).
+pub const K_OFF: i32 = 0x04;
+/// `VT_PROCESS`: a program is asked before the console is switched away
+/// from or to. Set by the program that runs a graphical session on it.
+pub const VT_PROCESS: u8 = 0x01;
 
 fn check(ret: libc::c_int) -> io::Result<()> {
     if ret < 0 {
@@ -73,6 +82,36 @@ pub fn vt_active(fd: BorrowedFd<'_>) -> io::Result<u16> {
     // which `VtStat` matches field for field; the pointer is valid for the call.
     check(unsafe { libc::ioctl(fd.as_raw_fd(), VT_GETSTATE, &mut stat as *mut VtStat) })?;
     Ok(stat.v_active)
+}
+
+/// `struct vt_mode` from `linux/vt.h`.
+#[repr(C)]
+#[derive(Default)]
+struct VtMode {
+    mode: libc::c_char,
+    waitv: libc::c_char,
+    relsig: libc::c_short,
+    acqsig: libc::c_short,
+    frsig: libc::c_short,
+}
+
+/// How the console is switched: `VT_AUTO` (0, by the kernel alone) or
+/// [`VT_PROCESS`].
+pub fn vt_mode(fd: BorrowedFd<'_>) -> io::Result<u8> {
+    let mut mode = VtMode::default();
+    // SAFETY: VT_GETMODE fills a `struct vt_mode` (two chars and three
+    // shorts), which `VtMode` matches field for field; the pointer is valid
+    // for the call.
+    check(unsafe { libc::ioctl(fd.as_raw_fd(), VT_GETMODE, &mut mode as *mut VtMode) })?;
+    Ok(mode.mode as u8)
+}
+
+/// Keyboard mode of the console (`K_XLATE`, `K_UNICODE`, [`K_OFF`], ...).
+pub fn kb_mode(fd: BorrowedFd<'_>) -> io::Result<i32> {
+    let mut mode: libc::c_int = 0;
+    // SAFETY: KDGKBMODE writes one int through the pointer, valid for the call.
+    check(unsafe { libc::ioctl(fd.as_raw_fd(), KDGKBMODE, &mut mode as *mut libc::c_int) })?;
+    Ok(mode)
 }
 
 /// `struct fb_bitfield` from `linux/fb.h`.
@@ -281,6 +320,7 @@ mod tests {
         assert_eq!(std::mem::size_of::<FbVarScreeninfo>(), 160);
         assert_eq!(std::mem::size_of::<FbFixScreeninfo>(), 80);
         assert_eq!(std::mem::size_of::<VtStat>(), 6);
+        assert_eq!(std::mem::size_of::<VtMode>(), 8);
     }
 
     #[test]
@@ -290,6 +330,8 @@ mod tests {
         assert!(kd_set_mode(file.as_fd(), KD_TEXT).is_err());
         assert!(kb_leds(file.as_fd()).is_err());
         assert!(vt_active(file.as_fd()).is_err());
+        assert!(vt_mode(file.as_fd()).is_err());
+        assert!(kb_mode(file.as_fd()).is_err());
         assert!(fb_var_screeninfo(file.as_fd()).is_err());
         assert!(fb_fix_screeninfo(file.as_fd()).is_err());
     }

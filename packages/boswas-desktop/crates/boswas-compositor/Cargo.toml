@@ -19,6 +19,8 @@ udev = [
     "smithay/backend_udev",
     "smithay/backend_session_libseat",
     "smithay/renderer_gl",
+    "dep:libseat",
+    "dep:log",
 ]
 # Nested in a window on a developer machine.
 winit = ["smithay/backend_winit", "smithay/renderer_gl"]
@@ -36,6 +38,11 @@ png = "0.17"
 xcursor = "0.3"
 rustix = { version = "1", features = ["fs", "net", "process", "time"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+# libseat's own messages (which backend opened the seat, why logind refused)
+# reach the compositor's log: the crate Smithay opens the seat with, built
+# with its log handler, which reports through the `log` crate.
+libseat = { version = "0.2", optional = true }
+log = { version = "0.4", optional = true }
 
 [dependencies.smithay]
 version = "0.7"

@@ -1,6 +1,23 @@
 boswas-bootsplash (3.0~alpha1) trixie; urgency=medium
 
   * Release 3.0~alpha1 (Boswas OS v3 Alpha).
+  * Fill the display buffer again after the first mode-set; the screen
+    stayed black, apart from the ring, after a driver had replaced the
+    firmware frame buffer.
+  * Follow a change of graphics device from inside the sandbox: the
+    supervisor opens the new device and passes it to the worker.
+  * One boot screen at a time (a lock); a second start leaves a running
+    one alone, and a supervisor cleans up only after its own worker, also
+    after the switch to the real root.
+  * quit ends a boot screen that does not answer; the hand-over unit no
+    longer depends on the pid file. Emergency and rescue mode end the
+    boot screen.
+  * Never put a console back into text mode, or take a display back, once
+    a graphical session runs there.
+  * Put raw keyboard mode back when the console is reset during boot.
+  * Stop drawing on a legacy frame buffer that has been replaced.
+  * initramfs: copy the DRM drivers in the hook (Debian's initramfs-tools
+    has no FRAMEBUFFER option); wait for a display in the start unit.
 
  -- Boswas OS Platform Team <os-platform@boswas.invalid>  Mon, 16 Nov 2026 06:01:55 +0000
 

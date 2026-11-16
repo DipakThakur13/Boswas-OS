@@ -1,9 +1,8 @@
 #!/bin/sh
 # Leave the screen to the emergency shell when the initramfs gives up
 # (installed as /usr/share/initramfs-tools/scripts/panic/boswas-bootsplash).
+# "quit" ends the boot screen even if it does not answer.
 
-# shellcheck disable=SC2034
-OPTION=FRAMEBUFFER
 PREREQ=""
 
 prereqs()

@@ -299,9 +299,16 @@ path has not been tested yet.
 - **Login screen.** greetd runs the Boswas login screen on the first
   virtual terminal: the clock, then the people who can sign in (regular
   accounts with a login shell) and the password. Another user name can be
-  typed. After a successful login it starts `boswas-session`. If the
-  graphical login cannot start, greetd's text login is used, so there is
-  always a way to sign in. The live session signs in automatically.
+  typed. After a successful login it starts `boswas-session`. The live
+  session signs in automatically.
+- **When the desktop cannot start.** A boot always ends at a way to sign
+  in (ADR-0044). If the login screen cannot be shown (no usable graphics
+  device, a login screen that keeps failing), greetd's text login appears
+  with a line that says so; signing in there opens a shell with a note on
+  how to start the desktop (`boswas-session`) and where its messages are
+  (`journalctl -b -t boswas-session`; the login screen's are under
+  `boswas-greeter`). If greetd itself fails, the ordinary text
+  login of the first console is started.
 - **Boot screen.** `boswas-bootsplash` shows the mark and a ring of dots
   from the initramfs to the login screen, the passphrase prompt of an
   encrypted disk, and the shutdown and restart screens. Escape switches

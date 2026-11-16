@@ -9,6 +9,11 @@
 //! The display configuration found at start (normally the kernel's text
 //! console) is remembered and put back when the boot screen is hidden or
 //! quits, as Plymouth does.
+//!
+//! A buffer is filled before it is put on its display, and filled again
+//! right after: some drivers move a buffer to video memory when it is first
+//! shown and what was written into it before is then gone (seen with
+//! `bochs` after it replaced the firmware frame buffer). See [`frame_rects`].
 
 use std::fs::{File, OpenOptions};
 use std::io;
@@ -69,20 +74,40 @@ impl std::fmt::Debug for DrmOutput {
     }
 }
 
-/// `card0`, `card1`, ... in numeric order.
-pub fn card_paths(dir: &Path) -> Vec<PathBuf> {
-    let mut cards: Vec<(u32, PathBuf)> = std::fs::read_dir(dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|entry| {
-            let name = entry.file_name();
-            let number = name.to_str()?.strip_prefix("card")?.parse::<u32>().ok()?;
-            Some((number, entry.path()))
-        })
-        .collect();
+/// The number of a card node: `card12` is 12. `renderD128`, `by-path` and
+/// other entries of the directory are not cards.
+pub fn card_number(name: &std::ffi::OsStr) -> Option<u32> {
+    let digits = name.to_str()?.strip_prefix("card")?;
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    digits.parse().ok()
+}
+
+/// `card0`, `card1`, ... in numeric order. A directory that does not exist
+/// has no cards; one that cannot be read (the sandbox denies a directory
+/// that was created again after it was entered) is an error.
+pub fn card_paths(dir: &Path) -> io::Result<Vec<PathBuf>> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(e),
+    };
+    let mut cards: Vec<(u32, PathBuf)> =
+        entries.flatten().filter_map(|entry| Some((card_number(&entry.file_name())?, entry.path()))).collect();
     cards.sort();
-    cards.into_iter().map(|(_, path)| path).collect()
+    Ok(cards.into_iter().map(|(_, path)| path).collect())
+}
+
+/// The rectangles of a frame to copy into a head's buffer: the ones that
+/// changed, or the whole screen when the buffer has just been put on its
+/// display (`first_shown`), because that step can discard what the buffer
+/// held.
+fn frame_rects(screen: Rect, damage: &[Rect], first_shown: bool) -> Vec<Rect> {
+    if first_shown {
+        return vec![screen];
+    }
+    damage.iter().map(|rect| rect.intersect(&screen)).filter(|rect| !rect.is_empty()).collect()
 }
 
 /// The mode to use on a connector: what the display already shows if that is
@@ -106,7 +131,7 @@ fn flush_not_needed(err: &io::Error) -> bool {
 impl DrmOutput {
     /// Open the first DRM device that has a connected display.
     pub fn open_any() -> io::Result<DrmOutput> {
-        let cards = card_paths(Path::new(DRI_DIR));
+        let cards = card_paths(Path::new(DRI_DIR))?;
         let mut last = io::Error::new(io::ErrorKind::NotFound, "no DRM device");
         for path in cards {
             match DrmOutput::open(&path) {
@@ -120,7 +145,13 @@ impl DrmOutput {
     /// Open one DRM device and show a (still empty) buffer on every
     /// connected display.
     pub fn open(path: &Path) -> io::Result<DrmOutput> {
-        let card = Card(OpenOptions::new().read(true).write(true).open(path)?);
+        DrmOutput::from_file(OpenOptions::new().read(true).write(true).open(path)?, path)
+    }
+
+    /// Use a DRM device that is already open (`path` is for messages only)
+    /// and show a (still empty) buffer on every connected display.
+    pub fn from_file(file: File, path: &Path) -> io::Result<DrmOutput> {
+        let card = Card(file);
         if card.get_driver_capability(DriverCapability::DumbBuffer)? == 0 {
             return Err(io::Error::new(io::ErrorKind::Unsupported, "the device has no dumb buffers"));
         }
@@ -268,19 +299,21 @@ impl Output for DrmOutput {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "no such head"));
         };
         let screen = Rect::new(0, 0, head.size.0 as i32, head.size.1 as i32);
-        let mut clips = Vec::with_capacity(damage.len());
-        for rect in damage {
-            let rect = rect.intersect(&screen);
-            if rect.is_empty() {
-                continue;
-            }
-            copy_xrgb(canvas, &rect, &mut head.mapping, head.stride);
-            clips.push(ClipRect::new(rect.x as u16, rect.y as u16, rect.right() as u16, rect.bottom() as u16));
-        }
+        let mut first_shown = false;
         if !head.shown {
-            // The buffer holds a complete frame before it goes on screen.
+            // The buffer holds a complete frame before it goes on screen, so
+            // no half-drawn picture is ever visible...
+            copy_xrgb(canvas, &screen, &mut head.mapping, head.stride);
             card.set_crtc(head.crtc, Some(head.framebuffer), (0, 0), &[head.connector], Some(head.mode))?;
             head.shown = true;
+            // ...and is filled once more below, now that it is on screen.
+            first_shown = true;
+        }
+        let rects = frame_rects(screen, damage, first_shown);
+        let mut clips = Vec::with_capacity(rects.len());
+        for rect in &rects {
+            copy_xrgb(canvas, rect, &mut head.mapping, head.stride);
+            clips.push(ClipRect::new(rect.x as u16, rect.y as u16, rect.right() as u16, rect.bottom() as u16));
         }
         if clips.is_empty() {
             return Ok(());
@@ -298,10 +331,11 @@ impl Output for DrmOutput {
     }
 
     fn hide(&mut self) {
-        if self.heads.iter().any(|h| h.shown) {
-            self.restore_previous();
-            let _ = self.card.release_master_lock();
-        }
+        self.restore_previous();
+        // Also for a device that was opened while the screen was hidden and
+        // has shown nothing yet: holding the master role would keep every
+        // other program from driving the display.
+        let _ = self.card.release_master_lock();
     }
 
     fn show(&mut self) -> io::Result<()> {
@@ -358,10 +392,34 @@ mod tests {
             std::fs::write(dir.join(name), b"").unwrap();
         }
         let names: Vec<String> =
-            card_paths(&dir).iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
+            card_paths(&dir).unwrap().iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
         std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(names, ["card0", "card2", "card10"]);
-        assert!(card_paths(Path::new("/nonexistent/dri")).is_empty());
+        assert!(card_paths(Path::new("/nonexistent/dri")).unwrap().is_empty());
+        // Anything else that goes wrong is reported, not taken for "no cards".
+        assert!(card_paths(Path::new("/dev/null")).is_err());
+        assert_eq!(card_number(std::ffi::OsStr::new("card7")), Some(7));
+        for other in ["card", "card-1", "card+1", "card0-HDMI-A-1", "renderD128"] {
+            assert_eq!(card_number(std::ffi::OsStr::new(other)), None, "{other}");
+        }
+    }
+
+    #[test]
+    fn a_buffer_that_was_just_put_on_its_display_gets_the_whole_frame() {
+        let screen = Rect::new(0, 0, 1024, 768);
+        let ring = Rect::new(491, 577, 42, 42);
+        // An ordinary frame: what changed, cut to the screen, nothing empty.
+        assert_eq!(frame_rects(screen, &[ring], false), [ring]);
+        assert_eq!(
+            frame_rects(screen, &[Rect::new(1000, 700, 100, 100), Rect::new(2000, 0, 5, 5)], false),
+            [Rect::new(1000, 700, 24, 68)]
+        );
+        assert!(frame_rects(screen, &[], false).is_empty());
+        // The first frame after the mode was set: everything, whatever the
+        // scene reported as changed (the mode-set may have emptied the buffer).
+        assert_eq!(frame_rects(screen, &[ring], true), [screen]);
+        assert_eq!(frame_rects(screen, &[], true), [screen]);
+        assert_eq!(frame_rects(screen, &[screen], true), [screen]);
     }
 
     #[test]
@@ -369,6 +427,7 @@ mod tests {
         // /dev/null accepts the open but not the ioctls.
         assert!(DrmOutput::open(Path::new("/dev/null")).is_err());
         assert!(DrmOutput::open(Path::new("/nonexistent/card0")).is_err());
+        assert!(DrmOutput::from_file(File::open("/dev/null").unwrap(), Path::new("null")).is_err());
     }
 
     #[test]

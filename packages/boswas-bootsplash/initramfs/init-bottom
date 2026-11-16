@@ -1,11 +1,11 @@
 #!/bin/sh
 # Tell the Boswas OS boot screen that the system is moving to its real root
 # (installed as /usr/share/initramfs-tools/scripts/init-bottom/boswas-bootsplash).
-# The daemon follows, so it can still reach the graphics devices by path
-# after the initramfs is gone. Runs after udev has moved /dev.
+# The worker follows, so its paths (the graphics devices, its socket) still
+# lead somewhere after the initramfs is gone. Its supervisor needs no such
+# message: it works through directories it opened at start. Runs after udev
+# has moved /dev.
 
-# shellcheck disable=SC2034
-OPTION=FRAMEBUFFER
 PREREQ="udev"
 
 prereqs()

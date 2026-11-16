@@ -56,6 +56,9 @@ LOG_STAMP = re.compile(r"^\[\d\d:\d\d:\d\d\]\s*")
 NETWORK_TEXT = ("urlopen error", "Temporary failure in name resolution", "Network is unreachable",
                 "Connection timed out", "timed out", "Name or service not known", "Connection refused",
                 "Failed to download")
+# Waydroid checks every downloaded image against the checksum its OTA channel
+# publishes; an interrupted download (seen with SourceForge mirrors) fails it.
+CHECKSUM_TEXT = ("hash doesn't match", "hash does not match")
 
 
 @dataclass(frozen=True)
@@ -372,6 +375,9 @@ def _run_waydroid(ctx: Context, what: str, *args: str) -> list[str]:
         detail = {"detail": "\n".join((reporter.lines or result.tail)[-15:]), "exit_code": result.code}
         if "No space left on device" in text:
             raise SysopsError("DISK_SPACE", "There is not enough free disk space for the Android system.", detail)
+        if any(t in text for t in CHECKSUM_TEXT):
+            raise SysopsError("NETWORK", "The Android system download was incomplete or damaged, so its checksum did "
+                                         "not match and it was not installed. Try again.", detail)
         if any(t in text for t in NETWORK_TEXT):
             raise SysopsError("NETWORK", "Downloading the Android system failed. Check the network connection and "
                                          "try again.", detail)

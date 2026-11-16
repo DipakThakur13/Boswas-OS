@@ -16,6 +16,7 @@ for f in config/live-build/auto/* config/live-build/config/hooks/live/*.hook.chr
 	packages/*/debian/postinst packages/*/debian/postrm \
 	packages/boswas-desktop/session/boswas-session packages/boswas-desktop/session/boswas-session-ready \
 	packages/boswas-desktop/session/boswas-greeter packages/boswas-desktop/session/boswas-lock-on-sleep \
+	packages/boswas-desktop/session/boswas-text-session packages/boswas-desktop/session/boswas-login-fallback \
 	config/boswas/live-config-boswas \
 	packages/boswas-bootsplash/initramfs/hook packages/boswas-bootsplash/initramfs/init-premount \
 	packages/boswas-bootsplash/initramfs/init-bottom packages/boswas-bootsplash/initramfs/panic \
@@ -305,6 +306,37 @@ check "screen lock: the session is locked before suspend (sleep hook) and by the
 		grep -q 'system-sleep/boswas-lock' packages/boswas-desktop/debian/rules"
 check_not "login: the shipped greetd configuration signs nobody in automatically" \
 	grep -q 'initial_session' packages/boswas-desktop/session/greetd.toml
+check "boot loader: the kernel gets a graphics mode on BIOS machines too (live medium and installed system)" \
+	bash -c "g=config/live-build/config/bootloaders/grub-pc/grub.cfg;
+		grep -q 'grub_platform}\" = \"pc\"' \$g && grep -q 'set gfxpayload=1024x768x32,1024x768,auto' \$g &&
+		grep -qx 'GRUB_GFXPAYLOAD_LINUX=keep' config/boswas/grub-boswas.cfg"
+# The greeter script: every way the login screen can fail to come up ends at the text login, and a
+# compositor that fails after it has run for a while is simply started again.
+check "login: the greeter ends normally after a login, and falls back to the text login when the compositor cannot start (status 3), the login screen keeps failing (status 4) or anything fails right after the start" \
+	bash -c "t=tests/static/greeter_fallback.sh; want='text-login: --cmd /usr/libexec/boswas/boswas-text-session';
+		[ \"\$(\$t 0 5)\" = done ] && [ \"\$(\$t 3 2)\" = \"\$want\" ] && [ \"\$(\$t 3 300)\" = \"\$want\" ] &&
+		[ \"\$(\$t 4 70)\" = \"\$want\" ] && [ \"\$(\$t 1 4)\" = \"\$want\" ] && [ \"\$(\$t 101 12)\" = \"\$want\" ]"
+check "login: a compositor that fails after running for a while is started again by greetd, not replaced by the text login" \
+	bash -c "[ \"\$(tests/static/greeter_fallback.sh 1 200)\" = 'exit: 1' ] && [ \"\$(tests/static/greeter_fallback.sh 139 500)\" = 'exit: 139' ]"
+check "login: if greetd fails for good, the text login of the first virtual terminal takes its place" \
+	bash -c "d=packages/boswas-desktop/session; grep -qx 'OnFailure=boswas-login-fallback.service' \$d/greetd-boswas.conf &&
+		grep -qx 'ExecStart=/usr/libexec/boswas/boswas-login-fallback' \$d/boswas-login-fallback.service &&
+		sh -n \$d/boswas-login-fallback && grep -q 'start getty@tty1.service' \$d/boswas-login-fallback"
+# The live session signs in the live user that exists. (live-config hands components the default
+# name "user"; a component must read username= from the kernel command line itself. With the wrong
+# name greetd ends with an error and the screen stays empty.)
+live_cmdline="$(sed -n 's/.*--bootappend-live "\([^"]*\)".*/\1/p' config/live-build/auto/config)"
+live_user="$(sed -n 's/.*username=\([^ "]*\).*/\1/p' <<<"$live_cmdline")"
+check "live session: the image's kernel command line names the live user" test -n "$live_user"
+check "live session: the automatic sign-in is for the user named on the kernel command line ($live_user)" \
+	bash -c "[ \"\$(tests/static/live_session_user.sh '$live_cmdline' '$live_user')\" = '$live_user' ]"
+check "live session: also when the Boswas settings file does not name the user" \
+	bash -c "[ \"\$(BOSWAS_LIVE_CONF=/dev/null tests/static/live_session_user.sh '$live_cmdline' '$live_user')\" = '$live_user' ]"
+check "live session: another name on the kernel command line is followed" \
+	bash -c "[ \"\$(tests/static/live_session_user.sh 'boot=live components username=anita' anita)\" = anita ]"
+check "live session: no automatic sign-in for a user that does not exist, or with noautologin (the login screen is shown)" \
+	bash -c "[ \"\$(tests/static/live_session_user.sh '$live_cmdline' nobody-else)\" = none ] &&
+		[ \"\$(tests/static/live_session_user.sh '$live_cmdline noautologin' '$live_user')\" = none ]"
 check "boot screen: conflicts with plymouth and puts its client under that name only inside the initramfs" \
 	bash -c "grep -qx 'Conflicts: plymouth' packages/boswas-bootsplash/debian/control &&
 		! grep -qE 'usr/(s?bin)/plymouth' packages/boswas-bootsplash/debian/rules &&

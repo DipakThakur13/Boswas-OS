@@ -1,13 +1,17 @@
 # What has and has not been verified
 
-The state of the native desktop on 2026-11-16 (development tree after
-1.0~alpha3). The reports in `docs/reports/` describe the KDE Plasma image
-of 2026-11-12 and are not repeated here.
+The state of the native desktop on 2026-11-16 (3.0~alpha1). The reports in
+`docs/reports/` describe the KDE Plasma image of 2026-11-12 and are not
+repeated here.
 
 "Verified" below means an automated test, or a check that a builder
 recorded, in the build environment. That environment has no graphics
-device, boots nothing, and runs none of the system daemons the desktop
-talks to. Everything in [Not verified](#not-verified) follows from that.
+device, cannot reach a Debian mirror and cannot build the image. Since
+the boot failure of 2026-11-16 (ADR-0044) the built packages are also
+booted there in a virtual machine, on another distribution's base system;
+see [Booted in a virtual machine](#booted-in-a-virtual-machine) for what
+that does and does not show. Everything in [Not verified](#not-verified)
+follows from these limits.
 
 ## Automated tests
 
@@ -16,14 +20,14 @@ Python suites, which were run). The numbers move as work lands.
 
 | Suite | Tests | What they cover |
 |-------|-------|-----------------|
-| `boswas-ui` (Rust) | 26 | The token file as the programs read it, drawing, text, icons, the materials |
-| `boswas-compositor`, unit | 74 | The configuration layers and their rules (a user cannot relax the lock policy, name a trusted program or turn X11 back on; a damaged file is ignored alone), the shortcut table, snapping and the layouts of the window picker, Task View, the snap layouts and the window menu, the frame geometry, the clip geometry, animation timelines, capture regions (also on a rotated output), EDID names |
-| `boswas-compositor`, end to end | 12 | The real binary on its headless back end with real clients and the control socket: ordinary clients get no privileged protocol and a started program does; a configured input method gets its two protocols and nothing else; the limits of the public control socket; a window's life; the window picker, Task View, snap keys and window menu through injected keys; screen capture only after the user's answer and never while locked (with `grim`); an X11 program through Xwayland (with `xclock`); the lock across a crashed lock screen |
+| `boswas-ui` (Rust) | 30 | The token file as the programs read it, drawing, text (also without the font configuration, and without any font), icons, the materials |
+| `boswas-compositor`, unit | 88 | The exit statuses, when a shell that ended is started again and when the login screen is given up, the messages for a missing seat or graphics device, the configuration layers and their rules (a user cannot relax the lock policy, name a trusted program or turn X11 back on; a damaged file is ignored alone), the shortcut table, snapping and the layouts of the window picker, Task View, the snap layouts and the window menu, the frame geometry, the clip geometry, animation timelines, capture regions (also on a rotated output), EDID names |
+| `boswas-compositor`, end to end | 18 | The real binary on its headless back end with real clients and the control socket: a login screen that keeps failing or cannot be started ends the compositor with status 4, and a desktop session stays; without a seat the compositor ends with status 3 and says why; a shell that says `quit` and leaves ends it normally; the login screen runs no X server; ordinary clients get no privileged protocol and a started program does; a configured input method gets its two protocols and nothing else; the limits of the public control socket; a window's life; the window picker, Task View, snap keys and window menu through injected keys; screen capture only after the user's answer and never while locked (with `grim`); an X11 program through Xwayland (with `xclock`); the lock across a crashed lock screen |
 | `boswas-services`, unit | 60 | Parsers, limits, conversions and policies of the ten services; what the lock screen, the login screen and Settings may each ask for |
 | `boswas-services`, integration | 85 | Every service against two private `dbus-daemon` processes and scripted stand-ins (see below): notifications, tray, media, network, Bluetooth, audio, power, brightness, session, the polkit agent, start-up and shut-down, buses that go away, and that no secret reaches the log |
 | `boswas-services-bridge` | 5 + 1 | The command parser, and the program itself: it reports states, answers bad lines and ends with its input |
-| `boswas-shell` | 88 | Every surface drawn in both schemes and checked for controls inside the surface and reachable by keyboard; the taskbar's grouping and layout, Start's search, toasts and the notification centre, the dialogs (Run without a shell, the polkit dialog, the choice of administrator), the capture mark, pinned applications, the greetd messages, the PAM conversation, the users the greeter lists |
-| `boswas-bootsplash` | 108 unit, 14 + 1 + 1 | Rendering, layout on eleven display sizes, damage, the protocol, both client dialects, the passphrase editor; the real programs headless with a pseudo-terminal; Debian's unmodified `askpass` in a scratch root (needs root and the helper, skipped otherwise); frame cost |
+| `boswas-shell` | 90 | Every surface drawn without any font; what is reported when no font is installed; every surface drawn in both schemes and checked for controls inside the surface and reachable by keyboard; the taskbar's grouping and layout, Start's search, toasts and the notification centre, the dialogs (Run without a shell, the polkit dialog, the choice of administrator), the capture mark, pinned applications, the greetd messages, the PAM conversation, the users the greeter lists |
+| `boswas-bootsplash` | 126 unit, 18 + 5 + 1 + 1 | Rendering, layout on eleven display sizes, damage, the protocol, both client dialects, the passphrase editor; the whole frame after a mode-set; devices handed over by the supervisor; the console left alone once a graphical session has it; the real programs headless with a pseudo-terminal (a second start, a boot screen that does not answer); the packaged units and initramfs hook; Debian's unmodified `askpass` in a scratch root (needs root and the helper, skipped otherwise); frame cost |
 | `desktop/ui` (Python) | 11 | The token file and the generated KDE colour schemes: references, the fixed values, the Fluent geometry, contrast, staleness |
 | `desktop/ui/qt` (Python) | 131 | The Qt toolkit on Qt's offscreen platform: theme, style sheet, widgets, navigation, contrast, single instance, workers |
 | `desktop/icons` (Python) | 42 | The icon packs: the files match the generator, every required name exists, aliases repeat their design |
@@ -37,6 +41,12 @@ One more `#[test]` in the compositor's end-to-end file is a helper
 program for the others and is not counted. Three of the settings tests
 run against the real compositor on its headless back end and are opt-in
 (`BOSWAS_TEST_COMPOSITOR=1`).
+
+`tests/static/test_sources.sh` also runs two parts of the boot as they are
+shipped, with stand-ins around them (ADR-0044): the live-config component
+of the image (which user the live session signs in, for five kernel
+command lines and sets of users) and the login screen's start script (what
+follows each exit status of the compositor).
 
 `tests/static/test_sources.sh` checks, for this round: that a public
 control connection gets exactly `version`, `lock`, `reload-config`,
@@ -129,6 +139,19 @@ package stage and lintian were run again on the final set, with the same
 result. The builder container and `./test.sh` on Debian 13 still have to
 confirm it.
 
+The run after the boot corrections of ADR-0044 (2026-11-16, version
+3.0~alpha1): the 13 device packages and the Control Plane built with all
+their test suites (377 Rust tests in `boswas-desktop`, 151 in
+`boswas-bootsplash`, 3,636 Python tests in the other packages); lintian
+reported no errors or warnings; the package stage passed 100 checks,
+failed none and skipped the same three; the static stage passed 81
+checks. `boswas-desktop` was built twice more after late changes to its
+session scripts (the compositor's messages go to the journal; the lines
+shown with the text login fit a console), each time with its tests, and
+lintian and the package stage were repeated on the final set. The boots
+listed under "Seen on the final packages" ran on the build before the
+change of wording; the `nomodeset` boot was repeated after it.
+
 Qt Multimedia in this environment: the sandbox has PySide6 6.12, whose
 audio back end is PipeWire, and `libpipewire` without its configuration
 files. Creating an audio output then crashes inside Qt, which is why the
@@ -138,18 +161,100 @@ with `QT_AUDIO_BACKEND=pulseaudio` for the run above (they start and show
 Qt 6.8, whose audio back end is PulseAudio, and the image installs
 PipeWire with its configuration; the crash has not been tried there.
 
+## Booted in a virtual machine
+
+After the boot failure of 2026-11-16 the built packages were booted, and
+every correction of ADR-0044 was checked by a boot where one was possible.
+
+**What the machine is.** QEMU without hardware acceleration, standard VGA
+(the `bochs` driver) or the firmware frame buffer (`simpledrm`), 2 GB of
+memory, keyboard input through the monitor. The root file system is
+Ubuntu 24.04 (kernel 6.8, systemd 255, greetd 0.9.0, libseat 0.8.0,
+Mesa's llvmpipe), because no Debian mirror can be reached from the build
+environment. The `.deb` files are installed with apt, which resolves
+their dependencies from that archive; the initramfs is made by that
+system's initramfs-tools. It is not the image: there is no live-build,
+no boot loader (the kernel is started directly), no encrypted disk, no
+AppArmor profile set of the image, and none of the image's other
+packages.
+
+**Seen on the final packages** (screenshots and the serial log of each
+boot were read):
+
+- **A plain boot** (`quiet splash`): the boot screen (the mark and the
+  ring) from the initramfs, an empty console for a moment, then the login
+  screen with the clock. Signing in as the test user by keyboard opened
+  the desktop (wallpaper, taskbar, clock). No unit failed; the messages of
+  both compositors were in the journal and none on the console.
+- **The live session**, with the image's live-config component and
+  settings file run at boot the way live-config runs them
+  (`username=boswas`): the live user was signed in and the desktop
+  appeared without a login.
+- **The same with a user that does not exist** (`username=ghost`): the
+  component wrote no automatic sign-in and said so; the login screen
+  appeared.
+- **greetd told to sign in a user that does not exist** (the state of the
+  image before the correction): greetd failed five times with
+  `pam_acct_mgmt: AUTH_ERR`, `boswas-login-fallback.service` started
+  getty, and `login:` was on the first console.
+- **The firmware frame buffer** (`vga=0x318`, the `bochs` driver kept
+  from loading): the boot screen complete at 1024x768, then the complete
+  login screen, drawn in software.
+- **`nomodeset`**: the compositor ended with status 3 after its 10 second
+  wait ("no graphics device appeared ... `nomodeset` on the kernel command
+  line turns them all off" in the journal), and greetd's text login was
+  on screen with the line that says so.
+
+**Seen during the work, on earlier builds of the same day** (the code
+paths did not change afterwards, but these boots were not repeated on the
+final packages):
+
+- Without `polkitd` (removed by hand): logind refuses to activate the
+  session, the compositor ends with status 3 after about 4.5 seconds and
+  says so, the text login appears.
+- Without the font configuration (`fontconfig-config` removed by hand):
+  the login screen appears, with text in Inter.
+- With the shell's program moved away: status 4 after three tries, the
+  text login with the line "the graphical login could not start
+  (status 4)".
+- A graphics driver that is loaded four seconds after the compositor
+  started; the firmware frame buffer replaced by the driver before the
+  compositor started, and under a running desktop with a window open (the
+  window, wallpaper and taskbar are back on the new device).
+- A greetd that fails five times: `boswas-login-fallback.service` starts
+  getty, and `login:` is on the first console.
+- The boot screen: the whole picture after `vga=0x318`; the graphics
+  device replaced while it runs inside its sandbox (the supervisor hands
+  the new one over); a second start while a boot screen is stopped; the
+  hand-over ending a boot screen that does not answer; Escape after the
+  switch to the real root; the worker killed; a driver that loads late;
+  no display at all (the unit waits 9 seconds once, then the text login);
+  emergency mode (text mode and systemd's message on screen).
+
+**Not shown by these boots:** anything about Debian 13 (its
+initramfs-tools, on which the hook that copies the graphics drivers has
+never run; its versions of greetd and libseat; its package names); the
+image and its live session as built (the live-config component ran in a
+stand-in for live-config, not under it); the boot loader; real graphics
+hardware and hardware rendering; a login screen with a graphics device
+and no connected monitor; the boot screen handing over to a real
+compositor that takes the display (a stand-in program held the console);
+rescue mode; a desktop shell that keeps failing (tests only); the
+passphrase prompt of an encrypted disk.
+
 ## Not verified
 
-Nothing below could be exercised in the build environment.
+Apart from the boots above, nothing below could be exercised in the build
+environment.
 
 | Area | Not verified |
 |------|--------------|
 | Image | The ISO build with this manifest; whether Debian trixie resolves its dependencies and has every package under the name used (`xwayland`, `xdg-desktop-portal-wlr`, `pipewire-bin`, `wireplumber`, `upower`, `power-profiles-daemon`, `accountsservice`, the PySide6 modules); the verify hook; the QEMU boot test, whose checks were rewritten for the native desktop and have never run |
-| Graphics hardware | The `udev` back end on any DRM/KMS device: modes, rotation, several monitors, hotplug, turning screens off, the gamma ramp of night light, OpenGL ES on a hardware driver (the clip shader, damage, direct scan-out), software rendering under `nomodeset` |
+| Graphics hardware | The `udev` back end on real hardware. In the virtual machine it drove one output with software rendering; not seen anywhere: a mode change, rotation, several monitors, monitor hotplug, turning screens off, the gamma ramp of night light, OpenGL ES on a hardware driver (the clip shader, damage, direct scan-out), a pointing device |
 | Input hardware | libinput devices and their settings, touch screens, tablets and pens, touchpad gestures, keyboard LEDs |
 | Pointer theme | Boswas-Cursors on a hardware cursor plane, at a fractional scale or on a HiDPI display; Xwayland, GTK and Qt clients picking it up in a real session; the `x-cursor-theme` alternative on a Debian 13 image (ADR-0043) |
-| Login and lock | The greetd login on a real boot, PAM on the image, the text-login fallback, the live session's automatic login, suspend and resume, `loginctl lock-session` against the real logind |
-| Boot screen | DRM and frame-buffer output, the hand-over from the firmware frame buffer and to the greeter, the initramfs scripts under Debian 13's initramfs-tools, a real LUKS unlock, Caps Lock on a real console, the animation in motion on a panel |
+| Login and lock | The greetd login, the text-login fallbacks and the automatic login on Debian 13 and on the image (they were booted on another base system, see above); PAM on the image; the live session under the real live-config; suspend and resume; `loginctl lock-session` against the real logind |
+| Boot screen | On hardware: DRM and frame-buffer output and the hand-over from the firmware frame buffer (seen in the virtual machine only). The initramfs hook and scripts under Debian 13's initramfs-tools, and the size of the initramfs there; a legacy frame buffer (`efifb`, `vesafb`: the test kernel has neither, and a frame buffer device emulated by a DRM driver showed nothing of what was drawn into it); a real LUKS unlock; Caps Lock on a real console; the animation in motion on a panel |
 | System services | NetworkManager, BlueZ, PipeWire (`pw-dump`, `wpctl`), UPower, power-profiles-daemon, logind and polkit: every backend has run against stand-ins only. The polkit helper protocol, the shape of `pw-dump`'s JSON and NetworkManager's settings dictionaries were written without a real daemon to compare with |
 | Authentication | A `pkexec` call answered by the shell's agent. Until that has run, no administrator action from the desktop is known to work |
 | Screen capture | Screen sharing and screenshots through `xdg-desktop-portal-wlr`; capture of a rotated monitor end to end; what the consent dialog names for the portal back end |
@@ -204,6 +309,11 @@ ADR.
 - Outputs on a second GPU, HDR, variable refresh rate and the NVIDIA
   proprietary driver are not supported (ADR-0036).
 - The boot screen's text is ASCII and English (ADR-0038).
+- With `nomodeset` there is no KMS device: the desktop does not start and
+  the text login is shown. The boot screen does not draw on a 24-bit
+  legacy frame buffer (ADR-0044).
+- Between the boot screen and the login screen the display is an empty
+  console for the moment the compositor needs to start (ADR-0044).
 - The shortcuts are fixed; there is no shortcut editor.
 - There is no office suite and no mail client in the image, and the
   Document Viewer reads PDF only (ADR-0040).

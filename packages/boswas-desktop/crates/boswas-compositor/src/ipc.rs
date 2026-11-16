@@ -167,9 +167,15 @@ impl Boswas {
     /// connection is finished.
     fn ipc_readable(&mut self, id: u64, stream: &mut UnixStream) -> bool {
         let mut chunk = [0u8; 4096];
+        // The peer may send a request and close at once (the login screen
+        // says "quit" and exits): what it sent before closing still counts.
+        let mut open = true;
         loop {
             match stream.read(&mut chunk) {
-                Ok(0) => return false,
+                Ok(0) => {
+                    open = false;
+                    break;
+                }
                 Ok(n) => {
                     let Some(connection) = self.ipc.connections.iter_mut().find(|c| c.id == id) else {
                         return false;
@@ -190,7 +196,7 @@ impl Boswas {
                 return false;
             };
             let Some(end) = connection.buffer.iter().position(|b| *b == b'\n') else {
-                return true;
+                return open;
             };
             let line: Vec<u8> = connection.buffer.drain(..=end).collect();
             let trusted = connection.trusted;
@@ -580,7 +586,7 @@ impl Boswas {
                 _ => Err("\"path\" must be an absolute file name".into()),
             },
             "quit" => {
-                self.loop_signal.stop();
+                self.stop();
                 Ok(Value::Null)
             }
             "pointer" | "button" | "key" | "scroll" if !self.ipc.test_input => {

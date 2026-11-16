@@ -15,11 +15,13 @@ use std::time::{Duration, Instant};
 
 use rustix::event::{poll, PollFd, PollFlags, Timespec};
 
+use crate::broker;
 use crate::client::DEFAULT_SOCKET;
 use crate::editor::{Key, KeyDecoder, Passphrase};
 use crate::output::headless::HeadlessOutput;
-use crate::output::{open_display, Output};
+use crate::output::{open_display, reopen_display, Output};
 use crate::proto::{self, FrameReader, Request, Response};
+use crate::runtime::{Lock, RunDir};
 use crate::sandbox;
 use crate::scene::{self, Mode, PromptView, Scene, Tone, View};
 use crate::sys;
@@ -36,6 +38,9 @@ const INFO_TTL: Duration = Duration::from_secs(6);
 const ERROR_TTL: Duration = Duration::from_secs(30);
 /// How long the display may be missing before the text console takes over.
 const LOST_GRACE: Duration = Duration::from_secs(2);
+/// How long the worker waits for the supervisor to hand over the graphics
+/// devices when it cannot open them itself.
+const HELPER_WAIT: Duration = Duration::from_millis(500);
 /// Most clients served at once, and most prompts waiting.
 const MAX_CLIENTS: usize = 16;
 const MAX_ASKS: usize = 8;
@@ -61,6 +66,9 @@ pub struct Options {
     pub wait_ms: u64,
     /// Enter the sandbox, check what it denies, report and exit.
     pub self_test: bool,
+    /// Internal: standard input is the channel to the supervisor, which
+    /// opens graphics devices for the sandboxed worker (see `broker`).
+    pub helper: bool,
     /// Internal: which stage of the start-up chain this process is.
     pub stage: Stage,
 }
@@ -88,6 +96,7 @@ impl Default for Options {
             sandbox: true,
             wait_ms: 1500,
             self_test: false,
+            helper: false,
             stage: Stage::Launcher,
         }
     }
@@ -149,6 +158,7 @@ pub fn parse_args(args: &[String]) -> Result<Options, String> {
             "--self-test" if inline.is_none() => opts.self_test = true,
             "--supervise" if inline.is_none() => opts.stage = Stage::Supervisor,
             "--worker" if inline.is_none() => opts.stage = Stage::Worker,
+            "--devices-on-stdin" if inline.is_none() => opts.helper = true,
             // Accepted for people used to plymouthd's command line.
             "--attach-to-session" | "--no-daemon" if inline.is_none() => {}
             "--pid-file" => {
@@ -174,7 +184,30 @@ pub fn parse_args(args: &[String]) -> Result<Options, String> {
 
 /// The pid file next to the control socket.
 pub fn pid_path(socket: &Path) -> PathBuf {
-    socket.with_file_name("pid")
+    socket.with_file_name(crate::runtime::PID_FILE)
+}
+
+/// Why the boot screen did not start.
+#[derive(Debug, PartialEq, Eq)]
+pub enum StartError {
+    /// Another boot screen is running. Nothing of it was touched.
+    Running,
+    Failed(String),
+}
+
+impl std::fmt::Display for StartError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StartError::Running => f.write_str("a boot screen is already running"),
+            StartError::Failed(reason) => f.write_str(reason),
+        }
+    }
+}
+
+impl From<String> for StartError {
+    fn from(reason: String) -> Self {
+        StartError::Failed(reason)
+    }
 }
 
 /// Is a message about something going wrong?
@@ -235,6 +268,8 @@ pub struct Daemon {
     lost_since: Option<Instant>,
     started: Instant,
     last_frame: Instant,
+    /// When the console's terminal settings are looked at next.
+    next_console_check: Instant,
     /// When the caret last started a blink: the prompt appeared or a key
     /// was pressed.
     caret_from: Instant,
@@ -242,6 +277,14 @@ pub struct Daemon {
     shake_from: Option<Instant>,
     next_probe: Instant,
     quit: Option<Option<u16>>,
+    /// Held while this process is the boot screen and no supervisor holds
+    /// it (a worker in the foreground).
+    lock: Option<Lock>,
+}
+
+/// Whether a boot screen answers connections on this socket.
+fn served(socket: &Path) -> bool {
+    socket.exists() && UnixStream::connect(socket).is_ok()
 }
 
 fn bind(socket: &Path) -> io::Result<UnixListener> {
@@ -252,7 +295,7 @@ fn bind(socket: &Path) -> io::Result<UnixListener> {
     }
     // A socket file left by a previous instance that no longer answers.
     if socket.exists() {
-        if UnixStream::connect(socket).is_ok() {
+        if served(socket) {
             return Err(io::Error::new(io::ErrorKind::AddrInUse, "a boot screen is already running"));
         }
         std::fs::remove_file(socket)?;
@@ -272,10 +315,30 @@ fn peer_allowed(stream: &UnixStream) -> bool {
 
 impl Daemon {
     /// Open everything, show the first frame and drop privileges. On error
-    /// nothing is left behind (console and display are restored on drop).
-    pub fn start(opts: Options) -> Result<Daemon, String> {
+    /// nothing is left behind (console and display are restored on drop),
+    /// and nothing of a boot screen that is already running is touched.
+    /// `devices` is the channel to the supervisor, when there is one.
+    pub fn start(opts: Options, devices: Option<broker::Client>) -> Result<Daemon, StartError> {
         let signals =
             sys::signal_fd(&[libc::SIGTERM, libc::SIGINT, libc::SIGHUP]).map_err(|e| format!("signals: {e}"))?;
+
+        // One boot screen at a time, decided before the console or the
+        // display is touched. Under a supervisor, the supervisor holds the
+        // lock; in the foreground this process does. A socket that still
+        // answers although the lock was free belongs to a worker whose
+        // supervisor is gone: it is left alone as well.
+        let lock = if opts.foreground {
+            let taken = RunDir::open(&opts.socket).and_then(|run| run.lock());
+            match taken.map_err(|e| format!("lock next to {}: {e}", opts.socket.display()))? {
+                Some(lock) => Some(lock),
+                None => return Err(StartError::Running),
+            }
+        } else {
+            None
+        };
+        if served(&opts.socket) {
+            return Err(StartError::Running);
+        }
 
         // The console comes first: without a keyboard there can be no
         // passphrase prompt, and then the text console must do the asking.
@@ -286,7 +349,7 @@ impl Daemon {
                 let _ = e;
                 None
             }
-            Err(e) => return Err(format!("console {}: {e}", tty_path.display())),
+            Err(e) => return Err(format!("console {}: {e}", tty_path.display()).into()),
         };
 
         let output: Box<dyn Output> = match &opts.headless {
@@ -297,28 +360,42 @@ impl Daemon {
         };
 
         let listener = bind(&opts.socket).map_err(|e| format!("socket {}: {e}", opts.socket.display()))?;
-        let pid_file = pid_path(&opts.socket);
-        std::fs::write(&pid_file, format!("{}\n", std::process::id()))
-            .map_err(|e| format!("{}: {e}", pid_file.display()))?;
+        let (socket, pid_file) = (opts.socket.clone(), pid_path(&opts.socket));
+        // From here on a failure must take the socket and the pid file away again.
+        let started = (|| {
+            std::fs::write(&pid_file, format!("{}\n", std::process::id()))
+                .map_err(|e| format!("{}: {e}", pid_file.display()))?;
 
-        let probe: Probe = if opts.headless.is_some() {
-            Box::new(|| Err(io::Error::new(io::ErrorKind::NotFound, "headless")))
-        } else {
-            Box::new(|| open_display(Duration::ZERO))
+            let probe: Probe = if opts.headless.is_some() {
+                Box::new(|| Err(io::Error::new(io::ErrorKind::NotFound, "headless")))
+            } else {
+                let mut devices = devices;
+                Box::new(move || reopen_display(devices.as_mut(), HELPER_WAIT))
+            };
+            let mut daemon = Daemon::assemble(opts, output, console, listener, signals, probe);
+            daemon.lock = lock;
+            if let Some(console) = daemon.console.as_mut() {
+                console.set_raw().map_err(|e| format!("console: {e}"))?;
+                console.set_graphics(true);
+            }
+            daemon.render();
+            // At boot a screen that cannot be drawn must not claim the
+            // passphrase prompt: fail, and the text console asks instead. At
+            // shutdown the display may still be held by the session that is
+            // closing; keep trying.
+            if daemon.output.is_none() && daemon.mode == Mode::Boot {
+                return Err("the display could not be driven".to_string());
+            }
+            Ok(daemon)
+        })();
+        let daemon = match started {
+            Ok(daemon) => daemon,
+            Err(reason) => {
+                let _ = std::fs::remove_file(&socket);
+                let _ = std::fs::remove_file(&pid_file);
+                return Err(reason.into());
+            }
         };
-        let mut daemon = Daemon::assemble(opts, output, console, listener, signals, probe);
-        if let Some(console) = daemon.console.as_mut() {
-            console.set_raw().map_err(|e| format!("console: {e}"))?;
-            console.set_graphics(true);
-        }
-        daemon.render();
-        // At boot a screen that cannot be drawn must not claim the
-        // passphrase prompt: fail, and the text console asks instead. At
-        // shutdown the display may still be held by the session that is
-        // closing; keep trying.
-        if daemon.output.is_none() && daemon.mode == Mode::Boot {
-            return Err("the display could not be driven".into());
-        }
 
         if daemon.opts.sandbox {
             let mut allowed = sandbox::Allowed::default();
@@ -331,6 +408,11 @@ impl Daemon {
                     sandbox::prepare_device_dir();
                     allowed.devices = sandbox::display_devices();
                 }
+            }
+            // The console it already has open, to open it again after a
+            // hang-up (see `Console::revive`).
+            if let Some(console) = &daemon.console {
+                allowed.devices.push(console.path().to_path_buf());
             }
             sandbox::enter(&allowed);
         }
@@ -370,10 +452,12 @@ impl Daemon {
             lost_since: None,
             started: now,
             last_frame: now,
+            next_console_check: now,
             caret_from: now,
             shake_from: None,
             next_probe: now,
             quit: None,
+            lock: None,
         };
         daemon.build_scenes();
         daemon
@@ -437,7 +521,8 @@ impl Daemon {
     }
 
     /// The display device disappeared (typically the firmware frame buffer
-    /// being replaced by the real graphics driver): look for a new one.
+    /// being replaced by the real graphics driver): look for a new one. Its
+    /// scenes are new too, so the first frame on it is a complete one.
     fn lose_output(&mut self) {
         if let Some(mut output) = self.output.take() {
             output.abandon();
@@ -511,7 +596,9 @@ impl Daemon {
             let mut fds = Vec::with_capacity(3 + self.clients.len());
             fds.push(PollFd::new(&self.listener, PollFlags::IN));
             fds.push(PollFd::new(&self.signals, PollFlags::IN));
-            let console_at = self.console.as_ref().map(|console| {
+            // A console that was hung up and could not be opened again is
+            // not waited for: it would report "ready" for ever.
+            let console_at = self.console.as_ref().filter(|console| !console.lost()).map(|console| {
                 fds.push(PollFd::new(console, PollFlags::IN));
                 fds.len() - 1
             });
@@ -559,6 +646,23 @@ impl Daemon {
         }
         if self.prompting() {
             self.caps_lock = self.console.as_ref().is_some_and(Console::caps_lock);
+        }
+        // Other programs reset the console's terminal settings while the
+        // system starts (systemd does, a moment after it took over from the
+        // initramfs): echo and line buffering come back. Put raw mode back,
+        // every turn while a passphrase may be typed and a few times a
+        // second while the screen is shown. A screen hidden without a
+        // prompt leaves the console to whoever uses it. A console that was
+        // hung up in the meantime is opened again on the way.
+        if self.prompting() || now >= self.next_console_check {
+            self.next_console_check = now + POLL;
+            if let Some(console) = self.console.as_mut() {
+                if self.asks.is_empty() && self.hidden {
+                    console.revive();
+                } else {
+                    console.ensure_raw();
+                }
+            }
         }
         if self.shake_from.is_some_and(|since| now.duration_since(since) >= scene::SHAKE) {
             self.shake_from = None;
@@ -665,6 +769,10 @@ impl Daemon {
         self.shake_from = None;
         if self.asks.is_empty() {
             return;
+        }
+        // Never read a passphrase from a console that echoes.
+        if let Some(console) = self.console.as_mut() {
+            console.ensure_raw();
         }
         self.caps_lock = self.console.as_ref().is_some_and(Console::caps_lock);
         let now = Instant::now();
@@ -844,6 +952,8 @@ impl Daemon {
     /// Stop serving and leave the screen: restored to the text console, or
     /// (with `retain`) showing the last frame until the next program takes
     /// the display, with the text console as the fallback when none does.
+    /// Whatever happens, a display or a console that another program has
+    /// taken in the meantime is left exactly as that program has it.
     fn finish(mut self, retain: Option<u16>) {
         // Let the client that asked us to quit read its answer, then go.
         self.clients.clear();
@@ -869,24 +979,46 @@ impl Daemon {
             }
             let taken = self.output.as_mut().is_none_or(|output| output.taken_over());
             if taken {
-                // Another program drives the display now. Leave its picture
-                // alone, and the console too if it is the one in use.
-                if let Some(mut output) = self.output.take() {
-                    output.abandon();
-                }
-                if let Some(console) = self.console.as_mut() {
-                    if console.is_foreground() {
-                        console.disown_graphics();
-                    }
-                }
+                // Another program drives the display now.
+                self.leave_to_the_newcomer();
                 return;
             }
             std::thread::sleep(Duration::from_millis(100));
         }
-        // Nobody took the display: bring the text console back.
-        if let Some(output) = self.output.as_mut() {
-            let _ = output.show();
-            output.hide();
+        // Nobody showed a picture in time. That does not mean nobody is
+        // there: a compositor may hold the display (then the display cannot
+        // be taken back) or run its session on the console without having
+        // drawn yet. Both are then its to use, and putting the text console
+        // back would take them away from it.
+        let console_taken = self.console.as_mut().is_some_and(Console::taken_by_another);
+        let display_free = self.output.as_mut().is_some_and(|output| output.show().is_ok());
+        if display_free && !console_taken {
+            // Really nobody: bring the text console back.
+            if let Some(output) = self.output.as_mut() {
+                output.hide();
+            }
+            return;
+        }
+        if display_free {
+            // Taken back a moment ago, only to find out: give it up again.
+            if let Some(output) = self.output.as_mut() {
+                output.retain();
+            }
+        }
+        self.leave_to_the_newcomer();
+    }
+
+    /// Give up the display without putting the previous picture back, and
+    /// the console, if it is the one in use, without putting it back into
+    /// text mode: both belong to the program that took them.
+    fn leave_to_the_newcomer(&mut self) {
+        if let Some(mut output) = self.output.take() {
+            output.abandon();
+        }
+        if let Some(console) = self.console.as_mut() {
+            if console.is_foreground() {
+                console.disown_graphics();
+            }
         }
     }
 }
@@ -901,8 +1033,8 @@ impl Drop for Daemon {
 
 /// Run the worker stage: the boot screen itself. `ready` is called once the
 /// first frame is on screen and the socket accepts clients.
-pub fn run_worker(opts: Options, ready: impl FnOnce()) -> Result<(), String> {
-    let daemon = Daemon::start(opts)?;
+pub fn run_worker(opts: Options, devices: Option<broker::Client>, ready: impl FnOnce()) -> Result<(), StartError> {
+    let daemon = Daemon::start(opts, devices)?;
     ready();
     daemon.run();
     Ok(())
@@ -979,6 +1111,8 @@ mod tests {
         fail_present: bool,
         gone: bool,
         taken_over: bool,
+        /// Another program holds the display: it cannot be taken back.
+        show_refused: bool,
         display_available: bool,
         presents: usize,
         /// The rectangles of the last frame presented.
@@ -1015,7 +1149,11 @@ mod tests {
             self.0.lock().unwrap().log.push("hide");
         }
         fn show(&mut self) -> io::Result<()> {
-            self.0.lock().unwrap().log.push("show");
+            let mut shared = self.0.lock().unwrap();
+            shared.log.push("show");
+            if shared.show_refused {
+                return Err(io::Error::from_raw_os_error(libc::EBUSY));
+            }
             Ok(())
         }
         fn retain(&mut self) -> bool {
@@ -1178,6 +1316,70 @@ mod tests {
         daemon.finish(Some(1));
         assert!(begun.elapsed() >= Duration::from_secs(1));
         assert_eq!(shared.lock().unwrap().log, vec!["retain", "show", "hide"]);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn retain_leaves_a_display_that_another_program_holds_alone() {
+        // The compositor holds the display but has not drawn its first
+        // frame when the time is up.
+        let Rig { mut daemon, shared, dir, .. } = rig("held");
+        daemon.render();
+        shared.lock().unwrap().show_refused = true;
+        daemon.finish(Some(1));
+        // The display could not be taken back, so nothing is put back on it:
+        // no "hide" (which restores the text console's picture).
+        assert_eq!(shared.lock().unwrap().log, vec!["retain", "show", "abandon"]);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_console_settings_are_put_back_when_another_program_resets_them() {
+        use rustix::termios::{tcgetattr, tcsetattr, LocalModes, OptionalActions};
+        let Rig { mut daemon, dir, mut master, .. } = rig("reset");
+        let cooked = |master: &std::fs::File| {
+            tcgetattr(master).unwrap().local_modes.contains(LocalModes::ECHO | LocalModes::ICANON)
+        };
+        let reset = |master: &std::fs::File| {
+            let mut sane = tcgetattr(master).unwrap();
+            sane.local_modes.insert(LocalModes::ECHO | LocalModes::ICANON | LocalModes::ISIG);
+            tcsetattr(master, OptionalActions::Now, &sane).unwrap();
+        };
+        daemon.render();
+        assert!(!cooked(&master));
+        // systemd resets the console a moment after the switch to the real
+        // root. The next look at the console puts raw mode back...
+        reset(&master);
+        daemon.next_console_check = Instant::now();
+        daemon.tick();
+        assert!(!cooked(&master), "raw mode is back while the screen is shown");
+        // ...but not more often than a few times a second while nothing is asked.
+        reset(&master);
+        daemon.tick();
+        assert!(cooked(&master));
+        // A prompt opens: never with echo on.
+        ask(&mut daemon, 7);
+        assert!(!cooked(&master), "raw mode is put back before a passphrase is read");
+        // While the prompt is open every turn of the loop checks.
+        reset(&master);
+        daemon.tick();
+        assert!(!cooked(&master));
+        type_keys(&mut daemon, &mut master, b"secret");
+        assert_eq!(daemon.passphrase.chars(), 6);
+        assert!(!console_text(&mut master).contains("secret"), "nothing typed is echoed");
+        type_keys(&mut daemon, &mut master, b"\r");
+        assert!(!daemon.prompting());
+
+        // Hidden with Escape and nothing asked: the console is left to its user.
+        daemon.hide();
+        reset(&master);
+        daemon.next_console_check = Instant::now();
+        daemon.tick();
+        assert!(cooked(&master));
+        // A prompt on the hidden screen is a line on the console, still without echo.
+        ask(&mut daemon, 8);
+        assert!(!cooked(&master));
+        drop(daemon);
         let _ = std::fs::remove_dir_all(dir);
     }
 
