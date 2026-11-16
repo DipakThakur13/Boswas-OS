@@ -843,8 +843,11 @@ def extract(archive: Archive, destination: str | os.PathLike, *, entries: list[E
     file system (tests).
 
     Raises ``ArchiveError`` only when the destination cannot be used; every
-    other problem is in the ``Result``.
+    other problem is in the ``Result``. An empty destination is refused: it
+    would silently mean the working directory of the program.
     """
+    if not os.fspath(destination):
+        raise ArchiveError("No destination folder was given.")
     extractor = _Extractor(archive, os.path.abspath(os.fspath(destination)), policy, limits or Limits(), password,
                            handler or Handler(), cancel, case_insensitive)
     return extractor.run(entries, base)

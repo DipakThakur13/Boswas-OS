@@ -12,9 +12,7 @@ from ui_support import FilesCase, testing
 
 from PySide6.QtCore import QMimeData, QPoint, Qt
 from PySide6.QtGui import QGuiApplication, QImage, QKeySequence
-from PySide6.QtWidgets import QAbstractItemView, QLineEdit
 
-from boswas_fluent import ContentDialog
 
 from boswas_apps.files import clipformats, places
 from boswas_apps.files.dialogs import ConflictDialog, ErrorsDialog, OpenWithDialog, SettingsDialog

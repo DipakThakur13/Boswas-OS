@@ -132,9 +132,10 @@ class MouseSection(_Pointing):
         self.card("Primary button", "The button that selects and drags", "input-mouse-symbolic", self.primary)
         self.primary.activated.connect(lambda _i: self.change({("pointer", "left_handed"): self.primary.currentData()}))
         self.scroll = combo((("Wheel down scrolls down", False), ("Wheel down scrolls up", True)))
-        self.card("Scroll direction", "Which way the content moves when you turn the wheel", "go-down-symbolic",
+        self.card("Scroll direction", "Which way the content moves when you turn the wheel", "view-list-symbolic",
                   self.scroll)
-        self.scroll.activated.connect(lambda _i: self.change({("pointer", "natural_scroll"): self.scroll.currentData()}))
+        self.scroll.activated.connect(
+            lambda _i: self.change({("pointer", "natural_scroll"): self.scroll.currentData()}))
         self.size = combo((f"{label} ({size})", size) for size, label in POINTER_SIZES)
         self.card("Pointer size", "Takes effect for windows as they are redrawn", "view-fullscreen-symbolic", self.size)
         self.size.activated.connect(lambda _i: self.change({("pointer", "cursor_size"): self.size.currentData()}))
@@ -170,7 +171,7 @@ class TouchpadSection(_Pointing):
         self.tap = self.toggle("Tap to click", "Tap the touchpad with one finger instead of pressing it",
                                "input-mouse-symbolic", "touchpad", "tap_to_click")
         self.scroll = combo((("Content follows your fingers", True), ("Content moves the other way", False)))
-        self.card("Scroll direction", "Which way the content moves when you slide two fingers", "go-down-symbolic",
+        self.card("Scroll direction", "Which way the content moves when you slide two fingers", "view-list-symbolic",
                   self.scroll)
         self.scroll.activated.connect(
             lambda _i: self.change({("touchpad", "natural_scroll"): self.scroll.currentData()}))

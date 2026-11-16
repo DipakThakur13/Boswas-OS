@@ -46,7 +46,6 @@ class EditorWindow(fluent.FluentWindow):
         self.settings = context.settings
         self.worker = fluent.Worker(self, max_threads=2)
         self.zoom = 100
-        self._untitled = 0
         self._closing = False
         self._text_cache: tuple[object, int, str] | None = None
         self._print_job = None
@@ -268,8 +267,11 @@ class EditorWindow(fluent.FluentWindow):
 
     def new_tab(self, *, select: bool = True) -> EditorTab:
         """Open an empty tab at the end."""
-        self._untitled += 1
-        tab = EditorTab("Untitled" if self._untitled == 1 else f"Untitled {self._untitled}", self.tabs)
+        taken = {tab.untitled for tab in self.all_tabs() if not tab.path}
+        number = 1
+        while ("Untitled" if number == 1 else f"Untitled {number}") in taken:
+            number += 1
+        tab = EditorTab("Untitled" if number == 1 else f"Untitled {number}", self.tabs)
         tab.line_ending = str(self.settings["default_line_ending"])
         tab.area.apply_settings(self.settings)
         tab.area.set_zoom(self.zoom)
@@ -707,7 +709,9 @@ class EditorWindow(fluent.FluentWindow):
         self._text_cache = None
         if self.tab_bar.count() == 0 and not self._closing:
             self._closing = True
-            self.close()                       # as in Notepad: closing the last tab closes the window
+            # As in Notepad, closing the last tab closes the window. Not from here: this may run inside
+            # the window's own close event, where a second close() does nothing.
+            QTimer.singleShot(0, self.close)
         else:
             self._session_timer.start()
 
@@ -813,7 +817,7 @@ class EditorWindow(fluent.FluentWindow):
 
             def decided(all_closed: bool) -> None:
                 if all_closed and not self._closing:
-                    self.close()
+                    QTimer.singleShot(0, self.close)
             self.close_tabs(ask, decided)
             return
         if last:
@@ -879,9 +883,8 @@ class EditorWindow(fluent.FluentWindow):
             if not tab.path or tab.loading or tab.saving or tab.signature is None:
                 continue
             on_disk = fileio.signature(tab.path)
-            if on_disk == tab.signature or on_disk == tab.change_noticed:
-                if on_disk is not None:
-                    self._watch(tab.path)
+            if on_disk is not None and (on_disk == tab.signature or on_disk == tab.change_noticed):
+                self._watch(tab.path)
                 continue
             if on_disk is None:
                 tab.change_noticed = None
@@ -979,7 +982,9 @@ class EditorWindow(fluent.FluentWindow):
             return
         query = self._query()
         if query.valid:
-            found = query.find_next(self._text(tab), tab.area.textCursor().selectionStart())
+            text = self._text(tab)
+            # From where the selection starts, and from the top when there is nothing below.
+            found = query.find_next(text, tab.area.textCursor().selectionStart()) or query.find_next(text, 0)
             if found is not None:
                 tab.area.select_range(found[0], found[1])
         self._count_timer.start()

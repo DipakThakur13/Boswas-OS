@@ -183,6 +183,11 @@ class CreateTest(SourceCase):
             create.create(self.out / "x.7z", [str(self.src)], Options(format="7z"))
         self.assertEqual(os.listdir(self.out), [])
 
+    def test_an_empty_output_is_refused(self):
+        with self.assertRaises(ArchiveError):
+            create.create("", [str(self.src)], Options(format="zip"))
+        self.assertEqual(os.listdir(os.getcwd()), [])
+
     def test_output_folder_missing(self):
         with self.assertRaises(ArchiveError):
             create.create(self.tmp / "no" / "x.zip", [str(self.src)], Options(format="zip"))

@@ -526,6 +526,8 @@ def create(output: str | os.PathLike, sources: list[str], options: Options | Non
     packed is in the ``Result``.
     """
     options = options or Options()
+    if not os.fspath(output):
+        raise ArchiveError("No name was given for the archive.")
     output = os.path.abspath(os.fspath(output))
     fmt = formats.FORMATS.get(options.format)
     if fmt is None or options.format not in formats.CREATABLE:

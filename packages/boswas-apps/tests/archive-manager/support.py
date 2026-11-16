@@ -318,6 +318,31 @@ def fake_seven_archive(path, entries: list[dict], **spec) -> Path:
     return target
 
 
+def enter_scratch_directory() -> tuple[str, str]:
+    """Make an empty directory the working directory; returns (previous directory, scratch directory).
+
+    The tests are started from the source tree. Nothing may ever be written
+    there, and nothing may be written to "the current directory" at all: a
+    path that silently falls back to it is a bug. Every test therefore runs
+    in an empty directory of its own and checks that it is still empty.
+    """
+    import tempfile
+    previous = os.getcwd()
+    scratch = tempfile.mkdtemp(prefix="bw-archive-cwd-")
+    os.chdir(scratch)
+    return previous, scratch
+
+
+def leave_scratch_directory(state: tuple[str, str]) -> list[str]:
+    """Go back to the previous working directory; returns what was left in the scratch directory (then removed)."""
+    import shutil
+    previous, scratch = state
+    os.chdir(previous)
+    written = sorted(os.listdir(scratch))
+    shutil.rmtree(scratch, ignore_errors=True)
+    return written
+
+
 class EngineCase(unittest.TestCase):
     """A TestCase with a private temporary directory (``self.tmp``) and a fixed umask."""
 
@@ -326,10 +351,13 @@ class EngineCase(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory(prefix="bw-archive-test-")
         self.tmp = Path(self._tmp.name)
         self._umask = os.umask(0o022)
+        self._scratch = enter_scratch_directory()
         self.addCleanup(self._restore)
 
     def _restore(self) -> None:
         os.umask(self._umask)
+        written = leave_scratch_directory(self._scratch)
+        self.assertEqual(written, [], "something was written into the working directory")
         # Folders extracted without write permission would keep the directory from being removed.
         for directory, folders, _files in os.walk(self.tmp):
             for name in folders:

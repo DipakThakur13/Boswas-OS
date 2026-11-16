@@ -179,6 +179,11 @@ class ProgressWindow(fluent.FluentWindow):
         self._end_job()
         self._archive = archive
         target = task.target
+        if not target or not os.path.isabs(target):
+            # Never the working directory by accident: a task without a full destination is not run.
+            self._close_archive()
+            self._skip_task(f"{names.display(os.path.basename(task.path))}: no destination folder was given.")
+            return
 
         def work(handler):
             return extract.extract(archive, target, policy=extract.ASK, password=password, handler=handler,
@@ -208,7 +213,7 @@ class ProgressWindow(fluent.FluentWindow):
 
     # --- creating ---
     def _start_create(self, task: Task) -> None:
-        fmt = formats.format_for_new(task.path)
+        fmt = formats.format_for_new(task.path) if os.path.isabs(task.path) else None
         if fmt is None:
             self._skip_task(f"{names.display(os.path.basename(task.path))}: the name must end in .zip, .tar, "
                             ".tar.gz, .tar.xz or .tar.bz2.")

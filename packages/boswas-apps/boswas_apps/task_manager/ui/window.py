@@ -51,7 +51,8 @@ class TaskManagerWindow(fluent.FluentWindow):
     def __init__(self, arguments: list[str] | None = None, backend: Backend | None = None) -> None:
         self.backend = backend or Backend()
         self.settings = self.backend.load_settings()
-        super().__init__(APP_ID, DISPLAY_NAME, navigation={"pane_toggle": True, "pane_width": 232, "compact_below": 900},
+        super().__init__(APP_ID, DISPLAY_NAME,
+                         navigation={"pane_toggle": True, "pane_width": 232, "compact_below": 900},
                          icon="utilities-system-monitor", size=(1180, 760), minimum_size=(640, 440))
         self.worker = fluent.Worker(self)
         self.history = History()

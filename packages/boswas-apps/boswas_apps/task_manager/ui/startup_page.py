@@ -61,7 +61,8 @@ class StartupPage(Page):
 
     def load(self) -> None:
         self.window.call(self.window.backend.list_startup, done=self._loaded,
-                         failed=lambda error: self.window.notify("error", f"The startup apps could not be read: {error}"),
+                         failed=lambda error: self.window.notify("error",
+                                                                 f"The startup apps could not be read: {error}"),
                          key="startup")
 
     def _loaded(self, entries: list[StartupEntry]) -> None:
@@ -107,7 +108,8 @@ class StartupPage(Page):
 
     def add(self) -> None:
         self.window.call(self.window.backend.list_applications, done=self._choose,
-                         failed=lambda error: self.window.notify("error", f"The applications could not be read: {error}"))
+                         failed=lambda error: self.window.notify("error",
+                                                                 f"The applications could not be read: {error}"))
 
     def _choose(self, applications) -> None:
         self.window.applications_loaded(AppIndex(applications))

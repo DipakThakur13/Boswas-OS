@@ -63,6 +63,17 @@ class PlanTest(unittest.TestCase):
             self.assertEqual(caught.exception.code, 2)
             self.assertIn("boswas-archive-manager", errors.getvalue())
 
+    def test_every_task_has_absolute_paths(self):
+        """What the progress window is given never depends on the working directory later on."""
+        for arguments in (["--extract", "rel.zip"], ["--extract", "rel.zip", "--to", "out"], ["--extract-here", "rel.zip"],
+                          ["--extract-here", "sub/rel.tar.gz"], ["--create", "new.zip", "a", "b/c"]):
+            for _kind, path, target, sources in planned(*arguments).tasks:
+                self.assertTrue(os.path.isabs(path), arguments)
+                self.assertTrue(target is None or os.path.isabs(target), arguments)
+                self.assertTrue(all(os.path.isabs(source) for source in sources or []), arguments)
+        # "Extract here" means the folder of the archive, not the folder the program was started in.
+        self.assertEqual(planned("--extract-here", "/data/sub/a.zip").tasks[0][2], "/data/sub")
+
     def test_qt_options_are_left_for_qt(self):
         plan, rest = cli.plan(["-platform", "offscreen", "a.zip"])
         self.assertEqual(rest, ["-platform"])                  # its value looks like a path; Qt takes both itself

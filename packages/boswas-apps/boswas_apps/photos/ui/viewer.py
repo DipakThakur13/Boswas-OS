@@ -17,7 +17,7 @@ from .. import wallpaper as wallpaper_module
 from ..desktopcfg import ConfigError
 from ..fileutil import format_size, free_name, rename_no_replace
 from .canvas import ImageCanvas
-from .common import ElidedLabel, OverlayButton, Surface, action_icon
+from .common import BannerHolder, ElidedLabel, OverlayButton, Surface, action_icon
 from .dialogs import PrintDialog, ResizeDialog
 from .infopane import InfoPane
 from .thumbview import Filmstrip
@@ -174,6 +174,7 @@ class ViewerPage(QWidget):
         self.banner.hide()
         self.banner.action_triggered.connect(self._banner_action)
         self._banner_callback = None
+        self._banner_about_picture = False       # the banner says something about the picture on show
         self.stage = QWidget(self)
         self.canvas = ImageCanvas(self.stage)
         self.canvas.zoom_changed.connect(self._zoom_changed)
@@ -206,10 +207,7 @@ class ViewerPage(QWidget):
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(0, BAR_HEIGHT, 0, 0)
         self._layout.setSpacing(0)
-        banner_row = QHBoxLayout()
-        banner_row.setContentsMargins(12, 0, 12, 4)
-        banner_row.addWidget(self.banner)
-        self._layout.addLayout(banner_row)
+        self._layout.addWidget(BannerHolder(self.banner, self))
         self._layout.addLayout(middle, 1)
         self._layout.addWidget(self.filmstrip)
         self.top_bar.raise_()
@@ -424,14 +422,19 @@ class ViewerPage(QWidget):
             if not self.canvas.set_movie(info.path):
                 note = "This animation is too large to play; its first picture is shown."
         if loaded.truncated:
-            self.show_banner("warning", "This file is incomplete: part of the picture is missing.")
+            note, severity = "This file is incomplete: part of the picture is missing.", "warning"
         elif loaded.reduced:
-            self.show_banner("info", f"This picture has {fileinfo.format_megapixels(info.width, info.height)}. "
-                                     "To save memory it is shown with fewer pixels; edits are saved at that size.")
-        elif note:
-            self.show_banner("info", note)
-        elif self.banner.isVisible() and self._banner_callback is None:
+            note, severity = (f"This picture has {fileinfo.format_megapixels(info.width, info.height)}. To save "
+                              "memory it is shown with fewer pixels; edits are saved at that size."), "info"
+        else:
+            severity = "info"
+        if note:
+            if not self.banner.isVisible() or self._banner_about_picture:
+                self.show_banner(severity, note)         # never over the result of something the user just did
+                self._banner_about_picture = True
+        elif self._banner_about_picture:
             self.banner.hide()
+            self._banner_about_picture = False
         self._sync_actions()
         self._update_info()
         self._request_apps(info.format)
@@ -522,6 +525,7 @@ class ViewerPage(QWidget):
 
     def show_banner(self, severity: str, text: str, action: str | None = None, callback=None) -> None:
         self._banner_callback = callback
+        self._banner_about_picture = False
         self.banner.set_action(action)
         self.banner.show_message(severity, text)
 

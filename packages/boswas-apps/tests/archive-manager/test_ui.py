@@ -47,6 +47,13 @@ class WindowCase(BASE):
         self.work = self.tmp / "work"
         self.work.mkdir()
         self.opened_paths: list[str] = []
+        # The working directory is an empty folder that must still be empty afterwards (see support).
+        self._scratch = support.enter_scratch_directory()
+        self.addCleanup(self._leave_scratch)
+
+    def _leave_scratch(self) -> None:
+        written = support.leave_scratch_directory(self._scratch)
+        self.assertEqual(written, [], "something was written into the working directory")
 
     def png(self) -> bytes:
         image = QImage(64, 48, QImage.Format.Format_RGB32)
@@ -318,9 +325,20 @@ class ExtractTest(WindowCase):
         window.extract_all()
         dialog = self.wait_dialog(window, dialogs.ExtractDialog)
         dialog.destination.setText("")
+        self.assertTrue(dialog.make_folder.isChecked())
+        self.assertEqual(dialog.target(), "")           # never "Sample" below the working directory
         testing.click(dialog.primary_button)
         self.assertTrue(dialog.is_open())
         self.assertIn("Choose a folder", dialog.error.text())
+        for relative in ("out", "./out", "../out", "."):
+            dialog.destination.setText(relative)
+            self.assertEqual(dialog.target(), "", relative)
+            testing.click(dialog.primary_button)
+            self.assertTrue(dialog.is_open(), relative)
+            self.assertIn("whole path", dialog.error.text())
+        self.assertFalse(window.busy())
+        dialog.destination.setText("~/somewhere")
+        self.assertEqual(dialog.target(), os.path.join(os.path.expanduser("~"), "somewhere", "Sample"))
         dialog.destination.setText(str(self.sample()))
         testing.click(dialog.primary_button)
         self.assertIn("not a folder", dialog.error.text())
@@ -331,6 +349,20 @@ class ExtractTest(WindowCase):
         testing.process()
         self.assertIsNone(window.dialog)
         self.assertFalse(window.busy())
+
+    def test_no_extraction_without_an_absolute_destination(self):
+        """Whatever reaches the window, a missing or relative destination starts nothing."""
+        window = self.window(self.sample())
+        for target in ("", "Sample", "./x", "relative/dir"):
+            window.start_extract(target, None, "", extract.REPLACE, False)
+            self.assertFalse(window.busy(), target)
+            self.assertEqual(window.banner.severity(), "error")
+            self.assertEqual(window.banner.title(), "Nothing was extracted")
+        self.assertEqual(os.listdir(os.getcwd()), [])
+        window.start_create("relative.zip", [str(self.sample())], create.Options())
+        self.assertFalse(window.busy())
+        self.assertEqual(window.banner.title(), "No archive was created")
+        self.assertEqual(os.listdir(os.getcwd()), [])
 
     def test_extract_selected_from_inside_a_folder(self):
         window = self.window(self.sample())
@@ -552,6 +584,12 @@ class ChangeTest(WindowCase):
         testing.click(dialog.add_folder)
         self.assertEqual(dialog.source_paths(), [str(source)])
         dialog.name.setText("My project")
+        for relative in ("", ".", "work"):
+            dialog.directory.setText(relative)
+            self.assertEqual(dialog.output(), "", relative)
+            testing.click(dialog.primary_button)
+            self.assertTrue(dialog.is_open(), relative)
+            self.assertIn("whole path", dialog.error.text())
         dialog.directory.setText(str(self.work))
         dialog.format.setCurrentIndex(dialog.format.findData("tar.xz"))
         dialog.hidden.setChecked(True)
@@ -768,6 +806,15 @@ class ProgressWindowTest(WindowCase):
         self.assertTrue(testing.wait_until(lambda: window.finished_all, 15))
         self.assertEqual(window.exit_code, EXIT_CANCELLED)
         self.assertEqual(window.done_title.text(), "Cancelled")
+
+    def test_task_without_a_full_destination_is_not_run(self):
+        path = self.sample()
+        window = self.progress_window([Task("extract", str(path), None), Task("extract", str(path), "relative"),
+                                       Task("create", "relative.zip", sources=[str(path)])])
+        self.assertTrue(testing.wait_until(lambda: window.finished_all, 15))
+        self.assertEqual(window.exit_code, EXIT_PROBLEMS)
+        self.assertEqual(window.done_text.toPlainText().count("no destination folder was given"), 2)
+        self.assertEqual(os.listdir(os.getcwd()), [])
 
     def test_create(self):
         source = self.tmp / "project"

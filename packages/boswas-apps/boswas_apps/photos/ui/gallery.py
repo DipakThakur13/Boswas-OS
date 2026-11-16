@@ -13,7 +13,7 @@ import boswas_fluent as fluent
 
 from .. import library, trash
 from ..settings import INTERVAL_RANGE, QUALITY_RANGE
-from .common import action_icon
+from .common import BannerHolder, action_icon
 from .thumbview import ThumbGrid, draw_cover
 
 PATH_ROLE = Qt.ItemDataRole.UserRole + 1
@@ -111,10 +111,7 @@ class PictureGrid(QWidget):
         self.banner = fluent.InfoBar("info", parent=self)
         self.banner.hide()
         self.banner.action_triggered.connect(self._undo_delete)
-        banner_row = QHBoxLayout()
-        banner_row.setContentsMargins(32, 0, 32, 0)
-        banner_row.addWidget(self.banner)
-        layout.addLayout(banner_row)
+        layout.addWidget(BannerHolder(self.banner, self, margins=(32, 0, 32, 0)))
 
         self.stack = QStackedWidget(self)
         self.grid = ThumbGrid(host.thumbs, self.stack)
@@ -135,11 +132,13 @@ class PictureGrid(QWidget):
             self.stack.addWidget(widget)
         layout.addWidget(self.stack, 1)
 
+        # Shortcuts of the window while this view is on show (a hidden view's shortcuts are off; a text
+        # box that has the focus keeps Delete and Ctrl+C for itself).
         for keys, slot in (("Ctrl+F", self.focus_search), ("Ctrl+O", lambda: self.open_file_requested.emit()),
                            ("F5", lambda: self.refresh_requested.emit()), ("Delete", self.delete_selected),
                            ("Ctrl+C", self.copy_selected)):
             shortcut = QShortcut(QKeySequence(keys), self)
-            shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+            shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
             shortcut.activated.connect(slot)
         self._selection_changed()
         self._show_state()

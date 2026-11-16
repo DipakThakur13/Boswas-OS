@@ -173,7 +173,8 @@ class ServicesPage(Page):
         unit = self.selected()
         if unit is None:
             return ""
-        return "\t".join((unit.name, str(unit.pid or ""), unit.description, unit.status, unit.enabled, unit.scope_title))
+        return "\t".join((unit.name, str(unit.pid or ""), unit.description, unit.status, unit.enabled,
+                          unit.scope_title))
 
     def context_menu(self) -> fluent.MenuFlyout | None:
         unit = self.selected()

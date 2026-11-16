@@ -3,7 +3,9 @@
 A SectionGroup is one settings section of ui/settings with its title above
 it. The page activates the section when it becomes visible and deactivates
 it when it is left; a section that fails to build or to activate is replaced
-by a message, so that one broken section never takes the page with it.
+by a message, so that one broken section never takes the page with it. A
+section that hides itself (the battery on a device without one) takes its
+title with it: the group is shown only while the section is.
 
 A ProgramTile is a row that starts another Boswas program of the catalog
 (Files, the Compatibility Manager): a SettingsCard of the toolkit with the
@@ -18,7 +20,7 @@ from __future__ import annotations
 import logging
 
 import boswas_fluent as fluent
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from ..catalog import Program
@@ -55,7 +57,23 @@ class SectionGroup(QWidget):
         except Exception as exc:              # the section's own bug: say so in its place, keep the page
             self._failed("could not be shown", exc)
         else:
+            # A section may hide itself in its constructor, until it knows its state.
+            hidden = self.section.isHidden() and self.section.testAttribute(
+                Qt.WidgetAttribute.WA_WState_ExplicitShowHide)
             self.rows.addWidget(self.section)
+            self.section.installEventFilter(self)
+            if hidden:
+                self.section.hide()
+                self.hide()
+
+    def eventFilter(self, watched, event) -> bool:
+        # A section that hides itself has nothing to show on this device: no title without content.
+        if watched is self.section and not self.failed:
+            if event.type() == QEvent.Type.HideToParent:
+                self.hide()
+            elif event.type() == QEvent.Type.ShowToParent:
+                self.show()
+        return False
 
     def _failed(self, what: str, exc: Exception) -> None:
         self.failed = True

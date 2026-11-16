@@ -806,6 +806,14 @@ class DestinationTest(JailCase):
         self.assertEqual(len(result.failed), 2)
         self.assertEqual(tree(self.dest), {})
 
+    def test_an_empty_destination_is_refused_not_taken_for_the_working_directory(self):
+        archive = reader.open_archive(raw_zip(self.archives / "d.zip", [zip_member("a.txt", b"x")]))
+        for nothing in ("", b""):
+            with self.assertRaises(ArchiveError):
+                extract.extract(archive, nothing, policy=REPLACE)
+        archive.close()
+        self.assertEqual(os.listdir(os.getcwd()), [])
+
     def test_default_destination(self):
         self.assertEqual(extract.default_destination("/a/b/photos.tar.gz"), "/a/b/photos")
         self.assertEqual(extract.default_destination("/a/b/data.zip"), "/a/b/data")

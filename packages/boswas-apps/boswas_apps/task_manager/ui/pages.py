@@ -308,7 +308,8 @@ class ProcessesPage(ProcessTablePage):
         if grouped:
             for kind, rank in SECTION_RANK.items():
                 if counts[kind]:
-                    rows.append(Row("s:" + kind, (grouping.SECTIONS[kind], counts[kind]), counts[kind], None, rank, True))
+                    rows.append(Row("s:" + kind, (grouping.SECTIONS[kind], counts[kind]), counts[kind], None, rank,
+                                    True))
         self.show_rows(rows, len(self.groups))
 
     def section_counts(self) -> dict[str, int]:
@@ -482,7 +483,8 @@ class UsersPage(ProcessTablePage):
                    icon=lambda row: fluent.icon("avatar-default-symbolic") if isinstance(row.data, SessionRow)
                    else fluent.icon("application-x-executable")),
             Column("id", "ID", _user_text(lambda s: s.session.id or "—", lambda p: str(p.pid)),
-                   lambda row: row.data.pid if isinstance(row.data, Proc) else row.data.session.id, right=True, width=64),
+                   lambda row: row.data.pid if isinstance(row.data, Proc) else row.data.session.id, right=True,
+                   width=64),
             Column("status", "Status", _user_text(lambda s: s.session.state_title,
                                                   lambda p: grouping.status_text(p.state)), width=120),
             Column("place", "Seat / terminal", _user_text(lambda s: s.session.place, lambda p: procfs.tty_name(p.tty)),

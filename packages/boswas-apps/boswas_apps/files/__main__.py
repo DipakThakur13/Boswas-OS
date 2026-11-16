@@ -41,7 +41,8 @@ def main(argv: list[str] | None = None) -> int:
     if not instance.start(arguments):
         return 0                                # the running instance does what was asked
     fluent.apply(app)
-    icon = fluent.icon("boswas-files")
+    from .uiicons import named
+    icon = named("boswas-files")
     if not icon.isNull():
         app.setWindowIcon(icon)
 

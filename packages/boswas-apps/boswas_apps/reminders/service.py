@@ -239,13 +239,16 @@ class Service(QObject):
         self.engine.set_clock(clock_model.normalize(raw))
 
     def _load_calendar(self) -> None:
-        from ..calendar import model as calendar_model     # only loaded here: Clock alone does not need it
         try:
             raw = jsonfile.read_json(self.calendar_path)
         except jsonfile.StoreError as exc:
             log(str(exc))
             return
-        self.engine.set_calendar(calendar_model.CalendarData.from_json(raw) if raw is not None else None)
+        if raw is None:
+            self.engine.set_calendar(None)
+            return
+        from ..calendar import model as calendar_model     # only loaded once there is a calendar
+        self.engine.set_calendar(calendar_model.CalendarData.from_json(raw))
 
     def _change_clock(self, change: Callable[[dict], None]) -> None:
         """Change ``clock.json`` under its lock (the same way Clock does) and take the result as read."""

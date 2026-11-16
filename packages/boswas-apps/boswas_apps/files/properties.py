@@ -8,7 +8,7 @@ import pwd
 import stat
 import time
 
-from PySide6.QtCore import QSize, Qt, QThread, Signal
+from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QFormLayout, QFrame, QHBoxLayout, QProgressBar, QScrollArea,
                                QVBoxLayout, QWidget)
 
@@ -191,7 +191,7 @@ class PropertiesWindow(fluent.FluentWindow):
         if is_dir:
             self._mime = mime.FOLDER
             type_text = "File folder"
-            self.icon.set_icon(fluent.icon("folder"))
+            self.icon.set_icon(uiicons.named("folder"))
         elif target_info is None:
             self._mime = "inode/symlink"
             type_text = "Broken link"

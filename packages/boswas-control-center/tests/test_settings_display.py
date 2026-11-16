@@ -192,7 +192,8 @@ if HAVE_QT:
                              ["1: DELL U2720Q (DP-1)", "2: Built-in display (eDP-1)"])
             self.assertEqual([section.resolution_box.itemText(i) for i in range(section.resolution_box.count())],
                              ["3840 × 2160 (recommended)", "2560 × 1440", "1920 × 1080"])
-            self.assertEqual([section.rate_box.itemText(i) for i in range(section.rate_box.count())], ["60 Hz", "30 Hz"])
+            self.assertEqual([section.rate_box.itemText(i) for i in range(section.rate_box.count())],
+                             ["60 Hz", "30 Hz"])
             self.assertEqual((section.scale_box.currentText(), section.orientation_box.currentText()),
                              ("100 %", "Landscape"))
             self.assertIn("2 monitors", canvas.accessibleDescription())
@@ -225,7 +226,8 @@ if HAVE_QT:
             self.answer(section, "keep")
             self.assertEqual(cc.Settings(dict(os.environ)).snapshot().output("DP-1")["scale"], 1.5)
             self.assertEqual(section.scale_box.currentText(), "150 %")
-            self.assertEqual(section.rects(), {"DP-1": cc.Rect(0, 0, 2560, 1440), "eDP-1": cc.Rect(2560, 0, 1920, 1200)})
+            self.assertEqual(section.rects(), {"DP-1": cc.Rect(0, 0, 2560, 1440),
+                                               "eDP-1": cc.Rect(2560, 0, 1920, 1200)})
             self.assertEqual(self.compositor.reloads, 1)
 
         def test_without_an_answer_the_previous_file_comes_back_exactly(self):
@@ -358,7 +360,8 @@ if HAVE_QT:
         def test_a_single_virtual_output(self):
             section = self.monitors(HEADLESS)
             self.assertTrue(section.canvas_card.isVisible())
-            self.assertFalse(section.monitor_card.isVisible() or section.use_card.isVisible() or section.hint.isVisible())
+            self.assertFalse(section.monitor_card.isVisible() or section.use_card.isVisible()
+                             or section.hint.isVisible())
             self.assertEqual(section.resolution_box.currentText(), "1920 × 1080 (recommended)")
             self.assertFalse(section.rate_box.isEnabled())
             choose(section.scale_box, 2.0)

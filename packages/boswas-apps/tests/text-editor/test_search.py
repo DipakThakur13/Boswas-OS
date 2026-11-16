@@ -48,15 +48,15 @@ class FindTest(unittest.TestCase):
         self.assertEqual(query.find_next(TEXT, 48), (4, 7, True))
         self.assertIsNone(Query("cat", Options(wrap_around=False)).find_next(TEXT, 48))
         self.assertIsNone(Query("dog").find_next(TEXT, 10))
-        self.assertEqual(query.find_previous(TEXT, 4), (45, 48, True))
+        self.assertEqual(query.find_previous(TEXT, 4), (46, 49, True))
         self.assertIsNone(Query("cat", Options(wrap_around=False)).find_previous(TEXT, 4))
 
     def test_previous(self):
         query = Query("cat")
-        self.assertEqual(query.find_previous(TEXT, len(TEXT)), (45, 48, False))
+        self.assertEqual(query.find_previous(TEXT, len(TEXT)), (46, 49, False))
         self.assertEqual(query.find_previous(TEXT, 45), (38, 41, False))
         self.assertEqual(query.find_previous(TEXT, 7), (4, 7, False))
-        self.assertEqual(query.find_previous(TEXT, 6), (45, 48, True))
+        self.assertEqual(query.find_previous(TEXT, 6), (46, 49, True))
 
     def test_previous_far_back(self):
         text = "needle" + " hay" * 200000

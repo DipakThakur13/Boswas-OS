@@ -322,7 +322,8 @@ class CompositionBar(QWidget):
             if alpha:
                 painter.fillRect(inner, series_colour("memory", alpha))
             painter.setPen(QPen(series_colour("memory"), 1))
-            painter.drawRect(QRectF(inner.left() + 0.5, inner.top() + 0.5, max(0.0, inner.width() - 1), inner.height() - 1))
+            painter.drawRect(QRectF(inner.left() + 0.5, inner.top() + 0.5, max(0.0, inner.width() - 1),
+                                    inner.height() - 1))
 
 
 class Legend(QWidget):

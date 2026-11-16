@@ -869,6 +869,10 @@ class ArchiveWindow(fluent.FluentWindow):
 
     def start_extract(self, target: str, entries: list[model.Entry] | None, base: str, policy: str,
                       open_after: bool) -> None:
+        if not target or not os.path.isabs(target):
+            # Never a folder nobody named: a relative path would mean "wherever the program was started".
+            self.tell_banner("error", "Choose the folder to extract to by its whole path.", "Nothing was extracted")
+            return
         archive, password = self.archive, self.password
 
         def work(handler):
@@ -1108,6 +1112,8 @@ class ArchiveWindow(fluent.FluentWindow):
             if result != Result.PRIMARY:
                 return
             output = dialog.output()
+            if not output:
+                return
             options = create.Options(format=dialog.format.currentData(), level=dialog.level.currentData(),
                                      follow_symlinks=dialog.follow.isChecked(),
                                      exclude_hidden=dialog.hidden.isChecked())
@@ -1124,6 +1130,10 @@ class ArchiveWindow(fluent.FluentWindow):
         self._show_dialog(dialog, answered)
 
     def start_create(self, output: str, paths: list[str], options: create.Options) -> None:
+        if not output or not os.path.isabs(output):
+            self.tell_banner("error", "Choose the folder for the archive by its whole path.", "No archive was created")
+            return
+
         def work(handler):
             return create.create(output, paths, options, handler, handler.cancel)
 

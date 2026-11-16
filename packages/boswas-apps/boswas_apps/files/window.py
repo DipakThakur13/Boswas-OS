@@ -19,7 +19,6 @@ from .dialogs import ConflictDialog, ErrorsDialog, OpenWithDialog, PassphraseDia
 from .fileops import Delete, DeleteTrashed, Restore, Transfer, TrashOp, describe_error
 from .launch import LaunchError
 from .listing import Entry
-from .model import TRASH
 from .opspanel import OperationsPanel
 from .properties import PropertiesWindow
 from .settings import VIEW_LABELS

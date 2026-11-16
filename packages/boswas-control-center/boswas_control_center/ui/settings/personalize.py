@@ -191,7 +191,8 @@ class WallpaperTile(Tile):
         painter.fillRect(box, fluent.qcolor("fill-control"))
         if self.pixmap is None or self.pixmap.isNull():
             if self.failed:
-                fluent.paint.status_badge(painter, QRectF(box.center().x() - 9, box.center().y() - 9, 18, 18), "warning")
+                centre = box.center()
+                fluent.paint.status_badge(painter, QRectF(centre.x() - 9, centre.y() - 9, 18, 18), "warning")
             return
         scaled = self.pixmap.size().scaled(box.size().toSize(), Qt.AspectRatioMode.KeepAspectRatioByExpanding)
         target = QRectF(box.center().x() - scaled.width() / 2, box.center().y() - scaled.height() / 2,
@@ -316,7 +317,7 @@ class BackgroundSection(ConfigSection):
         self.browse.clicked.connect(self._browse)
         self.default = fluent.Button("Use the default background")
         self.default.clicked.connect(lambda: self.change({("appearance", "wallpaper"): None}))
-        self.header = self.card("Background picture", "", "preferences-desktop-wallpaper", self.browse)
+        self.header = self.card("Background picture", "", "image-x-generic-symbolic", self.browse)
         self.header.add_control(self.default)
         self.grid_card = self.add(fluent.Card(self, padding=16, spacing=8))
         self.boswas_label = fluent.Label("Boswas wallpapers", "body-strong", self.grid_card)

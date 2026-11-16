@@ -79,6 +79,7 @@ class TextArea(QPlainTextEdit):
         self.cursorPositionChanged.connect(self._numbers.update)
         self.document().setDocumentMargin(8)
         self.document().setModified(False)     # setting the margin counts as a change of the document
+        self.document().clearUndoRedoStacks()
 
     # --- appearance ---
     def apply_settings(self, settings: dict) -> None:

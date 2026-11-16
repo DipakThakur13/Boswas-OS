@@ -210,7 +210,7 @@ class DecoderTest(unittest.TestCase):
         self.assertLessEqual(len(state.error), 400)
         self.assertEqual(state.access_points[0].ssid, "Evil\nName\t!")   # an SSID is bytes of the air: kept as sent
         device = sb.parse_event({"event": "bluetooth", "devices": [
-            {"address": "AA:BB:CC:DD:EE:01", "name": "Head\nphones‮"}]})[1].devices[0]
+            {"address": "AA:BB:CC:DD:EE:01", "name": "Head\nphones" + chr(0x202E)}]})[1].devices[0]
         self.assertEqual(device.name, "Head phones")
 
     def test_caps(self):

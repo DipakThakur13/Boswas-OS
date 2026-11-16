@@ -42,7 +42,8 @@ if PYSIDE:
     fx.use_fake_bridge()                  # no test starts the real services bridge
     # The pages with content of their own and those made of this package's own sections; Display and
     # Devices appear with the compositor sections (ui/settings/display.py, input.py).
-    ALWAYS_PAGES = ("personalization", "network", "bluetooth", "storage", "applications", "windows", "android",
+    ALWAYS_PAGES = ("personalization", "network", "bluetooth", "sound", "power", "storage", "applications",
+                    "windows", "android",
                     "security", "updates",
                     "privacy", "hardware", "system", "about")
 

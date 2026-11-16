@@ -208,7 +208,7 @@ class SettingsDialog(ContentDialog):
         self.start_error.hide()
         column.addStretch(1)
         area.setWidget(body)
-        area.setMinimumHeight(420)
+        area.setMinimumHeight(452)
         self.content_layout.addWidget(area, 1)
         self.text_label.hide()
         self.start_box.currentIndexChanged.connect(self._start_changed)

@@ -991,7 +991,8 @@ class Settings:
 
     def snapshot(self) -> Snapshot:
         return Snapshot((_layer("defaults", self.system_files[0]), _layer("system", self.system_files[1]),
-                         _layer("user", self.user_path(USER_NAME)), _layer("appearance", self.user_path(APPEARANCE_NAME))))
+                         _layer("user", self.user_path(USER_NAME)),
+                         _layer("appearance", self.user_path(APPEARANCE_NAME))))
 
     def effective(self, table: str, key: str) -> object:
         return self.snapshot().get(table, key)

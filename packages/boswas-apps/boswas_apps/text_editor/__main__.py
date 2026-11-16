@@ -17,7 +17,7 @@ def parse_arguments(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
     parser.add_argument("files", nargs="*", metavar="FILE", help="text files to open, each in a tab")
     parser.add_argument("--new-window", action="store_true", help="open a new window")
     parser.add_argument("--version", action="version", version=f"boswas-text-editor {__version__}")
-    return parser.parse_known_args(argv)
+    return parser.parse_known_intermixed_args(argv)      # files may stand before and after the options
 
 
 def forwarded(options: argparse.Namespace) -> list[str]:

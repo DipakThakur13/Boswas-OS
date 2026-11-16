@@ -7,8 +7,7 @@ import os
 from PySide6.QtCore import QMimeDatabase, QMimeType
 from PySide6.QtGui import QIcon
 
-import boswas_fluent as fluent
-
+from . import uiicons
 from .listing import Entry
 from .text import split_extension
 
@@ -124,14 +123,12 @@ def icon(name: str) -> QIcon:
         candidates.append(name.replace("/", "-"))
     found = QIcon()
     for candidate in candidates:
-        if candidate and fluent.icon_path(candidate) is not None:
-            found = fluent.icon(candidate)
+        if candidate and uiicons.path_of(candidate) is not None:
+            found = uiicons.named(candidate)
             break
     if found.isNull():
-        found = fluent.icon(*(candidate for candidate in candidates if candidate), "unknown",
-                            "application-octet-stream", symbolic=False) if candidates else fluent.icon("unknown")
-    if found.isNull():
-        found = fluent.icon("unknown", "application-octet-stream", "text-x-generic")
+        found = uiicons.named(*(candidate for candidate in candidates if candidate), "unknown",
+                              "application-octet-stream", "text-x-generic")
     _icons[name] = found
     return found
 
@@ -139,7 +136,7 @@ def icon(name: str) -> QIcon:
 def entry_icon(entry: Entry) -> QIcon:
     if entry.is_dir:
         special = _special_folders.get(entry.path)
-        return fluent.icon(special, "folder") if special else fluent.icon("folder")
+        return uiicons.named(special, "folder") if special else uiicons.named("folder")
     if not entry.mime:
         fill(entry)
     return icon(entry.mime if not entry.broken else "application/octet-stream")

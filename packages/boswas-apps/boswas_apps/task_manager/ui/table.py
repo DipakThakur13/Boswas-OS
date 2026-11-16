@@ -36,8 +36,9 @@ ROW_HEIGHT = 34
 class Column:
     """One column: how a row shows in it and how rows are ordered by it."""
 
-    def __init__(self, key: str, title: str, text: Callable[["Row"], str], sort: Callable[["Row"], object] | None = None,
-                 *, right: bool = False, width: int = 100, heat: Callable[["Row"], float | None] | None = None,
+    def __init__(self, key: str, title: str, text: Callable[["Row"], str],
+                 sort: Callable[["Row"], object] | None = None, *, right: bool = False, width: int = 100,
+                 heat: Callable[["Row"], float | None] | None = None,
                  icon: Callable[["Row"], QIcon | None] | None = None, descending_first: bool = False,
                  tooltip: bool = False) -> None:
         self.key, self.title, self.text = key, title, text
@@ -428,7 +429,8 @@ class MetricHeader(QHeaderView):
         box = QRectF(rect).adjusted(8, 0, -8, 0)
         painter.fillRect(QRect(rect.left(), rect.bottom(), rect.width(), 1), fluent.qcolor("stroke-divider"))
         if logical != self.logicalIndex(self.count() - 1):
-            painter.fillRect(QRect(rect.right(), rect.top() + 10, 1, rect.height() - 20), fluent.qcolor("stroke-divider"))
+            painter.fillRect(QRect(rect.right(), rect.top() + 10, 1, rect.height() - 20),
+                             fluent.qcolor("stroke-divider"))
         sorted_here = self.isSortIndicatorShown() and self.sortIndicatorSection() == logical
         if metric:
             paint.elided(painter, QRectF(box.left(), rect.top() + 6, box.width(), 20), metric,

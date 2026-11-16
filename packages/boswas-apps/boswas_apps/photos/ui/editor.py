@@ -21,7 +21,7 @@ from boswas_fluent import paint
 
 from .. import decode, editops, exif, imageio
 from ..fileutil import free_name
-from .common import Surface, action_icon, checker_brush
+from .common import BannerHolder, Surface, action_icon, checker_brush
 
 PREVIEW_SIDE = 1280
 THUMB_SIDE = 96
@@ -62,7 +62,7 @@ class EditCanvas(QWidget):
         self._drag_crop = self._crop
         self._live: list[QPointF] = []               # the stroke being drawn, widget coordinates
         self.tool = editops.PEN
-        self.pen_colour = "#000000"
+        self.pen_colour = fluent.theme().color("black")
         self.pen_width = 4.0                         # in full-size source pixels
         self.setMouseTracking(True)
         self.setMinimumSize(160, 120)
@@ -548,10 +548,7 @@ class EditorPage(QWidget):
         outer.addWidget(self.top_bar)
         self.banner = fluent.InfoBar("info", parent=self)
         self.banner.hide()
-        banner_row = QHBoxLayout()
-        banner_row.setContentsMargins(12, 4, 12, 0)
-        banner_row.addWidget(self.banner)
-        outer.addLayout(banner_row)
+        outer.addWidget(BannerHolder(self.banner, self, margins=(12, 4, 12, 0)))
 
         # --- body ---
         body = QHBoxLayout()

@@ -252,8 +252,9 @@ class SnapshotTest(Files):
                             "[touchpad]\naccel_speed = -9\n[output]\nscale = 3.3\n[appearance]\nscheme = \"neon\"\n"
                             "[night_light]\ntemperature = 100\nfrom = \"late\"\n[power]\nscreen_off_seconds = 5\n")
         get = self.settings.snapshot().get
-        self.assertEqual([get("keyboard", "repeat_delay"), get("keyboard", "repeat_rate"), get("pointer", "accel_speed"),
-                          get("pointer", "cursor_size"), get("pointer", "accel_profile"), get("touchpad", "accel_speed"),
+        self.assertEqual([get("keyboard", "repeat_delay"), get("keyboard", "repeat_rate"),
+                          get("pointer", "accel_speed"), get("pointer", "cursor_size"),
+                          get("pointer", "accel_profile"), get("touchpad", "accel_speed"),
                           get("output", "scale"), get("appearance", "scheme"), get("night_light", "temperature"),
                           get("night_light", "from"), get("night_light", "to"), get("power", "screen_off_seconds")],
                          [100, 100, 1.0, 16, "adaptive", -1.0, 1.0, "dark", 2500, "20:00", "06:00", 30])

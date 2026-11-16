@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QFormLayout, QFrame, QLabel, QPlainTextEdit, QScro
 
 import boswas_fluent as fluent
 
-from . import mime, thumbs
+from . import mime, thumbs, uiicons
 from .listing import Entry
 from .model import format_time
 from .text import display_name, format_size, plural
@@ -133,7 +133,7 @@ class DetailsPane(QScrollArea):
     def show_many(self, entries: list[Entry]) -> None:
         self._token += 1
         self._path = ""
-        self._icon(fluent.icon("folder-open", "folder") if all(entry.is_dir for entry in entries)
+        self._icon(uiicons.named("folder-open", "folder") if all(entry.is_dir for entry in entries)
                    else mime.icon("application/octet-stream"))
         self.title.setText(plural(len(entries), "item") + " selected")
         files = [entry for entry in entries if not entry.is_dir]

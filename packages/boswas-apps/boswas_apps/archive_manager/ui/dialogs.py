@@ -82,11 +82,17 @@ class ExtractDialog(fluent.ContentDialog):
             self.destination.setText(chosen)
 
     def target(self) -> str:
-        """The folder the entries go to."""
+        """The folder the entries go to: an absolute path, or "" while the input names none.
+
+        A path that is empty or relative is never completed from the working
+        directory of the program: nobody chose that folder.
+        """
         base = os.path.expanduser(self.destination.text().strip())
+        if not os.path.isabs(base):
+            return ""
         if self.make_folder.isChecked():
             base = os.path.join(base, self.folder_name)
-        return os.path.abspath(base) if base else ""
+        return os.path.normpath(base)
 
     def chosen_policy(self) -> str:
         return self.policy.currentData()
@@ -97,7 +103,10 @@ class ExtractDialog(fluent.ContentDialog):
             if not text:
                 self.error.setText("Choose a folder to extract to.")
                 return
-            base = os.path.abspath(os.path.expanduser(text))
+            base = os.path.expanduser(text)
+            if not os.path.isabs(base):
+                self.error.setText("Give the whole path of the folder, starting with “/” or “~”.")
+                return
             if os.path.exists(base) and not os.path.isdir(base):
                 self.error.setText("That is a file, not a folder.")
                 return
@@ -274,11 +283,15 @@ class NewArchiveDialog(fluent.ContentDialog):
         return [self.sources.item(row).text() for row in range(self.sources.count())]
 
     def output(self) -> str:
+        """The file to write: an absolute path, or "" while the folder is not given as one."""
         fmt = formats.FORMATS[self.format.currentData()]
         name = self.name.text().strip()
         if name.lower().endswith(fmt.extension):
             name = name[:-len(fmt.extension)]
-        return os.path.join(os.path.abspath(os.path.expanduser(self.directory.text().strip())), name + fmt.extension)
+        directory = os.path.expanduser(self.directory.text().strip())
+        if not os.path.isabs(directory) or not name:
+            return ""
+        return os.path.join(os.path.normpath(directory), name + fmt.extension)
 
     def _fail(self, text: str) -> None:
         self.error.setText(text)
@@ -288,9 +301,9 @@ class NewArchiveDialog(fluent.ContentDialog):
             name = self.name.text().strip()
             if not name or "/" in name or "\0" in name or name in (".", ".."):
                 return self._fail("Give the archive a name (without “/”).")
-            directory = self.directory.text().strip()
-            if not directory or not os.path.isdir(os.path.expanduser(directory)):
-                return self._fail("Choose an existing folder to save the archive in.")
+            directory = os.path.expanduser(self.directory.text().strip())
+            if not os.path.isabs(directory) or not os.path.isdir(directory):
+                return self._fail("Choose an existing folder to save the archive in (its whole path).")
             if not self.source_paths():
                 return self._fail("Add at least one file or folder.")
         super().done(result)

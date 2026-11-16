@@ -176,7 +176,8 @@ class WallpaperFilesTest(unittest.TestCase):
         text = self.picture("text.png", b"hello")
         for bad, words in ((str(text), "Only PNG and JPEG"), (str(self.home / "missing.png"), "cannot be read"),
                            (str(self.home / "Pictures"), "not a picture file"), ("relative.png", "Choose a picture"),
-                           ("", "Choose a picture"), (None, "Choose a picture"), ("/tmp/a\x00b.png", "Choose a picture"),
+                           ("", "Choose a picture"), (None, "Choose a picture"),
+                           ("/tmp/a\x00b.png", "Choose a picture"),
                            (str(self.picture("line\nbreak.png")), "cannot be stored")):
             with self.assertRaises(ValueError, msg=bad) as caught:
                 wallpapers.check_picture(bad)

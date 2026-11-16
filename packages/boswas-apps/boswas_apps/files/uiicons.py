@@ -48,6 +48,14 @@ class _TintEngine(QIconEngine):
         painter.drawPixmap(target, pixmap)
 
 
+def path_of(name: str):
+    """``fluent.icon_path`` that answers None when an icon directory cannot be read."""
+    try:
+        return fluent.icon_path(name)
+    except OSError:
+        return None
+
+
 def symbolic(name: str, *fallbacks: str) -> QIcon:
     """The symbolic icon ``name`` (or the first fallback that exists), in the text colour. Empty when none exists."""
     key = (name, fallbacks)
@@ -57,8 +65,8 @@ def symbolic(name: str, *fallbacks: str) -> QIcon:
     result = QIcon()
     for candidate in (name, *fallbacks):
         full = candidate if candidate.endswith("-symbolic") else candidate + "-symbolic"
-        if fluent.icon_path(full) is not None:
-            result = fluent.icon(full)
+        if path_of(full) is not None:
+            result = named(full)
             break
         if QIcon.hasThemeIcon(full):
             result = QIcon(_TintEngine(QIcon.fromTheme(full)))
@@ -69,7 +77,10 @@ def symbolic(name: str, *fallbacks: str) -> QIcon:
 
 def named(name: str, *fallbacks: str) -> QIcon:
     """A coloured icon (a folder, a drive, an application) from Boswas Prism or the system theme."""
-    return fluent.icon(name, *fallbacks)
+    try:
+        return fluent.icon(name, *fallbacks)
+    except OSError:                     # a directory of the icon search path that cannot be read
+        return QIcon()
 
 
 def app_icon(name: str) -> QIcon:
@@ -84,8 +95,11 @@ def app_icon(name: str) -> QIcon:
         if not pixmap.isNull():
             result = QIcon(pixmap)
     elif name:
-        result = fluent.icon(name, symbolic=False)
+        try:
+            result = fluent.icon(name, symbolic=False)
+        except OSError:
+            result = QIcon()
     if result.isNull():
-        result = fluent.icon("application-x-executable")
+        result = named("application-x-executable")
     _cache[key] = result
     return result

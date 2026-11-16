@@ -12,7 +12,6 @@ from ui_support import FilesCase, testing
 
 from PySide6.QtCore import QObject, Qt, Signal
 
-from boswas_fluent import ContentDialog
 
 from boswas_apps.files import __main__ as main_module
 from boswas_apps.files import app as app_module

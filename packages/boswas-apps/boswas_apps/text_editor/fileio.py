@@ -97,8 +97,9 @@ def _problem(path: str, error: OSError, action: str) -> LoadError:
                            f"{error.strerror or error}.")
 
 
-def check(path: str, *, max_bytes: int = MAX_FILE) -> int:
+def check(path: str, *, max_bytes: int | None = None) -> int:
     """The size of a file that can be opened. Raises LoadError for anything else (a folder, a device, too big)."""
+    max_bytes = MAX_FILE if max_bytes is None else max_bytes
     try:
         info = os.stat(path)
     except OSError as error:
@@ -114,7 +115,7 @@ def check(path: str, *, max_bytes: int = MAX_FILE) -> int:
     return info.st_size
 
 
-def load(path: str, *, max_bytes: int = MAX_FILE, progress: Callable[[float], None] | None = None,
+def load(path: str, *, max_bytes: int | None = None, progress: Callable[[float], None] | None = None,
          cancelled: Callable[[], bool] | None = None, encoding: codec.Encoding | None = None,
          default_line_ending: str = codec.LF) -> Loaded:
     """Read the text file at ``path``.
@@ -125,6 +126,7 @@ def load(path: str, *, max_bytes: int = MAX_FILE, progress: Callable[[float], No
     detected one. Raises LoadError with a message for the user.
     """
     name = os.path.basename(path) or path
+    max_bytes = MAX_FILE if max_bytes is None else max_bytes
     size = check(path, max_bytes=max_bytes)
     pieces: list[bytes] = []
     read = 0

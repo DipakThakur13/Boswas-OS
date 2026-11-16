@@ -6,9 +6,9 @@ names a colour of its own.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPoint, QRect, QRectF, QSize, Qt
+from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, QSize, Qt
 from PySide6.QtGui import QBrush, QFontMetrics, QIcon, QIconEngine, QImage, QPainter, QPixmap
-from PySide6.QtWidgets import QAbstractButton, QLabel, QSizePolicy, QWidget
+from PySide6.QtWidgets import QAbstractButton, QHBoxLayout, QLabel, QSizePolicy, QWidget
 
 import boswas_fluent as fluent
 from boswas_fluent import paint
@@ -201,3 +201,21 @@ class Surface(QWidget):
             painter.fillRect(self.rect(), fluent.qcolor(self._fill))
         if self._line:
             painter.fillRect(0, self.height() - 1, self.width(), 1, fluent.qcolor(self._line))
+
+
+class BannerHolder(QWidget):
+    """Margins around an InfoBar that take no room while the bar is hidden."""
+
+    def __init__(self, banner: QWidget, parent: QWidget | None = None, *, margins=(12, 0, 12, 4)) -> None:
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(*margins)
+        layout.addWidget(banner)
+        self._banner = banner
+        banner.installEventFilter(self)
+        self.setVisible(not banner.isHidden())
+
+    def eventFilter(self, obj, event) -> bool:
+        if obj is self._banner and event.type() in (QEvent.Type.ShowToParent, QEvent.Type.HideToParent):
+            self.setVisible(event.type() == QEvent.Type.ShowToParent)
+        return False
