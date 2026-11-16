@@ -9,11 +9,24 @@
 # config/archives/boswas-exclude.pref.chroot, so the build fails if anything
 # pulls them in. KDE's applications stay: they are ordinary Wayland clients.
 
-# Login (boswas-desktop configures it) and session services
+# Login (boswas-desktop configures it) and session services. The shell is
+# the polkit agent. X11 applications run through Xwayland. The wlroots
+# portal back end serves screen sharing (the compositor asks the user).
 greetd
-polkit-kde-agent-1
+xwayland
 xdg-desktop-portal-gtk
+xdg-desktop-portal-wlr
 xdg-user-dirs
+
+# What the shell and Settings show and control (boswas-services): sound
+# devices (pw-dump, wpctl), battery and power mode, user accounts.
+# NetworkManager, BlueZ and polkitd are in the base, hardware and security
+# lists.
+pipewire-bin
+wireplumber
+upower
+power-profiles-daemon
+accountsservice
 
 # Toolkits on Wayland, cursors, fallback icons and the widget style of the
 # KDE applications

@@ -49,6 +49,8 @@ override_dh_auto_install:
 	install -D -m 0644 session/boswas.desktop $(SHARE)/wayland-sessions/boswas.desktop
 	install -D -m 0644 session/boswas-session.target $(PKG)/usr/lib/systemd/user/boswas-session.target
 	install -D -m 0644 session/boswas-portals.conf $(SHARE)/xdg-desktop-portal/boswas-portals.conf
+	# Screen sharing: the wlroots portal back end, without a chooser program
+	install -D -m 0644 session/xdg-desktop-portal-wlr.conf $(PKG)/etc/xdg/xdg-desktop-portal-wlr/Boswas
 	# Login: greetd reads /etc/boswas/greetd.toml (drop-in; greetd's own
 	# configuration file stays untouched); PAM service of the lock screen
 	install -D -m 0644 session/greetd.toml $(PKG)/etc/boswas/greetd.toml

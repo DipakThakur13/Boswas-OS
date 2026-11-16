@@ -27,30 +27,48 @@ Depends: dbus-user-session,
          xkb-data,
          ${misc:Depends},
          ${shlibs:Depends}
-Recommends: boswas-branding,
+Recommends: bluez,
+            boswas-branding,
             breeze-cursor-theme,
             fonts-inter,
-            polkit-kde-agent-1,
+            network-manager,
+            pipewire-bin,
+            polkitd,
+            power-profiles-daemon,
             qt6-wayland,
-            xdg-desktop-portal-gtk
+            upower,
+            wireplumber,
+            xdg-desktop-portal-gtk,
+            xdg-desktop-portal-wlr,
+            xwayland
 Suggests: libxkbcommon-x11-0
 Description: Boswas OS desktop: compositor, shell and session
  The native Boswas OS desktop, written in Rust. It takes the place of KWin,
  the Plasma shell and the Plasma session; applications keep working because
- it speaks the standard Wayland protocols.
+ it speaks the standard Wayland protocols, and X11 applications run through
+ Xwayland.
  .
-  * boswas-compositor: the Wayland compositor (on the Smithay library): the
-    display server, window manager and effects engine. Floating windows with
-    Boswas frames, snap layouts, workspaces, Alt+Tab, fractional scaling;
-    DRM/KMS with OpenGL ES on real hardware, a software renderer for tests
-  * boswas-shell: wallpaper, panel and launcher, the lock screen and the
-    login screen
+  * boswas-compositor: the display server, window manager and effects
+    engine (on the Smithay library). Boswas window frames with rounded
+    corners and shadows, animations, snap layouts, a window picker
+    (Alt+Tab), Task View with several desktops, a window menu, fractional
+    scaling, settings per monitor, night light, input methods, touch
+    screens, touchpad gestures and drawing tablets; DRM/KMS with OpenGL ES
+    on real hardware, a software renderer for tests
+  * boswas-shell: the taskbar with Start, search, pinned and running
+    applications, the tray and the clock; quick settings (Wi-Fi, Bluetooth,
+    sound, brightness, power mode); notifications with a calendar; the
+    volume and brightness display; screen capture; the polkit password
+    dialog; the lock screen and the login screen
+  * boswas-services-bridge: the shell's network, Bluetooth, sound and power
+    backends for the Settings application
   * boswas-session: the session greetd starts after login
  .
- Security model: ordinary applications cannot read the screen, other
- windows or global key strokes. Panels, the lock screen, the window list and
- clipboard control are offered only to the programs the compositor starts
- itself; sandboxed applications never see them. The compositor owns the
+ Security model: ordinary applications cannot read other windows or global
+ key strokes. Panels, the lock screen, the window list, clipboard control
+ and input methods are offered only to the programs the compositor starts
+ itself; sandboxed applications never see them. A program gets pictures of
+ the screen only after the user has allowed it. The compositor owns the
  session lock: a locked screen stays blank even if the lock screen crashes.
  The session locks after ten minutes without input, and a user cannot
  lengthen that.

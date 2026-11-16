@@ -2,8 +2,8 @@
 # boswas-session-ready: run by boswas-session once the compositor accepts
 # clients. It publishes the session's environment to the user's systemd
 # manager and D-Bus activation, then starts the session target, which pulls
-# in graphical-session.target (the device session agent, the polkit agent,
-# portals and XDG autostart entries).
+# in graphical-session.target (the device session agent, portals and XDG
+# autostart entries). The polkit agent is the shell itself.
 variables="WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SESSION_TYPE XDG_CONFIG_DIRS
 QT_QPA_PLATFORM GDK_BACKEND MOZ_ENABLE_WAYLAND SDL_VIDEODRIVER XCURSOR_THEME XCURSOR_SIZE"
 

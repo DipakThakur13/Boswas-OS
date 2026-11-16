@@ -43,15 +43,20 @@ ordinary Wayland clients.
 | Package | Why |
 |---------|-----|
 | greetd | Login daemon (ADR-0030). `boswas-desktop` points it at `/etc/boswas/greetd.toml` with a systemd drop-in; it runs the Boswas greeter and, as a fallback, its own text login (`agreety`) |
-| polkit-kde-agent-1 | Authentication dialogue for polkit (`pkexec`, `boswas-sysops`). Started by `boswas-session.target`. A Boswas dialogue is planned |
+| xwayland | The X server for X11 applications. `boswas-compositor` starts it and manages its windows like any other (`[xwayland] enabled`) |
 | xdg-desktop-portal-gtk | Portal back end for file dialogues and settings of Flatpak and other sandboxed applications (`XDG_CURRENT_DESKTOP=Boswas`, `boswas-portals.conf`). It has no screen-capture portal |
+| xdg-desktop-portal-wlr | Portal back end for screen sharing and screenshots (browsers, meetings, sandboxed applications). It asks the compositor for pictures through wlr-screencopy; the compositor asks the user first. Configured without a chooser program (`/etc/xdg/xdg-desktop-portal-wlr/Boswas`): it shares the first monitor. Not tested in this build environment |
+| pipewire-bin, wireplumber | `pw-dump` and `wpctl`: how the shell and Settings read and set sound devices and volumes (`boswas-services`) |
+| upower | Battery state for the taskbar, quick settings and Settings |
+| power-profiles-daemon | The power modes (power saver, balanced, performance) in quick settings and Settings |
+| accountsservice | User accounts in Settings (name, picture, password, adding and removing users), authorised through polkit |
 | xdg-user-dirs | Standard user folders |
 | qt6-wayland | Qt 6 platform plugin for Wayland: Control Center, the Compatibility Manager and the KDE applications draw on the compositor directly (there is no X server) |
 | breeze-cursor-theme | Cursor theme the compositor and the applications load (`breeze_cursors`) |
 | breeze-icon-theme | Fallback for icons the Boswas Prism pack does not contain |
 | kde-style-breeze | Widget style of the KDE and PySide6 applications (`widgetStyle=Breeze`), coloured by the generated Prism colour scheme |
 | pipewire-audio | Audio stack |
-| pavucontrol-qt | Volume and device control until the shell has quick settings (replaces the Plasma audio applet) |
+| pavucontrol-qt | Per-application volumes; the shell's quick settings and Settings cover devices and the main volume |
 | konsole, dolphin, kwrite, ark, okular, gwenview, kcalc | Core applications: terminal, files, editor, archives, PDF, images, calculator |
 | firefox-esr | Browser on Debian's long-term security-supported channel |
 | fonts-hack | Monospace font of the Boswas terminal profiles (`Font=Hack,11`); Plasma used to pull it in |
@@ -123,7 +128,7 @@ network exists; `config/boswas/firmware-required.list` is the build gate.
 | boswas-sysops | The only privileged helper (ADR-0024): fixed operations started with pkexec, one polkit action each. Depends on `apt`, `pkexec`, `polkitd` |
 | boswas-control-center | Control Center, Security Center and Software Center (PySide6). Depends on `kde-cli-tools` and `libkf6kcmutils-bin`; the Plasma settings modules it can open are no longer installed (see the roadmap) |
 | boswas-android | Android runtime manager and APK inspection (ADR-0025). The Android runtime (Waydroid) itself is **not** in the image: it is installed on request after installation |
-| boswas-desktop | The native desktop (ADR-0026 to ADR-0028, ADR-0030): `boswas-compositor`, `boswas-shell` (panel, launcher, lock screen, greeter), the session, the greetd drop-in and the lock screen's PAM service. Rust, `amd64`. Depends on `greetd`, `dbus-user-session`, `libegl1`, `libgles2`, `libgl1-mesa-dri`, `libpam-runtime`, `xkb-data` and, through its shared libraries, libseat, libinput, libudev, GBM, pixman, xkbcommon and PAM. Recommends `boswas-branding`, `breeze-cursor-theme`, `fonts-inter`, `polkit-kde-agent-1`, `qt6-wayland`, `xdg-desktop-portal-gtk` (all in the manifest) |
+| boswas-desktop | The native desktop (ADR-0026 to ADR-0028, ADR-0030): `boswas-compositor`, `boswas-shell` (taskbar, Start, quick settings, notifications, the polkit agent, lock screen, greeter), `boswas-services-bridge` (the same service backends for Settings), the session, the greetd drop-in and the lock screen's PAM service. Rust, `amd64`. Depends on `greetd`, `dbus-user-session`, `libegl1`, `libgles2`, `libgl1-mesa-dri`, `libpam-runtime`, `xkb-data` and, through its shared libraries, libseat, libinput, libudev, GBM, pixman, xkbcommon and PAM. Recommends `boswas-branding`, `breeze-cursor-theme`, `fonts-inter`, `qt6-wayland`, `xwayland`, `xdg-desktop-portal-gtk`, `xdg-desktop-portal-wlr`, `polkitd`, `network-manager`, `bluez`, `pipewire-bin`, `wireplumber`, `upower`, `power-profiles-daemon` (all in the manifest): each is optional at run time, and what it serves shows as not available without it |
 | boswas-bootsplash | The boot, disk-unlock and shutdown screens (ADR-0029). Rust, `amd64`. Depends on `initramfs-tools`; conflicts with `plymouth` |
 
 The Control Plane (`boswas-control-plane`, a server package), the Android
