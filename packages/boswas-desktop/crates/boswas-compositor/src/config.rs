@@ -318,8 +318,8 @@ impl Default for Shell {
 impl Default for Apps {
     fn default() -> Self {
         Self {
-            terminal: vec!["konsole".into()],
-            files: vec!["dolphin".into()],
+            terminal: vec!["boswas-terminal".into()],
+            files: vec!["boswas-files".into()],
             settings: vec!["boswas-control-center".into()],
             task_manager: vec!["boswas-task-manager".into()],
         }

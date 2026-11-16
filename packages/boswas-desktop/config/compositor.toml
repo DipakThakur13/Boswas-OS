@@ -39,8 +39,8 @@ command = ["/usr/libexec/boswas/boswas-shell", "--lock"]
 command = ["/usr/libexec/boswas/boswas-shell"]
 
 [apps]
-terminal = ["konsole"]
-files = ["dolphin"]
+terminal = ["boswas-terminal"]
+files = ["boswas-files"]
 settings = ["boswas-control-center"]
 task_manager = ["boswas-task-manager"]
 

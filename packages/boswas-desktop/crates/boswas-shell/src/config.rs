@@ -6,25 +6,30 @@ use std::path::{Path, PathBuf};
 
 /// Applications pinned to the taskbar of a new user, by desktop file id.
 pub const DEFAULT_TASKBAR: &[&str] = &[
-    "com.boswas.ControlCenter",
-    "org.kde.dolphin",
-    "org.kde.konsole",
+    "com.boswas.Files",
     "firefox-esr",
+    "com.boswas.Terminal",
+    "com.boswas.ControlCenter",
     "com.boswas.CompatibilityManager",
 ];
 
 /// Applications pinned to Start for a new user, in order; Start fills the
 /// rest of its first page with other installed applications.
 pub const DEFAULT_START: &[&str] = &[
-    "com.boswas.ControlCenter",
-    "org.kde.dolphin",
+    "com.boswas.Files",
     "firefox-esr",
-    "org.kde.konsole",
-    "org.kde.kwrite",
-    "org.kde.okular",
-    "org.kde.gwenview",
-    "org.kde.kcalc",
-    "org.kde.ark",
+    "com.boswas.ControlCenter",
+    "com.boswas.Terminal",
+    "com.boswas.TextEditor",
+    "com.boswas.Calculator",
+    "com.boswas.Photos",
+    "com.boswas.MediaPlayer",
+    "com.boswas.Camera",
+    "com.boswas.DocumentViewer",
+    "com.boswas.Calendar",
+    "com.boswas.Clock",
+    "com.boswas.ArchiveManager",
+    "com.boswas.TaskManager",
     "com.boswas.CompatibilityManager",
 ];
 

@@ -612,11 +612,11 @@ mod tests {
 
     fn apps() -> Vec<App> {
         vec![
-            app("org.kde.ark", "Archive Manager", &[]),
-            app("org.kde.kcalc", "Calculator", &[]),
-            app("org.kde.dolphin", "Files", &["folder"]),
+            app("com.boswas.ArchiveManager", "Archive Manager", &[]),
+            app("com.boswas.Calculator", "Calculator", &[]),
+            app("com.boswas.Files", "Files", &["folder"]),
             app("firefox-esr", "Firefox", &["browser", "web"]),
-            app("org.kde.konsole", "Terminal", &["shell"]),
+            app("com.boswas.Terminal", "Terminal", &["shell"]),
             app("zz.app", "9 Lives", &[]),
         ]
     }
@@ -625,7 +625,7 @@ mod tests {
     fn a_new_user_gets_the_defaults_then_everything_else() {
         let apps = apps();
         let ids = pinned_ids(&ShellConfig::default(), &apps);
-        assert_eq!(&ids[..5], ["org.kde.dolphin", "firefox-esr", "org.kde.konsole", "org.kde.kcalc", "org.kde.ark"]);
+        assert_eq!(&ids[..5], ["com.boswas.Files", "firefox-esr", "com.boswas.Terminal", "com.boswas.Calculator", "com.boswas.ArchiveManager"]);
         assert_eq!(ids.len(), apps.len(), "the page is filled with the other applications");
         let mut config = ShellConfig::default();
         config.start = Some(vec!["firefox-esr".into(), "not.installed".into()]);
@@ -708,7 +708,7 @@ mod tests {
     #[test]
     fn recommended_lists_the_most_used_first() {
         let apps = apps();
-        let usage: HashMap<String, u32> = [("firefox-esr".to_owned(), 9), ("org.kde.kcalc".to_owned(), 2), ("gone".to_owned(), 50), ("org.kde.ark".to_owned(), 0)].into();
+        let usage: HashMap<String, u32> = [("firefox-esr".to_owned(), 9), ("com.boswas.Calculator".to_owned(), 2), ("gone".to_owned(), 50), ("com.boswas.ArchiveManager".to_owned(), 0)].into();
         assert_eq!(recommended(&apps, &usage, 6), [3, 1]);
         assert_eq!(recommended(&apps, &usage, 1), [3]);
         assert!(recommended(&apps, &HashMap::new(), 6).is_empty());

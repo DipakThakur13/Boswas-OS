@@ -357,7 +357,7 @@ pub fn launch(app: &App) -> std::io::Result<()> {
     if !app.terminal {
         return spawn(&app.exec);
     }
-    for (terminal, flag) in [("konsole", Some("-e")), ("foot", None), ("x-terminal-emulator", Some("-e"))] {
+    for (terminal, flag) in [("boswas-terminal", Some("-e")), ("konsole", Some("-e")), ("foot", None), ("x-terminal-emulator", Some("-e"))] {
         if program_exists(terminal) {
             let mut argv = vec![terminal.to_owned()];
             argv.extend(flag.map(str::to_owned));
