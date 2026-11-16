@@ -407,6 +407,7 @@ fn run(mode: Mode) -> Result<i32, Box<dyn std::error::Error>> {
         capture: None,
         focus: None,
         night_light: false,
+        capturing: Vec::new(),
         layouts: Vec::new(),
         layout: 0,
         thumbnails: HashMap::new(),

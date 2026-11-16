@@ -161,6 +161,8 @@ impl Winit {
             );
             state.ipc_screenshot_done(request, result);
         }
+        let outputs = [self.output.clone()];
+        super::screencopy::<_, GlesTexture>(self.backend.renderer(), Fourcc::Abgr8888, state, &outputs);
 
         let time = state.start_time.elapsed();
         state.post_repaint(&self.output, &states, time);

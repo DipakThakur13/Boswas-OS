@@ -60,8 +60,12 @@ const MAX_PROFILES: usize = 1024;
 /// A scan that NetworkManager does not report as finished is forgotten
 /// after this long.
 const SCAN_TIMEOUT: Duration = Duration::from_secs(15);
-/// So is a connection attempt (NetworkManager gives up earlier).
-const ATTEMPT_TIMEOUT: Duration = Duration::from_secs(90);
+/// A request to connect may wait for the person: NetworkManager asks
+/// polkit before it changes a profile that is not the person's own.
+const CONNECT_CALL_TIMEOUT: Duration = Duration::from_secs(120);
+/// A connection attempt that never ends is forgotten after this long
+/// (NetworkManager gives up on an activation much earlier).
+const ATTEMPT_TIMEOUT: Duration = Duration::from_secs(150);
 
 pub(crate) struct Network {
     ctx: Ctx,
@@ -79,6 +83,17 @@ pub(crate) struct Network {
     wifi_devices: Vec<WifiDevice>,
     scan: Option<Scan>,
     attempt: Option<Attempt>,
+    /// The request to NetworkManager that started the attempt, while it
+    /// is on its way.
+    connecting: Option<Task<()>>,
+    /// Counts the attempts, to tell the answer to an earlier request from
+    /// the answer to the current one.
+    attempts: u64,
+    /// The attempt that failed before NetworkManager had said which
+    /// profile it made for it: that profile is deleted when known.
+    orphan: Option<u64>,
+    /// Other requests on their way.
+    calls: Vec<Task<()>>,
     /// A failure to show once: it goes out with the next state and is
     /// then forgotten.
     error: Option<String>,
@@ -126,6 +141,8 @@ struct Scan {
 }
 
 struct Attempt {
+    /// Which attempt this is (see `Network::attempts`).
+    id: u64,
     ssid: String,
     device: String,
     started: Instant,
@@ -148,6 +165,9 @@ enum Msg {
     Profiles,
     Radios,
     DeviceState { path: String, new: u32, reason: u32 },
+    /// NetworkManager answered the request of attempt `id`: the profile
+    /// it made for it, if it made one, or why it refused.
+    Requested { id: u64, result: Result<Option<String>, String> },
     Lost,
 }
 
@@ -165,6 +185,10 @@ impl Service for Network {
             wifi_devices: Vec::new(),
             scan: None,
             attempt: None,
+            connecting: None,
+            attempts: 0,
+            orphan: None,
+            calls: Vec::new(),
             error: None,
             restore: None,
         }
@@ -211,6 +235,9 @@ impl Network {
         self.wifi_devices.clear();
         self.scan = None;
         self.attempt = None;
+        self.connecting = None;
+        self.orphan = None;
+        self.calls.clear();
     }
 
     async fn serve(&mut self, bus: &Bus, commands: &Receiver<Command>) -> CallResult<bool> {
@@ -238,7 +265,11 @@ impl Network {
                     debounce.trigger();
                 }
                 Wake::Message(Msg::DeviceState { path, new, reason }) => {
-                    self.device_state(conn, &path, new, reason).await;
+                    self.device_state(conn, &path, new, reason);
+                    debounce.trigger();
+                }
+                Wake::Message(Msg::Requested { id, result }) => {
+                    self.requested(conn, id, result);
                     debounce.trigger();
                 }
                 Wake::Command(Command::Refresh(Which::Network)) => {
@@ -251,7 +282,7 @@ impl Network {
                     // The lock screen and the greeter show the network
                     // and change nothing.
                     if !self.ctx.restricted {
-                        self.command(conn, command).await;
+                        self.command(conn, command, &inbox).await;
                         debounce.trigger();
                     }
                 }
@@ -512,26 +543,27 @@ impl Network {
 
     // --- commands ---
 
-    async fn command(&mut self, conn: &Connection, command: Command) {
+    async fn command(&mut self, conn: &Connection, command: Command, inbox: &Sender<Msg>) {
         match command {
             Command::WifiSetEnabled(on) => {
                 log(set_property(conn, NM, NM_PATH, NM, "WirelessEnabled", Value::from(on)).await, "switching Wi-Fi");
             }
             Command::WifiScan => self.start_scan(conn).await,
-            Command::WifiConnect { ssid, passphrase } => self.connect(conn, ssid, passphrase).await,
+            Command::WifiConnect { ssid, passphrase } => self.connect(conn, ssid, passphrase, inbox),
             Command::WifiDisconnect => {
                 self.attempt = None;
-                for device in &self.wifi_devices {
-                    if device.state > STATE_DISCONNECTED {
-                        log(call_raw(conn, CALL_TIMEOUT, NM, &device.path, NM_DEVICE, "Disconnect", &()).await, "disconnecting");
-                    }
+                self.connecting = None;
+                self.orphan = None;
+                let devices: Vec<String> =
+                    self.wifi_devices.iter().filter(|device| device.state > STATE_DISCONNECTED).map(|device| device.path.clone()).collect();
+                for device in devices {
+                    self.request(conn, device, NM_DEVICE, "Disconnect", "disconnecting");
                 }
             }
             Command::WifiForget { ssid } => {
                 for profile in self.profiles.get(&ssid).cloned().unwrap_or_default() {
-                    log(call_raw(conn, CALL_TIMEOUT, NM, &profile, NM_CONNECTION, "Delete", &()).await, "forgetting a network");
+                    self.request(conn, profile, NM_CONNECTION, "Delete", "forgetting a network");
                 }
-                self.profiles_stale = true;
             }
             Command::AirplaneMode(on) => self.airplane(conn, on).await,
             _ => {}
@@ -553,36 +585,99 @@ impl Network {
         self.scan = (!before.is_empty()).then(|| Scan { started: Instant::now(), before });
     }
 
-    async fn connect(&mut self, conn: &Connection, name: String, passphrase: Option<Secret>) {
+    /// Sends a request without arguments to one of NetworkManager's
+    /// objects, beside the loop: NetworkManager may ask polkit first, and
+    /// what the request changes shows in its signals.
+    fn request(&mut self, conn: &Connection, path: String, interface: &'static str, method: &'static str, what: &'static str) {
+        let conn = conn.clone();
+        self.calls.retain(|task| !task.is_finished());
+        self.calls.push(self.ex.spawn(async move {
+            log(call_raw(&conn, CONNECT_CALL_TIMEOUT, NM, &path, interface, method, &()).await, what);
+        }));
+    }
+
+    /// Starts connecting to a network. What can be refused without asking
+    /// NetworkManager is refused here; the request itself runs beside the
+    /// loop and its answer arrives as `Msg::Requested`.
+    fn connect(&mut self, conn: &Connection, name: String, passphrase: Option<Secret>, inbox: &Sender<Msg>) {
         self.error = None;
         self.attempt = None;
+        self.connecting = None;
+        self.orphan = None;
         let Some(net) = self.networks.get(&name).cloned() else {
             self.error = Some("The network is not in range any more.".into());
             return;
         };
         let profile = self.profiles.get(&name).and_then(|profiles| profiles.first().cloned());
-        let started = match (profile, passphrase) {
-            (Some(profile), None) => activate(conn, &profile, &net).await.map(|()| None),
-            (Some(profile), Some(passphrase)) => match update_passphrase(conn, &profile, &net, &passphrase).await {
-                Ok(()) => activate(conn, &profile, &net).await.map(|()| None),
-                Err(error) => Err(error),
-            },
-            (None, passphrase) => add_and_activate(conn, &name, &net, passphrase.as_ref()).await.map(Some),
-        };
-        match started {
-            Ok(created) => {
-                self.attempt = Some(Attempt { ssid: name, device: net.device, started: Instant::now(), created, activating: false });
-                if self.attempt.as_ref().is_some_and(|attempt| attempt.created.is_some()) {
-                    self.profiles_stale = true;
+        // A known network is connected to as it is saved unless a new
+        // passphrase comes with the request.
+        if profile.is_none() || passphrase.is_some() {
+            if let Err(message) = security_settings(&net, passphrase.as_ref()) {
+                self.error = Some(message);
+                return;
+            }
+        }
+        self.attempts += 1;
+        let id = self.attempts;
+        self.attempt = Some(Attempt {
+            id,
+            ssid: name.clone(),
+            device: net.device.clone(),
+            started: Instant::now(),
+            created: None,
+            activating: false,
+        });
+        let (conn, inbox, users_file) = (conn.clone(), inbox.clone(), self.ctx.env.users_file.clone());
+        self.connecting = Some(self.ex.spawn(async move {
+            let result = match (profile, passphrase) {
+                (Some(profile), None) => activate(&conn, &profile, &net).await.map(|()| None),
+                (Some(profile), Some(passphrase)) => match update_passphrase(&conn, &profile, &net, &passphrase).await {
+                    Ok(()) => activate(&conn, &profile, &net).await.map(|()| None),
+                    Err(error) => Err(error),
+                },
+                (None, passphrase) => {
+                    let owner = private_owner(&conn, &users_file).await;
+                    add_and_activate(&conn, &name, &net, passphrase.as_ref(), owner.as_deref()).await.map(Some)
+                }
+            };
+            let _ = inbox.send(Msg::Requested { id, result }).await;
+        }));
+    }
+
+    /// NetworkManager answered the request that started attempt `id`
+    /// (which need not be the current attempt any more).
+    fn requested(&mut self, conn: &Connection, id: u64, result: Result<Option<String>, String>) {
+        if id == self.attempts {
+            self.connecting = None;
+        }
+        let pending = self.attempt.as_mut().filter(|attempt| attempt.id == id);
+        match (result, pending) {
+            (Ok(created), Some(attempt)) => {
+                self.profiles_stale |= created.is_some();
+                attempt.created = created;
+            }
+            (Ok(Some(created)), None) => {
+                // The attempt is over already. If it failed, the profile
+                // it made goes; if it succeeded, or another attempt took
+                // its place, the profile stays.
+                self.profiles_stale = true;
+                if self.orphan == Some(id) {
+                    self.orphan = None;
+                    self.request(conn, created, NM_CONNECTION, "Delete", "removing the failed profile");
                 }
             }
-            Err(message) => self.error = Some(message),
+            (Ok(None), None) => {}
+            (Err(message), Some(_)) => {
+                self.attempt = None;
+                self.error = Some(message);
+            }
+            (Err(_), None) => {}
         }
     }
 
     /// A device changed state: the end of our connection attempt shows
     /// here, with NetworkManager's reason when it failed.
-    async fn device_state(&mut self, conn: &Connection, path: &str, new: u32, reason: u32) {
+    fn device_state(&mut self, conn: &Connection, path: &str, new: u32, reason: u32) {
         let Some(attempt) = self.attempt.as_mut().filter(|attempt| attempt.device == path) else {
             return;
         };
@@ -590,12 +685,17 @@ impl Network {
             STATE_PREPARE..=STATE_SECONDARIES => attempt.activating = true,
             STATE_ACTIVATED if attempt.activating => self.attempt = None,
             STATE_FAILED if attempt.activating => {
-                let created = attempt.created.clone();
+                let (id, created) = (attempt.id, attempt.created.clone());
                 self.error = Some(failure_text(reason).into());
                 self.attempt = None;
-                if let Some(created) = created {
-                    log(call_raw(conn, CALL_TIMEOUT, NM, &created, NM_CONNECTION, "Delete", &()).await, "removing the failed profile");
-                    self.profiles_stale = true;
+                match created {
+                    Some(created) => {
+                        self.request(conn, created, NM_CONNECTION, "Delete", "removing the failed profile");
+                        self.profiles_stale = true;
+                    }
+                    // Not known yet whether a profile was made.
+                    None if self.connecting.is_some() => self.orphan = Some(id),
+                    None => {}
                 }
             }
             _ => {}
@@ -774,8 +874,22 @@ fn refusal(error: CallError) -> String {
 
 async fn activate(conn: &Connection, profile: &str, net: &Net) -> Result<(), String> {
     let body = (object_path(profile)?, object_path(&net.device)?, object_path(&net.access_point)?);
-    call_raw(conn, CALL_TIMEOUT, NM, NM_PATH, NM, "ActivateConnection", &body).await.map_err(refusal)?;
+    call_raw(conn, CONNECT_CALL_TIMEOUT, NM, NM_PATH, NM, "ActivateConnection", &body).await.map_err(refusal)?;
     Ok(())
+}
+
+/// The user a new profile is to be private to: nobody when the person may
+/// change system-wide settings (the profile is then for every user, as
+/// NetworkManager makes them by default), otherwise the person, because a
+/// private profile is what NetworkManager lets them create without the
+/// password of an administrator.
+async fn private_owner(conn: &Connection, users_file: &std::path::Path) -> Option<String> {
+    const MODIFY_SYSTEM: &str = "org.freedesktop.NetworkManager.settings.modify.system";
+    let permissions: HashMap<String, String> = call(conn, NM, NM_PATH, NM, "GetPermissions", &()).await.ok()?;
+    match permissions.get(MODIFY_SYSTEM).map(String::as_str) {
+        Some("yes") | None => None,
+        Some(_) => crate::auth::own_user_name(users_file).await,
+    }
 }
 
 /// The security settings for a passphrase, by what the network uses.
@@ -794,15 +908,19 @@ fn security_settings<'a>(net: &Net, passphrase: Option<&'a Secret>) -> Result<Op
 
 /// Creates a profile for the network and connects. Returns the new
 /// profile's path.
-async fn add_and_activate(conn: &Connection, name: &str, net: &Net, passphrase: Option<&Secret>) -> Result<String, String> {
+async fn add_and_activate(conn: &Connection, name: &str, net: &Net, passphrase: Option<&Secret>, owner: Option<&str>) -> Result<String, String> {
     let mut settings: HashMap<&str, HashMap<&str, Value<'_>>> = HashMap::new();
-    settings.insert("connection", HashMap::from([("type", Value::from("802-11-wireless")), ("id", Value::from(name))]));
+    let mut connection = HashMap::from([("type", Value::from("802-11-wireless")), ("id", Value::from(name))]);
+    if let Some(owner) = owner {
+        connection.insert("permissions", Value::from(vec![format!("user:{owner}:")]));
+    }
+    settings.insert("connection", connection);
     settings.insert("802-11-wireless", HashMap::from([("ssid", Value::from(net.ssid.clone())), ("mode", Value::from("infrastructure"))]));
     if let Some(security) = security_settings(net, passphrase)? {
         settings.insert("802-11-wireless-security", security);
     }
     let body = (settings, object_path(&net.device)?, object_path(&net.access_point)?);
-    let reply = call_raw(conn, CALL_TIMEOUT, NM, NM_PATH, NM, "AddAndActivateConnection", &body).await.map_err(refusal)?;
+    let reply = call_raw(conn, CONNECT_CALL_TIMEOUT, NM, NM_PATH, NM, "AddAndActivateConnection", &body).await.map_err(refusal)?;
     let body = reply.body();
     let (profile, _active) = body.deserialize::<(OwnedObjectPath, OwnedObjectPath)>().map_err(|_| "Could not connect to the network.".to_owned())?;
     Ok(profile.to_string())
@@ -821,7 +939,7 @@ async fn update_passphrase(conn: &Connection, profile: &str, net: &Net, passphra
     if let Some(security) = security_settings(net, Some(passphrase))? {
         settings.entry("802-11-wireless-security").or_default().extend(security);
     }
-    call_raw(conn, CALL_TIMEOUT, NM, profile, NM_CONNECTION, "Update", &(settings,)).await.map_err(refusal)?;
+    call_raw(conn, CONNECT_CALL_TIMEOUT, NM, profile, NM_CONNECTION, "Update", &(settings,)).await.map_err(refusal)?;
     Ok(())
 }
 

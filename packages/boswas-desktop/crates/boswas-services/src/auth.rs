@@ -699,6 +699,12 @@ async fn user_names(users_file: &Path, uids: &[u32], own: Option<u32>) -> Vec<St
     names
 }
 
+/// The name of the user this process runs as.
+pub(crate) async fn own_user_name(users_file: &Path) -> Option<String> {
+    let uid = own_uid()?;
+    user_names(users_file, &[uid], None).await.into_iter().next()
+}
+
 /// Asks the name service switch for a user (`getent passwd UID`).
 async fn getent(uid: u32) -> Option<String> {
     let child = Process::new("/usr/bin/getent")

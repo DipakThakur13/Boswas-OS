@@ -76,6 +76,7 @@ use crate::{
     backend::Backend,
     config::Config,
     cursor::CursorTheme,
+    handlers::screencopy::Screencopy,
     ipc::Ipc,
     render::Overlays,
     shell::{
@@ -227,6 +228,10 @@ pub struct Boswas {
     pub overview: Option<Overview>,
     /// The snap layouts flyout of a maximize button, while it is open.
     pub snap_flyout: Option<SnapFlyout>,
+    /// Screen capture for other programs, and who may capture.
+    pub screencopy: Screencopy,
+    /// The picture being rendered is a capture that asked for no pointer.
+    pub capture_without_cursor: bool,
     /// The window menu (Restore, Move, Size, ...), while it is open.
     pub window_menu: Option<WindowMenu>,
     /// The window being moved or resized with the arrow keys.
@@ -336,6 +341,9 @@ impl Boswas {
         let xdg_decoration_state = XdgDecorationState::new::<Self>(&dh);
         let xdg_activation_state = XdgActivationState::new::<Self>(&dh);
         let layer_shell_state = WlrLayerShellState::new_with_filter::<Self, _>(&dh, privileged);
+        // Screen capture is behind the user's consent, not behind trust:
+        // every program outside a sandbox may ask.
+        let screencopy = Screencopy::new(&dh, not_sandboxed);
         let session_lock_state = SessionLockManagerState::new::<Self, _>(&dh, privileged);
         let shm_state = ShmState::new::<Self>(&dh, vec![]);
         let dmabuf_state = DmabufState::new();
@@ -423,6 +431,8 @@ impl Boswas {
             layouts: (Vec::new(), 0),
             overview: None,
             snap_flyout: None,
+            screencopy,
+            capture_without_cursor: false,
             window_menu: None,
             key_adjust: None,
             maximize_hover: None,

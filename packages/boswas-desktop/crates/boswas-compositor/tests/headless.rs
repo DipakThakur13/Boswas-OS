@@ -676,6 +676,120 @@ fn installed(program: &str) -> bool {
         .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(program).is_file()))
 }
 
+impl Control {
+    /// Reads until the event `name` arrives and returns its data; replies
+    /// and other events in between are skipped.
+    fn event(&mut self, name: &str) -> Value {
+        loop {
+            let mut line = String::new();
+            let read = self.reader.read_line(&mut line).unwrap_or_else(|err| panic!("no \"{name}\" event: {err}"));
+            assert!(read > 0, "the connection closed before \"{name}\"");
+            let message: Value = serde_json::from_str(&line).expect("a JSON line");
+            if message["event"] == name {
+                return message["data"].clone();
+            }
+        }
+    }
+
+    /// Sends a request without waiting for its reply.
+    fn send(&mut self, request: Value) {
+        self.reader.get_mut().write_all((request.to_string() + "\n").as_bytes()).unwrap();
+    }
+}
+
+/// Runs grim (a screenshot tool that speaks wlr-screencopy) against a
+/// compositor; returns whether it got its picture and where it is.
+fn grim(compositor: &Compositor, name: &str, args: &[&str]) -> std::thread::JoinHandle<(bool, PathBuf)> {
+    let path = compositor.runtime.path().join(name);
+    let mut command = Command::new("grim");
+    command
+        .args(args)
+        .arg(&path)
+        .env("XDG_RUNTIME_DIR", compositor.runtime.path())
+        .env("WAYLAND_DISPLAY", &compositor.display)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    std::thread::spawn(move || (command.status().expect("grim runs").success(), path))
+}
+
+/// Width and height from a PNG file's header.
+fn png_size(path: &Path) -> (u32, u32) {
+    let bytes = std::fs::read(path).expect("the picture");
+    assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n");
+    let number = |at: usize| u32::from_be_bytes(bytes[at..at + 4].try_into().unwrap());
+    (number(16), number(20))
+}
+
+const CAPTURE_CONFIG: &str = "[shell]\ncommand = []\n[lock]\nidle_seconds = 0\ncommand = []\n[appearance]\nreduced_motion = true\n[policy]\nlock_idle_max_seconds = 0\nprivileged_protocols = \"all\"\n";
+
+#[test]
+fn a_program_sees_the_screen_only_after_the_user_allowed_it() {
+    if !installed("grim") {
+        eprintln!("skipped: grim is not installed");
+        return;
+    }
+    let compositor = Compositor::start(CAPTURE_CONFIG, "none");
+
+    // Without a shell nobody can ask the user: the answer is no.
+    let (ok, path) = grim(&compositor, "nobody.png", &[]).join().unwrap();
+    assert!(!ok && !path.exists(), "no capture without a way to ask");
+
+    let mut shell = compositor.control();
+    let state = shell.ok(json!({"cmd": "subscribe"}));
+    assert_eq!(state["capturing"]["programs"], json!([]));
+
+    // Allowed: the picture has the output's size, and the shell is told
+    // who is capturing.
+    let shot = grim(&compositor, "allowed.png", &[]);
+    let request = shell.event("capture-request");
+    assert_eq!(request["program"], "grim");
+    shell.send(json!({"cmd": "capture-answer", "request": request["id"], "allow": true}));
+    assert_eq!(shell.event("capturing")["programs"], json!(["grim"]));
+    let (ok, path) = shot.join().unwrap();
+    assert!(ok);
+    assert_eq!(png_size(&path), (800, 600));
+
+    // Every run of the tool is asked about again. A region is cut out of
+    // the output, with the pointer when that is wanted.
+    let shot = grim(&compositor, "region.png", &["-c", "-g", "10,20 200x100"]);
+    let request = shell.event("capture-request");
+    shell.send(json!({"cmd": "capture-answer", "request": request["id"], "allow": true}));
+    let (ok, path) = shot.join().unwrap();
+    assert!(ok);
+    assert_eq!(png_size(&path), (200, 100));
+
+    // Refused: no picture, and the same tool is not asked about again at
+    // once (the next question would have the next id; there is none).
+    let shot = grim(&compositor, "refused.png", &[]);
+    let request = shell.event("capture-request");
+    let asked = request["id"].as_u64().unwrap();
+    shell.send(json!({"cmd": "capture-answer", "request": asked, "allow": false}));
+    let (ok, path) = shot.join().unwrap();
+    assert!(!ok && !path.exists());
+    let (ok, _) = grim(&compositor, "again.png", &[]).join().unwrap();
+    assert!(!ok, "a refusal holds for a while");
+    let mut other = compositor.control();
+    let reply = other.call(json!({"cmd": "capture-answer", "request": asked + 1, "allow": true}));
+    assert_eq!(reply["ok"], false, "no second question was asked: {reply}");
+}
+
+#[test]
+fn nothing_is_captured_while_the_session_is_locked() {
+    if !installed("grim") {
+        eprintln!("skipped: grim is not installed");
+        return;
+    }
+    let compositor = Compositor::start(CAPTURE_CONFIG, "none");
+    let mut shell = compositor.control();
+    shell.ok(json!({"cmd": "subscribe"}));
+    let mut control = compositor.control();
+    control.ok(json!({"cmd": "lock"}));
+    let (ok, path) = grim(&compositor, "locked.png", &[]).join().unwrap();
+    assert!(!ok && !path.exists());
+    let reply = control.call(json!({"cmd": "capture-answer", "request": 1, "allow": true}));
+    assert_eq!(reply["ok"], false, "the user is not even asked: {reply}");
+}
+
 #[test]
 fn an_x11_application_gets_a_window_like_any_other() {
     // Needs the XWayland server and one small X11 program; without them

@@ -400,7 +400,7 @@ impl Udev {
 
     /// Answers pending screenshot requests with the first output.
     fn take_screenshots(&mut self, state: &mut Boswas) {
-        if state.ipc.screenshots.is_empty() {
+        if state.ipc.screenshots.is_empty() && !state.screencopy.has_ready() {
             return;
         }
         let requests = std::mem::take(&mut state.ipc.screenshots);
@@ -409,6 +409,7 @@ impl Udev {
         };
         let mut outputs: Vec<Output> = device.surfaces.values().map(|s| s.output.clone()).collect();
         outputs.sort_by_key(Output::name);
+        super::screencopy::<_, GlesTexture>(&mut device.renderer, Fourcc::Abgr8888, state, &outputs);
         for request in requests {
             let result =
                 super::capture::<_, GlesTexture>(&mut device.renderer, Fourcc::Abgr8888, state, &outputs, &request);

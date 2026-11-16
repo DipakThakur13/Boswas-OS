@@ -240,6 +240,12 @@ impl Boswas {
         }
     }
 
+    /// Whether a shell is listening for events (and so can ask the user
+    /// something).
+    pub fn ipc_has_subscriber(&self) -> bool {
+        self.ipc.connections.iter().any(|c| c.subscribed && c.trusted)
+    }
+
     /// Notes that the window list changed; the event goes out once per
     /// event-loop turn.
     pub fn windows_changed(&mut self) {
@@ -446,7 +452,25 @@ impl Boswas {
                     "layout": self.layout_json(),
                     "overview": self.overview_active(),
                     "show_desktop": self.show_desktop.is_some(),
+                    "capturing": self.screencopy_json(),
                 }))
+            }
+            // The user's answer to a "capture-request" event ("request" is
+            // that event's id; "id" is this command's own number).
+            "capture-answer" => match (request.get("request").and_then(Value::as_u64), request.get("allow").and_then(Value::as_bool)) {
+                (Some(id), Some(allow)) => {
+                    if self.screencopy_answer(id, allow) {
+                        Ok(Value::Null)
+                    } else {
+                        Err("no such capture request".into())
+                    }
+                }
+                _ => Err("missing \"request\" or \"allow\"".into()),
+            },
+            // "Stop" on the capture indicator.
+            "capture-stop" => {
+                self.screencopy_stop();
+                Ok(Value::Null)
             }
             "windows" => Ok(self.windows_json()),
             "workspaces" => Ok(self.workspaces_json()),

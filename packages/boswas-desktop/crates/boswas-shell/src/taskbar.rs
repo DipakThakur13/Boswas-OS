@@ -28,6 +28,8 @@ pub enum Act {
     /// A tray item by key.
     Tray(String),
     Layout,
+    /// The mark shown while a program may capture the screen: stops it.
+    StopCapture,
     /// Network, volume and battery: opens quick settings.
     Status,
     Clock,
@@ -194,6 +196,23 @@ pub fn layout(width: f32, task_count: usize, tray_inline: usize, tray_overflow: 
     }
 }
 
+/// Tray places taken by the capture mark: one while any program may capture
+/// the screen.
+pub fn capture_marks(st: &State) -> usize {
+    usize::from(!st.capturing.is_empty())
+}
+
+/// What the capture mark says when the pointer rests on it.
+pub fn capture_tip(programs: &[String]) -> String {
+    let who = match programs {
+        [] => return String::new(),
+        [one] => one.clone(),
+        [first, second] => format!("{first} and {second}"),
+        [first, rest @ ..] => format!("{first} and {} more", rest.len()),
+    };
+    format!("{who} can see your screen\nClick to stop")
+}
+
 /// The tray items shown on the taskbar and those behind the chevron.
 pub fn split_tray(items: &[TrayItem]) -> (Vec<&TrayItem>, Vec<&TrayItem>) {
     let (mut inline, mut hidden) = (Vec::new(), Vec::new());
@@ -261,7 +280,10 @@ pub fn draw(f: &mut Frame, st: &State) {
     let (inline, hidden) = split_tray(&st.sys.tray);
     let status_icons = if st.sys.power.battery.is_some() { 3 } else { 2 };
     let clock_w = clock_width(f, st);
-    let lay = layout(w, list.len(), inline.len(), !hidden.is_empty(), st.keyboard_layout().is_some(), status_icons, clock_w);
+    // While a program may capture the screen, its mark takes the tray's
+    // first place.
+    let marks = capture_marks(st);
+    let lay = layout(w, list.len(), inline.len() + marks, !hidden.is_empty(), st.keyboard_layout().is_some(), status_icons, clock_w);
 
     // Start.
     let touch = f.hit(lay.start, Action::Taskbar(Act::Start));
@@ -314,7 +336,15 @@ pub fn draw(f: &mut Frame, st: &State) {
         let (cx, cy) = rect.center();
         f.glyph(Glyph::ChevronUp, Rect::new(cx - 6.0, cy - 6.0, 12.0, 12.0), theme.text);
     }
-    for (item, rect) in inline.iter().zip(&lay.tray) {
+    if let Some(rect) = lay.tray.first().filter(|_| marks > 0) {
+        let touch = f.hit(*rect, Action::Taskbar(Act::StopCapture));
+        f.tip(&capture_tip(&st.capturing));
+        f.state_layer(*rect, radius, touch, false);
+        let (cx, cy) = rect.center();
+        f.canvas.fill_circle(cx, cy, 7.0, theme.danger.alpha(0.28));
+        f.canvas.fill_circle(cx, cy, 4.0, theme.danger);
+    }
+    for (item, rect) in inline.iter().zip(lay.tray.iter().skip(marks)) {
         let touch = f.hit(*rect, Action::Taskbar(Act::Tray(item.key.clone())));
         f.tip(if item.tooltip.is_empty() { &item.title } else { &item.tooltip });
         f.state_layer(*rect, radius, touch, false);
@@ -500,6 +530,14 @@ mod tests {
             workspace,
             urgent: false,
         }
+    }
+
+    #[test]
+    fn the_capture_mark_names_who_can_see_the_screen() {
+        assert_eq!(capture_tip(&[]), "");
+        assert_eq!(capture_tip(&["obs".into()]), "obs can see your screen\nClick to stop");
+        assert_eq!(capture_tip(&["obs".into(), "grim".into()]), "obs and grim can see your screen\nClick to stop");
+        assert_eq!(capture_tip(&["a".into(), "b".into(), "c".into()]), "a and 2 more can see your screen\nClick to stop");
     }
 
     #[test]

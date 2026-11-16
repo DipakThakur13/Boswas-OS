@@ -67,7 +67,10 @@ pub(crate) struct Bluetooth {
     /// The connection of BlueZ: only it may talk to the agent.
     bluez_owner: Arc<Mutex<Option<String>>>,
     /// Connection attempts on their way, by address.
-    connecting: HashMap<String, Task<()>>,
+    connecting: HashMap<String, (u64, Task<()>)>,
+    /// Counts the attempts, to tell the end of an attempt that was given
+    /// up from the end of the one that followed it.
+    attempts: u64,
     /// Other calls on their way.
     calls: Vec<Task<()>>,
     /// The adapters this service started discovery on, and until when.
@@ -85,7 +88,7 @@ enum Msg {
     Changed,
     /// BlueZ came or went.
     Owner,
-    ConnectDone { address: String },
+    ConnectDone { address: String, attempt: u64 },
     Lost,
 }
 
@@ -182,6 +185,7 @@ impl Service for Bluetooth {
             asked: Arc::default(),
             bluez_owner: Arc::default(),
             connecting: HashMap::new(),
+            attempts: 0,
             calls: Vec::new(),
             discovery: None,
             agent_registered: false,
@@ -272,8 +276,10 @@ impl Bluetooth {
                     self.discovery = None;
                     debounce.trigger();
                 }
-                Wake::Message(Msg::ConnectDone { address }) => {
-                    self.connecting.remove(&address);
+                Wake::Message(Msg::ConnectDone { address, attempt }) => {
+                    if self.connecting.get(&address).is_some_and(|(current, _)| *current == attempt) {
+                        self.connecting.remove(&address);
+                    }
                     debounce.trigger();
                 }
                 Wake::Command(Command::Refresh(Which::Bluetooth)) => {
@@ -395,14 +401,16 @@ impl Bluetooth {
                     return;
                 }
                 let (conn, path, paired, inbox) = (conn.clone(), device.path.clone(), device.paired, inbox.clone());
+                self.attempts += 1;
+                let attempt = self.attempts;
                 let done = address.clone();
                 let task = self.ex.spawn(async move {
                     if let Err(error) = pair_and_connect(&conn, &path, paired).await {
                         tracing::warn!(%error, "bluetooth: could not connect");
                     }
-                    let _ = inbox.send(Msg::ConnectDone { address: done }).await;
+                    let _ = inbox.send(Msg::ConnectDone { address: done, attempt }).await;
                 });
-                self.connecting.insert(address, task);
+                self.connecting.insert(address, (attempt, task));
             }
             Command::BluetoothDisconnect { address } => {
                 let Some(device) = self.devices.get(&address) else { return };

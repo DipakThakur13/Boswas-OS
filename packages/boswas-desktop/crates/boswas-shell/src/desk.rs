@@ -254,6 +254,27 @@ impl Shell {
                 self.st.night_light = enabled;
                 self.mark(Role::Flyout);
             }
+            ControlEvent::CaptureRequest { id, program } => {
+                // Only the desktop can ask; anything else in the way means no.
+                if self.st.mode != Mode::Desktop || self.st.locked || self.st.dialog.is_some() || self.st.capture.is_some() {
+                    self.capture_answer(id, false);
+                } else {
+                    self.open_dialog(Dialog::Screen {
+                        id,
+                        program,
+                        opened: Instant::now(),
+                    });
+                }
+            }
+            ControlEvent::CaptureRequestClosed { id } => {
+                if matches!(&self.st.dialog, Some(Dialog::Screen { id: open, .. }) if *open == id) {
+                    self.close_dialog();
+                }
+            }
+            ControlEvent::Capturing(programs) => {
+                self.st.capturing = programs;
+                self.mark(Role::Taskbar);
+            }
             ControlEvent::Layout { layouts, active } => {
                 self.st.layouts = layouts;
                 self.st.layout = active;
@@ -469,7 +490,15 @@ impl Shell {
                 // Above the chevron.
                 let (inline, hidden) = taskbar::split_tray(&self.st.sys.tray);
                 let status_icons = if self.st.sys.power.battery.is_some() { 3 } else { 2 };
-                let lay = taskbar::layout(w, 0, inline.len(), !hidden.is_empty(), self.st.keyboard_layout().is_some(), status_icons, 80.0);
+                let lay = taskbar::layout(
+                    w,
+                    0,
+                    inline.len() + taskbar::capture_marks(&self.st),
+                    !hidden.is_empty(),
+                    self.st.keyboard_layout().is_some(),
+                    status_icons,
+                    80.0,
+                );
                 let centre = lay.overflow.map_or(w - 200.0, |r| r.center().0);
                 let right = (w - (centre + sw / 2.0)).max(0.0).round();
                 (Anchor::BOTTOM | Anchor::RIGHT, ((sw as u32, sh as u32), (0, right as i32, bar as i32, 0), (w - right - sw, top)))
@@ -927,11 +956,32 @@ impl Shell {
     }
 
     pub fn dialog_cancel(&mut self) {
-        if let Some(Dialog::Auth(auth)) = &self.st.dialog {
-            let cookie = auth.request.cookie.clone();
-            self.service(Command::AuthCancel { cookie });
+        match &self.st.dialog {
+            Some(Dialog::Auth(auth)) => {
+                let cookie = auth.request.cookie.clone();
+                self.service(Command::AuthCancel { cookie });
+            }
+            Some(Dialog::Screen { id, .. }) => {
+                let id = *id;
+                self.capture_answer(id, false);
+            }
+            _ => {}
         }
         self.close_dialog();
+    }
+
+    /// Tells the compositor what the user answered to a program that asked
+    /// to see the screen.
+    fn capture_answer(&mut self, id: u64, allow: bool) {
+        self.control_with("capture-answer", json!({ "request": id, "allow": allow }));
+    }
+
+    /// The capture mark on the taskbar was clicked: nobody may capture any
+    /// more.
+    pub fn stop_capturing(&mut self) {
+        self.send_control("capture-stop");
+        self.st.capturing.clear();
+        self.mark(Role::Taskbar);
     }
 
     /// Another of the administrators a request names authenticates.
@@ -965,6 +1015,14 @@ impl Shell {
                 let leave = *leave;
                 self.close_dialog();
                 self.do_leave(leave);
+            }
+            Some(Dialog::Screen { id, opened, .. }) => {
+                if opened.elapsed() < dialogs::SCREEN_GUARD {
+                    return;
+                }
+                let id = *id;
+                self.capture_answer(id, true);
+                self.close_dialog();
             }
             Some(Dialog::Run(run)) => {
                 let text = run.field.text().trim().to_owned();

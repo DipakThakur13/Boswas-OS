@@ -193,7 +193,14 @@ pub enum Dialog {
     Auth(AuthDialog),
     Confirm { leave: Leave, open_windows: usize },
     Run(RunDialog),
+    /// A program asks to see the screen (`id` is the compositor's question).
+    Screen { id: u64, program: String, opened: std::time::Instant },
 }
+
+/// How long a screen capture question must have been on screen before
+/// "Allow" works: a dialog that appears under a click or a key press that
+/// was meant for something else must not be answered by it.
+pub const SCREEN_GUARD: std::time::Duration = std::time::Duration::from_millis(700);
 
 impl Dialog {
     /// The dialog's panel size.
@@ -201,6 +208,7 @@ impl Dialog {
         match self {
             Dialog::Auth(auth) => (440.0, 300.0 + 38.0 * auth.choice_rows() as f32),
             Dialog::Confirm { .. } => (400.0, 176.0),
+            Dialog::Screen { .. } => (440.0, 232.0),
             Dialog::Run(_) => (420.0, 204.0),
         }
     }
@@ -336,6 +344,29 @@ pub fn draw(f: &mut Frame, st: &State, dialog: &Dialog, panel: Rect) {
             };
             f.text_wrapped(&text, x, panel.y + 60.0, w, 2, &ramp("body", theme.text_secondary));
             buttons(f, panel, leave.verb(), true);
+        }
+        Dialog::Screen { program, .. } => {
+            f.icon_or_placeholder(&["camera-video-symbolic", "video-display-symbolic"], x, panel.y + 26.0, 20.0);
+            f.text_left("Allow screen capture?", Rect::new(x + 30.0, panel.y + 20.0, w - 30.0, 32.0), &ramp("subtitle", theme.text));
+            let mut y = panel.y + 62.0;
+            y += f.text_wrapped(&format!("{program} wants to see your screen."), x, y, w, 2, &ramp("body", theme.text));
+            f.text_wrapped(
+                "It will be able to take pictures of everything on it, including other applications, until it stops. A mark on the taskbar shows while it can, and stops it.",
+                x,
+                y + 6.0,
+                w,
+                4,
+                &ramp("caption", theme.text_secondary),
+            );
+            let footer = Rect::new(panel.x, panel.bottom() - 72.0, panel.w, 72.0);
+            let tint = boswas_ui::Rgba::BLACK.alpha(if theme.scheme == boswas_ui::Scheme::Dark { 0.16 } else { 0.03 });
+            f.canvas.fill_rounded_rect4(footer.x + 1.0, footer.y, footer.w - 2.0, footer.h - 1.0, [0.0, 0.0, t.radius_flyout, t.radius_flyout], tint);
+            f.divider(footer.x + 1.0, footer.y, footer.w - 2.0);
+            let width = (panel.w - 48.0 - 8.0) / 2.0;
+            // Neither button is the default: allowing is always a
+            // deliberate click (or Tab and Enter).
+            f.button(Rect::new(panel.x + 24.0, footer.y + 20.0, width, 32.0), "Allow", ButtonKind::Standard, true, Action::Dialog(Act::Primary));
+            f.button(Rect::new(panel.x + 24.0 + width + 8.0, footer.y + 20.0, width, 32.0), "Don't allow", ButtonKind::Standard, true, Action::Dialog(Act::Cancel));
         }
         Dialog::Run(run) => {
             f.text_left("Run", Rect::new(x, panel.y + 16.0, w, 32.0), &ramp("subtitle", theme.text));

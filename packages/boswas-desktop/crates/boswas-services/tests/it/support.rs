@@ -491,6 +491,11 @@ impl Peer {
         self.state.0.lock().unwrap().handlers.insert((interface.to_owned(), member.to_owned()), Arc::new(handler));
     }
 
+    /// Takes back what `on` set up: the call is answered as before.
+    pub fn off(&self, interface: &str, member: &str) {
+        self.state.0.lock().unwrap().handlers.remove(&(interface.to_owned(), member.to_owned()));
+    }
+
     /// Answers `interface.member` with an empty reply.
     pub fn accept(&self, interface: &str, member: &str) {
         self.on(interface, member, |_, _| Reply::Done);

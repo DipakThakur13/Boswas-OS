@@ -291,9 +291,18 @@ context (Flatpak and other sandboxes) never get them.
 \fBprivileged_protocols = "all"\fR offers them to every client outside a
 sandbox; it exists for development and must not be set on a managed device.
 .PP
-A screen capture always goes through the capture screen of the shell, where
-the user chooses what to keep and confirms; no client can take one
-silently.
+Nobody sees the screen without the user's say. The Print key and the
+\fBcapture\fR command open the capture screen of the shell, where the user
+chooses what to keep and confirms. A program that asks for pictures of the
+screen itself (a screenshot tool, a screen recorder, the desktop portal
+behind screen sharing in browsers and meetings; the wlr\-screencopy
+protocol) waits until the shell has asked "Allow \fIprogram\fR to see your
+screen?" and the user has allowed it. The permission covers that program
+while it keeps capturing and ends a few seconds after its last picture; a
+mark on the taskbar shows while any program may capture, and a click on it
+stops them all. A refusal holds for twenty seconds. Sandboxed programs are
+not offered the protocol, and nothing is captured while the session is
+locked.
 .PP
 The compositor owns the session lock. Locking blanks every output and takes
 input away from applications before the lock screen is started; only a lock
@@ -311,9 +320,9 @@ object per line, for example {"cmd": "outputs"}. Connections to this socket
 may ask for \fBversion\fR, \fBlock\fR, \fBreload\-config\fR, \fBoutputs\fR
 (every monitor with its modes, scale, position and rotation) and
 \fBcapture\fR (opens the capture screen; "mode": "screen" or "region").
-The window list, window control, desktops, thumbnails, screenshots and
-\fBquit\fR are available to the shell only, on the descriptor the
-compositor hands it.
+The window list, window control, desktops, thumbnails, screenshots, the
+answer to a program that asks to see the screen and \fBquit\fR are
+available to the shell only, on the descriptor the compositor hands it.
 .SH ENVIRONMENT
 .TP
 .B BOSWAS_LOG

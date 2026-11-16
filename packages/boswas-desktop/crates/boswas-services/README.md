@@ -52,6 +52,13 @@ Behaviour worth knowing when writing the shell:
   second.
 - `NetworkState::error` is in exactly one event; the state without it
   follows about 200 ms later. React to the event, do not render the field.
+- A new Wi-Fi profile is saved for every user when NetworkManager says the
+  person may change system-wide settings, and as the person's own profile
+  (`connection.permissions`) otherwise, which needs no administrator. A
+  profile made for an attempt that fails is deleted again. Requests that
+  NetworkManager may hold until polkit is satisfied (connecting, a new
+  passphrase for a saved network, forgetting, disconnecting) are waited
+  for beside the service's loop for up to two minutes.
 - `Notification::timeout_ms` is `Some` only for a positive expiry time of a
   notification that is not critical; the service then closes it at that time
   (`NotificationClosed { withdrawn: false }`). `-1` (server default) and `0`

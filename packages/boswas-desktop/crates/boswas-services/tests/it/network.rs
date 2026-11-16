@@ -197,6 +197,7 @@ fn connecting_with_a_passphrase_creates_a_profile() {
     assert_eq!(ssid, b"Home");
     assert_eq!(text(&settings, "802-11-wireless-security", "key-mgmt").as_deref(), Some("wpa-psk"));
     assert_eq!(text(&settings, "802-11-wireless-security", "psk").as_deref(), Some("correct horse"));
+    assert!(!settings["connection"].contains_key("permissions"));
     nm.connected_to(&home);
     let state = harness.events.latest("connected and known", network, |state| ap(state, "Home").connected && ap(state, "Home").known);
     assert_eq!(state.error, None);
@@ -248,7 +249,7 @@ fn a_failed_attempt_is_reported_once_and_leaves_no_profile() {
     services.send(Command::WifiConnect { ssid: "Home".into(), passphrase: Some(Secret::new("wrong one".into())) });
     nm.peer.wait_call("AddAndActivateConnection");
     harness.events.latest("connecting", network, |state| ap(state, "Home").connecting);
-    assert_eq!(nm.profile_paths().len(), 1);
+    eventually("the profile of the attempt", || nm.profile_paths().len() == 1);
     // What the device reports before it starts on this attempt (the end
     // of something earlier) is not this attempt's end.
     nm.device_state(WIFI, 120, 53);
@@ -395,4 +396,136 @@ fn a_networkmanager_that_lies_or_hangs_does_not_break_the_service() {
     let started = std::time::Instant::now();
     drop(services);
     assert!(started.elapsed() < std::time::Duration::from_secs(3), "dropping took {:?}", started.elapsed());
+}
+
+#[test]
+fn a_person_who_may_not_change_system_settings_gets_a_private_profile() {
+    use std::os::unix::fs::MetadataExt;
+    let harness = Harness::new();
+    let uid = std::fs::metadata("/proc/self").unwrap().uid();
+    std::fs::write(harness.path("users"), format!("tester:x:{uid}:100::/home/tester:/bin/sh\n")).unwrap();
+    let nm = Nm::start(&harness.system);
+    nm.add_access_point(1, b"Cafe", 60, OPEN);
+    nm.add_access_point(2, b"Home", 80, WPA2);
+    let permission = |answer: &'static str| {
+        move |_: &Peer, call: &Call| {
+            let permissions = std::collections::HashMap::from([
+                ("org.freedesktop.NetworkManager.settings.modify.system", answer),
+                ("org.freedesktop.NetworkManager.network-control", "yes"),
+            ]);
+            call.reply(&(permissions,))
+        }
+    };
+    let services = harness.start(status_config());
+    harness.events.latest("the networks", network, |state| state.access_points.len() == 2);
+
+    // NetworkManager would ask for an administrator's password before it
+    // saves a profile for everybody: the profile is made for this user.
+    nm.peer.on(NM, "GetPermissions", permission("auth"));
+    services.send(Command::WifiConnect { ssid: "Cafe".into(), passphrase: None });
+    let (settings, _, _): (Settings, OwnedObjectPath, OwnedObjectPath) = nm.peer.wait_call("AddAndActivateConnection").args();
+    let permissions: Vec<String> = settings["connection"]["permissions"].try_clone().unwrap().try_into().unwrap();
+    assert_eq!(permissions, ["user:tester:"]);
+
+    // An administrator's profile is for everybody, as NetworkManager
+    // makes them by default.
+    nm.peer.on(NM, "GetPermissions", permission("yes"));
+    services.send(Command::WifiConnect { ssid: "Home".into(), passphrase: Some(Secret::new("a passphrase".into())) });
+    let (settings, _, _): (Settings, OwnedObjectPath, OwnedObjectPath) = nm.peer.wait_call_n("AddAndActivateConnection", 2).args();
+    assert!(!settings["connection"].contains_key("permissions"));
+}
+
+#[test]
+fn a_request_that_waits_for_authentication_does_not_stall_the_service() {
+    let harness = Harness::new();
+    let nm = Nm::start(&harness.system);
+    let home = nm.add_access_point(1, b"Home", 80, WPA2);
+    // NetworkManager does not answer: it waits for polkit.
+    nm.peer.on(NM, "AddAndActivateConnection", |_, _| Reply::Silence);
+    nm.peer.on(NM_CONNECTION, "Delete", |_, _| Reply::Silence);
+    let services = harness.start(status_config());
+    harness.events.latest("the network", network, |state| state.access_points.len() == 1);
+
+    services.send(Command::WifiConnect { ssid: "Home".into(), passphrase: Some(Secret::new("a passphrase".into())) });
+    let request = nm.peer.wait_call("AddAndActivateConnection");
+    harness.events.latest("connecting", network, |state| ap(state, "Home").connecting);
+    // The rest of the state is still followed meanwhile.
+    nm.device_state(ETHERNET, 100, 0);
+    harness.events.latest("wired while the request waits", network, |state| state.wired && ap(state, "Home").connecting);
+
+    // The person authenticates; NetworkManager answers and connects.
+    let profile = format!("{NM_SETTINGS_PATH}/77");
+    nm.peer.answer(&request, &(path(&profile), path("/org/freedesktop/NetworkManager/ActiveConnection/1")));
+    nm.device_state(WIFI, 40, 0);
+    nm.connected_to(&home);
+    let state = harness.events.latest("connected", network, |state| ap(state, "Home").connected);
+    assert_eq!(state.error, None);
+
+    // Forgetting a network may wait for authentication as well.
+    let saved = nm.add_profile(b"Home");
+    harness.events.latest("known", network, |state| ap(state, "Home").known);
+    services.send(Command::WifiForget { ssid: "Home".into() });
+    assert_eq!(nm.peer.wait_call("Delete").path, saved);
+    nm.device_state(ETHERNET, 30, 0);
+    harness.events.latest("not wired while the deletion waits", network, |state| !state.wired);
+}
+
+#[test]
+fn a_profile_made_for_an_attempt_that_failed_first_is_removed_when_it_is_known() {
+    let harness = Harness::new();
+    let nm = Nm::start(&harness.system);
+    nm.add_access_point(1, b"Home", 80, WPA2);
+    nm.peer.on(NM, "AddAndActivateConnection", |_, _| Reply::Silence);
+    let services = harness.start(status_config());
+    harness.events.latest("the network", network, |state| state.access_points.len() == 1);
+
+    services.send(Command::WifiConnect { ssid: "Home".into(), passphrase: Some(Secret::new("wrong one".into())) });
+    let request = nm.peer.wait_call("AddAndActivateConnection");
+    // The activation fails before NetworkManager has answered the request.
+    nm.device_state(WIFI, 40, 0);
+    nm.device_state(WIFI, 120, 7);
+    harness.events.wait("the failure", |events| events.iter().filter_map(network).find(|state| state.error.is_some()).cloned());
+    // Now the answer names the profile: it is deleted.
+    let profile = nm.add_profile(b"Home");
+    nm.peer.answer(&request, &(path(&profile), path("/org/freedesktop/NetworkManager/ActiveConnection/1")));
+    assert_eq!(nm.peer.wait_call("Delete").path, profile);
+    harness.events.latest("not known", network, |state| !ap(state, "Home").known && !ap(state, "Home").connecting);
+}
+
+#[test]
+fn the_answer_to_an_earlier_request_does_not_disturb_the_current_one() {
+    let harness = Harness::new();
+    let nm = Nm::start(&harness.system);
+    nm.add_access_point(1, b"Home", 80, WPA2);
+    nm.add_access_point(2, b"Known", 60, WPA2);
+    let known = nm.add_profile(b"Known");
+    nm.peer.on(NM, "AddAndActivateConnection", |_, _| Reply::Silence);
+    let services = harness.start(status_config());
+    harness.events.latest("the networks", network, |state| state.access_points.len() == 2 && ap(state, "Known").known);
+
+    services.send(Command::WifiConnect { ssid: "Home".into(), passphrase: Some(Secret::new("first".into())) });
+    let first = nm.peer.wait_call("AddAndActivateConnection");
+    harness.events.latest("connecting to the first", network, |state| ap(state, "Home").connecting);
+
+    // The service is kept busy (NetworkManager does not answer a read)
+    // while two things arrive: the answer to the first request, and the
+    // command to connect somewhere else.
+    let reads = nm.peer.calls("GetAll").len();
+    nm.peer.on("", "GetAll", |_, _| Reply::Silence);
+    nm.peer.signal(NM_PATH, PROPERTIES, "PropertiesChanged", &(NM, std::collections::HashMap::<&str, zbus::zvariant::Value<'_>>::new(), Vec::<&str>::new()));
+    nm.peer.wait_call_n("GetAll", reads + 1);
+    let stale = nm.add_profile(b"Home");
+    nm.peer.answer(&first, &(path(&stale), path("/org/freedesktop/NetworkManager/ActiveConnection/1")));
+    services.send(Command::WifiConnect { ssid: "Known".into(), passphrase: Some(Secret::new("second".into())) });
+    nm.peer.off("", "GetAll");
+
+    // The second request is carried out in full.
+    assert_eq!(nm.peer.wait_call("Update").path, known);
+    let call = nm.peer.wait_call("ActivateConnection");
+    assert_eq!(call.args::<(OwnedObjectPath, OwnedObjectPath, OwnedObjectPath)>().0.as_str(), known);
+    let state = harness.events.latest("connecting to the second", network, |state| ap(state, "Known").connecting);
+    assert!(!ap(&state, "Home").connecting);
+    assert_eq!(state.error, None);
+    // The profile the first request made was not this attempt's to remove.
+    assert!(nm.peer.calls("Delete").is_empty());
 }

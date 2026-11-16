@@ -90,6 +90,8 @@ pub struct State {
     pub focus: Option<Action>,
 
     pub night_light: bool,
+    /// The programs that may capture the screen right now.
+    pub capturing: Vec<String>,
     pub layouts: Vec<String>,
     pub layout: usize,
     /// Window previews by window id.
@@ -160,6 +162,7 @@ impl State {
             capture: None,
             focus: None,
             night_light: false,
+            capturing: Vec::new(),
             layouts: vec!["us".into(), "in".into()],
             layout: 1,
             thumbnails: HashMap::new(),
@@ -340,7 +343,12 @@ mod tests {
         auth.message = Some(("That did not work. Try again.".into(), true));
         let mut run = RunDialog::new(Some("konsole"));
         run.error = Some("“nothing” was not found.".into());
-        for dialog in [Dialog::Auth(auth), Dialog::Confirm { leave: Leave::ShutDown, open_windows: 3 }, Dialog::Run(run)] {
+        let screen = Dialog::Screen {
+            id: 1,
+            program: "obs".into(),
+            opened: std::time::Instant::now(),
+        };
+        for dialog in [Dialog::Auth(auth), Dialog::Confirm { leave: Leave::ShutDown, open_windows: 3 }, Dialog::Run(run), screen] {
             let (w, h) = dialog.size();
             each(|f, _| dialogs::draw(f, &st, &dialog, Rect::new(PAD, PAD, w, h)), w + 2.0 * PAD, h + 2.0 * PAD, "dialog");
         }

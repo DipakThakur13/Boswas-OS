@@ -150,5 +150,7 @@ impl Headless {
             );
             state.ipc_screenshot_done(request, result);
         }
+        let outputs = [self.output.clone()];
+        super::screencopy::<_, Image<'static, 'static>>(&mut self.renderer, Fourcc::Argb8888, state, &outputs);
     }
 }

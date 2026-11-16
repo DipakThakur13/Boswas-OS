@@ -392,6 +392,7 @@ impl Shell {
             Act::Layout => {
                 self.send_control("next-layout");
             }
+            Act::StopCapture => self.stop_capturing(),
             Act::Task(task) => {
                 self.close_transients();
                 let list = taskbar::tasks(&self.st.apps, &self.st.config.taskbar, &self.st.windows, self.st.workspace);
@@ -886,8 +887,10 @@ impl Shell {
         match event.keysym {
             Keysym::Escape => return self.dialog_cancel(),
             Keysym::Return | Keysym::KP_Enter => {
-                // Enter on a focused button presses that button.
-                if !self.activate_focus(Role::Dialog) {
+                // Enter on a focused button presses that button. Without
+                // one it is the dialog's default, except where there is
+                // none: nobody allows a screen capture by a stray Enter.
+                if !self.activate_focus(Role::Dialog) && !matches!(self.st.dialog, Some(Dialog::Screen { .. })) {
                     self.dialog_primary();
                 }
                 return;

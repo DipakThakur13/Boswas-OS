@@ -247,6 +247,7 @@ fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             state.apply_night_light();
             state.check_screen_off();
             state.reap_children();
+            state.screencopy_tick();
             TimeoutAction::ToDuration(Duration::from_secs(1))
         })?;
 

@@ -246,12 +246,13 @@ check "compositor: public control connections get version, lock, reload-config, 
 	bash -c "ipc=packages/boswas-desktop/crates/boswas-compositor/src/ipc.rs
 		awk '/Available to every connection/,/if !trusted/' \$ipc | grep -oE '^            \"[a-z-]+\" =>' | tr -d ' \"=>' | sort | tr '\n' ' ' | grep -qx 'capture lock outputs reload-config version '"
 # unsafe is confined to the files that need it (a foreign library, a raw
-# descriptor, an EGL context); everything else is safe Rust. This covers the
+# descriptor, an EGL context, the copy into a client's shared memory);
+# everything else is safe Rust. This covers the
 # code that is shipped (src/); test programs are not part of any package.
 unsafe_files="$(grep -rlE '(^|[^a-zA-Z_])unsafe[[:space:]]*(\{|fn|extern|impl)' --include='*.rs' \
 	packages/boswas-desktop/crates/*/src packages/boswas-bootsplash/src | sort | tr '\n' ' ')"
 check "Rust: unsafe code only in the audited modules" test "$unsafe_files" = \
-	"packages/boswas-bootsplash/src/sys.rs packages/boswas-desktop/crates/boswas-compositor/src/backend/udev.rs packages/boswas-desktop/crates/boswas-compositor/src/ipc.rs packages/boswas-desktop/crates/boswas-compositor/src/state.rs packages/boswas-desktop/crates/boswas-shell/src/control.rs packages/boswas-desktop/crates/boswas-shell/src/pam.rs "
+	"packages/boswas-bootsplash/src/sys.rs packages/boswas-desktop/crates/boswas-compositor/src/backend/udev.rs packages/boswas-desktop/crates/boswas-compositor/src/handlers/screencopy.rs packages/boswas-desktop/crates/boswas-compositor/src/ipc.rs packages/boswas-desktop/crates/boswas-compositor/src/state.rs packages/boswas-desktop/crates/boswas-shell/src/control.rs packages/boswas-desktop/crates/boswas-shell/src/pam.rs "
 check "Rust: the design system forbids unsafe code and the boot screen denies it outside sys.rs" \
 	bash -c "grep -q '^#!\[forbid(unsafe_code)\]' packages/boswas-desktop/crates/boswas-ui/src/lib.rs &&
 		grep -q '^#!\[deny(unsafe_code)\]' packages/boswas-bootsplash/src/lib.rs"

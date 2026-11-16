@@ -60,13 +60,8 @@ fn main() -> ExitCode {
     }
     let sink = Arc::clone(&out);
     // Status services with every status command: not the lock screen's
-    // restricted set. `session` only listens to logind; its events are not
-    // forwarded.
-    let config = Config {
-        session: true,
-        ..Config::status_only()
-    };
-    let services = Services::start(config, move |event| {
+    // restricted set.
+    let services = Services::start(Config::settings(), move |event| {
         if let Some(line) = protocol::event(&event) {
             write_line(&sink, &line);
         }

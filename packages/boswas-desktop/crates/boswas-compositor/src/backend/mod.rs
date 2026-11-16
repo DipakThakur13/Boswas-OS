@@ -196,11 +196,32 @@ where
     R::Error: std::fmt::Display,
     E: RenderElement<R>,
 {
+    render_offscreen_as(renderer, format, size, scale, Transform::Normal, elements, clear)
+}
+
+/// [`render_offscreen`] for a buffer in an output's own orientation: `size`
+/// is the output's mode and `transform` its rotation, as on the real
+/// screen.
+pub fn render_offscreen_as<R, T, E>(
+    renderer: &mut R,
+    format: Fourcc,
+    size: Size<i32, Physical>,
+    scale: f64,
+    transform: Transform,
+    elements: &[E],
+    clear: Color32F,
+) -> Result<Vec<u8>, String>
+where
+    R: Renderer + Offscreen<T> + Bind<T> + ExportMem,
+    R::TextureId: Texture + 'static,
+    R::Error: std::fmt::Display,
+    E: RenderElement<R>,
+{
     let mut target: T = renderer
         .create_buffer(format, Size::from((size.w, size.h)))
         .map_err(|e| e.to_string())?;
     let mut framebuffer = renderer.bind(&mut target).map_err(|e| e.to_string())?;
-    let mut tracker = OutputDamageTracker::new(size, scale, Transform::Normal);
+    let mut tracker = OutputDamageTracker::new(size, scale, transform);
     tracker
         .render_output(renderer, &mut framebuffer, 0, elements, clear)
         .map_err(|e| e.to_string())?;
@@ -229,6 +250,42 @@ where
         .ok()?;
     let buffer = MemoryRenderBuffer::from_slice(&rgba, Fourcc::Abgr8888, (size.w, size.h), 1, Transform::Normal, None);
     Some((buffer, rect))
+}
+
+/// Fills the buffers of the programs that are allowed to capture the screen
+/// (see `handlers::screencopy`) with what `outputs` show now. Called by a
+/// backend after it has rendered a frame.
+pub fn screencopy<R, T>(renderer: &mut R, format: Fourcc, state: &mut Boswas, outputs: &[Output])
+where
+    R: BoswasRenderer + Offscreen<T> + Bind<T> + ExportMem,
+    R::TextureId: Clone + Send + Texture + 'static,
+    R::Error: std::fmt::Display,
+{
+    if !state.screencopy.has_ready() {
+        return;
+    }
+    let time = state.start_time.elapsed();
+    for frame in state.screencopy.take_ready() {
+        let Some(output) = outputs.iter().find(|output| **output == frame.output) else {
+            frame.fail();
+            continue;
+        };
+        let Some(mode) = output.current_mode().filter(|_| !state.lock.locked) else {
+            frame.fail();
+            continue;
+        };
+        let scale = output.current_scale().fractional_scale();
+        state.capture_without_cursor = !frame.overlay_cursor;
+        let (elements, clear) = state.output_elements(renderer, output);
+        state.capture_without_cursor = false;
+        match render_offscreen_as(renderer, format, mode.size, scale, output.current_transform(), &elements, clear) {
+            Ok(rgba) => frame.finish(&rgba, mode.size, time),
+            Err(error) => {
+                tracing::debug!("screen capture: {error}");
+                frame.fail();
+            }
+        }
+    }
 }
 
 /// Answers one capture request of the control socket: a picture of an

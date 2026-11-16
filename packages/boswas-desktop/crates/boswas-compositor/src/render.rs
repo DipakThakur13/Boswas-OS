@@ -254,6 +254,9 @@ impl Boswas {
         R: BoswasRenderer,
         R::TextureId: Clone + Send + Texture + 'static,
     {
+        if self.capture_without_cursor {
+            return;
+        }
         let Some(output_geo) = self.space.output_geometry(output) else {
             return;
         };

@@ -56,6 +56,12 @@ pub enum ControlEvent {
     Layout { layouts: Vec<String>, active: usize },
     /// Task View opened or closed.
     Overview(bool),
+    /// A program asks to see the screen; answered with `capture-answer`.
+    CaptureRequest { id: u64, program: String },
+    /// The question went away (answered elsewhere, timed out, locked).
+    CaptureRequestClosed { id: u64 },
+    /// The programs that may capture the screen right now.
+    Capturing(Vec<String>),
     /// The answer to a request sent with [`Control::send`].
     Reply { id: u64, ok: bool, data: Value },
 }
@@ -218,6 +224,21 @@ fn parse_layout(value: &Value) -> Option<ControlEvent> {
     })
 }
 
+/// A program's name as the compositor reports it, made safe to show.
+fn program_name(value: &Value) -> String {
+    let name: String = value.as_str().unwrap_or_default().chars().filter(|c| !c.is_control()).take(48).collect();
+    if name.trim().is_empty() {
+        "A program".to_owned()
+    } else {
+        name
+    }
+}
+
+fn parse_capturing(data: &Value) -> Option<ControlEvent> {
+    let programs = data.get("programs")?.as_array()?;
+    Some(ControlEvent::Capturing(programs.iter().take(8).map(program_name).collect()))
+}
+
 /// Turns one message into events. The reply to `subscribe` carries the
 /// initial state and is treated like the events that follow it.
 pub fn parse_message(message: &Value) -> Vec<ControlEvent> {
@@ -253,6 +274,19 @@ pub fn parse_message(message: &Value) -> Vec<ControlEvent> {
         Some("night-light") => parse_night_light(data).into_iter().collect(),
         Some("layout") => parse_layout(data).into_iter().collect(),
         Some("overview") => data.get("active").and_then(Value::as_bool).map(ControlEvent::Overview).into_iter().collect(),
+        Some("capture-request") => data
+            .get("id")
+            .and_then(Value::as_u64)
+            .map(|id| ControlEvent::CaptureRequest {
+                id,
+                program: program_name(&data["program"]),
+            })
+            .into_iter()
+            .collect(),
+        Some("capture-request-closed") => {
+            data.get("id").and_then(Value::as_u64).map(|id| ControlEvent::CaptureRequestClosed { id }).into_iter().collect()
+        }
+        Some("capturing") => parse_capturing(data).into_iter().collect(),
         Some(_) => Vec::new(),
         None => {
             let mut events = Vec::new();
@@ -263,6 +297,7 @@ pub fn parse_message(message: &Value) -> Vec<ControlEvent> {
                 events.extend(parse_appearance(&data["appearance"]));
                 events.extend(parse_night_light(&data["night_light"]));
                 events.extend(parse_layout(&data["layout"]));
+                events.extend(parse_capturing(&data["capturing"]));
                 if let Some(locked) = data.get("locked").and_then(Value::as_bool) {
                     events.push(ControlEvent::Lock(locked));
                 }
@@ -317,6 +352,21 @@ mod tests {
     fn round_two_events_and_replies_are_understood() {
         let ev = |name: &str, data: Value| parse_message(&json!({"event": name, "data": data}));
         assert_eq!(ev("quick-settings", json!({})), [ControlEvent::QuickSettings]);
+        assert_eq!(
+            ev("capture-request", json!({"id": 7, "program": "obs\u{1b}[0m"})),
+            [ControlEvent::CaptureRequest { id: 7, program: "obs[0m".into() }]
+        );
+        assert_eq!(ev("capture-request", json!({"program": "obs"})), [], "a request without an id cannot be answered");
+        assert_eq!(
+            ev("capture-request", json!({"id": 8, "program": ""})),
+            [ControlEvent::CaptureRequest { id: 8, program: "A program".into() }]
+        );
+        assert_eq!(ev("capture-request-closed", json!({"id": 7})), [ControlEvent::CaptureRequestClosed { id: 7 }]);
+        assert_eq!(
+            ev("capturing", json!({"programs": ["obs", 3]})),
+            [ControlEvent::Capturing(vec!["obs".into(), "A program".into()])]
+        );
+        assert_eq!(ev("capturing", json!({"programs": []})), [ControlEvent::Capturing(Vec::new())]);
         assert_eq!(ev("notifications", json!({})), [ControlEvent::Notifications]);
         assert_eq!(ev("run", json!({})), [ControlEvent::Run]);
         assert_eq!(ev("capture", json!({"mode": "screen"})), [ControlEvent::Capture { whole_screen: true }]);
