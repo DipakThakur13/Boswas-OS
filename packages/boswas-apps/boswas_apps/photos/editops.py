@@ -39,7 +39,7 @@ import math
 import sys
 from dataclasses import dataclass, field, fields, replace
 
-from PySide6.QtCore import QPointF, QRect, QRectF, QSize, Qt
+from PySide6.QtCore import QPointF, QRect, QSize, Qt
 from PySide6.QtGui import QBrush, QColor, QImage, QPainter, QPainterPath, QPen, QRadialGradient, QTransform
 
 from . import exif

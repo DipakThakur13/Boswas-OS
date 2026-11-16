@@ -7,7 +7,7 @@ import shutil
 from collections import OrderedDict
 
 from PySide6.QtCore import QMimeData, QPoint, QSize, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QAction, QDrag, QGuiApplication, QImage, QKeySequence, QPixmap, QShortcut
+from PySide6.QtGui import QAction, QDrag, QGuiApplication, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import QHBoxLayout, QMenu, QVBoxLayout, QWidget
 
 import boswas_fluent as fluent
@@ -92,6 +92,7 @@ class ViewerPage(QWidget):
         self._last_trash: trash.TrashRecord | None = None
         self._direction = 1
         self._view_turned = False            # the picture on show was turned without the file being changed
+        self._last_pointer = None
 
         # --- the top bar ---
         self.top_bar = Surface(self, fill=None)
@@ -159,6 +160,11 @@ class ViewerPage(QWidget):
             action.setShortcut(QKeySequence(keys))
             action.setShortcutContext(Qt.ShortcutContext.WidgetShortcut)
             action.setShortcutVisibleInContextMenu(True)
+        for action in self.commands.commands():
+            # where the icon theme has no picture for a command, its name stands in
+            button = self.commands.button(action)
+            if button is not None and action.icon().isNull():
+                button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
         bar.addWidget(self.commands, 2)
         self.position_label = fluent.Label("", "caption", self.top_bar, tone="secondary")
         self.position_label.setAccessibleName("Position in the folder")
@@ -561,14 +567,22 @@ class ViewerPage(QWidget):
         kind = event.type()
         if obj is self.stage and kind == event.Type.Resize:
             self._place_overlays()
-        elif self._fullscreen and kind in (event.Type.MouseMove, event.Type.HoverMove, event.Type.Enter):
-            self._reveal_bars()
+        elif self._fullscreen and kind == event.Type.MouseMove:
+            self._pointer_moved(event.globalPosition())
         return False
 
     def mouseMoveEvent(self, event) -> None:
         if self._fullscreen:
-            self._reveal_bars()
+            self._pointer_moved(event.globalPosition())
         super().mouseMoveEvent(event)
+
+    def _pointer_moved(self, position) -> None:
+        """In full screen: the bar comes back when the pointer really moves (a bar that appears or goes
+        away under a resting pointer makes mouse events too, and must not keep itself alive)."""
+        last = self._last_pointer
+        self._last_pointer = position
+        if last is None or (position - last).manhattanLength() >= 3:
+            self._reveal_bars()
 
     # --- full screen ---
     def is_fullscreen(self) -> bool:
@@ -580,6 +594,7 @@ class ViewerPage(QWidget):
         self._layout.setContentsMargins(0, 0 if fullscreen else BAR_HEIGHT, 0, 0)
         self.top_bar.set_fill("background" if fullscreen else None)
         self.filmstrip.setVisible(not fullscreen and self.host.settings.filmstrip)
+        self._last_pointer = None
         if fullscreen:
             self.info_pane.hide()
             self.info_action.setChecked(False)

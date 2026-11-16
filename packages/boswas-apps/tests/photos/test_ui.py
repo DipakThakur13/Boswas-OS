@@ -23,7 +23,7 @@ import photos_fixtures as fx  # noqa: E402
 from boswas_fluent import testing  # noqa: E402
 
 from PySide6.QtCore import QEvent, QMimeData, QPoint, QPointF, QSize, Qt, QUrl  # noqa: E402
-from PySide6.QtGui import (QColor, QDragEnterEvent, QDropEvent, QGuiApplication, QImage, QMouseEvent, QPainter,  # noqa: E402
+from PySide6.QtGui import (QColor, QCursor, QDragEnterEvent, QDropEvent, QGuiApplication, QImage, QMouseEvent, QPainter,  # noqa: E402
                            QWheelEvent)
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
@@ -962,12 +962,16 @@ class ViewerStatesTest(PhotosCase):
         self.press(window, Qt.Key.Key_R, CTRL)
         self.wait(lambda: viewer.file_worker.pending() == 0)
         self.assertEqual(decode.load(paths[1]).image.size(), QSize(240, 320))
-        mouse(viewer.canvas, QEvent.Type.MouseMove, QPoint(300, 5), Qt.MouseButton.NoButton, Qt.MouseButton.NoButton)
-        self.assertTrue(viewer.top_bar.isVisible())
+        viewer._hide_timer.setInterval(40)
+        QCursor.setPos(window.mapToGlobal(QPoint(400, 400)))
+        mouse(viewer.canvas, QEvent.Type.MouseMove, QPoint(300, 300), Qt.MouseButton.NoButton, Qt.MouseButton.NoButton)
+        self.assertTrue(viewer.top_bar.isVisible())                      # the pointer moved: the bar is back
         self.assertTrue(viewer.next_button.isVisible())
-        viewer._hide_timer.setInterval(30)
-        viewer._reveal_bars()
-        self.wait(lambda: not viewer.top_bar.isVisible(), 5)
+        self.wait(lambda: not viewer.top_bar.isVisible(), 5)             # and goes again when the pointer rests
+        testing.process(150)
+        self.assertFalse(viewer.top_bar.isVisible())                     # it does not come back by itself
+        mouse(viewer.canvas, QEvent.Type.MouseMove, QPoint(340, 320), Qt.MouseButton.NoButton, Qt.MouseButton.NoButton)
+        self.assertTrue(viewer.top_bar.isVisible())
         self.press(window, Qt.Key.Key_Escape)
         self.assertFalse(window.isFullScreen())
         self.assertFalse(viewer.is_fullscreen())

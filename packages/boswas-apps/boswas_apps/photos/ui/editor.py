@@ -12,14 +12,14 @@ from __future__ import annotations
 import os
 
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QIcon, QImage, QKeySequence, QPainter, QPainterPath, QPen, QPixmap, QShortcut, QTransform
-from PySide6.QtWidgets import (QAbstractButton, QButtonGroup, QComboBox, QGridLayout, QHBoxLayout, QScrollArea,
-                               QSizePolicy, QSlider, QStackedWidget, QToolButton, QVBoxLayout, QWidget, QFrame)
+from PySide6.QtGui import QColor, QImage, QKeySequence, QPainter, QPainterPath, QPen, QPixmap, QShortcut, QTransform
+from PySide6.QtWidgets import (QAbstractButton, QButtonGroup, QComboBox, QFrame, QGridLayout, QHBoxLayout,
+                               QScrollArea, QSlider, QStackedWidget, QVBoxLayout, QWidget)
 
 import boswas_fluent as fluent
 from boswas_fluent import paint
 
-from .. import decode, editops, exif, imageio
+from .. import decode, editops, imageio
 from ..fileutil import free_name
 from .common import BannerHolder, Surface, action_icon, checker_brush
 

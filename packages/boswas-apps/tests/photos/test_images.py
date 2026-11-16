@@ -22,7 +22,7 @@ import photos_fixtures as fx  # noqa: E402
 from boswas_fluent import testing  # noqa: E402
 
 from PySide6.QtCore import QRectF, QSize, Qt  # noqa: E402
-from PySide6.QtGui import QColor, QImage, QImageReader, QPainter, QTransform  # noqa: E402
+from PySide6.QtGui import QColor, QImage, QImageReader, QPainter  # noqa: E402
 
 from boswas_apps.photos import (decode, desktopcfg, editops, exif, imageio, library, printing, thumbcache,  # noqa: E402
                                 thumbs, wallpaper)
