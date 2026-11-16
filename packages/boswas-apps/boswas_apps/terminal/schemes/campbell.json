@@ -1,0 +1,27 @@
+{
+  "name": "Campbell",
+  "dark": true,
+  "foreground": "#CCCCCC",
+  "background": "#0C0C0C",
+  "cursor": "#FFFFFF",
+  "selection": "#3A96DD",
+  "selection-text": "#0C0C0C",
+  "colors": [
+    "#0C0C0C",
+    "#C50F1F",
+    "#13A10E",
+    "#C19C00",
+    "#0037DA",
+    "#881798",
+    "#3A96DD",
+    "#CCCCCC",
+    "#767676",
+    "#E74856",
+    "#16C60C",
+    "#F9F1A5",
+    "#3B78FF",
+    "#B4009E",
+    "#61D6D6",
+    "#F2F2F2"
+  ]
+}

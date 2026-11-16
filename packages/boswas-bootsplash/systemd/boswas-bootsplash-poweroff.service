@@ -1,0 +1,18 @@
+[Unit]
+Description=Show the Boswas OS shutdown screen
+Documentation=man:boswas-bootsplashd(8)
+DefaultDependencies=no
+After=getty@tty1.service greetd.service display-manager.service boswas-bootsplash-start.service
+Before=systemd-poweroff.service
+ConditionKernelCommandLine=splash
+ConditionKernelCommandLine=!nosplash
+ConditionVirtualization=!container
+
+[Service]
+# The screen stays until the machine powers off: this unit is not stopped
+# during shutdown, and systemd's final clean-up skips the daemon's
+# processes (their name starts with "@").
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=-/usr/libexec/boswas/boswas-bootsplashd --mode=shutdown
+TimeoutStartSec=20

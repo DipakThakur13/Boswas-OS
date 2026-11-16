@@ -54,6 +54,13 @@ class InstallScriptTest(unittest.TestCase):
         self.assertNotIn("com.boswas.desktop", text)
         self.assertNotIn("BoswasDark", text)
 
+    def test_installs_nothing_for_plasma_or_konsole(self):
+        """No Global Theme, no Konsole file, and no JPEG preview (which needed netpbm)."""
+        commands = "\n".join(line for line in INSTALL.read_text(encoding="utf-8").splitlines()
+                             if not line.lstrip().startswith("#"))
+        for word in ("plasma", "look-and-feel", "konsole", "pnmtojpeg", "pngtopnm", ".jpg"):
+            self.assertNotIn(word, commands)
+
     def test_requires_destdir(self):
         result = subprocess.run(["sh", str(INSTALL)], capture_output=True, text=True)
         self.assertEqual(result.returncode, 2)
@@ -70,11 +77,6 @@ class InstallScriptTest(unittest.TestCase):
             for p in support.presets():
                 label, pid = p["label"], p["id"]
                 for rel in (f"color-schemes/Boswas{label}.colors",
-                            f"konsole/Boswas{label}.colorscheme", f"konsole/Boswas {label}.profile",
-                            f"plasma/look-and-feel/com.boswas.{pid}/metadata.json",
-                            f"plasma/look-and-feel/com.boswas.{pid}/contents/defaults",
-                            f"plasma/look-and-feel/com.boswas.{pid}/contents/layouts/org.kde.plasma.desktop-layout.js",
-                            f"plasma/look-and-feel/com.boswas.{pid}/contents/previews/preview.png",
                             f"wallpapers/Boswas-{label}/metadata.json",
                             f"wallpapers/Boswas-{label}/contents/images/3840x2160.png",
                             f"wallpapers/Boswas-{label}/contents/images_dark/3840x2160.png",
@@ -87,6 +89,10 @@ class InstallScriptTest(unittest.TestCase):
                         "usr/share/boswas/presets/presets.json",
                         "usr/lib/boswas/python/boswas_preset/cli.py"):
                 self.assertTrue((root / rel).is_file(), rel)
+            self.assertEqual(sorted(p.name for p in share.iterdir()), ["boswas", "color-schemes", "wallpapers"])
+            self.assertEqual(sorted(p.name for p in (share / "boswas").iterdir()), ["branding", "presets"])
+            self.assertEqual({p.suffix for p in root.rglob("*") if p.is_file() and p.parent != root / "usr/bin"},
+                             {".colors", ".json", ".png", ".py"})
             tool = root / "usr/bin/boswas-preset"
             self.assertEqual(stat.S_IMODE(tool.stat().st_mode), 0o755)
             for path in root.rglob("*"):

@@ -1,10 +1,11 @@
 # Android applications on Boswas OS
 
 Boswas OS runs Android apps in an optional Android runtime, **Waydroid**
-(LineageOS in an LXC container, shown in Plasma on Wayland). The runtime is
-not part of the default image: a user installs it after installation, from
-Boswas Control Center or with `boswas-android runtime install`. It never
-starts on its own, and no Android app starts automatically.
+(LineageOS in an LXC container, shown as Wayland windows on the Boswas
+desktop). The runtime is not part of the default image: a user installs it
+after installation, from Boswas Control Center or with
+`boswas-android runtime install`. It never starts on its own, and no
+Android app starts automatically.
 
 Components:
 
@@ -76,8 +77,10 @@ How it was checked:
   unsigned module is needed. boswas-sysops configures
   `options binder_linux devices=binder,hwbinder,vndbinder`, the legacy device
   nodes Waydroid supports.
-* Waydroid needs a **Wayland** session (Plasma on Wayland is the Boswas OS
-  default), an **x86_64 CPU with SSSE3**; without **SSE4.2** Waydroid uses
+* Waydroid needs a **Wayland** session (the native Boswas desktop is one:
+  `boswas-compositor` is a Wayland compositor, and Waydroid connects to it
+  as an ordinary client; Waydroid has not yet been run on the native
+  compositor, only on Plasma), an **x86_64 CPU with SSSE3**; without **SSE4.2** Waydroid uses
   32-bit x86 images and apps built only for x86_64 do not run
   (`tools/helpers/arch.py`).
 * Graphics: Waydroid uses the first `/dev/dri/renderD*` whose kernel driver is

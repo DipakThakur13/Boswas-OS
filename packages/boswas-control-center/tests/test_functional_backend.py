@@ -153,11 +153,10 @@ class ReadTest(RigCase):
         # Only connected devices are asked for their addresses.
         shows = [c for c in self.commands.ran_program("nmcli") if "show" in c]
         self.assertEqual(len(shows), 1)
-        self.backend.set_wifi(False)
-        self.backend.device_connection("wlp2s0", False)
-        self.assertIn([E["nmcli"], "device", "disconnect", "wlp2s0"], self.commands.ran)
-        with self.assertRaises(ValueError):
-            self.backend.device_connection("wlp2s0; reboot", True)
+        # Read-only: the Network page changes things through the services bridge, never through nmcli.
+        self.assertTrue(all(c[1] == "-t" for c in self.commands.ran_program("nmcli")))
+        self.assertFalse(hasattr(self.backend, "set_wifi"))
+        self.assertFalse(hasattr(self.backend, "device_connection"))
 
     def test_load(self):
         load = self.backend.load()

@@ -1,0 +1,94 @@
+.TH BOSWAS-TEXT-EDITOR 1 "November 2026" "Boswas OS" "User Commands"
+.SH NAME
+boswas-text-editor \- plain text editor with tabs
+.SH SYNOPSIS
+.B boswas-text-editor
+.RB [ \-\-new\-window ]
+.RI [ FILE ...]
+.br
+.B boswas-text-editor \-\-version
+.SH DESCRIPTION
+.B boswas-text-editor
+is the text editor of Boswas OS. Every
+.I FILE
+is opened in a tab; a
+.I FILE
+that does not exist is created when it is saved. One editor runs per
+session: when it is running already, the files are opened in its window
+and the second program ends.
+.PP
+Without the setting
+.B Continue the previous session
+turned off, the editor starts with the tabs it had when it was closed,
+including text that was never saved, and closing the last window asks no
+question about unsaved text. Closing a single tab always asks.
+.SS Files
+The encoding of a file is recognised when it is opened: UTF\-8 with or
+without a byte order mark, UTF\-16 little or big endian, and otherwise a
+single\-byte encoding (that of the locale, Windows\-1252, or ISO 8859\-1,
+which keeps every byte). The line ending (LF, CRLF or CR) is recognised
+too; a file that mixes line endings is reported and saved with the one it
+uses most. Encoding and line ending are kept when the file is saved; both
+can be changed from the status bar, where a file can also be read again in
+another encoding.
+.PP
+Files that are not text are refused. A file larger than 32 MB is opened
+after a question, a file larger than 512 MB not at all.
+.PP
+Saving writes a temporary file in the same directory and puts it in the
+place of the file, keeping its permissions; a symbolic link is followed.
+Other hard links to the file keep the old content. Where the directory
+does not allow a temporary file, the file is written in place. If the
+file was changed by another program since it was opened, saving asks
+whether to overwrite it, reload it or do nothing; a file that is open
+unchanged offers to reload.
+.SS Editing
+Undo and redo without limit, find and replace (match case, whole word,
+wrap around, regular expressions in Perl syntax with
+.BR $1 " or " \e1
+in the replacement), go to line, time and date, indentation of the
+selected lines with Tab and Shift+Tab, zoom, word wrap, optional line
+numbers, printing to a printer or a PDF file.
+.SH OPTIONS
+.TP
+.B \-\-new\-window
+Open a new window (with the files, if any) instead of using the one that
+is open, and do not restore the previous session in it.
+.TP
+.B \-\-version
+Print the version and exit.
+.TP
+.BR \-h ", " \-\-help
+Print a summary of the options and exit.
+.SH KEYBOARD
+Ctrl+N new tab, Ctrl+Shift+N new window, Ctrl+O open, Ctrl+S save,
+Ctrl+Shift+S save as, Ctrl+Alt+S save all, Ctrl+P print, Ctrl+W close
+tab, Ctrl+Shift+W close window, Ctrl+Tab and Ctrl+Shift+Tab next and
+previous tab; Ctrl+Z undo, Ctrl+Y redo, Ctrl+X, Ctrl+C, Ctrl+V, Delete,
+Ctrl+A; Ctrl+F find, F3 and Shift+F3 find next and previous, Ctrl+H
+replace, Ctrl+G go to line, F5 time and date; Ctrl+Plus, Ctrl+Minus,
+Ctrl+0 and Ctrl with the mouse wheel zoom.
+.SH FILES
+.TP
+.I $XDG_CONFIG_HOME/com.boswas.TextEditor/settings.json
+The settings.
+.TP
+.I $XDG_STATE_HOME/com.boswas.TextEditor/session.json
+The tabs of the last session, with unsaved text of up to 4 MiB a tab and
+16 MiB in all (mode 0600). A tab with more unsaved text is asked about
+when the window closes.
+.TP
+.I $XDG_STATE_HOME/com.boswas.TextEditor/recent.json
+The ten files used last.
+.TP
+.I $XDG_STATE_HOME/com.boswas.TextEditor/window.ini
+The size of the window.
+.TP
+.I $XDG_RUNTIME_DIR/boswas-fluent/com.boswas.TextEditor.sock
+Where the running editor listens for the files of a later start.
+.SH EXIT STATUS
+0 when the editor was closed or the files were handed to the running
+editor; 2 for a wrong option; 4 when started as root, which the program
+refuses.
+.SH SEE ALSO
+.BR boswas\-calculator (1)

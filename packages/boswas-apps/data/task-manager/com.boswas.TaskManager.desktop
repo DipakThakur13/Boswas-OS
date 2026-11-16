@@ -1,0 +1,24 @@
+[Desktop Entry]
+Type=Application
+Version=1.5
+Name=Task Manager
+GenericName=System Monitor
+Comment=See what is running, how busy the computer is, and end tasks
+Exec=boswas-task-manager
+TryExec=boswas-task-manager
+Icon=utilities-system-monitor
+Terminal=false
+Categories=System;Monitor;
+Keywords=process;task;kill;end;cpu;memory;disk;network;performance;service;startup;autostart;monitor;
+StartupNotify=true
+StartupWMClass=com.boswas.TaskManager
+SingleMainWindow=true
+Actions=Performance;Services;
+
+[Desktop Action Performance]
+Name=Performance
+Exec=boswas-task-manager --page performance
+
+[Desktop Action Services]
+Name=Services
+Exec=boswas-task-manager --page services

@@ -13,7 +13,13 @@ for f in build.sh clean.sh test.sh build/scripts/*.sh tests/lib.sh tests/*/*.sh;
 	bash -n "$f" 2>/dev/null || bad="$bad $f"
 done
 for f in config/live-build/auto/* config/live-build/config/hooks/live/*.hook.chroot \
-	packages/*/debian/postinst packages/*/debian/postrm desktop/defaults/plasma-workspace-env/*.sh \
+	packages/*/debian/postinst packages/*/debian/postrm \
+	packages/boswas-desktop/session/boswas-session packages/boswas-desktop/session/boswas-session-ready \
+	packages/boswas-desktop/session/boswas-greeter packages/boswas-desktop/session/boswas-lock-on-sleep \
+	config/boswas/live-config-boswas \
+	packages/boswas-bootsplash/initramfs/hook packages/boswas-bootsplash/initramfs/init-premount \
+	packages/boswas-bootsplash/initramfs/init-bottom packages/boswas-bootsplash/initramfs/panic \
+	packages/boswas-bootsplash/tests/build-askpass.sh \
 	compatibility/runners/* packages/boswas-device-agent/bin/agent-update; do
 	[ -f "$f" ] && { sh -n "$f" 2>/dev/null || bad="$bad $f"; }
 done
@@ -44,6 +50,13 @@ for mod in packages/boswas-cli:boswas_cli packages/boswas-compat:boswas_compat \
 	v="$(python3 -B -c 'import sys; sys.path.insert(0, sys.argv[1]); print(__import__(sys.argv[2]).__version__)' \
 		"${mod%%:*}" "${mod#*:}" 2>/dev/null)"
 	[ "$v" = "$BOSWAS_VERSION_ID" ] || mismatch="$mismatch ${mod#*:}=$v"
+done
+# The Rust crates carry the same version in Cargo's notation (1.0~alpha3 is
+# 1.0.0-alpha.3).
+cargo_version="$(sed -E 's/^([0-9]+)\.([0-9]+)~([a-z]+)([0-9]+)$/\1.\2.0-\3.\4/' <<<"$BOSWAS_VERSION_ID")"
+for manifest in packages/boswas-desktop/Cargo.toml packages/boswas-bootsplash/Cargo.toml; do
+	v="$(sed -n 's/^version = "\(.*\)"$/\1/p' "$manifest" | head -1)"
+	[ "$v" = "$cargo_version" ] || mismatch="$mismatch $(basename "$(dirname "$manifest")")(cargo)=$v"
 done
 [ -z "$mismatch" ] && pass "package versions match release.conf ($BOSWAS_VERSION_ID)" \
 	|| fail "version mismatch vs release.conf $BOSWAS_VERSION_ID:$mismatch"
@@ -140,6 +153,12 @@ pysrc=(packages/boswas-compat/boswas_compat packages/boswas-device-agent/boswas_
 	packages/boswas-android/boswas_android)
 check_not "no shell execution primitives in the Boswas Python components (shell=True, os.system, os.popen, eval, exec)" \
 	grep -rqE 'shell=True|os\.system\(|os\.popen\(|[^_.a-z]eval\(|[^_.a-z]exec\(' "${pysrc[@]}"
+# (The toolkit's dialog has a method named exec(), as Qt's dialogs do: its
+# definition and the mention in its documentation are not Python's exec.)
+check_not "no shell execution primitives in the system applications and the Qt toolkit" \
+	bash -c "grep -rnE --include='*.py' 'shell=True|os\\.system\\(|os\\.popen\\(|[^_.a-z]eval\\(|[^_.a-z]exec\\(' \
+		packages/boswas-apps/boswas_apps desktop/ui/qt/boswas_fluent |
+		grep -vE 'widgets/dialogs\\.py:[0-9]+:.*(def exec\\(self\\)|\`\`exec\\(\\)\`\`)' | grep -q ."
 check_not "no shell-like remote command type" \
 	grep -qE '^[[:space:]]+[A-Z_]*(SHELL|EXEC|SCRIPT|RUN_COMMAND|TERMINAL)[A-Z_]* = ' packages/boswas-device-agent/boswas_agent/commands.py
 check "the only identity provider is NoIdentityProvider (Boswas ID not implemented)" \
@@ -177,8 +196,9 @@ def visible_lines(path):
 for path in ["config/boswas/os-release.in", "config/boswas/issue.in", "config/boswas/issue.net.in",
              "config/boswas/motd.in", "config/boswas/live-config.conf", "config/boswas/live-config-boswas",
              "desktop/terminal/bashrc", "desktop/terminal/boswas-welcome",
-             "desktop/branding/splash/contents/splash/Splash.qml",
-             *glob.glob("desktop/defaults/kde-settings/*"), *glob.glob("desktop/defaults/sddm/*")]:
+             "packages/boswas-desktop/session/boswas.desktop", "packages/boswas-desktop/session/greetd.toml",
+             "packages/boswas-desktop/session/boswas-greeter",
+             *glob.glob("desktop/defaults/kde-settings/*")]:
     for n, s in visible_lines(path):
         if "debian" in s.lower() and s != "ID_LIKE=debian":
             bad.append(f"{path}:{n}: {s}")
@@ -187,7 +207,7 @@ for path in glob.glob("desktop/**/*.svg", recursive=True) + glob.glob("installer
     for m in re.finditer(r"<text[^>]*>([^<]*)", open(path, encoding="utf-8").read()):
         if "debian" in m.group(1).lower():
             bad.append(f"{path}: {m.group(1)}")
-# Names and descriptions users see in settings (Global Themes, wallpapers, applets).
+# Names users see in settings (the wallpaper packages).
 for path in glob.glob("desktop/**/metadata.json", recursive=True):
     plugin = json.load(open(path, encoding="utf-8")).get("KPlugin", {})
     for key, value in plugin.items():
@@ -199,9 +219,99 @@ if bad:
 check "live USB: the default boot entry is the live session; the installer is a separate entry" \
 	bash -c "grep -m1 '^menuentry' config/live-build/config/bootloaders/grub-pc/grub.cfg | grep -q 'Live session' &&
 		grep -q 'splash' config/live-build/auto/config && ! grep -qE 'auto=true|priority=critical' config/live-build/auto/config"
-check "Boswas Launcher reuses Kickoff (X-Plasma-RootPath) and provides the launcher menu (Meta key)" \
-	bash -c "grep -q '\"X-Plasma-RootPath\": \"org.kde.plasma.kickoff\"' desktop/launcher/metadata.json &&
-		grep -q 'org.kde.plasma.launchermenu' desktop/launcher/metadata.json"
+# The native desktop (ADR-0026 to ADR-0030): KDE Plasma and Plymouth are
+# replaced, not accompanied.
+lists=config/live-build/config/package-lists
+check_not "the image manifest names no Plasma shell, KWin, SDDM or Plymouth package" \
+	bash -c "sed 's/#.*//' $lists/*.list.chroot | grep -qxE '[[:space:]]*(kde-plasma-desktop|plasma-(workspace|desktop|nm|pa)|kwin-(wayland|x11)|sddm[a-z-]*|kde-config-sddm|systemsettings|powerdevil|bluedevil|kscreen|xdg-desktop-portal-kde|plymouth[a-z-]*)[[:space:]]*'"
+check "Plasma, KWin, SDDM and Plymouth are pinned out of the image" \
+	bash -c "pins=config/live-build/config/archives/boswas-exclude.pref.chroot
+		for p in plasma-workspace plasma-desktop kwin-wayland kwin-x11 sddm plymouth; do
+			grep -E '^Package:' \$pins | grep -qw -- \"\$p\" || exit 1
+		done"
+check "the image manifest installs the Boswas desktop, the boot screen and greetd" \
+	bash -c "for p in boswas-desktop boswas-bootsplash greetd; do grep -rqx \"\$p\" $lists || exit 1; done"
+# ADR-0042: nothing is generated, installed or run for KDE programs that are
+# not shipped (Plasma, Konsole, System Settings, Dolphin). What stays serves
+# KDE applications a user installs: the colour schemes and the kdeglobals
+# defaults.
+check_not "no Plasma Global Theme, Konsole profile or colour scheme, konsolerc, System Settings module file or service menu is in the tree" \
+	bash -c "test -e desktop/presets/look-and-feel || test -e desktop/presets/konsole || test -e desktop/ui/konsole ||
+		[ \"\$(ls desktop/defaults/kde-settings)\" != kdeglobals.header ] ||
+		find desktop packages compatibility -path '*/target' -prune -o \\( -name '*.colorscheme' -o -name '*.profile' -o -name konsolerc \
+			-o -name 'kcm-about*' -o -name '*servicemenu*' \\) -print | grep -q . ||
+		grep -rlE --include='*.desktop' --exclude-dir=target 'Type=Service|KonqPopupMenu' desktop packages compatibility | grep -q ."
+check_not "no package installs into /usr/share/plasma, /usr/share/konsole or /usr/share/kio (rules and install scripts)" \
+	grep -qE 'share/(plasma|konsole|kio)|/konsole/|look-and-feel|servicemenus|kcm-about|konsolerc' \
+	packages/*/debian/rules desktop/presets/install.sh desktop/icons/install.sh
+check_not "boswas-preset starts no program and names no KDE program (it writes the user's files itself)" \
+	grep -qiE 'subprocess|os\.system|os\.popen|os\.exec|os\.spawn|Popen|kwriteconfig|kreadconfig|plasma|konsole|kscreenlocker|qdbus|lookandfeel|systemsettings|kcmshell|dolphin' \
+	desktop/presets/boswas_preset/__init__.py desktop/presets/boswas_preset/cli.py desktop/presets/bin/boswas-preset
+check_not "nothing shipped runs KDE's configuration tools, and no package depends on them or builds with netpbm" \
+	bash -c "grep -rIlE 'kwriteconfig|kreadconfig' packages desktop config build installer \
+			--exclude-dir=target --exclude-dir=tests --exclude-dir=__pycache__ --exclude='*.md' | grep -q . ||
+		grep -qE 'libkf6config-bin|libkf6kcmutils-bin|kde-cli-tools' packages/*/debian/control ||
+		grep -q netpbm packages/boswas-branding/debian/control"
+check "the Compatibility Manager's \"Open with\" entry cannot take the place of \"Run with Boswas\" (file name order, shipped defaults)" \
+	bash -c "d=packages/boswas-compat-manager/data; e=\$d/com.boswas.CompatibilityManager.Install.desktop
+		grep -qx 'NoDisplay=true' \$e && grep -qx 'Exec=boswas-compat-manager --install %f' \$e &&
+		[ \"\$(grep -rlE --include='*.desktop' --exclude-dir=target '^MimeType=(.*;)?application/x-msdownload;' packages compatibility desktop |
+			sed 's|.*/||' | LC_ALL=C sort | tr '\\n' ' ')\" = 'boswas-winapp-install.desktop com.boswas.CompatibilityManager.Install.desktop ' ] &&
+		for t in \$(sed -n 's/^MimeType=//p' \$e | tr ';' ' '); do
+			grep -qx \"\$t=boswas-winapp-install.desktop\" \$d/boswas-mimeapps.list &&
+				grep -qE \"^MimeType=(.*;)?\$t;\" compatibility/desktop/boswas-winapp-install.desktop || exit 1
+		done"
+state=packages/boswas-desktop/crates/boswas-compositor/src/state.rs
+check "compositor: the privileged protocols are offered by client trust (layer shell, session lock, window list, clipboard control)" \
+	bash -c "grep -q 'WlrLayerShellState::new_with_filter::<Self, _>(&dh, privileged)' $state &&
+		grep -q 'SessionLockManagerState::new::<Self, _>(&dh, privileged)' $state &&
+		grep -q 'ForeignToplevelListState::new_with_filter::<Self>(&dh, privileged)' $state &&
+		grep -q 'DataControlState::new::<Self, _>(&dh, Some(&primary_selection_state), privileged)' $state &&
+		grep -q 'SecurityContextState::new::<Self, _>(&dh, not_sandboxed)' $state"
+check "compositor: shipped defaults enforce the ten-minute lock and shell-only trust" python3 -B -c '
+import tomllib
+c = tomllib.load(open("packages/boswas-desktop/config/compositor.toml", "rb"))
+assert c["lock"]["idle_seconds"] == c["policy"]["lock_idle_max_seconds"] == 600
+assert c["policy"]["privileged_protocols"] == "shell"
+g = tomllib.load(open("packages/boswas-desktop/config/greeter.toml", "rb"))
+assert g["policy"]["privileged_protocols"] == "shell" and g["shell"]["command"][-1] == "--greeter"'
+# "outputs" tells what every client already sees as wl_output (plus the modes
+# Settings offers); "capture" only opens the capture screen, where the user
+# chooses and confirms. Windows, input and screenshots stay with the shell.
+check "compositor: public control connections get version, lock, reload-config, the monitor list and the capture screen only" \
+	bash -c "ipc=packages/boswas-desktop/crates/boswas-compositor/src/ipc.rs
+		awk '/Available to every connection/,/if !trusted/' \$ipc | grep -oE '^            \"[a-z-]+\" =>' | tr -d ' \"=>' | sort | tr '\n' ' ' | grep -qx 'capture lock outputs reload-config version '"
+# unsafe is confined to the files that need it (a foreign library, a raw
+# descriptor, an EGL context, the copy into a client's shared memory);
+# everything else is safe Rust. This covers the
+# code that is shipped (src/); test programs are not part of any package.
+unsafe_files="$(grep -rlE '(^|[^a-zA-Z_])unsafe[[:space:]]*(\{|fn|extern|impl)' --include='*.rs' \
+	packages/boswas-desktop/crates/*/src packages/boswas-bootsplash/src | sort | tr '\n' ' ')"
+check "Rust: unsafe code only in the audited modules" test "$unsafe_files" = \
+	"packages/boswas-bootsplash/src/sys.rs packages/boswas-desktop/crates/boswas-compositor/src/backend/udev.rs packages/boswas-desktop/crates/boswas-compositor/src/handlers/screencopy.rs packages/boswas-desktop/crates/boswas-compositor/src/ipc.rs packages/boswas-desktop/crates/boswas-compositor/src/state.rs packages/boswas-desktop/crates/boswas-shell/src/control.rs packages/boswas-desktop/crates/boswas-shell/src/pam.rs "
+check "Rust: the design system forbids unsafe code and the boot screen denies it outside sys.rs" \
+	bash -c "grep -q '^#!\[forbid(unsafe_code)\]' packages/boswas-desktop/crates/boswas-ui/src/lib.rs &&
+		grep -q '^#!\[deny(unsafe_code)\]' packages/boswas-bootsplash/src/lib.rs"
+check "Rust: Cargo.lock is committed and both workspaces build with Debian 13's toolchain (rust-version 1.85)" \
+	bash -c "for d in packages/boswas-desktop packages/boswas-bootsplash; do
+			test -s \$d/Cargo.lock && grep -q '^rust-version = \"1.85\"' \$d/Cargo.toml || exit 1
+		done"
+check "login: greetd is configured by a drop-in; its own configuration file is not shipped or edited" \
+	bash -c "r=packages/boswas-desktop/debian/rules
+		grep -q 'greetd.service.d/10-boswas.conf' \$r && grep -q 'etc/boswas/greetd.toml' \$r && ! grep -q 'etc/greetd/' \$r &&
+		grep -qx 'ExecStart=/usr/sbin/greetd --config /etc/boswas/greetd.toml' packages/boswas-desktop/session/greetd-boswas.conf"
+check "screen lock: the session is locked before suspend (sleep hook) and by the idle policy" \
+	bash -c "grep -q -- '--send lock' packages/boswas-desktop/session/boswas-lock-on-sleep &&
+		grep -q 'system-sleep/boswas-lock' packages/boswas-desktop/debian/rules"
+check_not "login: the shipped greetd configuration signs nobody in automatically" \
+	grep -q 'initial_session' packages/boswas-desktop/session/greetd.toml
+check "boot screen: conflicts with plymouth and puts its client under that name only inside the initramfs" \
+	bash -c "grep -qx 'Conflicts: plymouth' packages/boswas-bootsplash/debian/control &&
+		! grep -qE 'usr/(s?bin)/plymouth' packages/boswas-bootsplash/debian/rules &&
+		grep -q 'plymouth' packages/boswas-bootsplash/initramfs/hook"
+check "icons: Boswas Prism is the default icon theme and reads its colours from the token file" \
+	bash -c "grep -qx 'Theme=Boswas-Prism' desktop/defaults/kde-settings/kdeglobals.header &&
+		grep -q 'tokens.json' desktop/icons/tools/build_prism.py"
 check "Orbitron is shipped with its SIL OFL 1.1 licence" \
 	bash -c "grep -q 'SIL OPEN FONT LICENSE Version 1.1' desktop/fonts/orbitron/OFL.txt &&
 		test \$(ls desktop/fonts/orbitron/static/Orbitron-*.ttf | wc -l) -eq 6"

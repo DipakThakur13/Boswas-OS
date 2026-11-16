@@ -1,0 +1,6 @@
+#!/usr/bin/python3 -IB
+"""Boswas Archive Manager. See boswas-archive-manager(1)."""
+import sys
+sys.path.insert(0, "/usr/lib/boswas/python")
+from boswas_apps.archive_manager.__main__ import main  # noqa: E402
+sys.exit(main())

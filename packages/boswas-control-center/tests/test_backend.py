@@ -30,8 +30,8 @@ from boswas_agent.localapi import ApiError, ApiServer, Operation  # noqa: E402
 from boswas_control_center import __version__, app, commands, probes  # noqa: E402
 from boswas_control_center import viewmodel as vm  # noqa: E402
 from boswas_control_center.backend import Backend  # noqa: E402
-from boswas_control_center.catalog import (BY_KEY, COMPAT_MANAGER, FILES, KCM_MODULES, NETWORK, PAGE_KEYS,  # noqa: E402
-                                           PROGRAMS, Module)
+from boswas_control_center.catalog import (BY_KEY, COMPAT_MANAGER, FILES, PAGE_KEYS, PROGRAM_IDS,  # noqa: E402
+                                           PROGRAMS, Program)
 from boswas_control_center.errors import (CommandFailed, CommandUnavailable, ServiceRefused,  # noqa: E402
                                           ServiceUnavailable, user_message)
 
@@ -159,37 +159,36 @@ class BackendReadTest(RigTestCase):
         self.assertEqual(doc["source"], "files")
         self.assertEqual(doc["periodic"], {"Update-Package-Lists": "1", "Unattended-Upgrade": "1"})
 
-    def test_plasma_version(self):
-        self.assertEqual(self.backend.plasma_version(), "6.3.6")
-        os.remove(self.rig.root / "usr/share/metainfo/org.kde.plasmashell.metainfo.xml")
-        self.assertIsNone(self.backend.plasma_version())            # plasmashell is not "installed" in the rig
-        self.rig.commands.installed.add(E["plasmashell"])
-        self.rig.commands.outputs[(E["plasmashell"], "--version")] = fx.completed("plasmashell 6.3.6\n")
-        self.assertEqual(self.backend.plasma_version(), "6.3.6")
-        self.assertEqual(self.rig.commands.timeouts[-1], 5.0)
+    def test_desktop_is_the_native_desktop(self):
+        self.assertEqual(self.backend.desktop(), "Boswas Desktop 1.0~alpha3")
+        fx.write(self.rig.root / "usr/share/boswas/compositor/version", "not a version\n")
+        self.assertIsNone(self.backend.desktop())
+        os.remove(self.rig.root / "usr/share/boswas/compositor/version")
+        self.assertIsNone(self.backend.desktop())
+        self.assertEqual(self.rig.commands.ran, [])                 # read from a file: no program is asked
 
     def test_live_session(self):
         self.assertFalse(self.backend.live_session())
         fx.write(self.rig.root / "run/boswas/session", "live\n")
         self.assertTrue(self.backend.live_session())
 
-    def test_kcm_and_program_availability(self):
-        kcms = self.backend.kcm_availability()
-        self.assertEqual(set(kcms), set(KCM_MODULES))
-        self.assertFalse(kcms["kcm_feedback"])
-        self.assertFalse(kcms["kcm_tablet"])
-        self.assertTrue(kcms["kcm_networkmanagement"])
-        self.assertTrue(kcms["kcm_kwallet5"])
+    def test_program_availability(self):
         programs = self.backend.program_availability()
+        self.assertEqual({key for key in programs if key in PROGRAM_IDS}, {"files", "compat-manager"})
         self.assertTrue(programs["compat-manager"])
-        self.rig.commands.installed.discard(E["partitionmanager"])
-        self.assertFalse(self.backend.program_availability()["partitionmanager"])
+        self.assertTrue(programs["files"])
+        self.assertTrue(programs["gio"])
+        self.rig.commands.installed.discard(E["boswas-files"])
+        self.assertFalse(self.backend.program_availability()["files"])
+        self.assertFalse(hasattr(self.backend, "kcm_availability"))
 
     def test_desktop_entries(self):
         entries = {e.desktop_id: e for e in self.backend.desktop_entries()}
-        self.assertEqual(set(entries), {"org.kde.kate", "org.kde.dolphin", "firefox-esr", "kde-only",
+        # OnlyShowIn / NotShowIn are read for the Boswas desktop: its own entries, none of another desktop's.
+        self.assertEqual(set(entries), {"org.kde.kate", "org.kde.dolphin", "firefox-esr", "boswas-only",
                                         "com.boswas.CompatibilityManager", "com.boswas.ControlCenter",
                                         "kde4-oldapp", "boswas-winapp-com.example.notepad"})
+        self.assertEqual(vm.CURRENT_DESKTOP, "Boswas")
         self.assertEqual(entries["firefox-esr"].name, "Firefox (Custom)")     # the user's entry wins
         self.assertEqual(entries["boswas-winapp-com.example.notepad"].winapp_id, "com.example.notepad")
 
@@ -203,47 +202,47 @@ class LiveRigTest(RigTestCase):
 
 
 class BackendActionTest(RigTestCase):
-    def test_open_kcm(self):
-        self.backend.open_module(NETWORK)
-        self.assertEqual(self.rig.commands.started, [[E["kcmshell6"], "kcm_networkmanagement"]])
-
     def test_open_programs(self):
-        self.backend.open_module(FILES)
-        self.backend.open_module(COMPAT_MANAGER)
-        self.assertEqual(self.rig.commands.started, [[E["dolphin"], "/"], [E["boswas-compat-manager"]]])
+        self.backend.open_program(FILES)
+        self.backend.open_program(COMPAT_MANAGER)
+        self.assertEqual(self.rig.commands.started, [[E["boswas-files"], "/"], [E["boswas-compat-manager"]]])
 
-    def test_every_page_module_has_an_exact_command(self):
+    def test_every_page_program_has_an_exact_command(self):
+        found = 0
         for key in PAGE_KEYS:
-            for module in BY_KEY[key].modules:
-                command = Backend.module_command(module)
+            for program in BY_KEY[key].programs:
+                found += 1
+                command = Backend.program_command(program)
                 self.assertIn(command[0], commands.ALLOWED_PATHS)
-                if module.kind == "kcm":
-                    self.assertEqual(command, [E["kcmshell6"], module.id])
-                else:
-                    name, args = PROGRAMS[module.id]
-                    self.assertEqual(command, [E[name], *args])
+                name, args = PROGRAMS[program.id]
+                self.assertEqual(command, [E[name], *args])
+        self.assertEqual(found, 2)
 
-    def test_unknown_modules_are_refused(self):
-        for module in (Module("kcm_evil", "x", "x", "x"), Module("--list", "x", "x", "x"),
-                       Module("bash", "x", "x", "x", kind="program")):
+    def test_unknown_programs_are_refused(self):
+        for program in (Program("kcm_evil", "x", "x", "x"), Program("--list", "x", "x", "x"),
+                        Program("bash", "x", "x", "x"), Program("gio", "x", "x", "x"), "files", None):
             with self.assertRaises(ValueError):
-                Backend.module_command(module)
+                Backend.program_command(program)
         self.assertEqual(self.rig.commands.started, [])
 
     def test_missing_program(self):
-        self.rig.commands.installed.discard(E["kcmshell6"])
+        self.rig.commands.installed.discard(E["boswas-files"])
         with self.assertRaises(CommandUnavailable):
-            self.backend.open_module(NETWORK)
+            self.backend.open_program(FILES)
 
     def test_launch(self):
         kate = vm.AppItem("desktop:org.kde.kate", vm.NATIVE, "Kate", "", "", "kate", "org.kde.kate",
                           "/usr/share/applications/org.kde.kate.desktop")
         self.backend.launch(kate)
-        self.assertEqual(self.rig.commands.started[-1], [E["kstart"], "--application", "org.kde.kate"])
-        self.rig.commands.installed.discard(E["kstart"])
-        self.backend.launch(kate)
         self.assertEqual(self.rig.commands.started[-1],
-                         [E["kioclient"], "exec", "/usr/share/applications/org.kde.kate.desktop"])
+                         [E["gio"], "launch", "/usr/share/applications/org.kde.kate.desktop"])
+        for path in ("relative.desktop", "/usr/share/applications/../../tmp/x.desktop", "/tmp/x.sh", ""):
+            with self.assertRaises(ValueError, msg=path):
+                self.backend.launch(vm.AppItem("desktop:x", vm.NATIVE, "x", "", "", "", "x", path))
+        self.rig.commands.installed.discard(E["gio"])
+        with self.assertRaises(CommandUnavailable) as caught:
+            self.backend.launch(kate)
+        self.assertIn("gio", user_message(caught.exception))
 
     def test_windows_applications_are_never_launched(self):
         item = vm.windows_item(fx.WINDOWS_APPS[0])
@@ -256,14 +255,34 @@ class BackendActionTest(RigTestCase):
 
     def test_apply_preset(self):
         self.backend.apply_preset("boswas-light")
-        self.backend.apply_preset("boswas-light", layout=True)
         self.assertEqual(self.rig.commands.ran_program("boswas-preset"),
-                         [[E["boswas-preset"], "apply", "boswas-light"],
-                          [E["boswas-preset"], "apply", "boswas-light", "--layout"]])
+                         [[E["boswas-preset"], "apply", "boswas-light"]])
         self.assertEqual(self.rig.commands.timeouts[-1], 180.0)
-        for bad in ("../x", "--layout", "x;rm", ""):
+        for bad in ("../x", "--layout", "x;rm", "", "ocean --layout", None):
             with self.assertRaises(ValueError):
                 self.backend.apply_preset(bad)
+        self.assertEqual(len(self.rig.commands.ran_program("boswas-preset")), 1)
+
+    def test_a_preset_command_is_the_id_and_nothing_else(self):
+        """The panel layout option left with Plasma: there is no second argument to pass."""
+        self.assertEqual(self.backend.preset_command("classic"), [E["boswas-preset"], "apply", "classic"])
+        with self.assertRaises(TypeError):
+            self.backend.preset_command("classic", True)
+        with self.assertRaises(TypeError):
+            self.backend.apply_preset("classic", layout=True)
+        self.assertFalse(hasattr(self.backend, "native_desktop"))
+
+    def test_reset_look(self):
+        # The same command whatever the session calls itself: there is one desktop.
+        for desktop in ("Boswas", "KDE", ""):
+            self.backend.environ["XDG_CURRENT_DESKTOP"] = desktop
+            self.backend.reset_look()
+            self.assertEqual(self.rig.commands.ran_program("boswas-preset")[-1], [E["boswas-preset"], "reset"])
+        self.assertEqual(self.rig.commands.timeouts[-1], 180.0)
+        self.rig.commands.outputs[(E["boswas-preset"], "reset")] = fx.completed("", 1, "step 'colours' failed")
+        with self.assertRaises(CommandFailed) as raised:
+            self.backend.reset_look()
+        self.assertIn("colours", raised.exception.message)
 
     def test_apply_preset_failure(self):
         self.rig.commands.outputs[(E["boswas-preset"], "apply", "classic")] = fx.completed("", 3, "no such preset")
@@ -364,8 +383,9 @@ class CommandRunnerTest(unittest.TestCase):
                 self.runner.run(["/nonexistent/program"], timeout=5)
 
     def test_argv_builder(self):
-        self.assertEqual(commands.argv("kcmshell6", "kcm_users"), ["/usr/bin/kcmshell6", "kcm_users"])
-        for bad in (("bash",), ("kcmshell6", ""), ("kcmshell6", "a\nb"), ("kcmshell6", "a\0b")):
+        self.assertEqual(commands.argv("boswas-files", "/"), ["/usr/bin/boswas-files", "/"])
+        for bad in (("bash",), ("boswas-files", ""), ("boswas-files", "a\nb"), ("boswas-files", "a\0b"),
+                    ("kcmshell6", "kcm_users"), ("kstart", "--application", "x"), ("dolphin", "/")):
             with self.assertRaises(ValueError):
                 commands.argv(*bad)
 
@@ -384,8 +404,7 @@ class ProbeTest(unittest.TestCase):
             self.assertEqual(probes.apt_stamps(root), {})
             self.assertEqual(probes.unattended_log(root), {"readable": False, "lines": []})
             self.assertFalse(probes.live_session(root))
-            self.assertIsNone(probes.plasma_metainfo_version(root))
-            self.assertFalse(probes.kcm_installed(root, "kcm_users"))
+            self.assertIsNone(probes.boswas_desktop_version(root))
 
 
 class EntryPointTest(unittest.TestCase):
@@ -412,8 +431,31 @@ class EntryPointTest(unittest.TestCase):
             app.main(["boswas-control-center", "--page", "registry"])
         self.assertEqual(raised.exception.code, 2)
 
+    def test_section_option(self):
+        parser = app._parser()
+        args = parser.parse_args(["--page", "network", "--section", "Wi-Fi"])
+        self.assertEqual((args.page, args.section), ("network", "wi-fi"))
+        self.assertEqual(parser.parse_args(["--page", "display", "--section", "night light"]).section, "night-light")
+        for bad in ("", "---", "x" * 80, "\u00e4\u00f6"):
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit, msg=bad):
+                parser.parse_args(["--page", "network", "--section", bad])
+
+    def test_requested_page_of_another_start(self):
+        """Arguments handed over by a second start: tolerant, never an exit, nothing but a known page."""
+        self.assertEqual(app.requested_page([]), (None, None))
+        self.assertEqual(app.requested_page(["--page", "display"]), ("display", None))
+        self.assertEqual(app.requested_page(["--page=network", "--section", "Wi-Fi"]), ("network", "wi-fi"))
+        self.assertEqual(app.requested_page(["--section=night-light", "--page", "display"]),
+                         ("display", "night-light"))
+        self.assertEqual(app.requested_page(["--section", "wi-fi"]), (None, None))       # a section needs a page
+        for arguments in (["--page"], ["--page", "registry"], ["--page", "../etc"], ["--page", ""], ["display"],
+                          ["--pages", "display"], ["--page", None], [None, 7], ["--page=", "--section="]):
+            self.assertEqual(app.requested_page(arguments), (None, None), arguments)
+        self.assertEqual(app.requested_page(["--page", "display", "--section", "\0"]), ("display", None))
+        self.assertEqual(app.requested_page(["--page", "sound", "--page", "power"]), ("power", None))
+
     def test_error_messages(self):
-        self.assertEqual(user_message(CommandUnavailable("kstart")), "kstart is not installed on this system.")
+        self.assertEqual(user_message(CommandUnavailable("gio")), "gio is not installed on this system.")
         self.assertIn("RuntimeError", user_message(RuntimeError("x")))
 
 

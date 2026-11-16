@@ -1,0 +1,169 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: boswas-bootsplash
+Upstream-Contact: Boswas OS Platform Team <os-platform@boswas.invalid>
+Source: Boswas OS source repository (Boswas Group internal)
+
+Files: *
+Copyright: 2026 Boswas Group
+License: LicenseRef-Boswas-Internal
+
+Files: Cargo.lock
+Copyright: 2026 Boswas Group
+License: LicenseRef-Boswas-Internal
+Comment: This file pins the Rust crates the build downloads from crates.io.
+ The programs are linked statically with the following crates and with the
+ Rust standard library; each is copyright its authors (The Rust Project
+ Developers; Dan Gohman and the Bytecode Alliance for rustix and
+ linux-raw-sys; the Smithay project for drm, drm-ffi, drm-sys and drm-fourcc;
+ the landlock contributors; Lokathor for bytemuck; David Tolnay for
+ thiserror; the RustCrypto developers for zeroize; and the contributors of
+ bitflags, enumflags2 and libc) and is used here under the MIT licence
+ (called Expat below), which all of them offer, most of them as an
+ alternative to Apache-2.0:
+ bitflags, bytemuck, drm, drm-ffi, drm-fourcc, drm-sys, enumflags2,
+ landlock, libc, linux-raw-sys, rustix, thiserror, zeroize.
+ Crates used only while building (resvg and its dependencies, fontdue,
+ serde_json) are not part of the programs.
+
+Files: build.rs
+Copyright: 2026 Boswas Group
+ 2016 The Inter Project Authors (https://github.com/rsms/inter)
+License: LicenseRef-Boswas-Internal and Expat and OFL-1.1
+Comment: build.rs itself is a Boswas file. It is listed here because it
+ puts third-party material into the programs: the Rust crates described
+ under Cargo.lock (Expat), and rasterised atlases of the printable ASCII
+ glyphs of Inter Regular and Inter SemiBold, the Boswas UI typeface
+ (OFL-1.1). Inter is not in the Boswas OS source repository: the atlases
+ are made at build time from Inter-Regular.otf and Inter-SemiBold.otf of
+ the Debian package fonts-inter, a build dependency of this package. The
+ daemon embeds those bitmaps; the font files themselves are not shipped by
+ this package. The fonts carry the notice "Copyright 2016 The Inter Project
+ Authors" and are distributed under the SIL Open Font License 1.1 without a
+ Reserved Font Name.
+
+Files: desktop/fonts/orbitron/*
+Copyright: 2018 The Orbitron Project Authors (https://github.com/theleagueof/orbitron)
+License: OFL-1.1
+Comment: Orbitron, the Boswas OS brand typeface, in the Boswas OS source
+ repository (not in this package's directory). build.rs makes the glyph
+ atlases from Orbitron-Medium.ttf and Orbitron-SemiBold.ttf instead of
+ Inter when the build machine has no Inter. The build of this package
+ refuses to do that (debian/rules), so the packaged programs contain no
+ Orbitron glyphs; the paragraph is here for builds made by other means.
+ Reserved Font Name: "Orbitron".
+
+License: LicenseRef-Boswas-Internal
+ Copyright Boswas Group. All rights reserved. Internal use by Boswas Group on
+ company-managed devices. See LICENSES/LicenseRef-Boswas-Internal.txt in the
+ Boswas OS source repository.
+ .
+ This licence covers Boswas-authored files only. Debian packages installed
+ alongside Boswas OS keep their own licences, documented in
+ /usr/share/doc/<package>/copyright.
+
+License: Expat
+ Permission is hereby granted, free of charge, to any person obtaining a copy
+ of this software and associated documentation files (the "Software"), to deal
+ in the Software without restriction, including without limitation the rights
+ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ copies of the Software, and to permit persons to whom the Software is
+ furnished to do so, subject to the following conditions:
+ .
+ The above copyright notice and this permission notice shall be included in
+ all copies or substantial portions of the Software.
+ .
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ SOFTWARE.
+
+License: OFL-1.1
+ -----------------------------------------------------------
+ SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007
+ -----------------------------------------------------------
+ .
+ PREAMBLE
+ The goals of the Open Font License (OFL) are to stimulate worldwide
+ development of collaborative font projects, to support the font creation
+ efforts of academic and linguistic communities, and to provide a free and
+ open framework in which fonts may be shared and improved in partnership
+ with others.
+ .
+ The OFL allows the licensed fonts to be used, studied, modified and
+ redistributed freely as long as they are not sold by themselves. The
+ fonts, including any derivative works, can be bundled, embedded,
+ redistributed and/or sold with any software provided that any reserved
+ names are not used by derivative works. The fonts and derivatives,
+ however, cannot be released under any other type of license. The
+ requirement for fonts to remain under this license does not apply
+ to any document created using the fonts or their derivatives.
+ .
+ DEFINITIONS
+ "Font Software" refers to the set of files released by the Copyright
+ Holder(s) under this license and clearly marked as such. This may
+ include source files, build scripts and documentation.
+ .
+ "Reserved Font Name" refers to any names specified as such after the
+ copyright statement(s).
+ .
+ "Original Version" refers to the collection of Font Software components as
+ distributed by the Copyright Holder(s).
+ .
+ "Modified Version" refers to any derivative made by adding to, deleting,
+ or substituting -- in part or in whole -- any of the components of the
+ Original Version, by changing formats or by porting the Font Software to a
+ new environment.
+ .
+ "Author" refers to any designer, engineer, programmer, technical
+ writer or other person who contributed to the Font Software.
+ .
+ PERMISSION & CONDITIONS
+ Permission is hereby granted, free of charge, to any person obtaining
+ a copy of the Font Software, to use, study, copy, merge, embed, modify,
+ redistribute, and sell modified and unmodified copies of the Font
+ Software, subject to the following conditions:
+ .
+ 1) Neither the Font Software nor any of its individual components,
+ in Original or Modified Versions, may be sold by itself.
+ .
+ 2) Original or Modified Versions of the Font Software may be bundled,
+ redistributed and/or sold with any software, provided that each copy
+ contains the above copyright notice and this license. These can be
+ included either as stand-alone text files, human-readable headers or
+ in the appropriate machine-readable metadata fields within text or
+ binary files as long as those fields can be easily viewed by the user.
+ .
+ 3) No Modified Version of the Font Software may use the Reserved Font
+ Name(s) unless explicit written permission is granted by the corresponding
+ Copyright Holder. This restriction only applies to the primary font name as
+ presented to the users.
+ .
+ 4) The name(s) of the Copyright Holder(s) or the Author(s) of the Font
+ Software shall not be used to promote, endorse or advertise any
+ Modified Version, except to acknowledge the contribution(s) of the
+ Copyright Holder(s) and the Author(s) or with their explicit written
+ permission.
+ .
+ 5) The Font Software, modified or unmodified, in part or in whole,
+ must be distributed entirely under this license, and must not be
+ distributed under any other license. The requirement for fonts to
+ remain under this license does not apply to any document created
+ using the Font Software.
+ .
+ TERMINATION
+ This license becomes null and void if any of the above conditions are
+ not met.
+ .
+ DISCLAIMER
+ THE FONT SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO ANY WARRANTIES OF
+ MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT
+ OF COPYRIGHT, PATENT, TRADEMARK, OR OTHER RIGHT. IN NO EVENT SHALL THE
+ COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+ INCLUDING ANY GENERAL, SPECIAL, INDIRECT, INCIDENTAL, OR CONSEQUENTIAL
+ DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
+ OTHER DEALINGS IN THE FONT SOFTWARE.

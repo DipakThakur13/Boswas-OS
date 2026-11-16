@@ -33,13 +33,23 @@ def architecture() -> str:
     return {"x86_64": "amd64", "aarch64": "arm64"}.get(platform.machine(), platform.machine())
 
 
+def _desktop() -> str:
+    """The desktop this image ships: the native Boswas desktop, or KDE Plasma
+    on images built before it replaced Plasma."""
+    native = system.package_version("boswas-desktop")
+    if native:
+        return f"Boswas Desktop {native}"
+    plasma = system.upstream_version(system.package_version("plasma-workspace"))
+    return f"KDE Plasma {plasma}" if plasma else "not installed"
+
+
 def os_identity() -> dict:
     release = system.load_env(RELEASE_FILE)
     image = system.load_env(IMAGE_INFO_FILE)
     os_release = system.load_env("/etc/os-release")
     update = system.load_env(UPDATE_CONF)
     debian_version = system.read_text("/etc/debian_version")
-    plasma = system.upstream_version(system.package_version("plasma-workspace"))
+    desktop = _desktop()
     return {
         "name": release.get("BOSWAS_NAME", "Boswas OS"),
         "version": release.get("BOSWAS_VERSION", "unknown"),
@@ -60,7 +70,7 @@ def os_identity() -> dict:
         },
         "architecture": architecture(),
         "kernel": os.uname().release,
-        "desktop": f"KDE Plasma {plasma}" if plasma else "not installed",
+        "desktop": desktop,
         "hostname": socket.gethostname(),
         "boot_mode": system.boot_mode(),
         "live_session": system.is_live_session(),

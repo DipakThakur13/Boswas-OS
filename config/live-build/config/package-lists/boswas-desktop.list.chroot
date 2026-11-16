@@ -1,42 +1,59 @@
-# Boswas OS v1 - desktop (KDE Plasma 6.3 as shipped by Debian 13)
+# Boswas OS v1 - desktop: what the native Boswas desktop needs around it
 #
-# kde-plasma-desktop is Debian's minimal Plasma metapackage. Boswas deliberately
-# does not use task-kde-desktop / kde-standard (PIM suite, games, etc.).
-# Packages kept out on purpose are pinned in config/archives/boswas-exclude.pref.chroot.
+# The desktop itself (compositor, shell, lock and login screens) is the
+# Boswas package boswas-desktop, and the boot screen is boswas-bootsplash;
+# both are listed in boswas-components.list.chroot (ADR-0026 to ADR-0029).
+#
+# KDE Plasma is not installed: no Plasma shell, no KWin, no Plasma session,
+# no SDDM, no Plymouth. They are pinned out in
+# config/archives/boswas-exclude.pref.chroot, so the build fails if anything
+# pulls them in. KDE's applications are not installed either, but they run:
+# they are ordinary Wayland clients.
 
-kde-plasma-desktop
-kwin-wayland
-sddm
-sddm-theme-breeze
-kde-config-sddm
-plasma-nm
-plasma-pa
-powerdevil
-bluedevil
-kscreen
-systemsettings
-kinfocenter
-xdg-desktop-portal-kde
+# Login (boswas-desktop configures it) and session services. The shell is
+# the polkit agent. X11 applications run through Xwayland. The wlroots
+# portal back end serves screen sharing (the compositor asks the user).
+greetd
+xwayland
+xdg-desktop-portal-gtk
+xdg-desktop-portal-wlr
 xdg-user-dirs
+
+# What the shell and Settings show and control (boswas-services): sound
+# devices (pw-dump, wpctl), battery and power mode, user accounts.
+# NetworkManager, BlueZ and polkitd are in the base, hardware and security
+# lists.
+pipewire-bin
+wireplumber
+upower
+power-profiles-daemon
+accountsservice
+
+# Qt on Wayland, and fallback icons for programs that ask for names the
+# Boswas Prism pack does not draw. The pointer cursors are Boswas's own
+# theme, Boswas-Cursors, in boswas-branding. No KDE library or widget style
+# is installed: nothing on the image uses one (ADR-0043).
+qt6-wayland
+breeze-icon-theme
 
 # Audio
 pipewire-audio
+pavucontrol-qt
 
-# Core applications
-konsole
-dolphin
-kwrite
-ark
-okular
-gwenview
-kde-spectacle
-kcalc
-plasma-systemmonitor
+# Applications. The system applications (files, terminal, editor,
+# calculator, task manager, photos, media player, camera, PDF reader,
+# archives, clock, calendar) are the Boswas package boswas-apps, listed in
+# boswas-components.list.chroot; it replaces the KDE applications that were
+# here. The browser is Debian's.
 firefox-esr
 
-# Fonts (Lato: secondary text in Boswas artwork; the brand typeface Orbitron ships in
-# boswas-branding. Liberation is metric-compatible
-# with common Windows fonts for documents and Wine applications)
+# Fonts (Inter: the Boswas UI typeface. Hack: the monospace font of
+# Boswas Terminal. Lato: secondary
+# text in Boswas artwork; the brand typeface Orbitron ships in
+# boswas-branding. Liberation is metric-compatible with common Windows fonts
+# for documents and Wine applications)
+fonts-hack
+fonts-inter
 fonts-lato
 fonts-liberation2
 fonts-noto-core

@@ -1,16 +1,16 @@
 """Personalization: the Boswas preset gallery and the appearance modules.
 
 Presets come from `boswas-preset --json list`; "Apply" runs
-`boswas-preset apply <id>`, with `--layout` only when the user ticked
-"Also apply the panel layout" and confirmed that it replaces the panels.
-Preview images are decoded on a worker thread.
+`boswas-preset apply <id>` and "Reset to Boswas Default" runs
+`boswas-preset reset` after a question. Preview images are decoded on a
+worker thread.
 """
 
 from __future__ import annotations
 
 from PySide6.QtCore import QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QImage, QPainter, QPainterPath, QPalette, QPen, QPixmap
-from PySide6.QtWidgets import QCheckBox, QGridLayout, QHBoxLayout, QPushButton, QSizePolicy, QWidget
+from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QPushButton, QSizePolicy, QWidget
 
 from .. import viewmodel as vm
 from .base import Page
@@ -146,16 +146,11 @@ class PersonalizationPage(Page):
         self.banner = MessageBanner(parent=self.content)
         self.body.addWidget(self.banner)
         options = QHBoxLayout()
-        self.layout_box = QCheckBox("Also apply the panel layout (replaces your panels)", self.content)
-        self.layout_box.setChecked(False)
-        self.layout_box.setAccessibleDescription("When ticked, applying a preset also replaces your panels and their "
-                                                 "widgets with the preset's layout")
-        options.addWidget(self.layout_box)
         options.addStretch(1)
-        self.default_preset: vm.Preset | None = None
+        self.available = False                        # whether boswas-preset answered: what "reset" needs too
         self.reset_button = QPushButton("Reset to Boswas Default", self.content)
         self.reset_button.setAccessibleDescription(
-            f"Apply the Boswas OS default look ({vm.DEFAULT_PRESET_NAME}) with its panel layout, after asking")
+            f"Return to the Boswas OS default look ({vm.DEFAULT_LOOK}), after asking")
         self.reset_button.setToolTip("Loading presets…")
         self.reset_button.setEnabled(False)
         self.reset_button.clicked.connect(self.reset_to_default)
@@ -173,7 +168,7 @@ class PersonalizationPage(Page):
         self.busy = False
         self.images: dict[str, QImage] = {}
         self.signature: tuple = ()
-        self.add_modules()
+        self.add_settings()
 
     # --- data ---
     def render(self) -> None:
@@ -186,17 +181,18 @@ class PersonalizationPage(Page):
             self.status.setText(result.error or "Presets are not available.")
             self.status.show()
             self._set_cards([])
+            self.available = False
+            self.reset_button.setEnabled(False)
+            self.reset_button.setToolTip("Presets are not available on this system.")
             return
         presets: vm.PresetList = result.value
         self.status.setVisible(not presets.presets)
         self.status.setText("No presets are installed.")
         self._set_cards(list(presets.presets))
-        self.default_preset = next((p for p in presets.presets if p.id == vm.DEFAULT_PRESET), None)
-        self.reset_button.setEnabled(self.default_preset is not None and not self.busy)
-        self.reset_button.setToolTip(
-            f"Apply {vm.DEFAULT_PRESET_NAME}, the Boswas OS default, with its panel layout"
-            if self.default_preset is not None else
-            f"The Boswas default preset ({vm.DEFAULT_PRESET_NAME}) is not installed on this system.")
+        # The default look is no preset: the reset needs the tool, not a preset of the list.
+        self.available = True
+        self.reset_button.setEnabled(not self.busy)
+        self.reset_button.setToolTip(f"Return to {vm.DEFAULT_LOOK}, the Boswas OS default look")
 
     def _set_cards(self, presets: list[vm.Preset]) -> None:
         signature = tuple(presets)
@@ -249,49 +245,47 @@ class PersonalizationPage(Page):
 
     # --- apply ---
     def apply(self, preset: vm.Preset) -> None:
-        layout = self.layout_box.isChecked()
-        if layout and not self.window_.ask(
-                "Replace your panels?",
-                f"Applying “{preset.name}” with its panel layout replaces your panels and the widgets on them. "
-                "Your current panel layout cannot be restored automatically.",
-                "Replace Panels and Apply"):
-            return
         self.set_busy(True)
         self.banner.show_message("info", f"Applying “{preset.name}”…")
-        self.window_.runner.submit(self.window_.backend.apply_preset, preset.id, layout,
-                                   on_done=lambda _r: self._applied(preset, layout),
+        self.window_.runner.submit(self.window_.backend.apply_preset, preset.id,
+                                   on_done=lambda _r: self._applied(preset),
                                    on_error=lambda exc: self._failed(preset, exc))
 
     def reset_to_default(self) -> None:
-        """Apply the Boswas default preset with its panel layout (after confirmation)."""
-        preset = getattr(self, "default_preset", None)
-        if preset is None or self.busy:
+        """Return to the default look, which is no preset, after confirmation."""
+        if self.busy or not self.available:
             return
+        look = vm.DEFAULT_LOOK
         if not self.window_.ask(
                 "Reset the appearance?",
-                f"This applies {preset.name}, the Boswas OS default look, including its panel layout: colours, "
-                "theme, icons, wallpaper and panels return to the defaults, and your panels and the widgets on them "
-                "are replaced. Your files and other settings are kept.",
+                f"This returns to {look}, the Boswas OS default look: the colour mode, the wallpaper and the "
+                "colours of KDE applications return to the defaults. Your files and other settings are kept.",
                 "Reset Appearance"):
             return
         self.set_busy(True)
-        self.banner.show_message("info", f"Resetting the appearance to {preset.name}…")
-        self.window_.runner.submit(self.window_.backend.apply_preset, preset.id, True,
-                                   on_done=lambda _r: self._applied(preset, True),
-                                   on_error=lambda exc: self._failed(preset, exc))
+        self.banner.show_message("info", f"Resetting the appearance to {look}…")
+
+        def done(_result) -> None:
+            self.set_busy(False)
+            self.banner.show_message("ok", f"The appearance is back to {look}.")
+            self.store.request("presets", force=True)
+
+        def failed(exc: Exception) -> None:
+            self.set_busy(False)
+            self.banner.show_message("error", f"The appearance could not be reset. {self.window_.error_text(exc)}")
+            self.store.request("presets", force=True)
+
+        self.window_.runner.submit(self.window_.backend.reset_look, on_done=done, on_error=failed)
 
     def set_busy(self, busy: bool) -> None:
         self.busy = busy
         for card in self.cards:
             card.set_busy(busy)
-        self.layout_box.setEnabled(not busy)
-        if hasattr(self, "reset_button"):
-            self.reset_button.setEnabled(not busy and getattr(self, "default_preset", None) is not None)
+        self.reset_button.setEnabled(not busy and self.available)
 
-    def _applied(self, preset: vm.Preset, layout: bool) -> None:
+    def _applied(self, preset: vm.Preset) -> None:
         self.set_busy(False)
-        extra = " Your panels were replaced with the preset's layout." if layout else ""
-        self.banner.show_message("ok", f"“{preset.name}” is now applied.{extra}")
+        self.banner.show_message("ok", f"“{preset.name}” is now applied.")
         self.store.request("presets", force=True)
 
     def _failed(self, preset: vm.Preset, exc: Exception) -> None:

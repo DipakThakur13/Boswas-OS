@@ -1,0 +1,124 @@
+.TH BOSWAS-DOCUMENT-VIEWER 1 "November 2026" "boswas-apps 1.0~alpha3" "Boswas OS"
+.SH NAME
+boswas-document-viewer \- read, search and print PDF documents
+.SH SYNOPSIS
+.B boswas-document-viewer
+.RI [ file " ...]"
+.br
+.B boswas-document-viewer
+.BR \-\-help " | " \-\-version
+.SH DESCRIPTION
+.B boswas-document-viewer
+is Document Viewer, the PDF reader of Boswas OS. It is built on Qt PDF.
+Each
+.I file
+opens in a tab. Only one instance runs per session: a later start hands its
+files to the window that is already open and brings it forward.
+.PP
+The program runs as the desktop user and refuses to start as root. It only
+reads documents; it cannot change them, and it has no annotation tools.
+.SS Reading
+Pages are shown in one continuous column, one page at a time, or two pages
+side by side (optionally with the first page alone, as in a book). Zoom
+goes from 10 % to 800 %, with fit to width, fit to page and actual size;
+pages can be turned in quarter turns. The zoom box and the page box take
+typed values; the page box understands the page labels of the document
+(such as roman numerals) as well as plain numbers.
+.PP
+Pages are rendered on a separate thread at the resolution of the screen.
+Only the pages on and near the screen are rendered and kept, within a
+memory budget, so long documents scroll as easily as short ones. While a
+sharper image is on its way the page is shown from the image it had before.
+Above a size limit a page is rendered in parts: the part on screen at full
+resolution over a coarser image of the whole page.
+.PP
+The sidebar shows page thumbnails, the outline (table of contents) of the
+document, and the results of the last search.
+.SS Searching
+Search is incremental and runs on a thread of its own. It can match upper
+and lower case exactly and whole words only. A query matches across line
+breaks. All matches on the visible pages are marked, the current one in
+another colour; the find bar counts them, and the Results tab of the
+sidebar lists each with its page and the words around it. Going past the
+last match continues at the first and says so.
+.SS Text and links
+With the text tool, dragging selects text on a page, a double click selects
+a word and a triple click a line; the selection is copied with Ctrl+C. A
+selection stays within one page. The hand tool drags the page instead.
+The context menu copies, selects all text of the page, searches for the
+selection and copies the page as a picture.
+.PP
+Links inside the document jump to their target; Back and Forward return.
+A link to the web is never opened by the click alone: its address is shown
+with an "Open link" button, and only that button hands it to the browser.
+Only http, https and mailto addresses are opened.
+.SS Protected, damaged and changed files
+A document with a password shows a password page in its tab until the right
+password is given. A file that is not a PDF document or is damaged shows an
+error page. When an open file changes on disk, the application offers to
+reload it and keeps the place in the document.
+.SS Printing and presenting
+Printing uses the system print dialog (printer, page range, copies, duplex
+as the printer offers). Each page is rendered at the resolution of the
+printer, scaled to fit the printable area and turned to match the paper;
+a dialog shows the progress and can cancel. Printing needs the Qt print
+support module (python3\-pyside6.qtprintsupport); without it there is no
+Print command.
+.PP
+Presentation mode shows one page at a time on a black screen. Right, Down,
+Space, Page Down, Enter or a click go on; Left, Up, Backspace, Page Up or a
+right click go back; Home and End jump; Escape ends it.
+.SS Keyboard
+.TS
+tab(|);
+l l.
+Ctrl+O|Open
+Ctrl+S|Save a copy
+Ctrl+P|Print
+Ctrl+W|Close the tab
+Ctrl+Tab, Ctrl+Shift+Tab|Next, previous tab
+Arrow keys|Scroll
+Page Down, Space|One screen down
+Page Up, Shift+Space, Backspace|One screen up
+Home, End|First, last page
+Ctrl+G|Go to page
+Alt+Left, Alt+Right|Back, forward
+Ctrl++, Ctrl+\-, Ctrl+wheel, pinch|Zoom
+Ctrl+0|Fit page
+Ctrl+1|Actual size
+Ctrl+2|Fit width
+Ctrl+[, Ctrl+]|Rotate left, right
+Ctrl+F|Find
+F3, Shift+F3|Next, previous match
+Ctrl+C|Copy the selection
+Ctrl+A|Select all text of the page
+F4|Sidebar
+F11|Full screen
+F5|Presentation
+Alt+Enter|Document properties
+Esc|Leave full screen, close the find bar, drop the selection
+.TE
+.SH OPTIONS
+.TP
+.B \-\-help
+Show the usage and exit.
+.TP
+.B \-\-version
+Show the version and exit.
+.SH FILES
+.TP
+.I $XDG_STATE_HOME/com.boswas.DocumentViewer/documents.json
+Recent documents (at most 24) and the last page, zoom and page arrangement
+of each document (at most 200).
+.TP
+.I $XDG_STATE_HOME/com.boswas.DocumentViewer/window.ini
+Size of the window.
+.TP
+.I $XDG_CACHE_HOME/com.boswas.DocumentViewer/thumbnails/
+Pictures of the first page of recent documents, for the start page.
+.TP
+.I /usr/share/applications/com.boswas.DocumentViewer.desktop
+The desktop entry.
+.SH SEE ALSO
+.BR boswas\-files (1),
+.BR boswas\-archive\-manager (1)

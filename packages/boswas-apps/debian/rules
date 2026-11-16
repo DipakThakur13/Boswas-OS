@@ -1,0 +1,54 @@
+#!/usr/bin/make -f
+# Boswas system applications: PySide6 programs on the boswas_fluent toolkit.
+# Every application is a sub-package of boswas_apps with its launcher in
+# bin/, its desktop entry (and other data) in data/<app>/, its manual page
+# in man/ and its tests in tests/<app>/. Python modules go to the private
+# module directory shared with the other Boswas packages
+# (/usr/lib/boswas/python). Every file is installed with an explicit mode.
+# The tests need the toolkit of the monorepo checkout (../../desktop/ui/qt);
+# widget tests skip themselves when PySide6 is not installed.
+
+PKG   := debian/boswas-apps
+PYDIR := $(PKG)/usr/lib/boswas/python
+APPS  := $(PKG)/usr/share/applications
+DATA  := $(PKG)/usr/share/boswas/apps
+
+%:
+	dh $@
+
+override_dh_auto_test:
+ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+	set -e; for suite in tests/*/; do \
+		[ -n "$$(find "$$suite" -name 'test_*.py' -print -quit)" ] || continue; \
+		echo "== $$suite"; \
+		QT_QPA_PLATFORM=offscreen PYTHONPATH=$(CURDIR):$(CURDIR)/../../desktop/ui/qt \
+			python3 -B -m unittest discover -s "$$suite" -t "$$suite"; \
+	done
+endif
+
+override_dh_auto_install:
+	install -d -m 0755 $(PKG)/usr/bin $(PYDIR) $(APPS) $(DATA)
+	set -e; for program in bin/*; do \
+		install -m 0755 "$$program" $(PKG)/usr/bin/; \
+	done
+	set -e; cd boswas_apps && find . -type d -not -name __pycache__ | while read -r dir; do \
+		install -d -m 0755 "$(CURDIR)/$(PYDIR)/boswas_apps/$$dir"; \
+	done
+	set -e; cd boswas_apps && find . -type f -not -name '*.pyc' | while read -r file; do \
+		install -m 0644 "$$file" "$(CURDIR)/$(PYDIR)/boswas_apps/$$file"; \
+	done
+	set -e; for entry in data/*/*.desktop; do \
+		case "$$entry" in data/reminders/*) continue ;; esac; \
+		install -m 0644 "$$entry" $(APPS)/; \
+	done
+	# The reminders service starts with the session (XDG autostart; the
+	# entry is for the Boswas desktop only). It rings alarms and shows
+	# calendar reminders while Clock and Calendar are closed.
+	install -D -m 0644 data/reminders/com.boswas.Reminders.desktop \
+		$(PKG)/etc/xdg/autostart/com.boswas.Reminders.desktop
+	set -e; for dir in data/*/; do \
+		app=$$(basename "$$dir"); \
+		find "$$dir" -type f -not -name '*.desktop' | while read -r file; do \
+			install -D -m 0644 "$$file" "$(DATA)/$$app/$${file#$$dir}"; \
+		done; \
+	done

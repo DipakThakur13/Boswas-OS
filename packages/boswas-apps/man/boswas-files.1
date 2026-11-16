@@ -1,0 +1,174 @@
+'\" t
+.TH BOSWAS-FILES 1 "November 2026" "boswas-apps 1.0~alpha3" "Boswas OS"
+.SH NAME
+boswas-files \- file manager of Boswas OS
+.SH SYNOPSIS
+.B boswas-files
+.RB [ \-\-new\-window ]
+.RB [ \-\-select
+.IR path ]...
+.RI [ folder ...]
+.br
+.B boswas-files
+.B \-\-version
+|
+.B \-\-help
+.SH DESCRIPTION
+.B boswas-files
+is Files, the file manager of Boswas OS. A window has tabs, back, forward,
+up and refresh buttons, an address bar that shows the path as a breadcrumb
+and becomes a text box for typing one, a search box, a command bar, a
+navigation pane, the file view, an optional details pane and a status bar.
+.PP
+The navigation pane lists Home, the user's folders (from
+.BR xdg\-user\-dirs (1)),
+folders the user pinned, This PC with the volumes of the computer and the
+Trash. The file view has a Details layout with sortable, resizable columns
+and List, Tiles and four sizes of Icons; image files are shown as
+thumbnails in the icon and tile layouts. The layout and the sort order are
+the same for every folder and are remembered.
+.PP
+Copying, moving, deleting, compressing and extracting run in the
+background and are shown in a panel with the current file, the items and
+bytes done, the speed and a button to cancel. When something with the same
+name is in the way, Files asks whether to replace it, skip it or keep both.
+What could not be done is listed at the end, item by item. Delete moves to
+the Trash; Shift+Delete deletes for good after a confirmation. The last
+rename, move, copy, creation and move to the Trash can be undone (Ctrl+Z)
+and redone (Ctrl+Y); undoing never overwrites a file and never deletes one
+for good.
+.PP
+A file is opened with the default application of its type, which is found
+as the freedesktop.org specifications say (desktop entries and
+.IR mimeapps.list ).
+A program, a script with the execute permission or a desktop entry is never
+started by opening it without a question first.
+.PP
+Only one instance runs per session. Starting the program again with
+folders opens them as tabs of the window that is in front; without
+arguments it brings that window forward.
+.SH OPTIONS
+.TP
+.B \-\-new\-window
+Open a new window (with the given folders as its tabs) instead of using
+the window that is open.
+.TP
+.BI \-\-select " path"
+Open the folder that holds
+.I path
+and select
+.I path
+in it. May be given more than once.
+.TP
+.I folder
+A folder to open: a path, a
+.B file:
+URL,
+.B trash:///
+for the Trash or
+.B computer:///
+for This PC. The path of a file opens its folder with the file selected.
+.TP
+.B \-\-version
+Print the version and exit.
+.TP
+.B \-\-help
+Print a summary of the options and exit.
+.SH KEYBOARD
+.TS
+l l.
+Ctrl+T, Ctrl+W	New tab, close tab
+Ctrl+Tab, Ctrl+Shift+Tab	Next tab, previous tab
+Ctrl+N	New window
+Alt+Left, Alt+Right	Back, forward
+Alt+Up, Backspace	Up one folder
+F5, Ctrl+R	Refresh
+Ctrl+L, Alt+D	Type a path in the address bar
+Ctrl+F, Ctrl+E, F3	Search the folder and its subfolders
+Enter	Open
+Alt+Enter	Properties
+F2	Rename
+Delete, Shift+Delete	Move to the Trash, delete for good
+Ctrl+X, Ctrl+C, Ctrl+V	Cut, copy, paste
+Ctrl+Shift+C	Copy as path
+Ctrl+Z, Ctrl+Y	Undo, redo
+Ctrl+A	Select all
+Ctrl+Shift+N	New folder
+Ctrl+H	Show or hide hidden files
+Ctrl+Shift+1 ... 7	Icons (four sizes), List, Details, Tiles
+Alt+Shift+P	Details pane
+Ctrl+,	Settings
+F11	Full screen
+.TE
+.PP
+While dragging files, dropping on the same volume moves and dropping on
+another volume copies; Ctrl makes it a copy and Shift a move.
+.SH D-BUS
+While it runs,
+.B boswas-files
+owns the name
+.B org.freedesktop.FileManager1
+on the session bus and implements
+.BR ShowFolders ,
+.B ShowItems
+and
+.BR ShowItemProperties ,
+which other applications call for "Show in folder". The name is not taken
+from another file manager that owns it.
+.PP
+Volumes are mounted, unmounted, ejected and unlocked through
+.BR udisksd (8)
+(UDisks2) on the system bus, which asks for authorisation itself when it
+is needed. Without UDisks2 the mounted volumes are listed and cannot be
+changed from Files.
+.SH FILES
+.TP
+.I $XDG_CONFIG_HOME/com.boswas.Files/settings.json
+The settings: hidden files, extensions, single or double click, the view,
+the sort order, the start folder, the pinned folders, pane and column
+widths.
+.TP
+.I $XDG_STATE_HOME/com.boswas.Files/window.ini
+The size of the window.
+.TP
+.I $XDG_CONFIG_HOME/mimeapps.list
+Written when an application is chosen with "Always use this app".
+.TP
+.IR $XDG_DATA_HOME/Trash ", " $topdir/.Trash/$uid ", " $topdir/.Trash\-$uid
+The Trash, as the freedesktop.org Trash specification 1.0 lays it out. The
+optional
+.I directorysizes
+cache is not written.
+.TP
+.I $XDG_CACHE_HOME/thumbnails
+Thumbnails, shared with other programs as the freedesktop.org thumbnail
+specification says (sizes
+.I normal
+and
+.IR large ;
+failures in
+.IR fail/boswas\-files ).
+.TP
+.I $XDG_CONFIG_HOME/user\-dirs.dirs
+Read for the user's folders in the navigation pane.
+.SH EXIT STATUS
+0 on success, also when the request was handed to the running instance; 2
+for wrong options; 4 when started as root, which Files refuses.
+.SH NOTES
+Archives: "Compress to ZIP" writes ZIP files; "Extract all" reads ZIP and
+tar archives (plain, gzip, bzip2, xz) into a new folder and refuses members
+that would be written outside it. Password-protected ZIP files are not
+supported. Hard links and sparse files are copied as ordinary files;
+ownership is not copied.
+.PP
+Terminal: "Open in Terminal" starts
+.B boswas\-terminal \-\-working\-directory
+.IR dir ,
+or
+.B konsole \-\-workdir
+.I dir
+when that is not installed.
+.SH SEE ALSO
+.BR xdg\-user\-dirs (1),
+.BR udisksctl (1),
+.BR boswas\-terminal (1)

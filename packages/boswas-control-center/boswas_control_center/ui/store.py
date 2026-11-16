@@ -36,7 +36,7 @@ class Store(QObject):
             "live": backend.live_session,
             "release": backend.release,
             "hardware": backend.hardware,
-            "plasma": backend.plasma_version,
+            "desktop": backend.desktop,
             "storage": backend.storage,
             "power": backend.power,
             "security": backend.security_status,
@@ -48,7 +48,6 @@ class Store(QObject):
             "presets": backend.presets,
             "desktop_apps": backend.desktop_entries,
             "updates": backend.updates,
-            "kcms": backend.kcm_availability,
             "programs": backend.program_availability,
             # Read-only data of the functional pages (never a privileged operation).
             "upgradable": backend.upgradable,

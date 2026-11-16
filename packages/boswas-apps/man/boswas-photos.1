@@ -1,0 +1,142 @@
+.TH BOSWAS-PHOTOS 1 "November 2026" "Boswas OS" "User Commands"
+.SH NAME
+boswas-photos \- view, organise and touch up pictures
+.SH SYNOPSIS
+.B boswas-photos
+.RB [ \-\-new\-window ]
+.RB [ \-\-slideshow ]
+.RB [ \-\-gallery ]
+.RI [ FILE | FOLDER ]...
+.br
+.B boswas-photos
+.BR \-\-help " | " \-\-version
+.SH DESCRIPTION
+.B boswas-photos
+is the picture viewer of Boswas OS.
+.PP
+Started with one
+.IR FILE ,
+it shows that picture; the other pictures of its folder are one arrow key
+away, in natural name order (IMG_2 before IMG_10), and in a filmstrip under
+the picture.
+Started with a
+.I FOLDER
+or with several files, it shows those pictures.
+Started without a file, it opens the gallery: every picture in the user's
+Pictures folder and in the folders added in Settings, newest first, by month.
+.PP
+Only one instance runs per session.
+A later start hands its arguments to the running instance, which shows the
+picture in its window, or in a new window when that is chosen in Settings or
+.B \-\-new\-window
+is given.
+.SS Viewing
+The picture is fitted to the window.
+Ctrl with the mouse wheel and a pinch zoom around the pointer, dragging moves
+a zoomed picture, a double click switches between fitted and 100\ %.
+Animated GIF and WebP pictures play; SVG drawings stay sharp at any zoom.
+A picture with more than 48 megapixels is shown and edited from a reduced
+copy; a picture that would need more than 1\ GiB of memory to decode is
+refused.
+.PP
+Rotate turns the picture on disk: for JPEG by changing its EXIF orientation
+(nothing is re-encoded), for PNG, BMP and TIFF by writing the turned pixels
+back.
+Delete moves the file to the Trash (freedesktop.org Trash specification) and
+can be undone.
+The file info pane shows size, dimensions and the EXIF details of JPEG and
+TIFF files, and renames the file.
+.SS Editing
+Crop (free or with a fixed shape), straighten, turn, mirror; brightness,
+exposure, contrast, highlights, shadows, saturation, warmth, tint, sharpness
+and vignette; named looks; pen and highlighter.
+Nothing is written until
+.B Save as copy
+or
+.B Save
+is chosen.
+Pictures are saved as JPEG, PNG, WebP, BMP or TIFF, by writing a temporary
+file and renaming it.
+A JPEG saved from a JPEG keeps its EXIF block (camera, date, place) with the
+orientation set to upright; XMP and IPTC data are not kept.
+Other formats are saved without EXIF.
+.SS Keys
+.TS
+l l.
+Left, Right	previous, next picture
+Ctrl+Plus, Ctrl+Minus	zoom in, out
+Ctrl+0, Ctrl+1	fit to window, 100 %
+Ctrl+R	rotate right (Ctrl+Shift+R: left)
+Ctrl+E	edit
+Delete	move to the Trash
+Ctrl+C	copy the picture and the address of its file
+Ctrl+Shift+C	copy the file name with its folder
+Ctrl+S	save as
+Ctrl+P	print
+Ctrl+O	open a file
+Alt+Enter	file info
+F2	rename
+F5	slideshow (in the gallery: look for pictures again)
+F11	full screen
+Esc	leave full screen, the slideshow, the editor
+Ctrl+F	search the gallery by file name
+Ctrl+Z, Ctrl+Y	undo, redo in the editor
+Space	pause the slideshow
+.TE
+.SH OPTIONS
+.TP
+.B \-\-new\-window
+Open a new window even when Photos is already running.
+.TP
+.B \-\-slideshow
+Start a slideshow of the pictures given.
+.TP
+.B \-\-gallery
+Show the gallery.
+.TP
+.BR \-h ", " \-\-help
+Show a short description of the arguments and exit.
+.TP
+.B \-\-version
+Show the version and exit.
+.SH EXIT STATUS
+0 on success (also when a running instance took the arguments), 2 for an
+unknown option, 4 when started as root.
+.SH FILES
+.TP
+.I $XDG_CONFIG_HOME/com.boswas.Photos/settings.json
+The settings: folders of the gallery, slideshow interval, repeat and shuffle,
+what the mouse wheel does, whether deleting asks first, quality of saved
+pictures.
+.TP
+.I $XDG_STATE_HOME/com.boswas.Photos/window.ini
+Size of the window.
+.TP
+.I $XDG_CACHE_HOME/thumbnails/large/
+Thumbnails, shared with other programs (freedesktop.org Thumbnail Managing
+Standard). Records of files that could not be read are in
+.IR $XDG_CACHE_HOME/thumbnails/fail/boswas-photos-1/ .
+.TP
+.I $XDG_DATA_HOME/Trash/
+Deleted pictures.
+.TP
+.I $XDG_DATA_HOME/boswas/wallpapers/
+Copies of the pictures set as desktop background.
+.TP
+.I $XDG_CONFIG_HOME/boswas/compositor.toml
+"Set as desktop background" writes the key
+.B wallpaper
+of the table
+.B [appearance]
+here, leaving the rest of the file as it is, and runs
+.BR "boswas-compositor \-\-send reload-config" .
+.SH NOTES
+Which picture formats can be opened depends on the Qt image plugins
+installed: PNG, JPEG, GIF, BMP, ICO and SVG always; WebP and TIFF with
+.BR qt6-image-formats-plugins ;
+AVIF, HEIF and JPEG XL with
+.BR kimageformat6-plugins .
+The date of a picture in the gallery is the modification time of its file.
+.SH SEE ALSO
+.BR boswas-compositor (1),
+.BR boswas-control-center (1)

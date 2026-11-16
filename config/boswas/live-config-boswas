@@ -40,11 +40,14 @@ Keywords=install;installer;setup;disk;
 EOF
 	chmod 0644 /usr/local/share/applications/com.boswas.InstallBoswasOS.desktop
 
-	# System Settings > About this System: show that this is the live session.
-	_ABOUT="/usr/share/boswas/kde-settings/kcm-about-distrorc"
-	if [ -f "${_ABOUT}" ] && ! grep -qs '^Variant=' "${_ABOUT}"
+	# Sign the live user in: greetd starts the Boswas session once at boot.
+	# (Only the live medium does this; an installed system always shows the
+	# login screen.)
+	_GREETD="/etc/boswas/greetd.toml"
+	if [ -f "${_GREETD}" ] && ! grep -qs '^\[initial_session\]' "${_GREETD}"
 	then
-		echo "Variant=Live session" >> "${_ABOUT}"
+		printf '\n[initial_session]\ncommand = "/usr/bin/boswas-session"\nuser = "%s"\n' \
+			"${LIVE_USERNAME:-boswas}" >> "${_GREETD}"
 	fi
 
 	# Marker for Boswas tools (Control Center, terminal banner, boswas-info).

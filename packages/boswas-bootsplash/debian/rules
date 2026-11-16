@@ -1,0 +1,79 @@
+#!/usr/bin/make -f
+# The Boswas OS boot screen: two Rust programs (the daemon and its client)
+# built with cargo from the committed Cargo.lock, plus the initramfs-tools
+# integration and the systemd units. Every file is installed with an
+# explicit mode.
+#
+# cargo downloads the crates named in Cargo.lock from crates.io, so the
+# build needs network access to it (like the image build needs the Debian
+# archive). Its home and the build products stay inside build/.
+#
+# The artwork is read at build time from the repository's desktop/
+# directory, two levels up (build.rs), and the Inter fonts from the package
+# fonts-inter (a build dependency): bitmaps of their glyphs are built into
+# the daemon. A package must never be built with the fallback typeface.
+
+PKG       := debian/boswas-bootsplash
+UNITS     := $(PKG)/usr/lib/systemd/system
+INITRAMFS := $(PKG)/usr/share/initramfs-tools
+BIN       := build/target/release
+CARGO     := cargo
+FLAGS     := --release --locked
+
+export CARGO_HOME := $(CURDIR)/build/cargo-home
+export CARGO_TARGET_DIR := $(CURDIR)/build/target
+export BOSWAS_BOOTSPLASH_REQUIRE_INTER := 1
+# Keep build paths out of the programs (reproducible builds).
+export RUSTFLAGS := --remap-path-prefix=$(CURDIR)=/usr/src/boswas-bootsplash --remap-path-prefix=$(CARGO_HOME)=/usr/share/cargo
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+
+override_dh_auto_build:
+	$(CARGO) build $(FLAGS)
+
+override_dh_auto_test:
+ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+	$(CARGO) test $(FLAGS)
+endif
+
+override_dh_auto_install:
+	install -D -m 0755 $(BIN)/boswas-bootsplashd $(PKG)/usr/libexec/boswas/boswas-bootsplashd
+	install -D -m 0755 $(BIN)/boswas-bootsplash $(PKG)/usr/bin/boswas-bootsplash
+	# initramfs-tools: the hook that copies both programs into the initramfs
+	# (and links the client as /bin/plymouth there), the option that brings
+	# in graphics drivers, and the scripts that start, re-root and stop it
+	install -D -m 0755 initramfs/hook $(INITRAMFS)/hooks/boswas-bootsplash
+	install -D -m 0644 initramfs/conf-hook $(INITRAMFS)/conf-hooks.d/boswas-bootsplash
+	install -D -m 0755 initramfs/init-premount $(INITRAMFS)/scripts/init-premount/boswas-bootsplash
+	install -D -m 0755 initramfs/init-bottom $(INITRAMFS)/scripts/init-bottom/boswas-bootsplash
+	install -D -m 0755 initramfs/panic $(INITRAMFS)/scripts/panic/boswas-bootsplash
+	# systemd: start (when the initramfs did not), hand-over to the greeter,
+	# shutdown and restart screens, password agent. The units are pulled in
+	# by links in the targets' .wants directories, as Plymouth's are.
+	for unit in start quit poweroff halt reboot ask-password; do \
+		install -D -m 0644 systemd/boswas-bootsplash-$$unit.service $(UNITS)/boswas-bootsplash-$$unit.service || exit 1; \
+	done
+	install -D -m 0644 systemd/boswas-bootsplash-ask-password.path $(UNITS)/boswas-bootsplash-ask-password.path
+	install -D -m 0644 systemd/console-agent.conf \
+		$(UNITS)/systemd-ask-password-console.path.d/50-boswas-bootsplash.conf
+	for want in sysinit.target:start.service sysinit.target:ask-password.path multi-user.target:quit.service \
+		poweroff.target:poweroff.service halt.target:halt.service reboot.target:reboot.service \
+		kexec.target:reboot.service; do \
+		target=$${want%%:*}; unit=boswas-bootsplash-$${want#*:}; \
+		install -d -m 0755 $(UNITS)/$$target.wants || exit 1; \
+		ln -s ../$$unit $(UNITS)/$$target.wants/$$unit || exit 1; \
+	done
+
+# The units are static (no [Install] section) and must not be started or
+# stopped by installing the package on a running system.
+override_dh_installsystemd:
+	dh_installsystemd --no-start --no-stop-on-upgrade
+
+override_dh_strip:
+	dh_strip --no-automatic-dbgsym
+
+override_dh_auto_clean:
+	rm -rf build

@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=Boswas OS
+Comment=The Boswas OS desktop
+Exec=/usr/bin/boswas-session
+TryExec=/usr/bin/boswas-compositor
+Type=Application
+DesktopNames=Boswas

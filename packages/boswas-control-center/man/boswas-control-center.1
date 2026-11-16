@@ -4,26 +4,82 @@ boswas-control-center \- settings hub of Boswas OS
 .SH SYNOPSIS
 .B boswas-control-center
 .RB [ \-\-page
-.IR page ]
+.IR page
+.RB [ \-\-section
+.IR section ]]
 .br
 .B boswas-control-center
 .B \-\-version
 .SH DESCRIPTION
 .B boswas-control-center
 is Boswas Control Center, the settings hub of Boswas OS. It has one page per
-area. Each page shows the state of the device as the system reports it,
-offers the actions that area supports, and opens the matching KDE settings
-module with
-.BR kcmshell6 (1)
-for everything that is configured there.
+area. Each page shows the state of the device as the system reports it and
+holds the settings of that area as native sections: rows with a switch, a
+list or a slider that apply at once and show a message next to the control
+when a change could not be made. No page depends on a program of another
+desktop.
 .PP
-The pages are Personalization (Boswas desktop presets and the KDE
-appearance modules), Network, Bluetooth, Display, Sound, Power, Storage,
-Applications (the Boswas Software Center), Windows Compatibility, Android,
-Security (the Boswas Security Center), Users, Updates (the Boswas Update
-Center), Devices, Privacy, Hardware & Drivers, System and About Boswas OS.
-In a live session an Install Boswas OS page explains how to restart into the
-installer.
+The pages are Personalization, Network, Bluetooth, Display, Sound, Power,
+Storage, Applications (the Boswas Software Center), Windows Compatibility,
+Android, Security (the Boswas Security Center), Users, Updates (the Boswas
+Update Center), Devices, Privacy, Hardware & Drivers, System and About
+Boswas OS. In a live session an Install Boswas OS page explains how to
+restart into the installer. A page that has nothing to show on a system is
+left out of the list.
+.PP
+Only one Control Center runs in a session. Starting the program again does
+not open a second window: the running window comes to the front and shows
+the page (and section) the new command line names. The quick settings of
+the shell use this, for example
+.B boswas\-control\-center \-\-page network \-\-section wi\-fi
+for "More Wi\-Fi settings".
+.PP
+The search box above the page list finds a page by its name and by the
+settings it holds; Enter opens the page of the best match and scrolls to
+that section.
+.SS Settings sections
+Network, Bluetooth, Sound and Power talk to the system through
+.IR /usr/libexec/boswas/boswas\-services\-bridge ,
+the same code the shell's quick settings use (NetworkManager, BlueZ, the
+sound server, UPower, power\-profiles\-daemon and the backlight), so both
+always show the same state. One bridge runs per window, from the first time
+such a page is opened until the window closes. A Wi\-Fi passphrase is
+written to the bridge's standard input only; it is never part of a command
+line and never logged.
+.PP
+Display, Devices (mouse, touchpad, keyboard), the power and lock time\-outs
+and the appearance settings are the compositor's: Control Center writes the
+user's layer of its configuration,
+.I ~/.config/boswas/compositor.toml
+and
+.IR ~/.config/boswas/appearance.toml ,
+and asks the compositor to load it again; see
+.BR boswas\-compositor (1).
+.PP
+Date and time and Region and language (page System) use
+.BR timedatectl (1)
+and
+.BR localectl (1).
+For changes that need administrator rights systemd's services ask polkit
+themselves, and the shell's agent shows the question.
+.PP
+Users shows the account you are signed in with (picture, name, password)
+and the other people's accounts, and adds and removes users, through the
+AccountsService. It is asked with
+.BR busctl (1)
+for everything that is not a secret. Your own password is changed by
+.BR passwd (1)
+on a pseudo\-terminal, so the system's password rules apply; another
+user's password is given to the service as a SHA\-512 crypt hash over
+D\-Bus. No password and no password hash is ever part of a command line.
+The account you are signed in with and the last administrator cannot be
+removed. Without the AccountsService the accounts of
+.I /etc/passwd
+are shown and only your own password can be changed.
+Default applications are written to
+.I ~/.config/mimeapps.list
+and start\-up applications to
+.IR ~/.config/autostart .
 .PP
 The Security Center shows the local posture checks of
 .B boswas \-\-json status
@@ -40,7 +96,9 @@ removing any); both are administrator operations.
 .PP
 The Software Center lists the installed applications (Boswas, Windows and
 the other desktop applications) and opens native applications with
-.BR kstart (1).
+.B gio launch
+(see
+.BR gio (1)).
 Its other tabs search and install Debian packages from the signed
 repositories, install Flatpak applications for the user from remotes the
 administrator enabled, add AppImages (copied to ~/Applications; they run
@@ -60,18 +118,21 @@ Hardware & Drivers lists the PCI and USB devices with the driver each one
 uses (from sysfs; serial numbers are never read) and checks the kernel log for
 missing firmware, offering to install the Debian package that provides it.
 Storage shows the disks and file systems and frees space (package cache,
-system journal, thumbnail cache). Network shows the connections and
-addresses and switches Wi\-Fi and connections through NetworkManager; Wi\-Fi
-passwords stay in KDE's network module. About Boswas OS includes a system
-overview (load, memory, network, runtimes).
+system journal, thumbnail cache) and opens the file system in Files
+.RB ( boswas\-files (1)).
+About Boswas OS includes a system overview (load, memory, network,
+runtimes).
 .SH SECURITY
 Control Center runs as the desktop user and never as root. It starts only
-the programs it knows (boswas, boswas\-preset, boswas\-android, kcmshell6,
-kstart, kioclient, dolphin, partitionmanager, kinfocenter,
-boswas\-compat\-manager, plasmashell, apt\-config, apt\-get (simulation only),
-apt\-cache, flatpak, nmcli, lsblk, systemctl reboot in a live session, and
+the programs it knows (boswas, boswas\-preset, boswas\-android,
+boswas\-files, boswas\-compat\-manager, gio launch, apt\-config, apt\-get
+(simulation only), apt\-cache, flatpak, nmcli and ip (queries only), lsblk,
+timedatectl, localectl, locale \-a, busctl (calls to the AccountsService
+only), passwd (without arguments), systemctl reboot in a live session, and
 the polkit authorization tool), each with a validated argument list and a
-timeout, and never through a shell.
+timeout, and never through a shell; and the services bridge, by its fixed
+path and without arguments. The only files it writes are listed under
+FILES.
 .PP
 Administrator operations go only to the Boswas system helper
 .I /usr/libexec/boswas/sysops
@@ -88,6 +149,17 @@ one of personalization, network, bluetooth, display, sound, power, storage,
 applications, windows, android, security, users, updates, devices, privacy,
 hardware, system, about or install. The install page exists only in a live
 session.
+.TP
+.BI \-\-section " section"
+With
+.BR \-\-page :
+scroll to this settings section of the page. A section is named by its
+title in lower case with dashes, for example
+.BR wi\-fi ,
+.B night\-light
+or
+.BR date\-time .
+A name the page does not have is ignored.
 .TP
 .B \-\-version
 Print the version and exit.
@@ -126,11 +198,42 @@ The Boswas OS version and build shown on the About page.
 .TQ
 .I ~/.local/share/applications/boswas\-appimage\-*.desktop
 AppImages added in the Software Center and their menu entries.
+.TP
+.I ~/.config/boswas/compositor.toml
+.TQ
+.I ~/.config/boswas/appearance.toml
+The user's layer of the compositor's settings (display, input, time\-outs,
+appearance). Written atomically with mode 0600; never through a symbolic
+link.
+.TP
+.I ~/.config/mimeapps.list
+Default applications.
+.TP
+.I ~/.config/autostart/*.desktop
+Start\-up applications the user added, and the files that switch off a
+system\-wide one.
+.TP
+.I ~/.face
+The account picture (a PNG of 256 by 256 pixels), also given to the
+AccountsService.
+.TP
+.I ~/.local/share/recently\-used.xbel
+The shared list of recently used files, emptied by "Clear" on the Privacy
+page.
+.TP
+.I $XDG_RUNTIME_DIR/boswas\-fluent/com.boswas.ControlCenter.sock
+Where the running window listens for a second start of the program.
 .SH EXIT STATUS
-0 when the window was closed normally; 4 when started as root.
+0 when the window was closed normally, and when a running Control Center took
+over; 2 for a wrong option; 4 when started as root.
 .SH SEE ALSO
 .BR boswas (1),
 .BR boswas\-android (1),
 .BR boswas\-compat\-manager (1),
-.BR kcmshell6 (1),
-.BR pkexec (1)
+.BR boswas\-compositor (1),
+.BR boswas\-files (1),
+.BR busctl (1),
+.BR localectl (1),
+.BR passwd (1),
+.BR pkexec (1),
+.BR timedatectl (1)

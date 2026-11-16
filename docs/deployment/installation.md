@@ -30,12 +30,17 @@ On Windows, use a raw writer such as Rufus in "DD image" mode.
 | Entry | Purpose |
 |-------|---------|
 | Boswas OS v1 Alpha - Live session | Try the desktop without installing (starts automatically after 10 s) |
-| ... (safe graphics) | Live session with `nomodeset` for problematic GPUs |
+| ... (safe graphics) | Live session with `nomodeset` for problematic GPUs. The desktop is then rendered in software on the firmware's display mode (slower; not yet boot-tested with the native desktop) |
 | Install Boswas OS | Graphical Debian Installer (live mode) |
 | Advanced install options | Text and expert installers, rescue mode |
 | Utilities | UEFI firmware settings, verify the boot medium |
 
-Live session login: user `boswas`, password `live`. Nothing is saved.
+Live session login: user `boswas`, password `live`. The live session signs
+that user in automatically; the password unlocks the screen after it locks
+(Super+L, or ten minutes without input). Nothing is saved.
+
+If the desktop cannot start on a machine (no usable graphics driver), a
+text login appears instead. Try the *safe graphics* entry.
 
 ## 4. Installer flow
 
@@ -54,7 +59,11 @@ preseeded. **You** always provide:
    Boswas recovery procedure.
 6. Final confirmation before changes are written.
 
-After the reboot, unlock the disk, then log in at the Boswas login screen.
+After the reboot, type the encryption passphrase at the Boswas boot screen
+(one dot per character; Escape switches between the boot screen and the
+text console), then log in at the Boswas login screen: press a key, choose
+the administrator account from the list (or type another user name) and
+enter its password.
 
 ## 5. Verify
 

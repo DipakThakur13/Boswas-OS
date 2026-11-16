@@ -1,0 +1,100 @@
+.TH BOSWAS-CLOCK 1 "November 2026" "boswas-apps 1.0~alpha3" "Boswas OS"
+.SH NAME
+boswas-clock \- alarms, timers, stopwatch, world clock and focus sessions
+.SH SYNOPSIS
+.B boswas-clock
+.RB [ \-\-page
+.IR page ]
+.br
+.B boswas-clock
+.BR \-\-version " | " \-\-help
+.SH DESCRIPTION
+.B boswas-clock
+is Clock, the clock application of the Boswas desktop. It has five pages.
+.TP
+.B Focus sessions
+A session of 5 to 240 minutes, split into focus periods and short breaks
+(or run without breaks). A notification tells when each period ends. The
+page shows the focus time of today against a daily goal, the time of
+yesterday and the number of days in a row on which the goal was reached.
+.TP
+.B Timers
+Any number of named timers that run at the same time, each with a ring
+that shows the time left and the time of day it ends. A timer can be
+paused, reset, edited, deleted and enlarged to fill the page.
+.TP
+.B Alarms
+Alarms with a time, a name, the weekdays on which they repeat (none: the
+alarm rings once) and a snooze time. Each alarm shows how long it is until
+it rings and can be switched off without deleting it.
+.TP
+.B Stopwatch
+Start, pause and reset; laps with their own time and the total; the
+fastest and the slowest lap are marked.
+.TP
+.B World clock
+The local time and the time in places chosen from a list of cities and of
+the zones of the system's time\-zone database, with day or night and the
+difference to the local time. A slider shows the times in all places at
+another time, up to a day before or after now.
+.PP
+Alarms, timers and focus sessions are announced by
+.BR boswas\-reminders (1),
+a small service of the desktop session, so they are announced while Clock
+is closed. Clock starts the service when it is not running. Timers, the
+stopwatch and focus sessions go on while Clock is closed or the computer
+sleeps: they are measured on the clock that counts the time since boot
+(suspended time included) and, across a restart of the computer, on the
+wall clock.
+.PP
+Only one Clock runs per session; starting it again brings the window
+forward and shows the page asked for.
+.SH OPTIONS
+.TP
+.BI \-\-page " page"
+Open with a page:
+.BR focus ,
+.BR timers ,
+.BR alarms ,
+.BR stopwatch ,
+.B world
+or
+.BR settings .
+Without the option Clock opens the page that was open last.
+.TP
+.B \-\-version
+Print the version and exit.
+.TP
+.B \-\-help
+Print a summary of the options and exit.
+.SH KEYS
+Ctrl+N adds an alarm, a timer or a city on the page that is open. On the
+stopwatch, Space starts and pauses, L records a lap and R resets. Ctrl+Z
+takes back a deletion. Ctrl+Tab and Ctrl+Shift+Tab go through the pages,
+Ctrl+, opens the settings, F11 switches full screen, Ctrl+W and Ctrl+Q
+close Clock.
+.SH FILES
+.TP
+.I $XDG_DATA_HOME/com.boswas.Clock/clock.json
+Alarms, timers, the stopwatch, the focus session with its history, and
+the places of the world clock. Clock and the reminder service change the
+file under a lock
+.RI ( clock.json.lock )
+and replace it atomically. A file that cannot be read is set aside as
+.IR clock.json.damaged .
+.TP
+.I $XDG_CONFIG_HOME/com.boswas.Clock/settings.json
+The settings: time format, sound, snooze time, focus period and break.
+.TP
+.I $XDG_STATE_HOME/com.boswas.Clock/window.ini
+The size of the window and the page that was open.
+.SH EXIT STATUS
+0 on success (also when a running Clock was brought forward); 4 when started
+as root, which Clock refuses.
+.SH NOTES
+The sound of alarms is a chime that the reminder service generates; there
+is no choice of sounds. Do not disturb is a setting of the desktop and is
+not changed by focus sessions.
+.SH SEE ALSO
+.BR boswas\-reminders (1),
+.BR boswas\-calendar (1)

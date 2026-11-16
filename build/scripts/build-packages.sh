@@ -3,6 +3,10 @@
 # into OUTPUT_DIR) and control-plane/debian (the management server, into
 # OUTPUT_DIR/server; never part of the device image).
 #
+# boswas-desktop and boswas-bootsplash are Rust: cargo downloads the crates
+# pinned in their Cargo.lock from crates.io, so this step needs network
+# access to it.
+#
 # Usage: build-packages.sh OUTPUT_DIR
 #
 # Packages reference shared sources elsewhere in the monorepo (security/,
@@ -13,7 +17,7 @@
 set -euo pipefail
 # shellcheck source=build/scripts/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
-require_cmds dpkg-buildpackage dh rsync
+require_cmds dpkg-buildpackage dh rsync cargo rustc
 
 out="${1:?usage: build-packages.sh OUTPUT_DIR}"
 mkdir -p "$out"
@@ -21,7 +25,9 @@ out="$(cd "$out" && pwd)"
 
 stage="$(mktemp -d)"
 trap 'rm -rf "$stage"' EXIT
-rsync -a --exclude '__pycache__' \
+# (Developer build trees of the Rust packages, target/ and build/, can be
+# gigabytes and are never part of a package build.)
+rsync -a --exclude '__pycache__' --exclude '/packages/*/target/' --exclude '/packages/*/build/' \
 	--include '/build/' --include '/build/scripts/***' --exclude '/build/*' \
 	--include '/config/' --include '/config/boswas/***' --exclude '/config/*' \
 	--include '/compatibility/***' --include '/desktop/***' --include '/installer/***' \

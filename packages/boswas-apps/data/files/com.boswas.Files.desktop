@@ -1,0 +1,19 @@
+[Desktop Entry]
+Type=Application
+Name=Files
+GenericName=File Manager
+Comment=Browse, find and organise your files and drives
+Exec=boswas-files %U
+Icon=boswas-files
+Terminal=false
+StartupNotify=true
+StartupWMClass=com.boswas.Files
+MimeType=inode/directory;
+Categories=System;FileTools;FileManager;Utility;Core;Qt;
+Keywords=files;folders;file manager;explorer;browse;directory;disk;drive;usb;trash;recycle bin;search;copy;move;
+Actions=new-window;
+X-DBUS-ServiceName=org.freedesktop.FileManager1
+
+[Desktop Action new-window]
+Name=New Window
+Exec=boswas-files --new-window

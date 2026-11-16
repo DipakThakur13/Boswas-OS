@@ -1,0 +1,14 @@
+# Boswas OS login (greetd). Installed as /etc/boswas/greetd.toml; greetd is
+# pointed at this file by a systemd drop-in, so greetd's own
+# /etc/greetd/config.toml is left untouched.
+
+[terminal]
+# The virtual terminal of the login screen and the desktop session. The boot
+# screen is on the first one, so the hand-over to the login screen shows no
+# text console in between.
+vt = 1
+
+[default_session]
+# The Boswas login screen, with greetd's text login as its fallback.
+command = "/usr/libexec/boswas/boswas-greeter"
+user = "_greetd"

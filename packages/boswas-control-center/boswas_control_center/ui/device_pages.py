@@ -1,18 +1,18 @@
-"""Hardware pages: the plain settings pages, Power and Storage.
+"""The plain settings pages and Storage.
 
-Bluetooth, Display, Sound, Users and Devices are configured entirely in
-KDE's modules, so those pages explain what is where and open the modules.
-Power adds the battery state from /sys/class/power_supply. Storage shows the
-usage of / and /home, the disks and file systems (lsblk, without serial
-numbers) and three ways to free space, each confirmed first: the package
-cache and the system journal (boswas-sysops, administrator rights) and the
-user's thumbnail cache. Partitioning stays in KDE Partition Manager.
+Network, Bluetooth, Display, Sound, Power, Users and Devices consist of
+native settings sections only (ui/settings), so they are plain pages.
+Storage shows the usage of / and /home, the disks and file systems (lsblk,
+without serial numbers) and three ways to free space, each confirmed first:
+the package cache and the system journal (boswas-sysops, administrator
+rights) and the user's thumbnail cache. Control Center never formats or
+partitions a disk.
 """
 
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QHBoxLayout, QProgressBar, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QProgressBar, QPushButton, QVBoxLayout
 
 from .. import commands, jobs, sysinfo
 from .. import viewmodel as vm
@@ -22,53 +22,7 @@ from .jobs import JobPanel
 
 
 class SettingsPage(Page):
-    """A page whose settings all live in KDE modules."""
-
-
-class PowerPage(Page):
-    data_keys = ("power",)
-
-    def build(self) -> None:
-        self.card = Card("Battery", self.content)
-        self.summary = plain_label("Checking…", wrap=True, parent=self.card)
-        self.card.addWidget(self.summary)
-        self.batteries = QVBoxLayout()
-        self.batteries.setSpacing(10)
-        self.card.addLayout(self.batteries)
-        self.body.addWidget(self.card)
-        self.add_modules()
-        self.battery_rows: list[QWidget] = []
-
-    def render(self) -> None:
-        result = self.store.get("power")
-        if result is None:
-            return
-        view = vm.power_view(result.value if result.ok else [])
-        self.summary.setText(view.summary)
-        self.summary.setVisible(not view.batteries)
-        for widget in self.battery_rows:
-            widget.deleteLater()
-        self.battery_rows = []
-        for battery in view.batteries:
-            row = QWidget(self.card)
-            layout = QHBoxLayout(row)
-            layout.setContentsMargins(0, 0, 0, 0)
-            layout.setSpacing(12)
-            text = QVBoxLayout()
-            text.setSpacing(2)
-            text.addWidget(title_label(battery.name, 1.0, row))
-            text.addWidget(muted_label(battery.status, parent=row))
-            bar = QProgressBar(row)
-            bar.setRange(0, 100)
-            bar.setValue(battery.percent or 0)
-            bar.setFormat(f"{battery.percent}%" if battery.percent is not None else "Unknown")
-            bar.setAccessibleName(f"{battery.name} charge")
-            layout.addWidget(StatusIcon(battery.state, 22, row), 0, Qt.AlignmentFlag.AlignTop)
-            layout.addLayout(text, 1)
-            layout.addWidget(bar, 2)
-            self.batteries.addWidget(row)
-            self.battery_rows.append(row)
-        self.card.title.setText("Battery" if view.batteries else "Power source")
+    """A page that consists of its native settings sections."""
 
 
 class StoragePage(Page):
@@ -88,8 +42,8 @@ class StoragePage(Page):
         self.devices_text = plain_label("", wrap=True, selectable=True, parent=self.devices)
         self.devices_text.setAccessibleName("Disks and file systems")
         self.devices.addWidget(self.devices_text)
-        self.devices.addWidget(muted_label("Formatting and partitioning are done in KDE Partition Manager (below), "
-                                           "never from here.", parent=self.devices))
+        self.devices.addWidget(muted_label("Control Center never formats or partitions a disk.",
+                                           parent=self.devices))
         self.body.addWidget(self.devices)
 
         self.cleanup = Card("Free up space", self.content)
@@ -109,7 +63,7 @@ class StoragePage(Page):
         self.panel = JobPanel(self.info.key, self.window_.jobs, self.content)
         self.body.addWidget(self.cleanup)
         self.body.addWidget(self.panel)
-        self.add_modules()
+        self.add_settings()
         self.cards: dict[str, tuple] = {}
         self.cleaning = False
         self.window_.jobs.changed.connect(self._buttons)

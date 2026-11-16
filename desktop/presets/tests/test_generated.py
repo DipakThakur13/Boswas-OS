@@ -9,7 +9,7 @@ from pathlib import Path
 import support
 
 GENERATOR = support.PRESETS_DIR / "tools" / "build_presets.py"
-GENERATED_DIRS = ("color-schemes", "konsole", "look-and-feel", "wallpapers", "previews")
+GENERATED_DIRS = ("color-schemes", "wallpapers", "previews")
 
 
 class GeneratedFilesTest(unittest.TestCase):
@@ -40,11 +40,6 @@ class GeneratedFilesTest(unittest.TestCase):
         for p in support.presets():
             label = p["label"]
             for rel in (f"color-schemes/Boswas{label}.colors",
-                        f"konsole/Boswas{label}.colorscheme",
-                        f"konsole/Boswas {label}.profile",
-                        f"look-and-feel/com.boswas.{p['id']}/metadata.json",
-                        f"look-and-feel/com.boswas.{p['id']}/contents/defaults",
-                        f"look-and-feel/com.boswas.{p['id']}/contents/layouts/org.kde.plasma.desktop-layout.js",
                         f"wallpapers/Boswas-{label}/metadata.json",
                         f"wallpapers/Boswas-{label}/light.svg",
                         f"wallpapers/Boswas-{label}/dark.svg",
@@ -52,6 +47,19 @@ class GeneratedFilesTest(unittest.TestCase):
                         f"previews/{p['id']}.svg"):
                 with self.subTest(file=rel):
                     self.assertTrue((support.PRESETS_DIR / rel).is_file())
+
+    def test_nothing_is_generated_for_plasma_or_konsole(self):
+        """The Global Themes, their panel layouts and the Konsole files left with those programs."""
+        self.assertEqual(GENERATED_DIRS, support.load_module("build_presets", GENERATOR).GENERATED_DIRS)
+        for name in ("look-and-feel", "konsole"):
+            self.assertFalse((support.PRESETS_DIR / name).exists(), name)
+        with tempfile.TemporaryDirectory() as tmp:
+            result = subprocess.run([sys.executable, "-B", str(GENERATOR), "--output", tmp],
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(sorted(p.name for p in Path(tmp).iterdir()), sorted(GENERATED_DIRS))
+            names = {p.suffix for p in Path(tmp).rglob("*") if p.is_file()}
+            self.assertEqual(names, {".colors", ".json", ".svg"})
 
     def test_text_files_are_lf_utf8_without_control_characters(self):
         allowed = {"\n", "\t"}

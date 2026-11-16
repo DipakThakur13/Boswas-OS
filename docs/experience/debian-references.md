@@ -15,7 +15,10 @@ How it was audited:
 
 - the source repository: `grep -ri debian`, then classification;
 - the built image filesystem: `/etc`, `/usr/share/{plasma,sddm,applications,metainfo,konsole,icons,wallpapers}`,
-  `/etc/xdg`, Firefox's distribution files, live-config, `os-release`;
+  `/etc/xdg`, Firefox's distribution files, live-config, `os-release`
+  (this audit was made on the KDE Plasma image; the native Boswas desktop
+  removes Plasma, SDDM and Plymouth and with them the rows marked below,
+  and it needs a new pass over the image once that image is built);
 - the boot medium (`/.disk`, GRUB configuration);
 - the running system (boot test screenshots and serial checks).
 
@@ -40,11 +43,12 @@ Automated guards keep it that way:
 | `/etc/motd` | "The programs included with the Debian GNU/Linux system…" | The same legal notice in Boswas OS wording (only while unmodified) |
 | Boot menu subtitle (live/installation medium) | `Debian 13 "trixie" base` | `Live and installation medium` |
 | `.disk/info` on the medium (shown by the installer, apt-cdrom) | `Debian GNU/Linux 13 "Trixie" - Snapshot amd64 LIVE/INSTALL` | `Boswas OS v1 Alpha (1.0~alpha3) - amd64 LIVE/INSTALL` |
-| System Settings > About this System, "Variant" | `Based on Debian 13 "trixie"` | Nothing on installed systems; `Live session` in the live session |
+| KDE's About this System page, "Variant" (`kcm-about-distrorc`) | `Based on Debian 13 "trixie"` | Not applicable: the page and the file left with Plasma (ADR-0026, ADR-0042). Control Center > About Boswas OS takes its place, and the live session is marked there |
 | About page website button (from os-release `HOME_URL`) | debian.org | Not shown (no `HOME_URL`) |
-| Live user's full name (launcher, lock screen, login list) | `Debian Live user` (live-config default) | `Boswas OS Live` |
-| Boot splash | Plain console text (Debian's Plymouth theme belongs to desktop-base, not installed) | Boswas OS Plymouth theme (boot, shutdown, disk passphrase) |
-| Session start-up splash | "Plasma made by KDE" (Breeze) | Boswas OS splash |
+| Live user's full name (lock screen, login) | `Debian Live user` (live-config default) | `Boswas OS Live` |
+| Boot screen | Plain console text (Debian's Plymouth theme belongs to desktop-base, not installed) | The Boswas OS boot screen, `boswas-bootsplash` (boot, shutdown, restart, disk passphrase); Plymouth is not installed |
+| Session start-up splash | "Plasma made by KDE" (Breeze) | None: the native desktop has no start-up splash, and Plasma is not installed |
+| Login screen | SDDM with the Breeze theme | The Boswas login screen (`boswas-shell --greeter`, run by greetd); SDDM is not installed |
 | `boswas status` AppArmor detail (Security Center) | "…(Debian skips them on live media)" | "…(they load once Boswas OS is installed)" |
 | `boswas policy status` repository | "Debian upstream" | "upstream package archive" |
 | Firefox ESR search engines | "Debian packages" search plugin | Removed by policy (`/usr/lib/firefox-esr/distribution/policies.json`) |
@@ -61,7 +65,8 @@ Automated guards keep it that way:
 | `boswas-info` "Package base: Debian 13.7 (trixie)", About > Technical details, `boswas-device inventory` "package base" | TECHNICAL (labelled) | Administrators need the base release (security advisories are per release); shown only in technical details |
 | `/usr/share/doc/*/copyright`, `changelog.Debian.gz`, the Open-source licences note in Control Center | LEGAL / LICENSING | Required by the licences; attribution is honest |
 | AppStream metadata `org.debian.firmware_*.metainfo.xml` | INTERNAL | Package metadata; no software centre shows it (Discover is not installed) |
-| SDDM alternative named `debian-theme` (points to Breeze) | INTERNAL | An alternatives link name; the theme it points to is Breeze with Boswas art |
+| SDDM alternative named `debian-theme` (points to Breeze) | INTERNAL | Plasma image only: an alternatives link name. The native desktop does not install SDDM, so it is gone there |
+| greetd's files (`/etc/greetd/config.toml`, the `_greetd` user, `/etc/pam.d/greetd`) | INTERNAL | Debian's greetd package, unmodified; Boswas adds `/etc/boswas/greetd.toml` and a systemd drop-in. Nothing in them is shown to users |
 | Breeze icon `application-vnd.debian.binary-package` | INTERNAL | MIME type name for `.deb` files |
 | `/etc/firefox-esr/firefox-esr.js` comment, Firefox's internal distribution ID | INTERNAL | Not displayed in normal use |
 | `/usr/lib/live/config/*` copyright headers ("Debian Live team") | LEGAL / INTERNAL | Licence headers of live-config scripts |
@@ -70,8 +75,11 @@ Automated guards keep it that way:
 ## Not present (checked)
 
 - Debian wallpapers, Plymouth themes, GRUB backgrounds and logos: they
-  come from desktop-base, which is not installed.
-- KDE's Debian-branded welcome wizard: plasma-welcome is excluded in
-  `config/live-build/config/archives/boswas-exclude.pref.chroot`.
+  come from desktop-base, which is not installed. Plymouth itself is
+  excluded in `config/live-build/config/archives/boswas-exclude.pref.chroot`.
+- KDE's Debian-branded welcome wizard: plasma-welcome is excluded in the
+  same file, as are Plasma, KWin, SDDM and System Settings.
+- The greetd text login (`agreety`, the fallback when graphics cannot
+  start) prints the contents of `/etc/issue`, which says Boswas OS.
 - Debian names in application menu entries: none of the visible
   applications names Debian.

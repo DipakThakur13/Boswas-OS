@@ -1,0 +1,117 @@
+.TH BOSWAS-SHELL 1 "November 2026" "Boswas OS" "User Commands"
+.SH NAME
+boswas-shell \- the Boswas OS desktop shell, lock screen and login screen
+.SH SYNOPSIS
+.B /usr/libexec/boswas/boswas-shell
+[\fB\-\-lock\fR | \fB\-\-greeter\fR]
+.SH DESCRIPTION
+.B boswas-shell
+draws the parts of the desktop that are not application windows. It is
+started by
+.BR boswas-compositor (1),
+which gives it a trusted Wayland connection; it is not meant to be started
+by hand. It is an ordinary, unprivileged process: if it exits, the
+compositor starts it again and open windows are not affected.
+.TP
+(no option)
+The desktop:
+.RS
+.IP \(bu 2
+the background;
+.IP \(bu 2
+the taskbar along the bottom edge: Start, Task View and the pinned and
+running applications in the centre; tray icons, the keyboard layout, the
+network, volume and battery icons, and the clock at the right. A click on
+an application shows its window, starts it, or goes through its windows;
+the secondary button opens its menu (new window, pin or unpin, the
+application's own actions, close); the middle button starts another
+instance. Resting the pointer on a running application shows its windows;
+.IP \(bu 2
+Start: search (applications, pages of Boswas Control Center, and running a
+command), the pinned applications, all applications by letter, the
+applications used most, and the user and power menus. Search is local and
+ranks applications by how often they were started. Signing out, restarting
+and shutting down ask first when windows are open;
+.IP \(bu 2
+quick settings: Wi-Fi with the list of networks, Bluetooth with the list of
+devices, airplane mode, night light, the power mode, do not disturb, media
+controls, brightness, and volume with the choice of the sound output;
+.IP \(bu 2
+notifications: up to three at a time above the taskbar, and the
+notification centre with a calendar. While do not disturb is on only
+critical notifications pop up. Nothing pops up while the session is locked;
+.IP \(bu 2
+the on-screen display of the volume and brightness keys, the Run dialog,
+screen capture (an area or the whole screen, saved to the Screenshots
+folder under Pictures and copied to the clipboard), and the dialog that
+asks for a password when polkit needs one (with a choice of administrator
+when several may authorise the action);
+.IP \(bu 2
+the question "Allow \fIprogram\fR to see your screen?" when a screenshot
+tool, a recorder or screen sharing asks the compositor for pictures of the
+screen. Neither answer is the default, and Enter alone allows nothing.
+While a program may capture, a red mark on the taskbar says which; a click
+on it stops the capture.
+.RE
+.TP
+.B \-\-lock
+The lock screen. It shows the clock and, after a key or a click, asks for
+the password of the user who owns the session, checked through PAM (service
+\fBboswas\-lock\fR). The session is unlocked only after PAM accepts the
+password. It shows no notifications and offers no way to restart or shut
+down.
+.TP
+.B \-\-greeter
+The login screen, run by
+.BR greetd (1).
+It lists the people who can sign in (regular accounts with a login shell)
+and accepts another user name. After a successful login greetd starts
+.BR boswas-session (1)
+for the user.
+.TP
+.BR \-h ", " \-\-help
+Show a summary of the options.
+.TP
+.BR \-V ", " \-\-version
+Show the version.
+.SH KEYBOARD
+Every flyout and dialog can be used without a pointer: Tab and Shift+Tab go
+through the controls, the arrow keys move to the nearest control in that
+direction, Enter or Space activates it, Escape closes. In Start, typing
+always searches; in menus the arrow keys move and open submenus. The
+shortcuts that open things (Super, Super+A, Super+N, Super+R, Print and so
+on) belong to the compositor and are listed in
+.BR boswas-compositor (1).
+.SH FILES
+.TP
+.I ~/.config/boswas/shell.toml
+The applications pinned to the taskbar (\fB[taskbar] pinned\fR) and to
+Start (\fB[start] pinned\fR), as lists of desktop file ids. Written by the
+shell when something is pinned or unpinned; it may be edited by hand.
+.TP
+.I ~/.local/state/boswas/launcher\-usage.json
+How often each application was started; used to rank search results and
+for the "Recommended" list. It never leaves the device.
+.TP
+.I ~/.local/state/boswas/run\-history.json
+The last commands typed into the Run dialog.
+.TP
+.I /etc/pam.d/boswas\-lock
+PAM service of the lock screen.
+.SH ENVIRONMENT
+.TP
+.B BOSWAS_LOG
+Log filter (for example \fBdebug\fR). Messages go to standard error.
+.TP
+.B GREETD_SOCK
+Set by greetd for the login screen.
+.SH SECURITY
+The shell runs as the user, never as root. Programs it starts get neither
+its trusted Wayland connection nor its control connection to the
+compositor. Run starts a program with its arguments; there is no shell and
+nothing is expanded. Passwords and Wi-Fi passphrases are wiped from memory
+after use. Wallpapers, icons, window previews and what tray items send are
+decoded in the shell with size limits.
+.SH SEE ALSO
+.BR boswas-compositor (1),
+.BR boswas-session (1)

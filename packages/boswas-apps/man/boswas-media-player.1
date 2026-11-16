@@ -1,0 +1,146 @@
+.TH BOSWAS-MEDIA-PLAYER 1 "November 2026" "Boswas OS" "User Commands"
+.SH NAME
+boswas-media-player \- play music and videos
+.SH SYNOPSIS
+.B boswas-media-player
+.RI [ FILE | FOLDER | URL ]...
+.br
+.B boswas-media-player
+.BR \-\-backend\-info " | " \-\-help " | " \-\-version
+.SH DESCRIPTION
+.B boswas-media-player
+is the music and video player of Boswas OS.
+.PP
+Files, folders, playlists (M3U, M3U8, PLS) and
+.B http
+or
+.B https
+addresses given on the command line are played, in the order given; a folder
+stands for the media files in it and below it, in natural name order.
+Without arguments the window opens with the play queue of the last run, the
+last track loaded and paused where it was left.
+.PP
+Only one instance runs per session.
+A later start hands its arguments to the running instance, which adds them
+to the end of its play queue and comes to the front.
+.PP
+What can be played depends on the multimedia backend of Qt that is
+installed (FFmpeg on Boswas OS); see
+.BR \-\-backend\-info .
+A file that cannot be played is skipped, and a message says which one.
+.SS The window
+.TP
+.B Home
+What was played recently, and buttons to open files, a folder or an address.
+.TP
+.B Music library
+The music under the user's Music folder and the folders added in Settings,
+as songs, albums and artists, from the tags of the files (ID3, Vorbis
+comments, MP4 and RIFF INFO tags).
+Covers come from the picture embedded in a file, else from
+.BR cover.jpg ,
+.BR folder.jpg ,
+.B front.jpg
+or
+.B album.jpg
+(also PNG and WebP) in its folder.
+The folders are read in the background; an index is kept so that a later
+start reads only new and changed files.
+Symbolic links to folders and hidden files and folders are not followed.
+.TP
+.B Video library
+The videos under the user's Videos folder and the folders added in Settings,
+with a picture taken from each video when the backend can decode it.
+.TP
+.B Play queue
+What is being played, in order.
+Drag an item, or press Alt+Up and Alt+Down, to move it; Delete removes it.
+.TP
+.B Playlists
+Playlists can be created, renamed, reordered, deleted, imported from and
+exported to M3U, M3U8 and PLS files.
+.TP
+.B Settings
+Library folders, whether videos resume where they were stopped, and the
+playback device.
+Theme and accent colour follow the desktop.
+.PP
+The bar at the bottom shows what is playing and holds the controls: previous,
+play or pause, next, shuffle, repeat (off, all, one), the position with the
+time under the pointer, volume and mute, playback speed (0.25 to 2 times),
+the audio, subtitle and video tracks of the media when it has several, the
+mini player and full screen.
+In full screen the controls and the pointer hide while a video plays.
+.PP
+A network address is contacted only when the user opens it; while it plays
+it is marked as a network stream.
+.SS Desktop integration
+The player is on the session bus as
+.B org.mpris.MediaPlayer2.boswas\-media\-player
+(MPRIS 2.2: the interfaces
+.B org.mpris.MediaPlayer2
+and
+.BR org.mpris.MediaPlayer2.Player ),
+so that the media keys, the quick settings and the lock screen can show and
+control it.
+The length of a track inside the
+.B Metadata
+property is sent as a 32-bit integer when it fits into one, and as a 64-bit
+integer otherwise.
+.SH OPTIONS
+.TP
+.B \-\-backend\-info
+Print the containers and codecs the multimedia backend reports, and exit.
+The list is what Qt knows by name; the backend may play more.
+.TP
+.B \-\-help
+Print a summary of the command line and exit.
+.TP
+.B \-\-version
+Print the version and exit.
+.SH KEYS
+.TS
+tab(|);
+l l.
+Space, Ctrl+P|Play or pause
+Ctrl+Right, Ctrl+Left|Next, previous
+Right, Left|Forward, back 10 seconds
+Ctrl+Up, Ctrl+Down|Volume up, down
+M|Mute
+Ctrl+H, Ctrl+T|Shuffle, repeat
+F11, F, double click|Full screen (Escape leaves it)
+Ctrl+M|Mini player
+Ctrl+O, Ctrl+Shift+O, Ctrl+U|Open files, a folder, an address
+Ctrl+F|Search the library
+Ctrl+N, F2|New playlist, rename the open playlist
+Alt+Left|Back
+F5|Read the library folders again
+Ctrl+W, Ctrl+Q|Close
+.TE
+.SH FILES
+.TP
+.I $XDG_CONFIG_HOME/com.boswas.MediaPlayer/settings.json
+Library folders, volume, speed, playback device.
+.TP
+.I $XDG_CONFIG_HOME/com.boswas.MediaPlayer/playlists/*.m3u8
+The playlists.
+.TP
+.I $XDG_STATE_HOME/com.boswas.MediaPlayer/
+The play queue and position
+.RB ( queue.json ),
+recently played media, where each video was stopped, the library index
+.RB ( library.json )
+and the window size.
+.TP
+.I $XDG_CACHE_HOME/com.boswas.MediaPlayer/
+Covers and video thumbnails; can be deleted at any time.
+.TP
+.I $XDG_CONFIG_HOME/user\-dirs.dirs
+Where the Music and Videos folders are (xdg\-user\-dirs).
+.SH EXIT STATUS
+0 on success, also when the arguments were handed to a running instance;
+2 for a wrong command line; 4 when started as root, which is refused.
+.SH SEE ALSO
+.BR boswas\-photos (1),
+.BR boswas\-camera (1),
+.BR xdg\-user\-dirs\-update (1)

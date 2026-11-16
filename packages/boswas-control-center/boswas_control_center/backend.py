@@ -1,6 +1,6 @@
 """Everything Control Center can read or do, as blocking calls.
 
-Sources, all read-only except the five actions at the end:
+Sources, all read-only except the actions at the end:
 
   boswas --json status        posture checks of boswas-cli (exit 1 = a check FAILed)
   device agent socket         agent.status, device.config, runtime.status
@@ -9,13 +9,16 @@ Sources, all read-only except the five actions at the end:
   boswas-preset --json list   the desktop presets and the current one
   apt-config shell            APT::Periodic settings (read-only)
   probes.py                   public files (release, hardware, storage, power,
-                              APT stamps, desktop entries, KDE module plugins)
+                              APT stamps, desktop entries)
 
-Actions: open a KDE settings module (kcmshell6 <module>), start a program
-from the catalog, open an application (kstart --application <id>), apply a
-preset (boswas-preset apply <id> [--layout]) and, in a live session only,
-restart (systemctl reboot). Every variable argument is validated here before
-commands.argv() builds the argument list.
+Actions: start a program of the catalog (Files, the Compatibility Manager),
+open an application (gio launch <desktop entry>), apply a preset
+(boswas-preset apply <id>), return to the default look (boswas-preset
+reset) and, in a live session only, restart (systemctl reboot). Every
+variable argument is validated here before
+commands.argv() builds the argument list. The native settings sections
+(ui/settings) have their own backends: the services bridge, the compositor's
+configuration, and the modules named in their docstrings.
 
 All methods block; the widgets call them from worker threads.
 """
@@ -31,7 +34,7 @@ from boswas_agent.localapi import ApiClient, ApiError
 
 from . import android, commands, filetypes, hardware, jobs, probes, software, sysinfo, userfiles
 from . import viewmodel as vm
-from .catalog import KCM, KCM_MODULES, PROGRAM_MODULES, PROGRAMS, Module
+from .catalog import PROGRAM_IDS, PROGRAMS, Program
 from .commands import CommandRunner, android_argv, argv, sysops_argv
 from .errors import CommandFailed, CommandUnavailable, Failed, ServiceRefused, ServiceUnavailable, Unavailable
 
@@ -44,7 +47,6 @@ STATUS_TIMEOUT = 60.0
 PRESET_LIST_TIMEOUT = 20.0
 PRESET_APPLY_TIMEOUT = 180.0
 APT_CONFIG_TIMEOUT = 10.0
-PLASMA_TIMEOUT = 5.0
 REBOOT_TIMEOUT = 30.0
 APT_SIMULATE_TIMEOUT = 120.0
 APT_CACHE_TIMEOUT = 60.0
@@ -164,16 +166,10 @@ class Backend:
         except ValueError:
             raise CommandFailed("boswas-preset", "boswas-preset returned an unexpected list of presets.") from None
 
-    def plasma_version(self) -> str | None:
-        version = probes.plasma_metainfo_version(self.root)
-        if version:
-            return version
-        command = argv("plasmashell", "--version")
-        try:
-            result = self._run(command, PLASMA_TIMEOUT)
-        except (Unavailable, CommandFailed):
-            return None
-        return vm.plasma_version_from_output(result.stdout) if result.code == 0 else None
+    def desktop(self) -> str | None:
+        """What About shows as the desktop: the native Boswas desktop and its version, if it is installed."""
+        native = probes.boswas_desktop_version(self.root)
+        return f"Boswas Desktop {native}" if native else None
 
     def updates(self) -> dict:
         periodic, source = {}, None
@@ -214,12 +210,9 @@ class Backend:
         locale = self.environ.get("LC_ALL") or self.environ.get("LC_MESSAGES") or self.environ.get("LANG")
         return probes.desktop_entries(self.environ, locale)
 
-    def kcm_availability(self) -> dict[str, bool]:
-        return {module: probes.kcm_installed(self.root, module) for module in sorted(KCM_MODULES)}
-
     def program_availability(self) -> dict[str, bool]:
-        result = {key: self.commands.available(commands.EXECUTABLES[PROGRAMS[key][0]]) for key in PROGRAM_MODULES}
-        for name in ("kstart", "kioclient", "boswas-preset", "systemctl", "boswas-android", "nmcli", "lsblk",
+        result = {key: self.commands.available(commands.EXECUTABLES[PROGRAMS[key][0]]) for key in PROGRAM_IDS}
+        for name in ("gio", "boswas-preset", "systemctl", "boswas-android", "nmcli", "lsblk",
                      "flatpak", "apt-cache"):
             result[name] = self.commands.available(commands.EXECUTABLES[name])
         result["admin"] = self.commands.available(commands.EXECUTABLES[commands.ADMIN_TOOL])
@@ -227,39 +220,41 @@ class Backend:
 
     # --- actions -----------------------------------------------------------------------------------------------
     @staticmethod
-    def module_command(module: Module) -> list[str]:
-        if module.kind == KCM:
-            if module.id not in KCM_MODULES:
-                raise ValueError(f"{module.id!r} is not a module of the catalog")
-            return argv("kcmshell6", module.id)
-        if module.id not in PROGRAMS:
-            raise ValueError(f"{module.id!r} is not a program of the catalog")
-        name, args = PROGRAMS[module.id]
+    def program_command(program: Program) -> list[str]:
+        if not isinstance(program, Program) or program.id not in PROGRAMS:
+            raise ValueError(f"{getattr(program, 'id', program)!r} is not a program of the catalog")
+        name, args = PROGRAMS[program.id]
         return argv(name, *args)
 
-    def open_module(self, module: Module) -> None:
-        self._start(self.module_command(module))
+    def open_program(self, program: Program) -> None:
+        self._start(self.program_command(program))
 
     def launch_command(self, item: vm.AppItem) -> list[str]:
+        """`gio launch <desktop entry>`: GLib starts the entry as the desktop would (field codes, Terminal=)."""
         if not item.launchable or not vm.valid_desktop_id(item.desktop_id):
             raise ValueError("this application cannot be opened from Control Center")
-        if self.commands.available(commands.EXECUTABLES["kstart"]):
-            return argv("kstart", "--application", item.desktop_id)
-        if item.path.startswith("/") and item.path.endswith(".desktop"):
-            return argv("kioclient", "exec", item.path)
-        raise CommandUnavailable("kstart", "Applications cannot be opened: kstart and kioclient are not installed.")
+        if not self.commands.available(commands.EXECUTABLES["gio"]):
+            raise CommandUnavailable("gio", "Applications cannot be opened: gio (libglib2.0-bin) is not installed.")
+        return argv("gio", "launch", item.path)
 
     def launch(self, item: vm.AppItem) -> None:
         self._start(self.launch_command(item))
 
     @staticmethod
-    def preset_command(preset_id: str, layout: bool = False) -> list[str]:
+    def preset_command(preset_id: str) -> list[str]:
         if not vm.valid_preset_id(preset_id):
             raise ValueError(f"invalid preset ID {preset_id!r}")
-        return argv("boswas-preset", "apply", preset_id, *(["--layout"] if layout else []))
+        return argv("boswas-preset", "apply", preset_id)
 
-    def apply_preset(self, preset_id: str, layout: bool = False) -> None:
-        command = self.preset_command(preset_id, layout)
+    def reset_look(self) -> None:
+        """Return to the default look, Boswas Prism, which is no preset."""
+        command = argv("boswas-preset", "reset")
+        result = self._run(command, PRESET_APPLY_TIMEOUT)
+        if result.code != 0:
+            raise commands.failure(command, result, "Resetting the appearance")
+
+    def apply_preset(self, preset_id: str) -> None:
+        command = self.preset_command(preset_id)
         result = self._run(command, PRESET_APPLY_TIMEOUT)
         if result.code != 0:
             raise commands.failure(command, result, "Applying the preset")
@@ -530,7 +525,7 @@ class Backend:
         except userfiles.UserFileError as exc:
             raise Failed(str(exc)) from None
 
-    # --- network (NetworkManager decides what the user may change) ----------------------------------------------
+    # --- network (read-only, for the system overview; the Network page uses the services bridge) -----------------
     def network(self) -> sysinfo.NetworkState:
         command = argv("nmcli", "-t", "-f", "DEVICE,TYPE,STATE,CONNECTION", "device")
         result = self._run(command, NMCLI_TIMEOUT)
@@ -549,20 +544,6 @@ class Backend:
         radio = self._run(argv("nmcli", "-t", "radio", "wifi"), NMCLI_TIMEOUT)
         wifi = sysinfo.parse_radio(radio.stdout) if radio.code == 0 else None
         return sysinfo.NetworkState(tuple(devices), wifi)
-
-    def set_wifi(self, enabled: bool) -> None:
-        command = argv("nmcli", "radio", "wifi", "on" if enabled else "off")
-        result = self._run(command, NMCLI_TIMEOUT)
-        if result.code != 0:
-            raise commands.failure(command, result, "Switching Wi-Fi " + ("on" if enabled else "off"))
-
-    def device_connection(self, device: str, connect: bool) -> None:
-        if not sysinfo.valid_device(device):
-            raise ValueError(f"invalid network device {device!r}")
-        command = argv("nmcli", "device", "connect" if connect else "disconnect", device)
-        result = self._run(command, NMCLI_TIMEOUT * 3)
-        if result.code != 0:
-            raise commands.failure(command, result, ("Connecting " if connect else "Disconnecting ") + device)
 
     # --- load ------------------------------------------------------------------------------------------------------
     def load(self) -> dict:

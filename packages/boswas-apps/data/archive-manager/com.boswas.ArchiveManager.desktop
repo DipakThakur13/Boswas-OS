@@ -1,0 +1,18 @@
+[Desktop Entry]
+Type=Application
+Name=Archive Manager
+GenericName=Archive Manager
+Comment=Open, extract and create ZIP and TAR archives
+Exec=boswas-archive-manager %F
+Icon=utilities-file-archiver
+Terminal=false
+StartupNotify=true
+StartupWMClass=com.boswas.ArchiveManager
+Categories=Utility;Archiving;Compression;Qt;
+Keywords=archive;zip;tar;gz;xz;bz2;7z;rar;compress;extract;unpack;unzip;pack;
+MimeType=application/zip;application/x-tar;application/gzip;application/x-compressed-tar;application/x-bzip-compressed-tar;application/x-xz-compressed-tar;application/x-bzip2;application/x-xz;application/zstd;application/x-zstd-compressed-tar;application/java-archive;application/vnd.android.package-archive;application/epub+zip;
+Actions=NewWindow;
+
+[Desktop Action NewWindow]
+Name=New Window
+Exec=boswas-archive-manager

@@ -28,10 +28,15 @@ EXCLUDED = frozenset({
     "plasma-welcome",
     "openssh-server",
     "cups-browsed",
+    # Replaced by the native Boswas desktop (boswas-desktop) and the Boswas
+    # boot screen (boswas-bootsplash); never installed beside them.
+    "plasma-workspace", "plasma-desktop", "kde-plasma-desktop", "kwin-wayland", "kwin-x11", "sddm",
+    "systemsettings",
+    "plymouth", "plymouth-themes", "plymouth-label",
 })
 
 PROTECTED_EXACT = frozenset({
-    "systemd", "systemd-sysv", "sddm", "plasma-workspace", "kwin-wayland", "network-manager",
+    "systemd", "systemd-sysv", "greetd", "network-manager",
     "apparmor", "nftables", "auditd", "lvm2", "sudo", "polkitd", "pkexec", "dbus", "apt", "dpkg",
 })
 PROTECTED_PATTERNS = ("boswas-*", "linux-image-*", "grub-*", "shim-*", "cryptsetup*")

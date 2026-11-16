@@ -1,0 +1,14 @@
+[Unit]
+Description=Hand the screen over from the Boswas OS boot screen
+Documentation=man:boswas-bootsplash(1)
+After=rc-local.service boswas-bootsplash-start.service systemd-user-sessions.service
+Before=greetd.service display-manager.service getty@tty1.service
+ConditionPathExists=/run/boswas-bootsplash/pid
+
+[Service]
+# --retain: the last frame stays on the display until the greeter shows its
+# own picture, so there is no blank screen in between. If nothing takes the
+# display within a few seconds, the text console returns.
+Type=oneshot
+ExecStart=-/usr/bin/boswas-bootsplash quit --retain
+TimeoutStartSec=20

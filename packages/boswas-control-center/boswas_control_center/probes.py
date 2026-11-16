@@ -13,7 +13,6 @@ import os
 import shutil
 
 from . import viewmodel as vm
-from .catalog import KCM_PLUGIN_DIRS, KCM_PLUGIN_SUBDIRS
 
 MAX_FILE = 1024 * 1024
 MAX_DESKTOP_FILE = 256 * 1024
@@ -25,7 +24,7 @@ IMAGE_INFO_FILE = "/usr/lib/boswas/image-info"
 UPDATE_CONF = "/etc/boswas/update.conf"
 DEVICE_CONF = "/etc/boswas/device.conf"
 DEBIAN_VERSION = "/etc/debian_version"
-PLASMA_METAINFO = "/usr/share/metainfo/org.kde.plasmashell.metainfo.xml"
+DESKTOP_VERSION = "/usr/share/boswas/compositor/version"    # boswas-desktop: its package version
 LIVE_MEDIUM = "/run/live/medium"
 SESSION_MARKER = "/run/boswas/session"       # contains "live" in a live session
 APT_CONF_DIR = "/etc/apt/apt.conf.d"
@@ -121,8 +120,9 @@ def live_session(root: Root) -> bool:
                       root.read(SESSION_MARKER, 256))
 
 
-def plasma_metainfo_version(root: Root) -> str | None:
-    return vm.plasma_version_from_metainfo(root.read(PLASMA_METAINFO, 512 * 1024))
+def boswas_desktop_version(root: Root) -> str | None:
+    """The version of the native Boswas desktop (package boswas-desktop), if it is installed."""
+    return vm.desktop_version_from_file(root.read(DESKTOP_VERSION, 256))
 
 
 def device_settings_file(root: Root) -> dict:
@@ -272,17 +272,6 @@ def unattended_log(root: Root) -> dict:
     return {"readable": True, "lines": text.splitlines()[-400:]}
 
 
-# --- KDE modules -----------------------------------------------------------------------------------------------
-
-def kcm_installed(root: Root, module_id: str) -> bool:
-    for base in KCM_PLUGIN_DIRS:
-        for sub in KCM_PLUGIN_SUBDIRS:
-            directory = f"{base}/{sub}" if sub else base
-            if root.exists(f"{directory}/{module_id}.so"):
-                return True
-    return False
-
-
 # --- desktop entries --------------------------------------------------------------------------------------------
 
 def xdg_data_dirs(environ) -> list[str]:
@@ -325,7 +314,7 @@ def desktop_files(data_dirs: list[str]) -> list[tuple[str, str]]:
 
 
 def desktop_entries(environ, locale: str | None = None) -> list[vm.DesktopEntry]:
-    """Visible application entries for KDE, from the user's and the system's XDG data directories."""
+    """Visible application entries for the Boswas desktop, from the user's and the system's XDG data directories."""
     search_path = environ.get("PATH") or "/usr/local/bin:/usr/bin:/bin"
 
     def which(program: str) -> str | None:
@@ -340,7 +329,7 @@ def desktop_entries(environ, locale: str | None = None) -> list[vm.DesktopEntry]
                 text = handle.read(MAX_DESKTOP_FILE).decode("utf-8", errors="replace")
         except OSError:
             continue
-        entry = vm.parse_desktop_entry(text, desktop_id, path, locale, "KDE", which)
+        entry = vm.parse_desktop_entry(text, desktop_id, path, locale, vm.CURRENT_DESKTOP, which)
         if entry is not None:
             entries.append(entry)
     return entries

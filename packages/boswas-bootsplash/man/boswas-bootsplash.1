@@ -1,0 +1,117 @@
+.TH BOSWAS-BOOTSPLASH 1 "November 2026" "boswas-bootsplash 1.0~alpha3" "Boswas OS"
+.SH NAME
+boswas-bootsplash \- control the Boswas OS boot screen
+.SH SYNOPSIS
+.B boswas-bootsplash
+.RB [ \-\-socket
+.IR PATH ]
+.I COMMAND
+.RI [ ARGUMENT ...]
+.SH DESCRIPTION
+.B boswas-bootsplash
+talks to the Boswas OS boot screen daemon,
+.BR boswas-bootsplashd (8),
+over its control socket. It is used by the initramfs scripts and the systemd
+units of the package, and can be used by an administrator. Only root can
+reach the daemon.
+.SH COMMANDS
+.TP
+.B ping
+Succeed if the boot screen is running.
+.TP
+.BR ask-password " [" \-\-prompt " \fITEXT\fR]"
+Show a passphrase prompt on the boot screen, wait until the user presses
+Enter, and write the passphrase to standard output without a trailing
+newline. The characters typed are never shown; one dot per character is
+drawn, up to 24. A prompt of the form
+.RI \(dqPlease\ unlock\ disk\  NAME \(dq
+(what the disk-unlock scripts ask) is shown as the title \(dqUnlock your
+disk\(dq with
+.I NAME
+under it; any other text is shown as it is, under the title \(dqEnter your
+passphrase\(dq.
+.TP
+.BR message " [\fITEXT\fR]"
+Show one line of text under the ring of the boot screen (under the text box
+while a prompt is open). It goes away after six seconds. A message that
+reports a failure is shown in the danger colour and stays for thirty seconds,
+or until the next passphrase is entered; one that reports a rejected
+passphrase is shown as the sentence \(dqThat passphrase did not work. Try
+again.\(dq, and if a prompt is open, or the next one opens while the message
+is still shown, its text box shakes briefly. Without text, the line is
+cleared.
+.TP
+.BI progress " PERCENT"
+Report boot progress, 0 to 100. It is shown as a percentage on the message
+line under the ring.
+.TP
+.BR mode " " boot | shutdown | reboot
+Switch between the boot, shutdown and restart screens.
+.TP
+.B hide
+Give the display back to the text console. The Escape key does the same.
+.TP
+.B show
+Take the display again.
+.TP
+.BR quit " [" \-\-retain [=\fISECONDS\fR]]
+End the boot screen and restore the text console. With
+.BR \-\-retain ,
+the last frame stays on the display until the next program (the login
+screen) shows its own picture, for at most
+.I SECONDS
+(default 6); if nothing takes the display in that time, the text console
+returns.
+.TP
+.BI new-root " DIRECTORY"
+Tell the daemon that the system is moving from the initramfs to its real
+root file system at
+.IR DIRECTORY .
+.TP
+.B agent
+Answer systemd's password requests
+.RI ( /run/systemd/ask-password )
+on the boot screen until the boot screen ends. Started by
+.IR boswas-bootsplash-ask-password.service .
+.TP
+.BR \-\-help ", " \-\-version
+Print a summary of the commands, or the version.
+.SH PLYMOUTH COMPATIBILITY
+Inside the initramfs the program is also installed as
+.IR /bin/plymouth ,
+because Debian's disk-unlock helper
+.RI ( /lib/cryptsetup/askpass )
+and the initramfs scripts call that name. Started as
+.BR plymouth ,
+it accepts the commands those callers use:
+.BR \-\-ping ,
+.BR "ask-for-password \-\-prompt" ,
+.BR "message \-\-text" ,
+.BR "display-message \-\-text" ,
+.BR "hide-message" ,
+.BR hide-splash ,
+.BR show-splash ,
+.B quit
+.RB [ \-\-retain-splash ],
+and
+.BR "update-root-fs \-\-new-root-dir" .
+Other Plymouth commands that scripts issue for progress reporting are
+accepted and ignored. It is not a general replacement for
+.BR plymouth (1),
+and no file named plymouth is installed on the root file system.
+.SH EXIT STATUS
+.TP
+.B 0
+The command was carried out.
+.TP
+.B 1
+The boot screen is not running, or it refused the command.
+.TP
+.B 2
+The command line was not understood.
+.SH FILES
+.TP
+.I /run/boswas-bootsplash/socket
+The daemon's control socket (root only).
+.SH SEE ALSO
+.BR boswas-bootsplashd (8)

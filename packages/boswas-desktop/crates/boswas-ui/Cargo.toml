@@ -1,0 +1,26 @@
+[package]
+name = "boswas-ui"
+description = "Boswas UI: design tokens, software drawing and text for the Boswas desktop"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[features]
+default = []
+# Text shaping and rasterisation (system fonts).
+text = ["dep:cosmic-text"]
+# SVG icons (icon theme lookup and rasterisation) and desktop entries.
+icons = ["dep:resvg"]
+# PNG and JPEG decoding (wallpapers).
+images = ["dep:image"]
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+tiny-skia.workspace = true
+cosmic-text = { version = "0.12", optional = true, default-features = false, features = ["std", "swash", "fontconfig"] }
+resvg = { version = "0.45", optional = true, default-features = false }
+image = { version = "0.25", optional = true, default-features = false, features = ["png", "jpeg"] }

@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import time
+import tomllib
 from dataclasses import asdict, dataclass
 
 from . import system
@@ -19,6 +20,10 @@ PASS, WARN, FAIL, INFO, UNKNOWN = "PASS", "WARN", "FAIL", "INFO", "UNKNOWN"
 
 SECURE_BOOT_VAR = "/sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c"
 KDE_SETTINGS = "/usr/share/boswas/kde-settings"
+# The native desktop's lock policy: the shipped defaults and the
+# administrator's file. A user's own file cannot relax the [policy] table,
+# so it is not read here.
+COMPOSITOR_CONFIGS = ("/usr/share/boswas/compositor/compositor.toml", "/etc/boswas/compositor.toml")
 STALE_PACKAGE_LISTS_DAYS = 7
 
 
@@ -213,7 +218,53 @@ def _kde_key(filename: str, key: str) -> str | None:
     return None
 
 
+def _compositor_lock_policy() -> tuple[int, int] | None:
+    """(idle seconds before the lock, enforced maximum) of the native Boswas
+    desktop; None when its configuration is not installed. Mirrors how
+    boswas-compositor merges and clamps the values."""
+    lock: dict = {}
+    policy: dict = {}
+    found = False
+    for path in COMPOSITOR_CONFIGS:
+        text = system.read_text(path)
+        if text is None:
+            continue
+        try:
+            data = tomllib.loads(text)
+        except (tomllib.TOMLDecodeError, UnicodeDecodeError):
+            continue  # the compositor ignores a file that does not parse, too
+        found = True
+        for name, target in (("lock", lock), ("policy", policy)):
+            table = data.get(name)
+            if isinstance(table, dict):
+                target.update(table)
+    if not found:
+        return None
+    idle = lock.get("idle_seconds", 600)
+    maximum = policy.get("lock_idle_max_seconds", 600)
+    if not all(isinstance(v, int) and not isinstance(v, bool) and v >= 0 for v in (idle, maximum)):
+        return None
+    if maximum > 0 and (idle == 0 or idle > maximum):
+        idle = maximum
+    return idle, maximum
+
+
+def _minutes(seconds: int) -> str:
+    return f"{seconds // 60} min" if seconds % 60 == 0 else f"{seconds} s"
+
+
 def screen_lock() -> Check:
+    native = _compositor_lock_policy()
+    if native is not None:
+        idle, maximum = native
+        if idle > 0 and maximum > 0:
+            return Check("screen-lock", "security", "Screen lock", PASS,
+                         f"automatic lock after {_minutes(idle)} idle, enforced")
+        if idle > 0:
+            return Check("screen-lock", "security", "Screen lock", WARN,
+                         f"automatic lock after {_minutes(idle)} idle, but users may turn it off")
+        return Check("screen-lock", "security", "Screen lock", WARN, "automatic screen lock is turned off")
+    # Images built on KDE Plasma: the KDE Kiosk keys.
     autolock = _kde_key("kscreenlockerrc", "Autolock")
     timeout = _kde_key("kscreenlockerrc", "Timeout")
     if autolock == "true":

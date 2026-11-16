@@ -27,7 +27,8 @@ import cc_fixtures as fx  # noqa: E402
 try:
     from PySide6.QtCore import QCoreApplication, QEvent, Qt, qInstallMessageHandler
     from PySide6.QtGui import QGuiApplication, QKeyEvent
-    from PySide6.QtWidgets import QAbstractButton, QApplication, QLabel, QLineEdit
+    from PySide6.QtWidgets import (QAbstractButton, QAbstractSpinBox, QApplication, QCheckBox, QLabel, QLineEdit,
+                                   QPushButton)
     PYSIDE = True
 except ImportError:                       # PySide6 is not a build dependency: skip the widget tests
     PYSIDE = False
@@ -37,7 +38,15 @@ if PYSIDE:
     from boswas_control_center import viewmodel as vm
     from boswas_control_center.commands import EXECUTABLES as E
     from boswas_control_center.ui.main_window import MainWindow
-    from boswas_control_center.ui.tiles import ModuleTile
+    from boswas_control_center.ui.tiles import ProgramTile
+
+    fx.use_fake_bridge()                  # no test starts the real services bridge
+    # The pages with content of their own and those made of this package's own sections; Display and
+    # Devices appear with the compositor sections (ui/settings/display.py, input.py).
+    ALWAYS_PAGES = ("personalization", "network", "bluetooth", "sound", "power", "storage", "applications",
+                    "windows", "android",
+                    "security", "users", "updates",
+                    "privacy", "hardware", "system", "about")
 
     APP = QApplication.instance() or QApplication(["test"])
 
@@ -65,6 +74,7 @@ class UiTestCase(unittest.TestCase):
         sys.excepthook = lambda *exc: self.errors.append("".join(traceback.format_exception(*exc)))
         self.tmp = tempfile.TemporaryDirectory()
         self.rig = fx.Rig(Path(self.tmp.name), live=self.live)
+        self.addCleanup(fx.use_rig_for_settings(self.rig))
         self.windows: list = []
         self.questions: list[tuple[str, str, str]] = []
         self.answer = True
@@ -120,14 +130,16 @@ class NavigationTest(UiTestCase):
 
     def test_every_page_builds(self):
         w = self.window()
-        for key in catalog.PAGE_KEYS:
-            if key == "install":
-                continue
+        shown = [key for key in catalog.PAGE_KEYS if key != "install" and w.page_available(key)]
+        for key in shown:
             page = self.show(w, key)
             self.assertEqual(w.current_page(), key)
             self.assertIs(w.stack.currentWidget(), w.holders[key])
             self.assertEqual(page.heading.text(), catalog.BY_KEY[key].heading)
-        self.assertEqual(set(w.pages), set(catalog.PAGE_KEYS) - {"install"})
+        self.assertEqual(set(w.pages), set(shown))
+        # The pages with content of their own, and those of this engineer's sections, are always there.
+        for key in ALWAYS_PAGES:
+            self.assertIn(key, shown)
 
     def test_pages_are_built_lazily(self):
         w = self.window()
@@ -146,7 +158,8 @@ class NavigationTest(UiTestCase):
         w.sidebar.setFocus()
         key_click(w.sidebar, Qt.Key.Key_Down)
         self.settle(w)
-        self.assertEqual(w.current_page(), "network")
+        following = [key for key in catalog.PAGE_KEYS[1:] if w.page_available(key)][0]
+        self.assertEqual(w.current_page(), following)
         key_click(w.sidebar, Qt.Key.Key_End)
         self.settle(w)
         self.assertEqual(w.current_page(), "about")          # Install is hidden outside a live session
@@ -239,7 +252,16 @@ class PersonalizationTest(UiTestCase):
         self.assertTrue(cards["boswas-light"].apply.isEnabled())
         self.assertIsNotNone(cards["boswas-dark"].preview.pixmap)          # decoded on a worker thread
         self.assertIsNone(cards["classic"].preview.pixmap)
-        self.assertFalse(w.page("personalization").layout_box.isChecked())
+
+    def test_no_panel_layout_option(self):
+        """A preset changes colours and wallpaper; the page offers nothing about panels."""
+        w = self.window()
+        page = w.page("personalization")
+        self.assertFalse(hasattr(page, "layout_box"))
+        texts = [box.text() for box in page.findChildren(QCheckBox)] + \
+                [button.text() for button in page.findChildren(QPushButton)]
+        self.assertFalse([text for text in texts if "panel" in text.lower() or "layout" in text.lower()], texts)
+        self.assertNotIn("panel", page.reset_button.accessibleDescription().lower())
 
     def test_apply_runs_the_exact_command(self):
         w = self.window()
@@ -247,57 +269,72 @@ class PersonalizationTest(UiTestCase):
         self.settle(w)
         self.assertEqual(self.rig.commands.ran_program("boswas-preset")[-2],
                          [E["boswas-preset"], "apply", "boswas-light"])
-        self.assertEqual(self.questions, [])                               # no layout: no question
+        self.assertEqual(self.questions, [])                               # applying asks nothing
         self.assertEqual(w.page("personalization").banner.level, "ok")
         self.assertEqual(self.rig.commands.ran_program("boswas-preset")[-1], [E["boswas-preset"], "--json", "list"])
 
-    def test_layout_needs_confirmation(self):
+    def test_apply_never_passes_a_second_argument(self):
+        w = self.window()
+        for name in ("classic", "boswas-light"):
+            self.cards(w)[name].apply.click()
+            self.settle(w)
+        applied = [c for c in self.rig.commands.ran_program("boswas-preset") if c[1] == "apply"]
+        self.assertEqual(applied, [[E["boswas-preset"], "apply", "classic"], [E["boswas-preset"], "apply", "boswas-light"]])
+        self.assertEqual(self.questions, [])
+
+    def test_reset_returns_to_prism_after_asking(self):
+        # The default look is no preset: the fixture list has no "horizon", and none is needed.
+        for desktop in ("Boswas", "KDE", None):
+            self.rig.commands.ran.clear()
+            self.questions.clear()
+            if desktop is None:
+                self.rig.environ.pop("XDG_CURRENT_DESKTOP", None)
+            else:
+                self.rig.environ["XDG_CURRENT_DESKTOP"] = desktop
+            with self.subTest(desktop=desktop):
+                w = self.window()
+                page = w.page("personalization")
+                self.assertTrue(page.reset_button.isEnabled())
+                self.assertIn(vm.DEFAULT_LOOK, page.reset_button.toolTip())
+                self.assertIn(vm.DEFAULT_LOOK, page.reset_button.accessibleDescription())
+                self.answer = False
+                page.reset_button.click()
+                self.settle(w)
+                self.assertEqual(len(self.questions), 1)
+                self.assertIn(vm.DEFAULT_LOOK, self.questions[0][1])
+                for word in ("panel", "terminal profile", "Konsole", "Plasma"):
+                    self.assertNotIn(word, self.questions[0][1])
+                self.assertNotIn([E["boswas-preset"], "reset"], self.rig.commands.ran_program("boswas-preset"))
+                self.answer = True
+                page.reset_button.click()
+                self.settle(w)
+                self.assertIn([E["boswas-preset"], "reset"], self.rig.commands.ran_program("boswas-preset"))
+                self.assertFalse(any(c[1] == "apply" for c in self.rig.commands.ran_program("boswas-preset")))
+                self.assertEqual(page.banner.level, "ok")
+                self.assertTrue(page.reset_button.isEnabled())
+
+    def test_reset_failure_is_shown(self):
+        self.rig.commands.outputs[(E["boswas-preset"], "reset")] = fx.completed(
+            "", 1, "boswas-preset: step 'colours' failed: /home/u/.config/kdeglobals is a symbolic link")
         w = self.window()
         page = w.page("personalization")
-        page.layout_box.setChecked(True)
-        self.answer = False
-        self.cards(w)["classic"].apply.click()
+        page.reset_button.click()
         self.settle(w)
-        self.assertEqual(len(self.questions), 1)
-        self.assertIn("replaces your panels", self.questions[0][1])
-        self.assertFalse(any(c[1] == "apply" for c in self.rig.commands.ran_program("boswas-preset")))
-        self.answer = True
-        self.cards(w)["classic"].apply.click()
-        self.settle(w)
-        self.assertIn([E["boswas-preset"], "apply", "classic", "--layout"],
-                      self.rig.commands.ran_program("boswas-preset"))
+        self.assertEqual(page.banner.level, "error")
+        self.assertIn("could not be reset", page.banner.text.text())
+        self.assertIn("symbolic link", page.banner.text.text())
+        self.assertTrue(page.reset_button.isEnabled())
 
-    def test_reset_to_default_applies_the_default_preset_with_its_layout_after_asking(self):
-        # The fixture list has no "horizon": the reset is disabled and says why.
+    def test_reset_needs_the_preset_tool(self):
+        self.rig.commands.outputs[(E["boswas-preset"], "--json", "list")] = fx.completed("", 1, "no presets file")
         w = self.window()
         page = w.page("personalization")
         self.assertFalse(page.reset_button.isEnabled())
-        self.assertIn("not installed", page.reset_button.toolTip())
-        # With the default preset installed.
-        doc = fx.preset_doc(self.rig.root)
-        doc["presets"].append({"id": "horizon", "name": "Horizon", "description": "The Boswas OS default.",
-                               "variant": "dark", "accent": "#D9B26E", "preview": None})
-        self.rig.commands.outputs[(E["boswas-preset"], "--json", "list")] = fx.completed(json.dumps(doc))
-        w2 = self.window()
-        page = w2.page("personalization")
-        self.assertTrue(page.reset_button.isEnabled())
-        self.answer = False
-        page.reset_button.click()
-        self.settle(w2)
-        self.assertEqual(len(self.questions), 1)
-        self.assertIn("panels", self.questions[0][1])
-        self.assertFalse(any(c[1] == "apply" for c in self.rig.commands.ran_program("boswas-preset")))
-        self.answer = True
-        page.reset_button.click()
-        self.settle(w2)
-        self.assertIn([E["boswas-preset"], "apply", "horizon", "--layout"], self.rig.commands.ran_program("boswas-preset"))
-        self.assertEqual(page.banner.level, "ok")
-
-    def test_default_preset_matches_the_shipped_presets(self):
-        shipped = json.loads((Path(__file__).resolve().parents[3] / "desktop/presets/presets.json").read_text())
-        self.assertEqual(shipped["default"], vm.DEFAULT_PRESET)
-        names = {p["id"]: p["name"] for p in shipped["presets"]}
-        self.assertEqual(names[vm.DEFAULT_PRESET], vm.DEFAULT_PRESET_NAME)
+        self.assertIn("not available", page.reset_button.toolTip())
+        page.reset_to_default()
+        self.settle(w)
+        self.assertEqual(self.questions, [])
+        self.assertNotIn([E["boswas-preset"], "reset"], self.rig.commands.ran_program("boswas-preset"))
 
     def test_apply_failure(self):
         self.rig.commands.outputs[(E["boswas-preset"], "apply", "classic")] = fx.completed("", 2, "theme missing")
@@ -315,7 +352,7 @@ class PersonalizationTest(UiTestCase):
         page = w.page("personalization")
         self.assertEqual(page.cards, [])
         self.assertIn("not available", page.status.text())
-        self.assertTrue(page.modules.isVisibleTo(page))                    # the KDE modules still work
+        self.assertIsNone(page.programs)                                   # no program rows on this page
 
     def test_untrusted_names_are_plain_text(self):
         doc = fx.preset_doc(self.rig.root)
@@ -327,17 +364,19 @@ class PersonalizationTest(UiTestCase):
         self.assertEqual(card.name.textFormat(), Qt.TextFormat.PlainText)
 
 
-class ModuleTest(UiTestCase):
-    def test_tiles_open_kde_modules(self):
+class ProgramTest(UiTestCase):
+    def test_tiles_start_boswas_programs(self):
         w = self.window()
-        page = self.show(w, "network")
-        page.modules.tile("kcm_networkmanagement").click()
+        page = self.show(w, "storage")
+        self.assertIsInstance(page.programs.tile("files"), ProgramTile)
+        self.assertEqual(page.programs.tile("files").title(), "Browse files")
+        page.programs.tile("files").click()
         self.settle(w)
-        self.assertEqual(self.rig.commands.started, [[E["kcmshell6"], "kcm_networkmanagement"]])
+        self.assertEqual(self.rig.commands.started, [[E["boswas-files"], "/"]])
 
     def test_keyboard_opens_a_tile(self):
         w = self.window()
-        tile = self.show(w, "display").modules.tile("kcm_kscreen")
+        tile = self.show(w, "storage").programs.tile("files")
         tile.setFocus()
         key_click(tile, Qt.Key.Key_Return)
         deadline = time.monotonic() + 3
@@ -345,37 +384,55 @@ class ModuleTest(UiTestCase):
             QCoreApplication.processEvents()
             w.runner.wait(0.05)
         self.settle(w)
-        self.assertEqual(self.rig.commands.started, [[E["kcmshell6"], "kcm_kscreen"]])
+        self.assertEqual(self.rig.commands.started, [[E["boswas-files"], "/"]])
 
-    def test_missing_and_optional_modules(self):
+    def test_missing_program(self):
+        self.rig.commands.installed.discard(E["boswas-files"])
         w = self.window()
-        devices = self.show(w, "devices").modules
-        self.assertFalse(devices.tile("kcm_tablet").isEnabled())
-        self.assertIn("Not installed", devices.tile("kcm_tablet").toolTip())
-        privacy = self.show(w, "privacy").modules
-        self.assertTrue(privacy.tile("kcm_feedback").isHidden())            # optional and not installed
-        self.assertFalse(privacy.tile("kcm_kwallet5").isHidden())           # optional and installed
+        tile = self.show(w, "storage").programs.tile("files")
+        self.assertFalse(tile.isEnabled())
+        self.assertIn("Not installed", tile.toolTip())
+        self.assertEqual(tile.description(), "Not installed on this system")
 
     def test_open_failure_is_shown(self):
         from boswas_control_center.errors import CommandFailed
-        self.rig.commands.start_errors[(E["kcmshell6"], "kcm_pulseaudio")] = CommandFailed("kcmshell6", "boom")
+        self.rig.commands.start_errors[(E["boswas-files"], "/")] = CommandFailed("boswas-files", "boom")
         w = self.window()
-        self.show(w, "sound").modules.tile("kcm_pulseaudio").click()
+        self.show(w, "storage").programs.tile("files").click()
         self.settle(w)
         self.assertEqual(w.message.level, "error")
-        self.assertIn("Sound could not be opened", w.message.text.text())
+        self.assertIn("Browse files could not be opened", w.message.text.text())
         self.assertFalse(w.message_holder.isHidden())
         w.message.close_button.click()
         self.assertTrue(w.message_holder.isHidden())
 
-    def test_every_module_of_the_catalog_is_offered(self):
+    def test_every_program_of_the_catalog_is_offered(self):
         w = self.window()
+        offered = 0
         for key in catalog.PAGE_KEYS:
             info = catalog.BY_KEY[key]
-            if not info.modules or key in ("install", "windows"):
+            if not info.programs or key in ("install", "windows"):
                 continue
             page = self.show(w, key)
-            self.assertEqual([t.module for t in page.modules.tiles], list(info.modules), key)
+            self.assertEqual([t.program for t in page.programs.tiles], list(info.programs), key)
+            offered += len(info.programs)
+        self.assertEqual(offered, 1)
+        # The Compatibility Manager is opened by the Windows page's own button.
+        page = self.show(w, "windows")
+        page.open_button.click()
+        self.settle(w)
+        self.assertEqual(self.rig.commands.started[-1], [E["boswas-compat-manager"]])
+
+    def test_no_page_has_a_dead_tile(self):
+        """Nothing on any page starts a KDE settings module or says "Not installed" for one."""
+        w = self.window()
+        for key in catalog.PAGE_KEYS:
+            if key == "install" or not w.page_available(key):
+                continue
+            page = self.show(w, key)
+            for tile in page.findChildren(ProgramTile):
+                self.assertIn(tile.program.id, catalog.PROGRAMS, key)
+        self.assertEqual([c for c in self.rig.commands.started if "kcm" in " ".join(c)], [])
 
 
 class SecurityPageTest(UiTestCase):
@@ -392,7 +449,7 @@ class SecurityPageTest(UiTestCase):
         self.assertEqual(titles, ["TPM", "Audit logging", "SSH server", "Root account", "Repository trust",
                                   "USB storage policy"])
         self.assertEqual(page.lines["firewall"].accessibleName(), "Firewall: Secure")
-        self.assertEqual(page.modules.tile("kcm_firewall").module.id, "kcm_firewall")
+        self.assertIsNone(page.programs)
 
     def test_without_the_boswas_tool_and_the_agent(self):
         self.rig.commands.installed.discard(E["boswas"])
@@ -410,7 +467,7 @@ class ApplicationsPageTest(UiTestCase):
         page = self.show(self.window(), "applications")
         self.assertEqual(page.visible_keys(), [
             "desktop:com.boswas.CompatibilityManager", "windows:com.example.notepad", "windows:com.example.paint",
-            "desktop:org.kde.dolphin", "desktop:firefox-esr", "desktop:org.kde.kate", "desktop:kde-only",
+            "desktop:boswas-only", "desktop:org.kde.dolphin", "desktop:firefox-esr", "desktop:org.kde.kate",
             "desktop:kde4-oldapp"])
         page.search.setText("kate")
         self.assertEqual(page.visible_keys(), ["desktop:org.kde.kate"])
@@ -428,7 +485,8 @@ class ApplicationsPageTest(UiTestCase):
         self.assertFalse(page.detail.manage_button.isVisibleTo(page.detail))
         page.detail.open_button.click()
         self.settle(w)
-        self.assertEqual(self.rig.commands.started, [[E["kstart"], "--application", "org.kde.kate"]])
+        self.assertEqual(self.rig.commands.started,
+                         [[E["gio"], "launch", str(self.rig.base / "usr/share/applications/org.kde.kate.desktop")]])
 
     def test_windows_applications_go_to_the_compatibility_manager(self):
         w = self.window()
@@ -449,7 +507,7 @@ class ApplicationsPageTest(UiTestCase):
         self.assertEqual(page.list.currentItem().data(Qt.ItemDataRole.UserRole + 1).key, "windows:com.example.notepad")
         page.select("windows:com.example.paint")
         key_click(page.list, Qt.Key.Key_Down)
-        self.assertEqual(page.list.currentItem().data(Qt.ItemDataRole.UserRole + 1).key, "desktop:org.kde.dolphin")
+        self.assertEqual(page.list.currentItem().data(Qt.ItemDataRole.UserRole + 1).key, "desktop:boswas-only")
 
     def test_session_service_down(self):
         self.rig.services.session_down = True
@@ -496,19 +554,19 @@ class StatusPagesTest(UiTestCase):
         self.assertIn("system", storage.cards)
         self.assertIn("used of", storage.cards["system"][2].text())
         power = self.show(w, "power")
-        self.assertEqual(len(power.battery_rows), 1)
+        self.assertFalse(hasattr(power, "battery_rows"))    # the battery is a settings section now (sound_power)
 
     def test_system_page(self):
         page = self.show(self.window(), "system")
         self.assertEqual(page.grid.value("Device ID"), fx.AGENT["device_id"])
-        self.assertEqual(page.modules.tile("kinfocenter").module.kind, "program")
+        self.assertIsNone(page.programs)
 
     def test_about_page(self):
         w = self.window()
         page = self.show(w, "about")
         self.assertEqual(page.name.text(), "Boswas OS")
         self.assertEqual(page.grid.value("Version"), "v1 Alpha (1.0~alpha3)")
-        self.assertEqual(page.grid.value("Desktop"), "KDE Plasma 6.3.6")
+        self.assertEqual(page.grid.value("Desktop"), "Boswas Desktop 1.0~alpha3")
         self.assertEqual(page.grid.value("Session"), "Installed")
         self.assertEqual(page.grid.value("Security"), "7 protections active, 3 items to review")
         self.assertEqual(page.technical_grid.value("Package base"), "Debian 13.7")
@@ -523,7 +581,7 @@ class AccessibilityTest(UiTestCase):
     def test_controls_have_names_and_focus(self):
         w = self.window()
         for key in catalog.PAGE_KEYS:
-            if key != "install":
+            if key != "install" and w.page_available(key):
                 self.show(w, key)
         self.assertTrue(w.sidebar.accessibleName())
         for button in w.findChildren(QAbstractButton):
@@ -531,17 +589,19 @@ class AccessibilityTest(UiTestCase):
                 continue                                   # the line edit's own clear button
             name = button.accessibleName() or button.text() or button.toolTip()
             self.assertTrue(name, f"{type(button).__name__} without a name")
-        for tile in w.findChildren(ModuleTile):
-            self.assertEqual(tile.accessibleName(), tile.module.title)
+        for tile in w.findChildren(ProgramTile):
+            self.assertEqual(tile.accessibleName(), tile.program.title)
             self.assertTrue(tile.accessibleDescription())
             self.assertEqual(tile.focusPolicy(), Qt.FocusPolicy.StrongFocus)
         for edit in w.findChildren(QLineEdit):
-            self.assertTrue(edit.accessibleName())
+            # The text field inside a spin box or time box is named through that box.
+            named = edit.parent() if isinstance(edit.parent(), QAbstractSpinBox) else edit
+            self.assertTrue(named.accessibleName(), f"{type(named).__name__} without a name")
 
     def test_labels_are_plain_text_and_no_style_sheets(self):
         w = self.window()
         for key in catalog.PAGE_KEYS:
-            if key != "install":
+            if key != "install" and w.page_available(key):
                 self.show(w, key)
         for label in w.findChildren(QLabel):
             if label.text():

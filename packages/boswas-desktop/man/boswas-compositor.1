@@ -1,0 +1,345 @@
+.TH BOSWAS-COMPOSITOR 1 "November 2026" "Boswas OS" "User Commands"
+.SH NAME
+boswas-compositor \- the Boswas OS display server and window manager
+.SH SYNOPSIS
+.B boswas-compositor
+[\fIOPTIONS\fR] [\fB\-\-\fR \fICOMMAND\fR [\fIARGS\fR...]]
+.SH DESCRIPTION
+.B boswas-compositor
+is the display server, window manager and effects engine of the Boswas OS
+desktop. It draws every window and its frame (title bar, caption buttons,
+rounded corners, shadow), animates windows and desktops, routes all input,
+and decides which program may see or control what. Applications connect to
+it with the standard Wayland protocols; X11 applications run through the
+X server it starts for them.
+.PP
+It is normally started by
+.BR boswas-session (1).
+Once it accepts clients it starts the shell
+.RB ( boswas-shell (1))
+as a trusted client and restarts it if it exits.
+.SH OPTIONS
+.TP
+.BI \-\-backend " KIND"
+\fBudev\fR: real hardware (DRM/KMS, libinput, libseat); the default on a
+virtual terminal.
+\fBwinit\fR: a window inside another Wayland or X11 session; the default
+there.
+\fBheadless\fR: one output rendered in software into memory, for tests.
+.TP
+.BI \-\-headless\-size " WIDTH" x HEIGHT
+Size of the headless output (default 1920x1080).
+.TP
+.BI \-\-socket " NAME"
+Wayland socket name (default: the first free \fBwayland\-\fIN\fR).
+.TP
+.BI \-\-config " FILE"
+Read only this configuration file instead of the layers below.
+.TP
+.B \-\-no\-shell
+Do not start the shell.
+.TP
+.B \-\-test\-input
+Accept input-injection commands on trusted control connections. For tests.
+.TP
+.B \-\-print\-env
+Print \fBWAYLAND_DISPLAY\fR and \fBBOSWAS_COMPOSITOR_SOCKET\fR on standard
+output once the compositor is ready.
+.TP
+.BI \-\-send " COMMAND"
+Send a command to a running compositor's control socket, print the reply
+and exit: \fBversion\fR, \fBlock\fR, \fBreload\-config\fR, \fBoutputs\fR or
+\fBcapture\fR. With \fB\-\-control\-socket\fR \fIPATH\fR another
+compositor's socket is used.
+.TP
+.BR \-h ", " \-\-help
+Show a summary of the options.
+.TP
+.BR \-V ", " \-\-version
+Show the version.
+.SH KEYBOARD
+.TS
+tab(|);
+l lx.
+Super|T{
+open or close Start
+T}
+Super+A|T{
+quick settings
+T}
+Super+N|T{
+notifications and calendar
+T}
+Super+R|T{
+Run
+T}
+Super+E|T{
+Files
+T}
+Super+I|T{
+Settings
+T}
+Ctrl+Shift+Esc|T{
+Task Manager
+T}
+Ctrl+Alt+T|T{
+Terminal
+T}
+Super+L|T{
+lock the session
+T}
+Super+1 ... Super+9|T{
+start or switch to the taskbar application at that place
+T}
+Super+Shift+1 ... 9|T{
+start another window of it
+T}
+.sp
+Alt+Tab, Alt+Shift+Tab|T{
+pick a window, most recently used first
+T}
+Super+Tab|T{
+Task View: every window and the desktops
+T}
+Alt+F4|T{
+close the window
+T}
+Alt+Space|T{
+the window menu: Restore, Move, Size, Minimize, Maximize, Close
+T}
+F11, Super+F11|T{
+full screen
+T}
+Super+Up|T{
+maximize; a snapped half goes to its upper quarter
+T}
+Super+Down|T{
+restore; a snapped half goes to its lower quarter; minimize a restored window
+T}
+Super+Left, Super+Right|T{
+snap to a half; at the edge, on to the next monitor
+T}
+Super+Shift+Left, Right|T{
+move the window to the next monitor
+T}
+Super+D|T{
+show the desktop, and bring the windows back
+T}
+Super+M, Super+Shift+M|T{
+minimize every window; restore them
+T}
+.sp
+Super+Ctrl+D|T{
+new desktop
+T}
+Super+Ctrl+Left, Right|T{
+previous or next desktop
+T}
+Super+Ctrl+F4|T{
+close the desktop (its windows move to the neighbour)
+T}
+.sp
+Super+Space|T{
+next keyboard layout
+T}
+Print|T{
+capture the screen
+T}
+Shift+Print, Super+Shift+S|T{
+capture a region
+T}
+Volume, brightness, media keys|T{
+handled by the shell, also on the lock screen
+T}
+Ctrl+Alt+F1 ... F12|T{
+switch virtual terminal
+T}
+.TE
+.PP
+Shortcuts use the key's position on the Latin layout, so they work the same
+while another layout is active. A client that inhibits shortcuts (a remote
+desktop or virtual machine window) receives all of them except Super+L and
+the virtual terminal keys.
+.PP
+In the window picker Tab and the arrow keys move, releasing Alt selects and
+Esc cancels. In Task View the arrow keys move, Enter selects, Delete closes
+the window and Esc leaves. After Move or Size from the window menu the
+arrow keys move or resize the window (with Ctrl: by single pixels) until
+Enter or Esc; a window being moved also follows the pointer until a click.
+.SH POINTER, TOUCH AND GESTURES
+Drag a title bar to move a window; drag it to a screen edge to snap it (top:
+maximize; sides: halves; the outer quarter of a side: that corner), with a
+preview of the result. Double-click a title bar to maximize; right-click it
+for the window menu, which also sends the window to another monitor or
+desktop. Drag the border or a corner to resize. Super+left drag
+moves and Super+right drag resizes from anywhere on a window.
+.PP
+Resting the pointer on the maximize button opens the snap layouts: two
+halves, a half beside two quarters, and four quarters. Clicking a zone puts
+the window there.
+.PP
+On a touch screen a finger does what the pointer does on title bars,
+buttons, the window picker and Task View. On a touchpad, three or four
+fingers sideways go to the next or previous desktop, up opens Task View and
+down shows the desktop (\fB[touchpad] gestures\fR). Pinch and hold gestures
+are passed to applications. Drawing tablets and pens are supported with
+pressure, tilt and their buttons.
+.SH CONFIGURATION
+TOML files, later ones overriding earlier ones key by key:
+.PP
+.nf
+/usr/share/boswas/compositor/compositor.toml   shipped defaults
+/etc/boswas/compositor.toml                    the administrator
+~/.config/boswas/compositor.toml               the user (written by Settings)
+~/.config/boswas/appearance.toml               written by boswas\-preset
+.fi
+.PP
+A file that does not parse, or that contains an unknown key, is reported and
+ignored as a whole. \fIappearance.toml\fR may contain the [appearance] table
+only. \fBboswas\-compositor \-\-send reload\-config\fR applies changes to a
+running session.
+.TP
+.B [keyboard]
+\fBlayout\fR, \fBvariant\fR, \fBmodel\fR, \fBoptions\fR (XKB names, for
+example layout "us,in"); \fBrepeat_delay\fR (milliseconds),
+\fBrepeat_rate\fR (per second); \fBnumlock\fR (on when the session starts).
+.TP
+.B [pointer]
+Mice and trackballs: \fBnatural_scroll\fR, \fBaccel_speed\fR (\-1.0 to 1.0),
+\fBaccel_profile\fR ("adaptive" or "flat"), \fBleft_handed\fR,
+\fBcursor_theme\fR, \fBcursor_size\fR.
+.TP
+.B [touchpad]
+\fBtap_to_click\fR, \fBnatural_scroll\fR, \fBaccel_speed\fR,
+\fBdisable_while_typing\fR, \fBgestures\fR.
+.TP
+.B [output]
+\fBscale\fR: 1.0, 1.25, 1.5, 1.75 or 2.0, for every output that has no
+setting of its own.
+.TP
+.BI [outputs. NAME ]
+One monitor, by connector name (\fBeDP\-1\fR, \fBHDMI\-A\-1\fR; see
+\fB\-\-send outputs\fR): \fBenabled\fR, \fBmode\fR ("1920x1080" or
+"1920x1080@60", one of the modes the monitor offers), \fBscale\fR,
+\fBposition\fR ([x, y] of its top-left corner in logical pixels) and
+\fBrotation\fR ("normal", "90", "180" or "270"). Without a position,
+monitors are placed side by side from left to right. The last enabled
+monitor is never turned off.
+.TP
+.B [night_light]
+\fBenabled\fR; \fBtemperature\fR (2500 to 6500 kelvin); \fBscheduled\fR with
+\fBfrom\fR and \fBto\fR ("HH:MM", local time) turns it on by the clock.
+Needs a graphics driver with gamma tables.
+.TP
+.B [power]
+\fBscreen_off_seconds\fR: time without input before the screens turn off (0:
+never). Any input turns them on again.
+.TP
+.B [lock]
+\fBidle_seconds\fR: time without input before the session locks (0: never,
+if the policy allows it). \fBcommand\fR: the lock screen program.
+.TP
+.B [shell]
+\fBcommand\fR: the shell program.
+.TP
+.B [input_method]
+\fBcommand\fR: the input method program, for example ["fcitx5"]; empty for
+none.
+.PP
+.RS
+The three \fBcommand\fR keys are read from the first two files only: a
+user's file cannot name these programs. The shell and the lock screen are
+started as trusted clients. The input method is offered the input-method
+and virtual-keyboard protocols only (it sees what is typed and types
+itself) and none of the shell's other privileges.
+.RE
+.TP
+.B [xwayland]
+\fBenabled\fR: run an X server for X11 applications (default: true). A
+user can turn it off; when the first two files turn it off, a user's file
+does not turn it back on.
+.TP
+.B [apps]
+\fBterminal\fR (Ctrl+Alt+T), \fBfiles\fR (Super+E), \fBsettings\fR
+(Super+I) and \fBtask_manager\fR (Ctrl+Shift+Esc), each a program with its
+arguments.
+.TP
+.B [appearance]
+\fBscheme\fR ("dark" or "light"), \fBreduced_motion\fR (no animations),
+\fBwallpaper\fR (a PNG or JPEG file shown by the shell instead of the
+default background).
+.TP
+.B [policy]
+Read from the first two files only; ignored in a user's file.
+\fBlock_idle_max_seconds\fR: the longest lock timeout a user may choose (0:
+no limit). \fBprivileged_protocols\fR: "shell" (default) or "all" (see
+SECURITY).
+.SH X11 APPLICATIONS
+With \fB[xwayland] enabled\fR the compositor starts
+.BR Xwayland (1)
+and manages its windows like any other: the same frame, snapping, picker
+and Task View. \fBDISPLAY\fR is set for programs the session starts. The
+clipboard is shared in both directions. X11 applications can see each
+other's windows and input, as on any X server; they cannot see Wayland
+applications. X11 windows are drawn at scale 1 and enlarged on a scaled
+monitor.
+.SH SECURITY
+Ordinary clients get the application protocols only: they cannot read the
+screen, other windows or global key strokes.
+.PP
+The privileged protocols (layer shell for panels and overlays, session
+lock, the window list, clipboard control, input method and virtual
+keyboard) are offered only to programs the compositor started itself, over
+a connection it created for them. Clients that connect through a security
+context (Flatpak and other sandboxes) never get them.
+\fBprivileged_protocols = "all"\fR offers them to every client outside a
+sandbox; it exists for development and must not be set on a managed device.
+.PP
+Nobody sees the screen without the user's say. The Print key and the
+\fBcapture\fR command open the capture screen of the shell, where the user
+chooses what to keep and confirms. A program that asks for pictures of the
+screen itself (a screenshot tool, a screen recorder, the desktop portal
+behind screen sharing in browsers and meetings; the wlr\-screencopy
+protocol) waits until the shell has asked "Allow \fIprogram\fR to see your
+screen?" and the user has allowed it. The permission covers that program
+while it keeps capturing and ends a few seconds after its last picture; a
+mark on the taskbar shows while any program may capture, and a click on it
+stops them all. A refusal holds for twenty seconds. Sandboxed programs are
+not offered the protocol, and nothing is captured while the session is
+locked.
+.PP
+The compositor owns the session lock. Locking blanks every output and takes
+input away from applications before the lock screen is started; only a lock
+client's unlock request ends it. If the lock screen exits without
+unlocking, the outputs stay blank and it is started again. The session is
+also locked before the system suspends or hibernates
+(\fI/usr/lib/systemd/system\-sleep/boswas\-lock\fR).
+.PP
+The compositor runs as the logged-in user. Device access comes from the
+login session (libseat, logind); it has no setuid bit and needs no
+capability.
+.SH CONTROL SOCKET
+\fB$XDG_RUNTIME_DIR/boswas\-\fIWAYLAND_DISPLAY\fB.sock\fR accepts one JSON
+object per line, for example {"cmd": "outputs"}. Connections to this socket
+may ask for \fBversion\fR, \fBlock\fR, \fBreload\-config\fR, \fBoutputs\fR
+(every monitor with its modes, scale, position and rotation) and
+\fBcapture\fR (opens the capture screen; "mode": "screen" or "region").
+The window list, window control, desktops, thumbnails, screenshots, the
+answer to a program that asks to see the screen and \fBquit\fR are
+available to the shell only, on the descriptor the compositor hands it.
+.SH ENVIRONMENT
+.TP
+.B BOSWAS_LOG
+Log filter (for example \fBdebug\fR or \fBboswas_compositor=trace\fR).
+Messages go to standard error.
+.TP
+.B XCURSOR_THEME
+Cursor theme when \fBpointer.cursor_theme\fR is empty.
+.SH EXIT STATUS
+0 when the session ended normally, 1 when the compositor could not start or
+failed, 2 for a usage error.
+.SH SEE ALSO
+.BR boswas-session (1),
+.BR boswas-shell (1),
+.BR Xwayland (1),
+.BR greetd (1)

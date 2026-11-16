@@ -1,7 +1,7 @@
 """System, About Boswas OS and Install Boswas OS.
 
 About reads the release identity (/usr/lib/boswas/release, image-info),
-the kernel, processor, memory, storage, the Plasma version, and the
+the kernel, processor, memory, storage, the desktop version, and the
 summaries of the Security and Windows Compatibility pages. Its System
 Overview adds the current load, the network state, and what other pages
 already found in this window (pending updates, missing firmware) plus the
@@ -28,7 +28,7 @@ class SystemPage(Page):
     data_keys = ("agent",)
 
     def build(self) -> None:
-        self.add_modules()
+        self.add_settings()
         self.device = Card("Device management", self.content)
         self.grid = InfoGrid(self.device)
         self.device.addWidget(self.grid)
@@ -41,7 +41,7 @@ class SystemPage(Page):
 
 
 class AboutPage(Page):
-    data_keys = ("release", "hardware", "storage", "plasma", "live", "security", "session_system", "windows_apps",
+    data_keys = ("release", "hardware", "storage", "desktop", "live", "security", "session_system", "windows_apps",
                  "agent", "agent_runtime", "load", "network", "android")
     # Shown when another page has loaded them, never requested from here.
     passive_keys = ("upgradable", "firmware")
@@ -117,11 +117,11 @@ class AboutPage(Page):
         self.name.setText(release.name)
         self.version.setText(release.version_text)
         self.rows = vm.about_rows(release, self.store.value("hardware"), self.store.value("storage"),
-                                  self.store.value("plasma") if self.store.get("plasma") is not None else None,
+                                  self.store.value("desktop") if self.store.get("desktop") is not None else None,
                                   self.store.value("live"), self._security(), self._windows(),
                                   self.store.value("agent"),
                                   agent.error if agent is not None and not agent.ok else None)
-        if self.store.get("plasma") is None:
+        if self.store.get("desktop") is None:
             self.rows = [(k, "Checking…" if k == "Desktop" else v) for k, v in self.rows]
         self.grid.set_rows(self.rows)
         self.technical_rows = vm.technical_rows(release, self.store.value("hardware"))

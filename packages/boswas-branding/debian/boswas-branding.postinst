@@ -1,26 +1,14 @@
 #!/bin/sh
+# Boswas-Cursors is the pointer theme of the desktop. Programs that do not
+# read XCURSOR_THEME (GTK and X11 clients) load the theme called "default",
+# which in Debian is the alternative x-cursor-theme: register the Boswas
+# theme there, above the themes Debian's packages register (Adwaita 90,
+# Breeze 102), so the pointer is the same in every program.
 set -e
 
-case "$1" in
-	configure)
-		# Boot splash: select the Boswas OS Plymouth theme unless an administrator
-		# chose a theme of their own. (Debian's default, ceratopsian, belongs to
-		# desktop-base, which Boswas OS does not install.) The initramfs is
-		# rebuilt through the update-initramfs trigger (boswas-branding.triggers).
-		if command -v plymouth-set-default-theme >/dev/null 2>&1; then
-			current="$(plymouth-set-default-theme 2>/dev/null || true)"
-			case "$current" in
-				""|ceratopsian|emerald|homeworld|futureprototype|text|details|spinner|bgrt|boswas)
-					# A splash problem must not leave the package unconfigured; the
-					# image build verifies the theme (0100-boswas-verify).
-					plymouth-set-default-theme boswas ||
-						echo "boswas-branding: warning: could not select the Boswas OS boot splash" >&2
-					;;
-			esac
-		fi
-		;;
-esac
+if [ "$1" = configure ]; then
+	update-alternatives --install /usr/share/icons/default/index.theme x-cursor-theme \
+		/usr/share/icons/Boswas-Cursors/cursor.theme 150
+fi
 
 #DEBHELPER#
-
-exit 0

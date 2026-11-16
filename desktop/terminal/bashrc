@@ -1,4 +1,4 @@
-# Boswas OS terminal start-up (Konsole "Boswas" profiles run
+# Boswas OS terminal start-up (Boswas Terminal starts bash as
 # bash --rcfile /usr/share/boswas/terminal/bashrc). The user's own ~/.bashrc
 # runs first and keeps working; this adds the Boswas prompt and welcome.
 

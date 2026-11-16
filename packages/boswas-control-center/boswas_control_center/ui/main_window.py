@@ -1,31 +1,41 @@
-"""Main window: header strip, category sidebar and lazily built pages.
+"""Main window: a navigation pane with the categories, the page title and lazily built pages.
 
-Pages are created the first time they are shown, and each loads only the
-data it displays (store.py). The Install page exists only in a live
-session: its sidebar entry stays hidden until the live check has answered
-yes. Keyboard: Up/Down in the sidebar switch pages, Tab moves into the page,
-F5 refreshes the current page, Ctrl+F searches the applications, Ctrl+Q
-quits.
+The window is a FluentWindow of the Boswas UI toolkit with a NavigationView:
+the categories on the left (with a search box that filters them by name
+and by the settings they hold), the title of the current page above it,
+and messages as an InfoBar between title and page. Pages are created the
+first time they are shown, and each loads only the data it displays
+(store.py). A page shows its native settings sections (ui/settings); they
+are activated while the page is the current one and deactivated when it is
+left or the window closes. Enter in the search box opens the page of the
+best matching settings section and scrolls to it. A page that has nothing
+to show on this system (no section, no content of its own) is left out of
+the pane. The Install page exists only in a live session: its entry stays
+hidden until the live check has answered yes. Keyboard: Up/Down in the
+pane switch pages, Tab moves into the page, F5 refreshes the current page,
+Ctrl+F searches the applications, Ctrl+Q quits.
+
+A second start of the program does not open a second window: the toolkit
+hands its arguments to handle_arguments(), which shows the page (and
+section) they name.
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRectF, QSize, Qt
-from PySide6.QtGui import QFont, QFontMetrics, QKeySequence, QPainter, QPalette, QPen, QShortcut
-from PySide6.QtWidgets import (QAbstractItemView, QFileDialog, QFrame, QHBoxLayout, QLabel, QListWidget,
-                               QListWidgetItem, QMainWindow, QMessageBox, QStackedWidget, QStyle, QStyledItemDelegate,
-                               QToolButton, QVBoxLayout, QWidget)
+import boswas_fluent as fluent
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QVBoxLayout, QWidget
 
 from .. import catalog
+from ..app import requested_page
 from ..errors import user_message
+from . import bridgeclient, settings
 from .android_page import AndroidPage
 from .applications import ApplicationsPage
-from .common import (SP, Badge, MessageBanner, Separator, app_icon, border_colour, icon, mark_icon, message_box, mix,
-                     plain_label, scaled_font)
-from .device_pages import PowerPage, SettingsPage, StoragePage
+from .common import SP, Badge, MessageBanner, app_icon, icon
+from .device_pages import SettingsPage, StoragePage
 from .hardware_page import HardwarePage
 from .jobs import JobController
-from .network_page import NetworkPage
 from .personalization import PersonalizationPage
 from .security import SecurityPage
 from .status_pages import PrivacyPage, WindowsPage
@@ -35,12 +45,14 @@ from .updates import UpdatesPage
 from .worker import Runner
 
 APP_NAME = "Boswas Control Center"
+APP_ID = "com.boswas.ControlCenter"
 DEFAULT_PAGE = "personalization"
+# Pages with content of their own; every other page is a SettingsPage: its native settings sections.
 PAGE_CLASSES = {
-    "personalization": PersonalizationPage, "power": PowerPage, "storage": StoragePage,
+    "personalization": PersonalizationPage, "storage": StoragePage,
     "applications": ApplicationsPage, "windows": WindowsPage, "security": SecurityPage, "updates": UpdatesPage,
     "privacy": PrivacyPage, "system": SystemPage, "about": AboutPage, "install": InstallPage,
-    "android": AndroidPage, "hardware": HardwarePage, "network": NetworkPage,
+    "android": AndroidPage, "hardware": HardwarePage,
 }
 SIDEBAR_FALLBACKS = {"about": SP.SP_MessageBoxInformation, "storage": SP.SP_DriveHDIcon,
                      "install": SP.SP_DriveHDIcon, "applications": SP.SP_FileDialogListView,
@@ -49,185 +61,93 @@ SIDEBAR_FALLBACKS = {"about": SP.SP_MessageBoxInformation, "storage": SP.SP_Driv
                      "updates": SP.SP_BrowserReload}
 
 
-class SidebarDelegate(QStyledItemDelegate):
-    """Rounded selection in the accent colour, icon and label."""
+class Header(QWidget):
+    """What stands beside the page title: the live-session badge and the refresh button."""
 
-    def sizeHint(self, option, index) -> QSize:
-        return QSize(option.rect.width(), max(36, QFontMetrics(option.font).height() + 18))
-
-    def paint(self, painter: QPainter, option, index) -> None:
-        painter.save()
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        palette = option.palette
-        rect = QRectF(option.rect).adjusted(6, 2, -6, -2)
-        selected = bool(option.state & QStyle.StateFlag.State_Selected)
-        hovered = bool(option.state & QStyle.StateFlag.State_MouseOver)
-        focused = bool(option.state & QStyle.StateFlag.State_HasFocus) and option.widget is not None \
-            and option.widget.hasFocus()
-        base, accent = palette.color(QPalette.ColorRole.Base), palette.color(QPalette.ColorRole.Highlight)
-        if selected:
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(accent)
-            painter.drawRoundedRect(rect, 6, 6)
-        elif hovered:
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(mix(base, accent, 0.14))
-            painter.drawRoundedRect(rect, 6, 6)
-        if focused:
-            painter.setPen(QPen(palette.color(QPalette.ColorRole.Text) if selected else accent, 1.5))
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRoundedRect(rect.adjusted(1.5, 1.5, -1.5, -1.5), 5, 5)
-        qicon = index.data(Qt.ItemDataRole.DecorationRole)
-        size = 22
-        if qicon is not None:
-            qicon.paint(painter, int(rect.left()) + 10, int(rect.center().y() - size / 2), size, size)
-        painter.setPen(palette.color(QPalette.ColorRole.HighlightedText if selected else QPalette.ColorRole.Text))
-        font = scaled_font(option.font, weight=QFont.Weight.DemiBold) if selected else option.font
-        painter.setFont(font)
-        text_rect = rect.adjusted(10 + size + 10, 0, -6, 0)
-        painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
-                         QFontMetrics(font).elidedText(index.data(Qt.ItemDataRole.DisplayRole),
-                                                       Qt.TextElideMode.ElideRight, int(text_rect.width())))
-        painter.restore()
-
-
-class Sidebar(QListWidget):
-    """The category list; keyboard navigation skips hidden categories (Install outside a live session)."""
-
-    def moveCursor(self, action, modifiers):
-        index = super().moveCursor(action, modifiers)
-        actions = QAbstractItemView.CursorAction
-        backwards = action in (actions.MoveUp, actions.MovePageUp, actions.MovePrevious, actions.MoveEnd)
-        step = -1 if backwards else 1
-        row = index.row()
-        while 0 <= row < self.count() and self.item(row).isHidden():
-            row += step
-        if not 0 <= row < self.count():
-            return self.currentIndex()
-        return self.model().index(row, 0)
-
-
-class Header(QFrame):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
-        self.setAutoFillBackground(True)
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(16, 10, 10, 10)
-        layout.setSpacing(10)
-        self.mark = QLabel(self)
-        self.mark.setPixmap(mark_icon().pixmap(QSize(28, 28)))
-        self.mark.setFixedSize(28, 28)
-        self.mark.setAccessibleName("Boswas OS")
-        self.title = plain_label(APP_NAME, parent=self)
-        self.title.setFont(scaled_font(self.title.font(), 1.15, weight=QFont.Weight.DemiBold))
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
         self.live_badge = Badge("Live session", icon("media-optical", "drive-optical"), parent=self)
         self.live_badge.setToolTip("Boswas OS is running from the boot medium; changes are lost at shutdown")
         self.live_badge.hide()
-        self.refresh_button = QToolButton(self)
-        self.refresh_button.setIcon(icon("view-refresh", fallback=SP.SP_BrowserReload))
-        self.refresh_button.setToolTip("Refresh this page (F5)")
+        self.refresh_button = fluent.IconButton(icon("view-refresh", fallback=SP.SP_BrowserReload),
+                                                "Refresh this page (F5)", self)
         self.refresh_button.setAccessibleName("Refresh this page")
-        self.refresh_button.setAutoRaise(True)
-        layout.addWidget(self.mark)
-        layout.addWidget(self.title)
         layout.addWidget(self.live_badge, 0, Qt.AlignmentFlag.AlignVCenter)
-        layout.addStretch(1)
         layout.addWidget(self.refresh_button)
 
 
-class MainWindow(QMainWindow):
+class MainWindow(fluent.FluentWindow):
     def __init__(self, backend, *, runner: Runner | None = None, initial_page: str | None = None,
-                 parent: QWidget | None = None):
-        super().__init__(parent)
+                 initial_section: str | None = None, parent: QWidget | None = None):
+        super().__init__(APP_ID, APP_NAME, parent, navigation={"search": True, "compact_below": 1000},
+                         icon=app_icon(), size=(1180, 780), minimum_size=(820, 560))
         self.backend = backend
         self.runner = runner or Runner(self)
         self.store = Store(backend, self.runner, self)
         self.pages: dict[str, QWidget] = {}
         self.live: bool | None = None
         self.pending_page = initial_page if initial_page in catalog.PAGE_KEYS else None
+        self.pending_section = initial_section if self.pending_page else None
+        self.closed = False
         # Modal interactions go through these attributes so tests can answer them.
         self.ask = self._ask
         self.choose_file = self._choose_file
         self.jobs = JobController(self)
         self.close_when_done = False
         self.jobs.finished.connect(self._job_finished)
-        self.setWindowTitle(APP_NAME)
-        self.setWindowIcon(app_icon())
-        self.resize(1180, 780)
-        self.setMinimumSize(820, 560)
+        self._shown: str | None = None
         self._build()
         self.store.changed.connect(self._store_changed)
-        for key, slot in ((QKeySequence.StandardKey.Refresh, self.refresh_current),
-                          (QKeySequence.StandardKey.Find, self.focus_search),
-                          (QKeySequence.StandardKey.Quit, self.close)):
-            shortcut = QShortcut(QKeySequence(key), self)
-            shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
-            shortcut.activated.connect(slot)
+        self.add_shortcut("refresh", self.refresh_current)
+        self.add_shortcut("find", self.focus_search)
+        self.add_shortcut("quit", self.close)
         self.store.request("live")
         start = self.pending_page if self.pending_page and self.pending_page != "install" else DEFAULT_PAGE
-        self.show_page(start)
+        self.show_page(start, self.pending_section if start == self.pending_page else None)
         self.sidebar.setFocus(Qt.FocusReason.OtherFocusReason)
 
     # --- layout ---
     def _build(self) -> None:
-        central = QWidget(self)
-        outer = QVBoxLayout(central)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
-        self.header = Header(central)
-        self.header.refresh_button.clicked.connect(self.refresh_current)
-        outer.addWidget(self.header)
-        outer.addWidget(Separator(central))
-
-        body = QHBoxLayout()
-        body.setContentsMargins(0, 0, 0, 0)
-        body.setSpacing(0)
-        self.sidebar = Sidebar(central)
-        self.sidebar.setItemDelegate(SidebarDelegate(self.sidebar))
-        self.sidebar.setFrameShape(QFrame.Shape.NoFrame)
-        self.sidebar.setFixedWidth(236)
-        self.sidebar.setIconSize(QSize(22, 22))
-        self.sidebar.setMouseTracking(True)
+        nav = self.navigation
+        self.sidebar = nav.list
+        self.sidebar.setIconSize(QSize(20, 20))
         self.sidebar.setAccessibleName("Settings categories")
         self.sidebar.setAccessibleDescription("Use the Up and Down arrow keys to switch between categories")
-        self.sidebar.setContentsMargins(0, 8, 0, 8)
-        self.sidebar.setSpacing(1)
+        self.stack = nav.stack
+        self.holders: dict[str, QWidget] = {}
+        section_words = settings.all_keywords()
         for page in catalog.PAGES:
+            holder = QWidget()
+            holder_layout = QVBoxLayout(holder)
+            holder_layout.setContentsMargins(0, 0, 0, 0)
+            self.holders[page.key] = holder
             fallback = SIDEBAR_FALLBACKS.get(page.key, SP.SP_FileDialogInfoView)
-            item = QListWidgetItem(icon(*page.icons, fallback=fallback), page.label)
-            item.setData(Qt.ItemDataRole.UserRole, page.key)
-            item.setData(Qt.ItemDataRole.AccessibleDescriptionRole, page.description)
-            item.setToolTip(page.description)
-            self.sidebar.addItem(item)
-            item.setHidden(page.live_only)
-        body.addWidget(self.sidebar)
-        body.addWidget(_VLine(central))
-
-        content = QVBoxLayout()
-        content.setContentsMargins(0, 0, 0, 0)
-        content.setSpacing(0)
-        self.message_holder = QWidget(central)            # hidden with the message, margins and all
+            # The search box of the pane also finds a category by the settings it holds.
+            keywords = [*page.keywords, *section_words.get(page.key, ()),
+                        *(word for program in page.programs for word in (program.title, program.description))]
+            nav.add_page(page.key, page.label, holder, icon=icon(*page.icons, fallback=fallback),
+                         tooltip=page.description, heading=page.heading, keywords=keywords)
+            if page.live_only or not self.page_available(page.key):
+                nav.set_item_visible(page.key, False)
+        self.header = Header()
+        self.header.refresh_button.clicked.connect(self.refresh_current)
+        nav.add_header_widget(self.header)
+        self.message_holder = QWidget()                   # hidden with the message
         message_row = QHBoxLayout(self.message_holder)
-        message_row.setContentsMargins(24, 12, 24, 0)
+        message_row.setContentsMargins(0, 0, 0, 0)
         self.message = MessageBanner(parent=self.message_holder)
         self.message.closed.connect(self.message_holder.hide)
         message_row.addWidget(self.message)
         self.message_holder.hide()
-        content.addWidget(self.message_holder)
-        self.stack = QStackedWidget(central)
-        self.holders: dict[str, QWidget] = {}
-        for page in catalog.PAGES:
-            holder = QWidget(self.stack)
-            holder_layout = QVBoxLayout(holder)
-            holder_layout.setContentsMargins(0, 0, 0, 0)
-            self.holders[page.key] = holder
-            self.stack.addWidget(holder)
-        content.addWidget(self.stack, 1)
-        body.addLayout(content, 1)
-        outer.addLayout(body, 1)
-        self.setCentralWidget(central)
-        self.sidebar.currentRowChanged.connect(self._row_changed)
-        self.setTabOrder(self.header.refresh_button, self.sidebar)
+        nav.add_banner(self.message_holder)
+        nav.current_changed.connect(self._page_selected)
+        nav.search_submitted.connect(self._search_submitted)
+        if nav.search_box is not None:
+            nav.search_box.setPlaceholderText("Find a setting")
+            nav.search_box.setAccessibleName("Find a setting")
 
     # --- pages ---
     def page(self, key: str) -> QWidget:
@@ -240,7 +160,13 @@ class MainWindow(QMainWindow):
             self.pages[key] = widget
         return widget
 
-    def show_page(self, key: str) -> None:
+    @staticmethod
+    def page_available(key: str) -> bool:
+        """Whether the page has anything to show: content of its own, a settings section or a program row."""
+        return key in PAGE_CLASSES or bool(catalog.BY_KEY[key].programs) or bool(settings.sections_for(key))
+
+    def show_page(self, key: str, section: str | type | None = None) -> None:
+        """Make ``key`` the current page; with ``section`` (a title, command-line name or class), scroll to it."""
         if key not in catalog.BY_KEY:
             raise ValueError(f"unknown page {key!r}")
         if catalog.BY_KEY[key].live_only and self.live is not True:
@@ -249,26 +175,51 @@ class MainWindow(QMainWindow):
                 return
             self.show_status("Install Boswas OS is available only in a live session.")
             return
-        row = catalog.PAGE_KEYS.index(key)
-        if self.sidebar.currentRow() == row:
-            self._row_changed(row)
+        if not self.page_available(key):
+            self.show_status(f"The {catalog.BY_KEY[key].label} settings are not available on this system.")
+            return
+        if self.navigation.current() == key:
+            self._page_selected(key)
         else:
-            self.sidebar.setCurrentRow(row)
+            self.navigation.set_current(key)
+        if section is not None and self._shown == key:
+            self.page(key).scroll_to_section(section)
 
     def current_page(self) -> str:
-        return catalog.PAGES[self.stack.currentIndex()].key
+        return self._shown or self.navigation.current()
 
-    def _row_changed(self, row: int) -> None:
-        if not 0 <= row < len(catalog.PAGES):
+    def _page_selected(self, key: str) -> None:
+        info = catalog.BY_KEY[key]
+        if (info.live_only and self.live is not True) or not self.page_available(key):
+            # Never reachable outside a live session (or without content), whatever selected it.
+            self.navigation.set_current(self._shown or DEFAULT_PAGE)
             return
-        info = catalog.PAGES[row]
-        if info.live_only and self.live is not True:
-            # Never reachable outside a live session, whatever selected it.
-            self.sidebar.setCurrentRow(self.stack.currentIndex())
-            return
-        self.stack.setCurrentIndex(row)
-        self.page(info.key).activate()
+        previous = self._shown
+        if previous is not None and previous != key and previous in self.pages:
+            self.pages[previous].deactivate()
+        self._shown = key
+        self.page(key).activate()
         self.setWindowTitle(f"{info.heading} — {APP_NAME}" if info.heading != APP_NAME else APP_NAME)
+        query = self.navigation.search_box.text().strip() if self.navigation.search_box is not None else ""
+        if query and previous != key:
+            # Chosen from the filtered list: show what was searched for.
+            found = settings.find(query, key)
+            if found:
+                self.page(key).scroll_to_section(found[0])
+
+    # --- search and other instances ---
+    def _search_submitted(self, query: str) -> None:
+        """Enter in the search box: the page of the best matching settings section, scrolled to it."""
+        found = [cls for cls in settings.find(query)
+                 if self.page_available(cls.page) and not catalog.BY_KEY[cls.page].live_only]
+        if found:
+            self.show_page(found[0].page, found[0])
+
+    def handle_arguments(self, arguments: list[str]) -> None:
+        """A second start of the program: show the page (and section) its command line names."""
+        page, section = requested_page(arguments)
+        if page is not None:
+            self.show_page(page, section)
 
     def refresh_current(self) -> None:
         self.page(self.current_page()).refresh()
@@ -283,8 +234,7 @@ class MainWindow(QMainWindow):
             return
         self.live = self.store.value("live") is True
         self.header.live_badge.setVisible(self.live)
-        install_row = catalog.PAGE_KEYS.index("install")
-        self.sidebar.item(install_row).setHidden(not self.live)
+        self.navigation.set_item_visible("install", self.live)
         if not self.live and self.current_page() == "install":
             self.show_page(DEFAULT_PAGE)
         if self.pending_page == "install":
@@ -294,10 +244,10 @@ class MainWindow(QMainWindow):
                 self.show_status("Install Boswas OS is available only in a live session.")
 
     # --- actions ---
-    def open_module(self, module: catalog.Module) -> None:
-        self.runner.submit(self.backend.open_module, module, key=f"open:{module.kind}:{module.id}",
+    def open_program(self, program: catalog.Program) -> None:
+        self.runner.submit(self.backend.open_program, program, key=f"open:{program.id}",
                            on_done=lambda _r: None,
-                           on_error=lambda exc: self.show_error(f"{module.title} could not be opened. "
+                           on_error=lambda exc: self.show_error(f"{program.title} could not be opened. "
                                                                 f"{self.error_text(exc)}"))
 
     def restart_to_install(self) -> None:
@@ -330,15 +280,18 @@ class MainWindow(QMainWindow):
         return path or None
 
     def _ask(self, title: str, text: str, confirm: str) -> bool:
-        box = message_box(self, "question", title, text)
-        yes = box.addButton(confirm, QMessageBox.ButtonRole.AcceptRole)
-        box.addButton(QMessageBox.StandardButton.Cancel)
-        box.setDefaultButton(QMessageBox.StandardButton.Cancel)
-        box.exec()
-        return box.clickedButton() is yes
+        # A ContentDialog inside the window; Cancel is the default, so Enter never confirms by accident.
+        return fluent.ask(self, title, text, confirm, "Cancel", default="cancel")
 
     # --- shutdown ---
     def shutdown(self) -> None:
+        """Stop everything that runs for this window: the sections' watching, the services bridge, the jobs."""
+        if self.closed:
+            return
+        self.closed = True
+        for page in self.pages.values():
+            page.deactivate()
+        bridgeclient.stop_for(self)
         self.jobs.stop_for_close()
         self.runner.shutdown()
 
@@ -365,12 +318,3 @@ class MainWindow(QMainWindow):
                 return
         self.shutdown()
         super().closeEvent(event)
-
-
-class _VLine(QWidget):
-    def __init__(self, parent: QWidget | None = None):
-        super().__init__(parent)
-        self.setFixedWidth(1)
-
-    def paintEvent(self, event) -> None:
-        QPainter(self).fillRect(self.rect(), border_colour(self.palette()))

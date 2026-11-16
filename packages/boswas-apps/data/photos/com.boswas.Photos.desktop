@@ -1,0 +1,22 @@
+[Desktop Entry]
+Type=Application
+Name=Photos
+GenericName=Image Viewer
+Comment=View, organise and touch up your pictures
+Exec=boswas-photos %F
+Icon=boswas-photos
+Terminal=false
+StartupNotify=true
+StartupWMClass=com.boswas.Photos
+Categories=Graphics;Viewer;2DGraphics;RasterGraphics;Photography;Qt;
+Keywords=photos;pictures;images;gallery;viewer;slideshow;crop;rotate;edit;jpeg;png;
+MimeType=image/png;image/jpeg;image/gif;image/bmp;image/webp;image/svg+xml;image/svg+xml-compressed;image/tiff;image/x-icon;image/vnd.microsoft.icon;image/x-portable-bitmap;image/x-portable-graymap;image/x-portable-pixmap;image/x-xbitmap;image/x-xpixmap;
+Actions=NewWindow;Gallery;
+
+[Desktop Action NewWindow]
+Name=New Window
+Exec=boswas-photos --new-window
+
+[Desktop Action Gallery]
+Name=Gallery
+Exec=boswas-photos --gallery

@@ -2,25 +2,30 @@
 # Renders the Boswas OS artwork from the SVG sources in desktop/ (repository
 # root is two levels up) and installs every file with an explicit mode.
 #
-#   desktop/branding/   the mark, wordmarks, boot and login art, splash, Plymouth
-#   desktop/presets/    the ten presets: colour schemes, Global Themes,
-#                       wallpapers, Konsole schemes, boswas-preset (install.sh)
-#   desktop/icons/      the Boswas and Boswas Light icon themes (install.sh)
-#   desktop/launcher/   the Boswas Launcher applet
-#   desktop/terminal/   the Boswas terminal prompt and welcome
-#   desktop/defaults/   system-wide KDE, SDDM and lock-screen defaults
+#   desktop/branding/   the mark, wordmarks, boot menu and About art
+#   desktop/ui/         Boswas UI tokens and the Prism colour schemes
+#   desktop/ui/qt/      boswas_fluent, the Qt toolkit of the Boswas applications
+#                       (to the private module directory /usr/lib/boswas/python)
+#   desktop/presets/    the ten presets: colour schemes, wallpapers,
+#                       boswas-preset (install.sh)
+#   desktop/icons/      the Boswas Prism icon pack and the earlier Boswas
+#                       icon themes (install.sh)
+#   desktop/cursors/    Boswas-Cursors, the pointer theme (install.sh)
+#   desktop/terminal/   the prompt and welcome of Boswas Terminal
+#   desktop/defaults/   system-wide defaults for KDE applications and Firefox
+#
+# The desktop itself (compositor, shell, lock and login screens) is the
+# package boswas-desktop; the boot screen is boswas-bootsplash.
 
 REPO   := $(abspath $(CURDIR)/../..)
-SUBST  := $(REPO)/build/scripts/subst-release.sh
 INLINE := python3 $(REPO)/build/scripts/inline-svg.py
 DESK   := $(REPO)/desktop
 B      := build
 PKG    := debian/boswas-branding
 SHARE  := $(PKG)/usr/share
 BRAND  := $(SHARE)/boswas/branding
-SPLASH := $(SHARE)/plasma/look-and-feel/com.boswas.splash
-PLY    := $(SHARE)/plymouth/themes/boswas
 KDEDEF := $(SHARE)/boswas/kde-settings
+FLUENT := $(PKG)/usr/lib/boswas/python/boswas_fluent
 ORBITRON := Regular Medium SemiBold Bold ExtraBold Black
 
 %:
@@ -28,32 +33,23 @@ ORBITRON := Regular Medium SemiBold Bold ExtraBold Black
 
 override_dh_auto_test:
 ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+	cd $(DESK)/ui && python3 -B -m unittest discover -s tests
+	# The widget tests skip themselves when PySide6 is not installed
+	cd $(DESK)/ui/qt && QT_QPA_PLATFORM=offscreen python3 -B -m unittest discover -s tests
 	cd $(DESK)/presets && python3 -B -m unittest discover -s tests
 	cd $(DESK)/icons && python3 -B -m unittest discover -s tests
+	cd $(DESK)/cursors && python3 -B -m unittest discover -s tests
 endif
 
 override_dh_auto_build:
-	mkdir -p $(B)/plymouth
+	mkdir -p $(B)
 	# Self-contained SVGs (Qt cannot follow <image> references)
 	$(INLINE) $(DESK)/branding/boswas-mark.svg $(B)/boswas-logo.svg
 	$(INLINE) $(DESK)/branding/boswas-about-logo.svg $(B)/boswas-about-logo.svg
 	$(INLINE) $(DESK)/branding/boswas-os-mark.svg $(B)/boswas-os-mark.svg
 	$(INLINE) $(DESK)/branding/login-logo.svg $(B)/boswas-login-logo.svg
-	$(INLINE) $(DESK)/branding/plymouth/watermark.svg $(B)/lockup.svg
-	# Plymouth (two-step): lockup, 24-frame spinner, passphrase dialog
-	rsvg-convert --height 190 $(B)/lockup.svg -o $(B)/plymouth/watermark.png
-	for f in entry lock bullet capslock; do \
-		rsvg-convert $(DESK)/branding/plymouth/$$f.svg -o $(B)/plymouth/$$f.png || exit 1; \
-	done
-	for i in $$(seq 1 24); do \
-		n=$$(printf %04d $$i); \
-		sed "s/@ANGLE@/$$((i * 15))/" $(DESK)/branding/plymouth/throbber.svg | \
-			rsvg-convert -o $(B)/plymouth/throbber-$$n.png || exit 1; \
-		cp $(B)/plymouth/throbber-$$n.png $(B)/plymouth/animation-$$n.png; \
-	done
-	# KDE defaults
-	cat $(DESK)/defaults/kde-settings/kdeglobals.header $(DESK)/presets/color-schemes/BoswasHorizon.colors > $(B)/kdeglobals
-	$(SUBST) < $(DESK)/defaults/kde-settings/kcm-about-distrorc.in > $(B)/kcm-about-distrorc
+	# Defaults for KDE applications: the Prism colour scheme and icon pack
+	cat $(DESK)/defaults/kde-settings/kdeglobals.header $(DESK)/ui/color-schemes/BoswasPrism.colors > $(B)/kdeglobals
 
 override_dh_auto_install:
 	install -D -m 0644 $(B)/boswas-logo.svg $(BRAND)/boswas-logo.svg
@@ -67,38 +63,35 @@ override_dh_auto_install:
 		install -D -m 0644 $(DESK)/fonts/orbitron/static/Orbitron-$$weight.ttf \
 			$(SHARE)/fonts/truetype/orbitron/Orbitron-$$weight.ttf || exit 1; \
 	done
-	# The ten presets (colour schemes, Global Themes com.boswas.<id>, wallpapers,
-	# lock-screen art, Konsole schemes and profiles, boswas-preset) and the
-	# icon themes
-	sh $(DESK)/presets/install.sh $(CURDIR)/$(PKG)
-	sh $(DESK)/icons/install.sh $(CURDIR)/$(PKG)
-	# Session start-up splash (KSplash)
-	install -D -m 0644 $(DESK)/branding/splash/metadata.json $(SPLASH)/metadata.json
-	install -D -m 0644 $(DESK)/branding/splash/contents/splash/Splash.qml $(SPLASH)/contents/splash/Splash.qml
-	install -D -m 0644 $(B)/lockup.svg $(SPLASH)/contents/splash/images/lockup.svg
-	install -D -m 0644 $(DESK)/branding/splash/spinner.svg $(SPLASH)/contents/splash/images/spinner.svg
-	# Boot, shutdown and passphrase splash (Plymouth)
-	install -D -m 0644 $(DESK)/branding/plymouth/boswas.plymouth $(PLY)/boswas.plymouth
-	for f in $(B)/plymouth/*.png; do \
-		install -D -m 0644 $$f $(PLY)/$$(basename $$f) || exit 1; \
+	# Boswas UI: the design tokens (for tools that read them) and the Prism
+	# colour schemes for KDE applications
+	install -D -m 0644 $(DESK)/ui/tokens.json $(SHARE)/boswas/ui/tokens.json
+	for scheme in BoswasPrism BoswasPrismLight; do \
+		install -D -m 0644 $(DESK)/ui/color-schemes/$$scheme.colors $(SHARE)/color-schemes/$$scheme.colors || exit 1; \
 	done
-	# Boswas Launcher (Kickoff's maintained implementation under the Boswas name)
-	install -D -m 0644 $(DESK)/launcher/metadata.json $(SHARE)/plasma/plasmoids/com.boswas.launcher/metadata.json
-	# Terminal: prompt and welcome for the Boswas Konsole profiles
+	# boswas_fluent: the Qt toolkit every Boswas application imports
+	install -d -m 0755 $(FLUENT) $(FLUENT)/widgets
+	install -m 0644 $(DESK)/ui/qt/boswas_fluent/*.py $(FLUENT)/
+	install -m 0644 $(DESK)/ui/qt/boswas_fluent/widgets/*.py $(FLUENT)/widgets/
+	# The ten presets (colour schemes, wallpapers, lock-screen art,
+	# boswas-preset) and the icon themes: Boswas Prism (the default) and the
+	# earlier Boswas themes
+	sh $(DESK)/presets/install.sh $(CURDIR)/$(PKG)
+	sh $(DESK)/icons/install.sh $(CURDIR)/$(PKG) all
+	# The pointer theme of the desktop. The maintainer scripts register it
+	# as Debian's default cursor theme (the x-cursor-theme alternative).
+	sh $(DESK)/cursors/install.sh $(CURDIR)/$(PKG)
+	# The directory of the alternative's link. Debian's cursor themes ship
+	# it too; without it the registration in postinst would fail on a system
+	# that has none of them.
+	install -d -m 0755 $(SHARE)/icons/default
+	# Terminal: the prompt and welcome Boswas Terminal starts bash with
 	install -D -m 0644 $(DESK)/terminal/bashrc $(SHARE)/boswas/terminal/bashrc
 	install -D -m 0755 $(DESK)/terminal/boswas-welcome $(PKG)/usr/bin/boswas-welcome
 	install -D -m 0644 $(DESK)/terminal/boswas-welcome.1 $(SHARE)/man/man1/boswas-welcome.1
 	install -D -m 0644 $(DESK)/presets/man/boswas-preset.1 $(SHARE)/man/man1/boswas-preset.1
-	# KDE defaults (XDG config dir) and the session hook that enables it
+	# Defaults for KDE applications (an XDG config dir that boswas-session
+	# appends, so /etc/xdg and the user's own settings keep precedence)
 	install -D -m 0644 $(B)/kdeglobals $(KDEDEF)/kdeglobals
-	install -D -m 0644 $(DESK)/defaults/kde-settings/kscreenlockerrc $(KDEDEF)/kscreenlockerrc
-	install -D -m 0644 $(DESK)/defaults/kde-settings/ksplashrc $(KDEDEF)/ksplashrc
-	install -D -m 0644 $(DESK)/defaults/kde-settings/konsolerc $(KDEDEF)/konsolerc
-	install -D -m 0644 $(B)/kcm-about-distrorc $(KDEDEF)/kcm-about-distrorc
-	install -D -m 0644 $(DESK)/defaults/plasma-workspace-env/boswas-kde-settings.sh \
-		$(PKG)/etc/xdg/plasma-workspace/env/boswas-kde-settings.sh
 	# Firefox ESR: no Debian package search among the user's search engines
 	install -D -m 0644 $(DESK)/defaults/firefox/policies.json $(PKG)/usr/lib/firefox-esr/distribution/policies.json
-	# Login screen (SDDM, Breeze theme with the Boswas background and logo)
-	install -D -m 0644 $(DESK)/defaults/sddm/10-boswas.conf $(PKG)/etc/sddm.conf.d/10-boswas.conf
-	install -D -m 0644 $(DESK)/defaults/sddm/theme.conf.user $(SHARE)/sddm/themes/breeze/theme.conf.user

@@ -1,0 +1,97 @@
+.TH BOSWAS-CAMERA 1 "November 2026" "Boswas OS" "User Commands"
+.SH NAME
+boswas-camera \- take photos and record videos with a camera of the computer
+.SH SYNOPSIS
+.B boswas-camera
+.br
+.B boswas-camera
+.BR \-\-help " | " \-\-version
+.SH DESCRIPTION
+.B boswas-camera
+shows the live picture of a camera and takes photos and videos with it.
+Only one instance runs per session; a later start brings the window of the
+running one to the front.
+.PP
+The picture fills the middle of the window.
+On the right are the shutter button, the buttons for photo and video mode, a
+button to change the camera when more than one is connected, and a small
+picture of the last capture, which opens it in
+.BR boswas\-photos (1)
+(a video, or any capture when Photos is not installed, opens in the default
+application).
+On the left are the settings, the timer (off, 3, 5 or 10 seconds, counted
+down on the picture; the shutter button or Escape cancels it), the mirror
+and grid switches and, only when the camera reports the feature, flash, light
+(in video mode), exposure, focus and, under the picture, zoom.
+.SS Photos
+A photo is saved as JPEG in
+.IR Pictures "/Camera Roll"
+with the time in its name, for example
+.BR IMG_20261116_143005.jpg .
+Mirroring affects the preview only: the file is the picture as the camera
+sees it.
+The shutter animation is left out when the desktop asks for reduced motion.
+.SS Videos
+A video is recorded to
+.IR Videos "/Camera Roll"
+as
+.BR VID_ ...,
+in an MPEG-4 file with H.264 and AAC where the system can encode them, with
+the sound of the default microphone when there is one (a button turns the
+microphone off).
+The time recorded so far is shown on the picture; a recording can be paused
+and resumed.
+Closing the window, or losing the camera, ends the recording and keeps the
+file.
+.PP
+A recording does not start when less than 500 MiB is free where videos are
+saved, and a running recording is ended and saved when less than 100 MiB is
+left.
+A photo needs 20 MiB.
+.SS When there is no picture
+Without a camera the window says so and starts by itself as soon as one is
+connected.
+When the camera cannot be started (another program uses it, or access is
+not allowed) the message of the system is shown with a button to try again.
+When the camera is unplugged, another connected camera takes over; without
+one the window waits for the camera to come back.
+.SH OPTIONS
+.TP
+.B \-\-help
+Print a summary of the command line and exit.
+.TP
+.B \-\-version
+Print the version and exit.
+.SH KEYS
+.TS
+tab(|);
+l l.
+Space, Enter|Take a photo; start or stop a recording
+Escape|Cancel the timer; leave the settings
+Ctrl+,|Settings
+Alt+Left|Back to the camera
+F5|Look for cameras again
+Ctrl+W, Ctrl+Q|Close
+.TE
+.SH FILES
+.TP
+.I $XDG_CONFIG_HOME/com.boswas.Camera/settings.json
+Save locations, the mode and timer to start with, mirror, grid, video
+quality, the shutter sound, the camera used last and the resolutions chosen
+for each camera.
+.TP
+.I $XDG_STATE_HOME/com.boswas.Camera/window.ini
+The window size.
+.TP
+.I $XDG_CONFIG_HOME/user\-dirs.dirs
+Where the Pictures and Videos folders are (xdg\-user\-dirs).
+.TP
+.I /usr/share/sounds/freedesktop/stereo/camera\-shutter.oga
+The shutter sound, when the sound theme is installed.
+.SH EXIT STATUS
+0 on success, also when a running instance was brought to the front;
+2 for a wrong command line; 4 when started as root, which is refused.
+.SH SEE ALSO
+.BR boswas\-photos (1),
+.BR boswas\-media\-player (1),
+.BR xdg\-user\-dirs\-update (1)

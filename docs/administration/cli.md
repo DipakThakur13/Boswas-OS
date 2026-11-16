@@ -19,7 +19,7 @@ boswas-status [--json]     # = boswas status
 
 | Command | Shows |
 |---------|-------|
-| `boswas info` | OS name, version, build ID, channel, Debian base and codename, architecture, kernel, desktop, hostname, boot mode and Secure Boot state, live or installed, device ID, enrollment, compliance summary |
+| `boswas info` | OS name, version, build ID, channel, Debian base and codename, architecture, kernel, desktop (`Boswas Desktop <version>`, the version of the package `boswas-desktop`; `KDE Plasma <version>` on an image built on Plasma), hostname, boot mode and Secure Boot state, live or installed, device ID, enrollment, compliance summary |
 | `boswas status` | All posture checks with PASS/WARN/FAIL/INFO/UNKNOWN |
 | `boswas security status` | Security checks only |
 | `boswas device status` | Device ID, enrollment, Control Plane and policy version (from the device agent; `/etc/boswas/device.conf` as fallback), profile and certificate reference, the agent's device state and connection, and a non-sensitive hardware summary (no serial numbers) |
@@ -44,7 +44,7 @@ Base:         Debian 13.7
 Codename:     trixie
 Architecture: amd64
 Kernel:       6.12.111+deb13-amd64
-Desktop:      KDE Plasma 6.3.6
+Desktop:      Boswas Desktop 1.0~alpha3
 Hostname:     boswas-device
 Boot:         BIOS
 Session:      live (not installed)
@@ -114,6 +114,27 @@ Check IDs are stable:
 | Security | `secure-boot`, `tpm`, `disk-encryption`, `firewall`, `apparmor`, `audit`, `ssh-server`, `root-account`, `apt-trust`, `screen-lock`, `usb-policy`, `winapp-confinement` |
 | Updates | `updates` |
 | Management | `agent`, `enrollment` |
+
+### `screen-lock`
+
+`screen-lock` reports the lock policy of the native Boswas desktop. It reads
+the compositor's system configuration the way `boswas-compositor` merges it
+(`/usr/share/boswas/compositor/compositor.toml`, then
+`/etc/boswas/compositor.toml`): `[lock] idle_seconds` and `[policy]
+lock_idle_max_seconds`. A user's own file is not read, because it can only
+shorten the timeout.
+
+| Result | Meaning |
+|--------|---------|
+| PASS, "automatic lock after 10 min idle, enforced" | A timeout is set and the policy caps it: users cannot lengthen or disable it |
+| WARN, "... but users may turn it off" | A timeout is set, but `lock_idle_max_seconds = 0` removes the cap |
+| WARN, "automatic screen lock is turned off" | `idle_seconds = 0` and no cap |
+| WARN, "Boswas screen lock policy not installed" | Neither the compositor's configuration nor (on a Plasma image) the KDE lock policy was found |
+
+The check describes the configured policy, not the running session. The
+compositor also locks before suspend and hibernate, and keeps the session
+locked if the lock screen crashes; `boswas-compositor --send lock` locks a
+running session from a script.
 
 ### `winapp-confinement`
 

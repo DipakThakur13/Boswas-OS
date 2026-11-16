@@ -30,9 +30,14 @@
 #   - Network rules are present. Whether an application has a network at
 #     all is decided by bubblewrap (--unshare-net unless the manifest grants
 #     network).
+#   - Wayland (abstractions/wayland): on the Boswas desktop the application
+#     connects to the compositor's public socket as an ordinary client. It
+#     cannot read the screen, other windows or their input, and it is never
+#     offered the privileged protocols (panels, lock, window list, clipboard
+#     control).
 #   - X11 (abstractions/X): an X11 client can observe and send input to other
-#     X11 clients on the same display. Under Plasma Wayland this is limited
-#     to other Xwayland clients; native Wayland applications are not exposed.
+#     X11 clients on the same display. This applies only where the session
+#     runs an X server; the Boswas desktop does not.
 #
 # Reviewed local additions belong in /etc/apparmor.d/local/boswas-winapp.
 
@@ -45,6 +50,7 @@ profile boswas-winapp /usr/lib/boswas/compat/winapp-exec flags=(attach_disconnec
   include <abstractions/fonts>
   include <abstractions/nameservice>
   include <abstractions/X>
+  include <abstractions/wayland>
   include <abstractions/audio>
   include <abstractions/mesa>
   include <abstractions/dri-enumerate>

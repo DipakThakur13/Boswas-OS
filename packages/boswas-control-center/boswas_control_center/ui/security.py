@@ -52,7 +52,7 @@ class SecurityPage(Page):
         self.other.hide()
         self.basis = muted_label("", parent=self.content)
         self.body.addWidget(self.basis)
-        self.add_modules("Security settings")
+        self.add_settings()
         self.checked_at = ""
         self.checked_result = None
 

@@ -28,7 +28,7 @@ class HardwarePage(Page):
         jobs_ = self.window_.jobs
         self.summary = SummaryCard(self.content)
         self.check_button = QPushButton("Check Firmware", self.summary)
-        self.check_button.setIcon(icon("search", "edit-find", fallback=SP.SP_FileDialogContentsView))
+        self.check_button.setIcon(icon("system-search", "search", "edit-find", fallback=SP.SP_FileDialogContentsView))
         self.check_button.setAccessibleDescription("Reads the kernel log for firmware the drivers could not load")
         self.check_button.clicked.connect(self.check_firmware)
         self.summary.actions.addWidget(self.check_button)
@@ -66,7 +66,7 @@ class HardwarePage(Page):
         self.devices.addWidget(self.devices_note)
         self.devices.addWidget(self.tree)
         self.body.addWidget(self.devices)
-        self.add_modules()
+        self.add_settings()
         jobs_.changed.connect(self._buttons)
 
     def _changed(self, key: str) -> None:

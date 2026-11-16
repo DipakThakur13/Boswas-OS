@@ -2,10 +2,16 @@
 
 Least privilege: only commands.py may start a process, always from an
 argument list whose program is in the fixed allowlist, never through a
-shell; nothing evaluates code; nothing starts Wine; the device agent and
-session agent are used read-only. Privileged work goes only through
-`pkexec /usr/libexec/boswas/sysops <operation>` with an operation of a fixed
-set and validated arguments; apt-get only ever simulates; only userfiles.py
+shell; the one exception is the services bridge, a long-lived child that
+only ui/bridgeclient.py starts, by its fixed path and without arguments.
+Nothing evaluates code; nothing starts Wine or a KDE program; the device
+agent and session agent are used read-only. Privileged work goes only
+through `pkexec /usr/libexec/boswas/sysops <operation>` with an operation of
+a fixed set and validated arguments; apt-get only ever simulates;
+timedatectl, localectl, ip, locale, gio, nmcli and busctl only with their
+fixed argument forms (busctl: AccountsService calls without any secret);
+passwd only without arguments on a pseudo-terminal, the one new way a
+program is started (commands.CommandRunner.converse); only userfiles.py
 writes or deletes files. The desktop entries are valid and there is no
 Install Boswas OS entry (the image generates it in live sessions only). No
 teal anywhere in the data or code.
@@ -27,30 +33,36 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import cc_fixtures  # noqa: E402,F401  (import paths)
 
-from boswas_control_center import backend, catalog, commands, jobs  # noqa: E402
+from boswas_control_center import backend, catalog, commands, jobs, servicebridge  # noqa: E402
 
 PACKAGE = Path(__file__).resolve().parents[1]
-CODE = sorted((PACKAGE / "boswas_control_center").rglob("*.py"))
+CODE = sorted(p for p in (PACKAGE / "boswas_control_center").rglob("*.py") if "__pycache__" not in p.parts)
 SCRIPTS = [PACKAGE / "bin" / "boswas-control-center"]
 ALL = CODE + SCRIPTS
 DATA = sorted((PACKAGE / "data").iterdir())
 SHIPPED = ALL + DATA + [PACKAGE / "man" / "boswas-control-center.1"]
 PURE = ("__init__.py", "app.py", "backend.py", "catalog.py", "commands.py", "errors.py", "probes.py", "viewmodel.py",
         "jobs.py", "software.py", "android.py", "hardware.py", "sysinfo.py", "filetypes.py", "userfiles.py",
-        "overview.py")
+        "overview.py", "servicebridge.py")
+# Every module directly in the package is Qt-free unless it is listed here (none is: Qt lives in ui/).
+QT_MODULES: tuple[str, ...] = ()
 
 EXPECTED_EXECUTABLES = {
     "boswas": "/usr/bin/boswas", "boswas-preset": "/usr/bin/boswas-preset",
-    "boswas-compat-manager": "/usr/bin/boswas-compat-manager", "kcmshell6": "/usr/bin/kcmshell6",
-    "kstart": "/usr/bin/kstart", "kioclient": "/usr/bin/kioclient", "dolphin": "/usr/bin/dolphin",
-    "partitionmanager": "/usr/bin/partitionmanager", "kinfocenter": "/usr/bin/kinfocenter",
-    "plasmashell": "/usr/bin/plasmashell", "apt-config": "/usr/bin/apt-config", "systemctl": "/usr/bin/systemctl",
+    "boswas-compat-manager": "/usr/bin/boswas-compat-manager", "boswas-files": "/usr/bin/boswas-files",
+    "gio": "/usr/bin/gio", "ip": "/usr/bin/ip", "timedatectl": "/usr/bin/timedatectl",
+    "localectl": "/usr/bin/localectl", "locale": "/usr/bin/locale", "busctl": "/usr/bin/busctl",
+    "passwd": "/usr/bin/passwd",
+    "apt-config": "/usr/bin/apt-config", "systemctl": "/usr/bin/systemctl",
     "boswas-android": "/usr/bin/boswas-android", "apt-get": "/usr/bin/apt-get", "apt-cache": "/usr/bin/apt-cache",
     "flatpak": "/usr/bin/flatpak", "nmcli": "/usr/bin/nmcli", "lsblk": "/usr/bin/lsblk", "pkexec": "/usr/bin/pkexec",
 }
 EXPECTED_SYSOPS = {"apt-refresh", "apt-upgrade", "apt-install", "apt-remove", "apt-install-local", "apt-clean",
                    "journal-vacuum", "firmware-report", "flatpak-remote-enable", "flatpak-remote-disable"}
-# Changing files is allowed only in userfiles.py (AppImages, their menu entries, the thumbnail cache).
+# Changing files is allowed only in userfiles.py: AppImages, their menu entries, the thumbnail cache, the
+# settings files of write_config()/remove_config() (boswas/compositor.toml and its .bak, boswas/appearance.toml,
+# mimeapps.list, autostart/<id>.desktop in the user's config directory), the account picture ~/.face and the
+# list of recently used files (recently-used.xbel, emptied).
 FILE_CHANGING_OS = {"remove", "unlink", "rename", "replace", "makedirs", "mkdir", "chmod"}
 FILE_WRITER = "boswas_control_center/userfiles.py"
 FORBIDDEN_MODULES = {"multiprocessing", "pty", "pexpect", "webbrowser", "ctypes", "pickle", "shelve", "marshal",
@@ -65,10 +77,18 @@ FORBIDDEN_OS = {"system", "popen", "fork", "forkpty", "execv", "execve", "execl"
 FORBIDDEN_NAMES = {"QProcess", "QDesktopServices", "QLibrary", "QPluginLoader", "Popen", "check_output",
                    "getoutput", "getstatusoutput"}
 FORBIDDEN_BUILTINS = {"eval", "exec", "compile", "__import__", "breakpoint"}
+# The services bridge is a child process that speaks on pipes: QProcess is used for it, in this module only.
+BRIDGE_CLIENT = "boswas_control_center/ui/bridgeclient.py"
+# No KDE program is started or probed any more (the native desktop has none of them).
+KDE_PROGRAMS = ("kcmshell", "kstart", "kioclient", "kinfocenter", "partitionmanager", "kwalletmanager",
+                "plasmashell", "systemsettings", "kde-open", "kreadconfig", "kwriteconfig", "qdbus")
 FORBIDDEN_TEXT = ("os.system", "os.popen", "shell=True", "QProcess", "startDetached", "apt install",
                   "aptdaemon", "packagekit", "pkcon", "dpkg -i", "sudo ", "boswas-winapp launch",
                   "boswas-winapp install", "/usr/bin/boswas-winapp", "wine64",
                   "wineserver", "winecfg", "msiexec", "calamares", "debian-installer")
+# Ways of recording text (never used where passwords pass through): print, logging, a logger, the standard streams.
+RECORDING = (re.compile(r"\bprint\("), re.compile(r"\blogging\b"), re.compile(r"(?<![A-Za-z_])log\."),
+             re.compile(r"sys\.std(err|out)"))
 WINE_COMMAND = re.compile(r"^(?:/\S*/)?wine(?:64|server|boot|cfg|-preloader)?(?:\s|$)")
 HEX_COLOUR = re.compile(r"#([0-9A-Fa-f]{6}|[0-9A-Fa-f]{3})(?![0-9A-Fa-f])")
 
@@ -101,11 +121,13 @@ class ProcessTest(unittest.TestCase):
             for node in ast.walk(tree(path)):
                 if isinstance(node, ast.keyword) and node.arg == "shell":
                     self.fail(f"{rel(path)}:{node.value.lineno} passes shell=")
+                bridge = {"QProcess"} if rel(path) == BRIDGE_CLIENT else set()
                 if isinstance(node, ast.Name):
-                    self.assertNotIn(node.id, FORBIDDEN_BUILTINS | FORBIDDEN_NAMES, f"{rel(path)}:{node.lineno}")
+                    self.assertNotIn(node.id, (FORBIDDEN_BUILTINS | FORBIDDEN_NAMES) - bridge,
+                                     f"{rel(path)}:{node.lineno}")
                 if isinstance(node, ast.Attribute):
                     self.assertNotIn(node.attr, {"QProcess", "QDesktopServices", "startDetached", "check_output",
-                                                 "getoutput", "getstatusoutput"},
+                                                 "getoutput", "getstatusoutput", "startCommand", "execute"} - bridge,
                                      f"{rel(path)}:{node.lineno} uses .{node.attr}")
                     if isinstance(node.value, ast.Name) and node.value.id == "os":
                         allowed = FILE_CHANGING_OS if rel(path) == FILE_WRITER else set()
@@ -121,7 +143,10 @@ class ProcessTest(unittest.TestCase):
         parsed = ast.parse(source)
         calls = [n for n in ast.walk(parsed) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
                  and isinstance(n.func.value, ast.Name) and n.func.value.id == "subprocess"]
-        self.assertEqual(sorted(c.func.attr for c in calls), ["Popen", "Popen", "run"])
+        # run(), start(), stream() and converse(): the fourth, on a pseudo-terminal, is the one way a program is
+        # started that is not a pipe. It runs exactly /usr/bin/passwd without arguments (the user's own
+        # password), see test_the_pseudo_terminal_is_for_passwd_only.
+        self.assertEqual(sorted(c.func.attr for c in calls), ["Popen", "Popen", "Popen", "run"])
         for call in calls:
             self.assertIsInstance(call.args[0], ast.Name)
             self.assertEqual(call.args[0].id, "command")
@@ -132,9 +157,56 @@ class ProcessTest(unittest.TestCase):
         self.assertIn("timeout", {k.arg for k in run.keywords})
         functions = {n.name: ast.get_source_segment(source, n) for n in ast.walk(parsed)
                      if isinstance(n, ast.FunctionDef)}
-        for name in ("run", "start", "stream"):
+        for name in ("run", "start", "stream", "converse"):
             self.assertIn("_check(command)", functions[name])
         self.assertIn("command[0] not in ALLOWED_PATHS", functions["_check"])
+
+    def test_the_pseudo_terminal_is_for_passwd_only(self):
+        """One place opens a pseudo-terminal: converse() in commands.py, for `/usr/bin/passwd` and nothing else."""
+        for path in ALL:
+            text = path.read_text(encoding="utf-8")
+            if rel(path) != "boswas_control_center/commands.py":
+                for token in ("openpty", "termios", "forkpty", "TIOCSCTTY", "os.read(", "os.write("):
+                    if token in ("os.read(", "os.write(") and rel(path) == FILE_WRITER:
+                        continue                              # userfiles writes its files through descriptors
+                    self.assertNotIn(token, text, f"{rel(path)} uses {token}")
+        source = (PACKAGE / "boswas_control_center" / "commands.py").read_text(encoding="utf-8")
+        self.assertEqual(source.count("os.openpty()"), 1)
+        functions = {n.name: ast.get_source_segment(source, n) for n in ast.walk(ast.parse(source))
+                     if isinstance(n, ast.FunctionDef)}
+        converse = functions["converse"]
+        self.assertIn("os.openpty()", converse)
+        self.assertIn("if command != passwd_argv():", converse)
+        self.assertLess(converse.index("if command != passwd_argv():"), converse.index("os.openpty()"))
+        self.assertIn("~(termios.ECHO | termios.ECHONL)", converse)      # nothing typed is printed back
+        for recording in RECORDING:
+            self.assertIsNone(recording.search(converse), recording.pattern)   # nothing typed or printed is recorded
+        self.assertEqual(functions["passwd_argv"].count("EXECUTABLES[\"passwd\"]"), 1)
+        self.assertEqual(commands.passwd_argv(), ["/usr/bin/passwd"])
+        for bad in (["/usr/bin/passwd", "root"], ["/usr/bin/passwd", "-d", "bob"], ["/usr/bin/passwd", "--stdin"]):
+            with self.assertRaises(ValueError, msg=bad):
+                commands._check(bad)
+        runner = commands.CommandRunner({})
+        for command in (["/usr/bin/busctl", "tree"], commands.argv("locale", "-a"), ["/bin/sh"]):
+            with self.assertRaises(ValueError, msg=command):
+                runner.converse(command, object(), 5)
+        with self.assertRaises(ValueError):
+            runner.run(commands.passwd_argv() + ["bob"], 5)
+
+    def test_no_secret_reaches_a_command_line(self):
+        """busctl carries names and numbers only: the password methods of AccountsService are not callable."""
+        for method in ("SetPassword", "SetPasswordHint", "SetPasswordMode"):
+            self.assertNotIn(method, commands.ACCOUNTS_METHODS)
+            with self.assertRaises(ValueError):
+                commands.accounts_argv(method, "$6$salt$hash", "", path="/org/freedesktop/Accounts/User1001")
+        source = (PACKAGE / "boswas_control_center" / "accounts.py").read_text(encoding="utf-8")
+        self.assertNotIn("SetPassword\"", source)                        # the Qt-free module never builds that call
+        ui = (PACKAGE / "boswas_control_center" / "ui" / "settings" / "accounts.py").read_text(encoding="utf-8")
+        self.assertEqual(ui.count('"SetPassword"'), 1)                   # one D-Bus call, in dbus_set_password
+        self.assertIn("message.setArguments([hashed, \"\"])", ui)
+        for recording in RECORDING:
+            self.assertIsNone(recording.search(ui), recording.pattern)
+            self.assertIsNone(recording.search(source), recording.pattern)
 
     def test_allowlist(self):
         self.assertEqual(commands.EXECUTABLES, EXPECTED_EXECUTABLES)
@@ -153,15 +225,61 @@ class ProcessTest(unittest.TestCase):
                 else:                                     # argv(name, *args) from catalog.PROGRAMS only
                     self.assertEqual(ast.unparse(first), "name")
 
-    def test_kcm_modules_are_plain_plugin_names(self):
-        for module in catalog.KCM_MODULES:
-            self.assertRegex(module, r"^kcm[a-zA-Z0-9_]+$")
+    def test_no_kde_program_is_named(self):
+        """Nothing starts, probes or mentions a KDE program: the catalog has programs of Boswas only."""
+        for path in SHIPPED:
+            text = path.read_text(encoding="utf-8")
+            for token in KDE_PROGRAMS:
+                self.assertNotIn(token, text, f"{rel(path)} names {token}")
+        self.assertEqual(set(catalog.PROGRAMS), {"files", "compat-manager"})
+        self.assertEqual(catalog.PROGRAMS["files"], ("boswas-files", ("/",)))
+        self.assertEqual(catalog.PROGRAMS["compat-manager"], ("boswas-compat-manager", ()))
+        for page in catalog.PAGES:
+            for program in page.programs:
+                self.assertIn(program.id, catalog.PROGRAMS, page.key)
+        self.assertFalse(hasattr(catalog, "KCM_MODULES"))
+        self.assertFalse(hasattr(backend.Backend, "kcm_availability"))
 
     def test_forbidden_text(self):
         for path in ALL:
             text = path.read_text(encoding="utf-8")
             for token in FORBIDDEN_TEXT:
+                if token == "QProcess" and rel(path) == BRIDGE_CLIENT:
+                    continue                              # see test_only_the_bridge_client_uses_qprocess
                 self.assertNotIn(token, text, f"{rel(path)} contains {token!r}")
+
+    def test_only_the_bridge_client_uses_qprocess(self):
+        """One QProcess, in ui/bridgeclient.py: the bridge by its fixed path, without arguments, never detached."""
+        source = (PACKAGE / BRIDGE_CLIENT).read_text(encoding="utf-8")
+        parsed = ast.parse(source)
+        created = [n for n in ast.walk(parsed) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                   and n.func.id == "QProcess"]
+        self.assertEqual(len(created), 1)
+        programs = [n for n in ast.walk(parsed) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                    and n.func.attr == "setProgram"]
+        self.assertEqual([ast.unparse(c.args[0]) for c in programs], ["self.program"])
+        arguments = [n for n in ast.walk(parsed) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                     and n.func.attr == "setArguments"]
+        self.assertEqual([ast.unparse(c.args[0]) for c in arguments], ["[]"])
+        starts = [n for n in ast.walk(parsed) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                  and n.func.attr == "start" and ast.unparse(n.func.value) == "process"]
+        self.assertEqual(len(starts), 1)
+        self.assertEqual(starts[0].args, [])              # start() of the program set above: no command string
+        self.assertEqual(starts[0].keywords, [])
+        for forbidden in ("startDetached", "startCommand", "setNativeArguments", "splitCommand", "execute("):
+            self.assertNotIn(forbidden, source)
+        # The program is the constructor's default and nothing in the package passes another one.
+        self.assertEqual(servicebridge.PROGRAM, "/usr/libexec/boswas/boswas-services-bridge")
+        self.assertIn("program: str = sb.PROGRAM", source)
+        for path in CODE:
+            for node in ast.walk(tree(path)):
+                if isinstance(node, ast.Call) and getattr(node.func, "attr", getattr(node.func, "id", "")) in (
+                        "BridgeClient", "factory"):
+                    self.assertFalse([k for k in node.keywords if k.arg == "program"], rel(path))
+                    self.assertLessEqual(len(node.args), 1, rel(path))
+        # A passphrase goes to the pipe only: the client never prints, logs or formats a command.
+        for forbidden in ("print(", "log.", "logging", "sys.stderr", "describe("):
+            self.assertNotIn(forbidden, source, forbidden)
 
     def test_only_userfiles_writes_files(self):
         for path in CODE:
@@ -217,11 +335,53 @@ class ProcessTest(unittest.TestCase):
         for bad in (("apt-get", "install", "vlc"), ("apt-get", "upgrade"), ("apt-cache", "gencaches"),
                     ("flatpak", "install", "flathub", "org.x.Y"), ("flatpak", "remote-add", "x", "y"),
                     ("flatpak", "run", "org.x.Y"), ("nmcli", "connection", "show", "--show-secrets"),
-                    ("nmcli", "radio", "all", "off"), ("boswas-android", "status")):
+                    ("nmcli", "radio", "all", "off"), ("nmcli", "radio", "wifi", "off"),
+                    ("nmcli", "device", "disconnect", "wlp2s0"), ("boswas-android", "status"),
+                    ("gio", "open", "/etc/passwd"), ("gio", "launch", "relative.desktop"),
+                    ("gio", "launch", "/usr/share/applications/x.desktop", "extra"),
+                    ("gio", "launch", "/usr/share/applications/../x.desktop"), ("gio", "launch", "/tmp/x.sh"),
+                    ("gio", "trash", "/home/a/file"), ("ip", "addr", "add", "10.0.0.1/8", "dev", "eth0"),
+                    ("ip", "link", "set", "eth0", "down"), ("ip", "-j", "addr"), ("ip",), ("ip", "netns", "exec"),
+                    ("locale",), ("locale", "-a", "-v"), ("timedatectl", "show"), ("localectl", "status")):
             with self.assertRaises(ValueError, msg=bad):
                 commands.argv(*bad)
         with self.assertRaises(ValueError):
             commands._check(["/usr/bin/apt-get", "install", "vlc"])
+
+    def test_timedatectl_and_localectl_only_with_their_fixed_forms(self):
+        t, l = commands.EXECUTABLES["timedatectl"], commands.EXECUTABLES["localectl"]
+        self.assertEqual(commands.timedatectl_argv("show"), [t, "show"])
+        self.assertEqual(commands.timedatectl_argv("set-ntp", "true"), [t, "set-ntp", "true"])
+        self.assertEqual(commands.timedatectl_argv("set-timezone", "Europe/Berlin"), [t, "set-timezone", "Europe/Berlin"])
+        self.assertEqual(commands.timedatectl_argv("set-timezone", "America/Argentina/Buenos_Aires")[-1],
+                         "America/Argentina/Buenos_Aires")
+        self.assertEqual(commands.timedatectl_argv("set-timezone", "Etc/GMT+5")[-1], "Etc/GMT+5")
+        self.assertEqual(commands.timedatectl_argv("set-time", "2026-11-15 09:30:00")[-1], "2026-11-15 09:30:00")
+        for bad in ((), ("status",), ("set-ntp", "yes"), ("set-ntp",), ("set-timezone", "../../etc/passwd"),
+                    ("set-timezone", "Europe/../UTC"), ("set-timezone", "/etc/localtime"), ("set-timezone", ""),
+                    ("set-timezone", "Europe/Berlin", "extra"), ("set-timezone", "-h"), ("set-timezone", "a b"),
+                    ("set-time", "now"), ("set-time", "2026-11-15"), ("set-time", "2026-11-15 09:30:00; reboot"),
+                    ("set-local-rtc", "1"), ("--host", "example", "show"), ("show", "--all"),
+                    ("set-timezone", "Europe/Berlin\n"), ("set-timezone", None)):
+            with self.assertRaises(ValueError, msg=bad):
+                commands.timedatectl_argv(*bad)
+        self.assertEqual(commands.localectl_argv("status"), [l, "status"])
+        self.assertEqual(commands.localectl_argv("set-locale", "LANG=de_DE.UTF-8"), [l, "set-locale", "LANG=de_DE.UTF-8"])
+        self.assertEqual(commands.localectl_argv("set-locale", "LANG=en_GB.UTF-8", "LC_TIME=de_DE.UTF-8",
+                                                 "LC_MEASUREMENT=C.UTF-8")[1:],
+                         ["set-locale", "LANG=en_GB.UTF-8", "LC_TIME=de_DE.UTF-8", "LC_MEASUREMENT=C.UTF-8"])
+        self.assertEqual(commands.localectl_argv("set-locale", "LANG=sr_RS.UTF-8@latin")[-1], "LANG=sr_RS.UTF-8@latin")
+        for bad in ((), ("set-locale",), ("set-locale", "de_DE.UTF-8"), ("set-locale", "LANG="),
+                    ("set-locale", "LANG=../x"), ("set-locale", "LANG=de_DE.UTF-8", "LANG=en_GB.UTF-8"),
+                    ("set-locale", "LD_PRELOAD=x"), ("set-locale", "LC_ALL=de_DE.UTF-8"),
+                    ("set-locale", "LANG=de DE"), ("set-keymap", "de"), ("set-x11-keymap", "de"),
+                    ("status", "--no-pager"), ("set-locale", "LANG=de_DE.UTF-8\n"), ("set-locale", None)):
+            with self.assertRaises(ValueError, msg=bad):
+                commands.localectl_argv(*bad)
+        self.assertEqual(commands.argv("ip", "-j", "addr", "show"), [commands.EXECUTABLES["ip"], "-j", "addr", "show"])
+        self.assertEqual(commands.argv("locale", "-a"), ["/usr/bin/locale", "-a"])
+        self.assertEqual(commands.argv("gio", "launch", "/usr/share/applications/org.example.App.desktop"),
+                         ["/usr/bin/gio", "launch", "/usr/share/applications/org.example.App.desktop"])
 
     def test_operations_named_by_the_ui_are_allowed(self):
         """Every JobSpec in the code names an allowed operation (checked from the source, not at run time)."""
@@ -301,7 +461,8 @@ class ServiceTest(unittest.TestCase):
                 self.assertNotIn("localapi", text, rel(path))
 
     def test_non_ui_modules_have_no_qt(self):
-        for name in PURE:
+        top = sorted(p.name for p in (PACKAGE / "boswas_control_center").glob("*.py"))
+        for name in sorted(set(PURE) | (set(top) - set(QT_MODULES))):
             for node in ast.walk(tree(PACKAGE / "boswas_control_center" / name)):
                 if isinstance(node, (ast.Import, ast.ImportFrom)):
                     modules = [a.name for a in node.names] if isinstance(node, ast.Import) else [node.module or ""]
@@ -312,9 +473,12 @@ class ServiceTest(unittest.TestCase):
 
     def test_app_checks_root_before_qt(self):
         source = (PACKAGE / "boswas_control_center" / "app.py").read_text(encoding="utf-8")
-        self.assertLess(source.index("running_as_root()"), source.index("from PySide6"))
-        self.assertIn("return EXIT_ROOT", source)
+        self.assertNotIn("PySide6", source)               # Qt comes in with the toolkit and the window
+        for late in ("import boswas_fluent", "from .ui.main_window import", "from .backend import"):
+            self.assertLess(source.index("if running_as_root():"), source.index(late), late)
+        self.assertLess(source.index("return EXIT_ROOT"), source.index("import boswas_fluent"))
         self.assertIn("EXIT_ROOT = 4", source)
+        self.assertIn("fluent.run(DESKTOP_ID", source)      # one instance per session, by the toolkit
 
 
 class DataTest(unittest.TestCase):
@@ -379,14 +543,11 @@ class DataTest(unittest.TestCase):
                 teal = 160 <= hue * 360 <= 200 and saturation > 0.2 and 0.1 < lightness < 0.9
                 self.assertFalse(teal, f"{rel(path)} uses the teal colour #{value}")
 
-    def test_hard_coded_colours_are_only_status_tints(self):
-        allowed = {"boswas_control_center/ui/common.py"}
+    def test_no_hard_coded_colours(self):
+        """Every colour is a Boswas UI token, taken through boswas_fluent; the status icons included."""
         for path in CODE:
             colours = HEX_COLOUR.findall(path.read_text(encoding="utf-8"))
-            if rel(path) not in allowed:
-                self.assertEqual(colours, [], rel(path))
-        common = (PACKAGE / "boswas_control_center" / "ui" / "common.py").read_text(encoding="utf-8")
-        self.assertEqual(len(HEX_COLOUR.findall(common)), 6)          # five status tints and the glyph colour
+            self.assertEqual(colours, [], rel(path))
 
 
 class SourceHygieneTest(unittest.TestCase):

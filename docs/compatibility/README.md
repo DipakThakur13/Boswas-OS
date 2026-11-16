@@ -280,7 +280,7 @@ Decides per application what exists in the sandbox:
 |---------|-------------|
 | `/usr`, `/etc` read-only; new `/proc`, minimal `/dev`, private `/tmp` | the user's home and `/home` |
 | `/var/lib/boswas/wine/<id>/` (own state) | other applications' prefixes |
-| granted only: network, X11 socket and Xauthority, PulseAudio socket, `/dev/dri`, folders (`documents`, `downloads`, ...) | session and system D-Bus, `/run`, `/var`, `/media`, block, input and USB devices |
+| granted only: network, the display (the compositor's Wayland socket; the X11 socket and Xauthority only in a session without a Wayland socket), PulseAudio socket, `/dev/dri`, folders (`documents`, `downloads`, ...) | session and system D-Bus, `/run`, `/var`, `/media`, block, input and USB devices |
 
 The environment is cleared; only variables the sandbox sets exist.
 
@@ -313,9 +313,10 @@ local additions go in `/etc/apparmor.d/local/boswas-winapp`.
 | PE files in the prefix are mapped executable (`m`) | Windows code must run | No `x`: nothing there can be executed as a Linux program |
 | `/tmp`, `/dev/shm`, `$XDG_RUNTIME_DIR/wine` mapped executable | Wine's anonymous file mappings and wineserver | All three are private to the sandbox |
 | Network rules in the profile | Applications whose manifest grants network | bubblewrap removes the network otherwise (loopback only) |
-| X11 | Windows applications use Wine's X11 driver (Xwayland) | An X11 client can observe other X11 clients. Under Plasma Wayland that is only other Xwayland clients. `display` is a grant |
+| Display (Wayland) | The `display` grant binds the compositor's public Wayland socket (`$WAYLAND_DISPLAY`, a socket name, never a path) into the sandbox. No `DISPLAY` is set inside the sandbox, so Wine draws through its Wayland driver | The application is then an ordinary Wayland client: it cannot read other windows or their input, the compositor never offers it the privileged protocols (panels, lock, window list, clipboard control), and it gets pictures of the screen only if the user allows it in the shell's question (ADR-0037). `display` is a grant. Wine's Wayland driver is newer than its X11 driver, so an application may behave differently than it does through Xwayland |
+| X11 | The `display` grant binds the X11 socket and Xauthority only in a session that has no Wayland socket to give. The native Boswas desktop runs Xwayland for X11 applications (ADR-0034), but a sandboxed Windows application is not let onto it: it gets the Wayland socket and no `DISPLAY` | An X11 client can observe and send input to other X11 clients of the same X server, which is why the sandbox keeps Windows applications off the session's X server. Wine's Wayland driver on Debian 13 has not been tested on the native desktop |
 | `audio` grant | Sound through the user's PulseAudio/PipeWire socket | The PulseAudio protocol lets clients load server modules (for example a network tunnel), which then run in the host audio server, outside the sandbox. `audio` is therefore **not** granted to unlisted applications by default; grant it only in reviewed manifests |
-| `network` grant | Applications that need the network | The host network namespace: interface addresses, including MAC addresses, and abstract unix sockets (for example X11's) are visible |
+| `network` grant | Applications that need the network | The host network namespace: interface addresses, including MAC addresses, and abstract unix sockets (for example an X server's, where one runs) are visible |
 | `ptrace` and `/proc/<pid>/mem` within the profile | wineserver implements Read/WriteProcessMemory | Same-profile peers only |
 | Read-only system information: `/proc/<pid>/net/*`, CPU topology, the sandbox root and `/dev` listings, public CA certificates | Wine's network-adapter APIs, CPU detection, path lookups on `Z:\`, TLS certificate validation | Reads only. Inside the sandbox they show its own network namespace, minimal `/dev` and empty root |
 | Running `/usr/bin/wine` directly is not mediated | Debian's wine is a normal user program | Users cannot gain privileges through it. Restricting direct use remains open (roadmap) |
@@ -407,10 +408,11 @@ device policy (ADR-0020):
 ## "Run with Boswas" (graphical flow)
 
 ```
-Double-click or right-click a .exe or .msi   (Dolphin: "Run with Boswas")
-        │   /usr/share/applications/boswas-winapp-install.desktop, the only
+Double-click or right-click a .exe or .msi   (Boswas Files: "Run with Boswas")
+        │   /usr/share/applications/boswas-winapp-install.desktop, the default
         │   handler for application/x-msdownload, x-ms-dos-executable,
-        │   vnd.microsoft.portable-executable and x-msi
+        │   vnd.microsoft.portable-executable and x-msi ("Open with" also
+        │   offers "Install with Boswas Compatibility Manager", ADR-0042)
         ▼
 Terminal window: boswas-winapp install --pause <file>
         │   catalog match → policy → prefix → installer (its own dialogs if
@@ -496,7 +498,7 @@ Desktop launcher "boswas-winapp launch <id>" in the application menu
 | `tests/packages/test_packages.sh` | Package contents and modes, conffiles, dh_apparmor postinst, profile compiles |
 | `tests/compatibility/test_wine.sh` | Image: package, profile compiles with the image's parser, policy, root refusal, desktop handler |
 | `tests/compatibility/test_winapp_runtime.sh` | Image, end to end with real Wine and bubblewrap: install, prefix ownership and isolation, launch, 10 isolation probes, network grant, exit codes, locking, blocked, unlisted, policy re-check, repair, remove, inventory |
-| `tests/boot/qemu_boot_test.py` | Live VM with the real kernel: profile loads in enforce mode, no Windows code runs without it, install, launch, AppArmor denies files outside the profile, confinement label recorded, a Windows GUI program (Wine Notepad) runs confined on the Plasma session's display (screenshot `winapp-gui.png`) |
+| `tests/boot/qemu_boot_test.py` | Live VM with the real kernel: profile loads in enforce mode, no Windows code runs without it, install, launch, AppArmor denies files outside the profile, confinement label recorded, a Windows GUI program (Wine Notepad) runs confined on the session's display (screenshot `winapp-gui.png`). The test is rewritten for the native Boswas desktop, where Notepad draws through Wine's Wayland driver; it has not run there yet |
 
 The image runtime test runs in the builder container. Docker Desktop's WSL2
 kernel has no AppArmor, so there the AppArmor layer is reported as SKIP; the

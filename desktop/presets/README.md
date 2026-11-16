@@ -1,13 +1,25 @@
 # Boswas OS visual presets
 
-Ten complete looks for the Boswas OS desktop (KDE Plasma 6.3). A preset
-bundles a Plasma Global Theme, a KDE colour scheme, a wallpaper (light and
-dark artwork), a lock screen background, a Konsole colour scheme and profile,
-and a preview image for the Boswas Control Center.
+Ten looks for the Boswas OS desktop. A preset bundles light or dark, a
+wallpaper (light and dark artwork), lock screen art, a colour scheme for KDE
+applications, and a preview image for the Boswas Control Center.
+
+Applying a preset sets what the Boswas desktop (`boswas-compositor`,
+`boswas-shell`) takes from it: light or dark for the shell, the window
+frames and the lock screen, and the wallpaper. For KDE applications a user
+may have installed it also sets their colours. A new user starts with the
+Boswas Prism look ([`../ui/`](../ui/README.md)), which is not one of the ten
+presets.
+
+The presets were first made for the KDE Plasma image. What only Plasma and
+Konsole used is gone (ADR-0042 in
+[`docs/architecture/decisions.md`](../../docs/architecture/decisions.md)):
+the Global Themes with their panel layouts, the Konsole colour schemes and
+profiles, and the Plasma branch of `boswas-preset`.
 
 `presets.json` is the single source of truth. Everything in `color-schemes/`,
-`konsole/`, `look-and-feel/`, `wallpapers/` and `previews/` is generated from
-it by `tools/build_presets.py`: do not edit those files by hand.
+`wallpapers/` and `previews/` is generated from it by
+`tools/build_presets.py`: do not edit those files by hand.
 
 ## The design system
 
@@ -17,10 +29,9 @@ the mood (the wallpaper motif) change; everything else is shared.
 * **Brand.** The Boswas OS mark (gold blade-shaped stem and dot, silver ring
   and swoosh), the navy and silver palette of `desktop/branding/README.md`,
   and the logo gold as the flagship accent. No teal (the retired accent) in
-  any colour, artwork or terminal palette; the tests enforce it.
-* **Typography.** Brand lettering in Orbitron (outlined wordmarks); the
-  desktop UI in the KDE default face; terminals in Hack 11. The wallpapers
-  carry no lettering.
+  any colour or artwork; the tests enforce it.
+* **Typography.** Brand lettering in Orbitron (outlined wordmarks). The
+  wallpapers carry no lettering.
 * **Wallpaper geometry.** Every wallpaper is built from the mark itself:
   * the *orbit*: rings concentric with the mark's ring, around a focus point
     on the right (the left side stays calm for desktop icons and windows);
@@ -38,11 +49,14 @@ the mood (the wallpaper motif) change; everything else is shared.
   the PNGs stay small.
 * **Light and dark artwork.** Every wallpaper package has both:
   `contents/images/` holds the light artwork and `contents/images_dark/` the
-  dark one; Plasma picks `images_dark/` when the colour scheme is dark, and
-  switches live when the scheme changes.
-* **Lock screen.** A calmer variant of the preset's own artwork: the orbit
-  moves right, the blade and the second trail go, the centre and left stay
-  free for the clock and the password field.
+  dark one. `boswas-preset` names the one that matches the preset's variant;
+  Control Center (Personalization > Colour mode) switches to the other one
+  when the user changes the mode.
+* **Lock screen art.** A calmer variant of the preset's own artwork: the
+  orbit moves right, the blade and the second trail go, the centre and left
+  stay free for a clock and a password field. It is rendered and installed;
+  the lock screen of the Boswas desktop does not show it (see
+  [What a preset does not change](#what-a-preset-does-not-change)).
 * **Colour.** WCAG AA everywhere: normal text, secondary (muted) text, links
   and status colours reach 4.5:1 against every background they are used on
   (window, view, button, header, tooltip, complementary); selected text
@@ -55,166 +69,161 @@ the mood (the wallpaper motif) change; everything else is shared.
 
 ### Tokens
 
-| Preset | Variant | Window | View | Header | Selection / text | Accent | Text / muted | Warning | Terminal bg / fg |
-|---|---|---|---|---|---|---|---|---|---|
-| **Horizon** (`horizon`) | dark | `#111A2B` | `#0D1524` | `#0B1220` | `#D9B26E` / `#0B1220` | `#D9B26E` | `#E8EEF6` / `#A8B3C7` | `#F09646` | `#0D1524` / `#E8EEF6` |
-| **Midnight** (`midnight`) | dark | `#0B0E14` | `#07090D` | `#06080B` | `#B39762` / `#0B0E14` | `#B39762` | `#D3DAE4` / `#8E98AA` | `#D98E4E` | `#07090D` / `#C9D1DC` |
-| **Aurora** (`aurora`) | dark | `#0F1830` | `#0B1226` | `#0A1124` | `#7CC4FF` / `#06101F` | `#7CC4FF` | `#E6EEFA` / `#A3B2CC` | `#F2A04A` | `#0A1124` / `#E6EEFA` |
-| **Slate** (`slate`) | dark | `#1E2530` | `#181E27` | `#171C24` | `#B4BFD1` / `#111821` | `#B4BFD1` | `#E9EDF3` / `#A9B3C2` | `#EE9A4C` | `#181E27` / `#E9EDF3` |
-| **Carbon** (`carbon`) | dark | `#0C0D10` | `#000000` | `#000000` | `#FFC844` / `#000000` | `#FFC844` | `#FFFFFF` / `#C9CFD8` | `#FF9548` | `#000000` / `#FFFFFF` |
-| **Pearl** (`pearl`) | light | `#F4F1EA` | `#FFFDF8` | `#E8E3D7` | `#D2AC66` / `#141C2B` | `#9A7431` | `#141C2B` / `#59606E` | `#9E4D00` | `#FFFDF8` / `#1B2333` |
-| **Ocean** (`ocean`) | dark | `#0E1D33` | `#0A1628` | `#091426` | `#57A8EA` / `#04101E` | `#57A8EA` | `#E5EEF8` / `#A0B4CC` | `#F0A04B` | `#0A1628` / `#E5EEF8` |
-| **Ember** (`ember`) | dark | `#1A1719` | `#141113` | `#120F11` | `#E28A5C` / `#1A0D07` | `#E28A5C` | `#F2EAE4` / `#B9ACA5` | `#E8C34E` | `#141113` / `#F2EAE4` |
-| **Nebula** (`nebula`) | dark | `#16142E` | `#100E24` | `#0E0C20` | `#A68CFF` / `#120E26` | `#A68CFF` | `#ECEAFA` / `#AAA5CC` | `#F2A04E` | `#100E24` / `#ECEAFA` |
-| **Classic** (`classic`) | light | `#EEF0F3` | `#FFFFFF` | `#E1E5EB` | `#2F6EB5` / `#FFFFFF` | `#2F6EB5` | `#1D2533` / `#586374` | `#984A00` | `#1D2330` / `#E6EAF0` |
+| Preset | Variant | Window | View | Header | Selection / text | Accent | Text / muted | Warning |
+|---|---|---|---|---|---|---|---|---|
+| **Horizon** (`horizon`) | dark | `#111A2B` | `#0D1524` | `#0B1220` | `#D9B26E` / `#0B1220` | `#D9B26E` | `#E8EEF6` / `#A8B3C7` | `#F09646` |
+| **Midnight** (`midnight`) | dark | `#0B0E14` | `#07090D` | `#06080B` | `#B39762` / `#0B0E14` | `#B39762` | `#D3DAE4` / `#8E98AA` | `#D98E4E` |
+| **Aurora** (`aurora`) | dark | `#0F1830` | `#0B1226` | `#0A1124` | `#7CC4FF` / `#06101F` | `#7CC4FF` | `#E6EEFA` / `#A3B2CC` | `#F2A04A` |
+| **Slate** (`slate`) | dark | `#1E2530` | `#181E27` | `#171C24` | `#B4BFD1` / `#111821` | `#B4BFD1` | `#E9EDF3` / `#A9B3C2` | `#EE9A4C` |
+| **Carbon** (`carbon`) | dark | `#0C0D10` | `#000000` | `#000000` | `#FFC844` / `#000000` | `#FFC844` | `#FFFFFF` / `#C9CFD8` | `#FF9548` |
+| **Pearl** (`pearl`) | light | `#F4F1EA` | `#FFFDF8` | `#E8E3D7` | `#D2AC66` / `#141C2B` | `#9A7431` | `#141C2B` / `#59606E` | `#9E4D00` |
+| **Ocean** (`ocean`) | dark | `#0E1D33` | `#0A1628` | `#091426` | `#57A8EA` / `#04101E` | `#57A8EA` | `#E5EEF8` / `#A0B4CC` | `#F0A04B` |
+| **Ember** (`ember`) | dark | `#1A1719` | `#141113` | `#120F11` | `#E28A5C` / `#1A0D07` | `#E28A5C` | `#F2EAE4` / `#B9ACA5` | `#E8C34E` |
+| **Nebula** (`nebula`) | dark | `#16142E` | `#100E24` | `#0E0C20` | `#A68CFF` / `#120E26` | `#A68CFF` | `#ECEAFA` / `#AAA5CC` | `#F2A04E` |
+| **Classic** (`classic`) | light | `#EEF0F3` | `#FFFFFF` | `#E1E5EB` | `#2F6EB5` / `#FFFFFF` | `#2F6EB5` | `#1D2533` / `#586374` | `#984A00` |
 
-The complete palettes (alternate backgrounds, buttons, tooltips, the
-complementary set, links, the 16 terminal colours) and the wallpaper
-parameters are in `presets.json`.
+These are the colours of the scheme for KDE applications and of the preview
+picture. The complete palettes (alternate backgrounds, buttons, tooltips,
+the complementary set, links) and the wallpaper parameters are in
+`presets.json`.
 
 ### The presets
 
-| Preset | Intent | Wallpaper motif | Panel | Icons |
-|---|---|---|---|---|
-| **Horizon** | The flagship and the default for new users: deep navy, logo gold accent, silver detail. Modern, premium. Replaces the former "Boswas" Global Theme and "Boswas Dark" colours. | A planet horizon with a gold rim light under the orbit | floating | Boswas |
-| **Midnight** | Developers and dim rooms: near-black surfaces, softened text (not pure white), muted gold. Low glare. | Almost nothing: faint meridians, a hairline blade | floating | Boswas |
-| **Aurora** | Futuristic: Boswas navy lit by a luminous ice-blue accent; the gold stays in the mark. | Aurora ribbons and light filaments | floating | Boswas |
-| **Slate** | Minimal enterprise: slate grey-blue, silver accent with dark text on selections. | A glass blade and one horizon hairline | floating | Boswas |
-| **Carbon** | Engineering and security: black, white text, bright gold focus colour; 7:1 text contrast. | An engineering grid, dial ticks, the blade as a dashed construction line | floating | Boswas |
-| **Pearl** | Clean light interface: ivory and pearl surfaces, navy text, gold highlights. | Pearl sheen and a glass blade with a gold edge | floating | Boswas-Light |
-| **Ocean** | Calm everyday productivity: deep blues, ocean-blue accent. | Calm swells under a shaft of light | floating | Boswas |
-| **Ember** | Creative workstation: warm dark surfaces, strong copper accent. | A warm current rising from the lower right, embers | floating | Boswas |
-| **Nebula** | Research and AI: deep indigo and violet, lavender accent. | Nebula clouds and a sparse star field | floating | Boswas |
-| **Classic** | A familiar, conservative, lightweight desktop: light neutral windows, a blue accent, a plain wallpaper (one gradient, about 120 KB). | None beyond the orbit | full width, not floating, labelled task manager | Boswas-Light |
+| Preset | Intent | Wallpaper motif |
+|---|---|---|
+| **Horizon** | The flagship: deep navy, logo gold accent, silver detail. Modern, premium. Its wallpaper is also installed under the default wallpaper name `Boswas`. | A planet horizon with a gold rim light under the orbit |
+| **Midnight** | Developers and dim rooms: near-black surfaces, softened text (not pure white), muted gold. Low glare. | Almost nothing: faint meridians, a hairline blade |
+| **Aurora** | Futuristic: Boswas navy lit by a luminous ice-blue accent; the gold stays in the mark. | Aurora ribbons and light filaments |
+| **Slate** | Minimal enterprise: slate grey-blue, silver accent with dark text on selections. | A glass blade and one horizon hairline |
+| **Carbon** | Engineering and security: black, white text, bright gold focus colour; 7:1 text contrast. | An engineering grid, dial ticks, the blade as a dashed construction line |
+| **Pearl** | Clean light interface: ivory and pearl surfaces, navy text, gold highlights. | Pearl sheen and a glass blade with a gold edge |
+| **Ocean** | Calm everyday productivity: deep blues, ocean-blue accent. | Calm swells under a shaft of light |
+| **Ember** | Creative workstation: warm dark surfaces, strong copper accent. | A warm current rising from the lower right, embers |
+| **Nebula** | Research and AI: deep indigo and violet, lavender accent. | Nebula clouds and a sparse star field |
+| **Classic** | A familiar, conservative look: light neutral windows, a blue accent, a plain wallpaper (one gradient, about 120 KB). | None beyond the orbit |
 
-Every Global Theme uses the Breeze application style and window decoration,
-the Breeze cursors, and the Plasma style `default` (Breeze), which follows
-the colour scheme: panels and widgets take each preset's own colours (ivory
-on Pearl, navy on Horizon). `breeze-dark` and `breeze-light` would ignore
-the preset palette.
+### Previews
 
-The icon themes `Boswas` and `Boswas-Light`, the Boswas Launcher applet
-(`com.boswas.launcher`), the splash screen (`com.boswas.splash`) and the
-terminal start file (`/usr/share/boswas/terminal/bashrc`) are provided by
-other parts of Boswas OS; the presets only refer to them.
-
-### Panel layout
-
-Every layout script starts from KDE's stock default panel
-(`loadTemplate("org.kde.plasma.desktop.defaultPanel")`: launcher, pager, task
-manager, system tray, clock, so Plasma upgrades keep working) and then:
-
-* replaces Kickoff with the Boswas Launcher in the same position,
-  configured with `icon=boswas-logo`, the favourites (Control Center,
-  Dolphin, Konsole, Firefox ESR, Compatibility Manager, KCalc) and the system
-  applications (Control Center, Security Center, Info Center). If the Boswas
-  Launcher is not installed, Kickoff stays, with the same settings;
-* pins Control Center, Dolphin, Konsole, Firefox ESR and Compatibility
-  Manager in the task manager;
-* sets the panel style: floating with the icon-only task manager, or, for
-  Classic, a full-width non-floating panel with the labelled task manager
-  (`org.kde.plasma.taskmanager`).
-
-A Plasma 6 panel puts a new widget at its end (its view exists while the
-script runs, so a written `AppletOrder` would be overwritten). To put a
-replacement in the place of the widget it replaces, the script removes that
-widget and every widget after it and creates them again, in order; they are
-fresh from the template, so no setting is lost.
-
-It uses only the Plasma 6.3 desktop scripting API (`knownWidgetTypes`,
-`panel.widgetIds`, `widgetById()`, `widget.type`, `addWidget()`, `remove()`,
-`writeConfig()`, `panel.floating`, `panel.lengthMode`, `panel.height`).
+`previews/<id>.svg` is the wallpaper with a schematic window and a panel in
+the preset's colours; Control Center shows it on the preset's card. The
+sketch still shows the panel as the Plasma image had it: floating, and for
+Classic full width with labelled tasks (`"preview": {"panel": ...}` in
+`presets.json` selects the drawing). It is a drawing only: the Boswas
+desktop has one panel, and a preset does not change it.
 
 ## Applying a preset
-
-### Global Theme settings
-
-The ten Global Themes appear in System Settings > Colors & Themes > Global
-Theme as "Boswas Horizon" ... "Boswas Classic". Applying one there changes
-the colours, icons, Plasma style, cursor and window decoration (and, if
-"Desktop and window layout" is ticked, the panels). In Plasma 6.3 it does
-**not** change the wallpaper, the lock screen or the terminal profile; use
-`boswas-preset` (or the Boswas Control Center, which calls it) for the
-whole preset.
-
-### boswas-preset
 
 ```sh
 boswas-preset list                 # the presets, * marks the current one
 boswas-preset --json list          # {"presets": [{"id", "name", "description",
                                    #   "variant", "accent", "preview"}], "current"}
 boswas-preset current              # the current preset id
-boswas-preset apply ocean          # apply for the logged-in user
-boswas-preset apply ocean --layout # ... and replace the panels with the preset's layout
+boswas-preset apply ocean          # apply for the signed-in user
+boswas-preset reset                # back to the default look, Boswas Prism
 ```
 
-`apply` refuses to run as root (exit 4) and runs, with fixed argument lists
-and never a shell:
+Control Center > Personalization calls the same commands. `apply` and
+`reset` refuse to run as root (exit 4).
 
-1. `plasma-apply-lookandfeel -a com.boswas.<id>` (plus `--resetLayout` with
-   `--layout`): colour scheme, icons, Plasma style, cursor, window
-   decoration, panels;
-2. `plasma-apply-wallpaperimage /usr/share/wallpapers/Boswas-<Label>`: the
-   wallpaper package, so Plasma shows the light or dark artwork to match the
-   colour scheme;
-3. `kwriteconfig6 --file kscreenlockerrc --group Greeter --group Wallpaper
-   --group org.kde.image --group General --key Image
-   file:///usr/share/boswas/presets/lock/<id>.png`: the lock screen;
-4. `kwriteconfig6 --file konsolerc --group "Desktop Entry" --key
-   DefaultProfile "Boswas <Label>.profile"`: the default Konsole profile;
-5. `kwriteconfig6 --file boswasrc --group Preset --key Current <id>`.
+`boswas-preset apply <id>` does this, itself; it starts no other program:
 
-Exit status: 0 success, 1 a step failed (the message names the step, the
-remaining steps are not run) or the presets file is unreadable, 2 unknown
-preset, 3 usage error, 4 run as root. With `--json`, success prints
-`{"applied": "<id>", "layout": true|false}` and errors print
-`{"error", "code", "step"}`.
+1. writes `~/.config/boswas/appearance.toml`:
 
-`current` reads `Current` in `$XDG_CONFIG_HOME/boswasrc` (default
-`~/.config/boswasrc`); when nothing is recorded there, it reports the preset
-whose Global Theme is active (`[KDE] LookAndFeelPackage` in kdeglobals, the
-user's or the system default), so a new user sees Horizon as current. The
-preset list comes from `/usr/share/boswas/presets/presets.json`
-(`BOSWAS_PRESETS_FILE` overrides it, for tests).
+   ```toml
+   # Written by boswas-preset; changes made here are replaced by the next preset.
+   [appearance]
+   scheme = "dark"
+   wallpaper = "/usr/share/wallpapers/Boswas-Ocean/contents/images_dark/3840x2160.png"
+   ```
 
-### Notes on Plasma 6.3 behaviour
+   `scheme` is the preset's variant (light or dark) and `wallpaper` the
+   matching artwork. `boswas-compositor` reads the file as its last
+   configuration layer (it may contain the `[appearance]` table only) and
+   passes both values to the shell: window frames, panel, launcher and lock
+   screen switch between the Prism dark and light themes, and the shell
+   shows the wallpaper;
+2. merges the colour groups (`[Colors:*]`, `[WM]`) of
+   `/usr/share/color-schemes/Boswas<Label>.colors` into the user's
+   `~/.config/kdeglobals` and sets `ColorScheme=Boswas<Label>` there. KDE
+   applications read their colours from that file; every other group in it
+   is kept;
+3. records the choice: `Current=<id>` in the `[Preset]` group of
+   `~/.config/boswasrc`. Every other group and key of that file is kept;
+4. asks the running compositor to re-read its configuration
+   (`reload-config` on its control socket). Without a running compositor
+   the look applies at the next login.
 
-* `plasma-apply-lookandfeel` never applies the Global Theme's wallpaper.
-  `[Wallpaper] Image` in a theme's `defaults` is only the default for desktops
-  that have no image set (read when the desktop loads); a new user's desktop
-  therefore shows the default Global Theme's wallpaper. `boswas-preset`
-  applies the wallpaper explicitly.
-* The splash screen is applied with a Global Theme only when the theme
-  package contains a splash itself, which these do not: the `[KSplash]`
-  entries name `com.boswas.splash` for completeness, but the splash has to
-  be set system-wide (`ksplashrc`).
-* `--resetLayout` asks plasmashell to reload the layout and returns at once;
-  the wallpaper step runs after it.
+`~/.config` stands for `$XDG_CONFIG_HOME` when that is an absolute path.
 
-### Login screen
+The three files are written the same way. The new content of all three is
+prepared first, so a file that cannot be used stops the command before
+anything has changed. Each file is then replaced atomically: a new file with
+mode 0600 in the same directory, synced, then renamed over the old one. A
+target that is a symbolic link, or anything but a regular file, is refused
+(the step fails and names the path), and so is a symbolic link in the place
+of `~/.config/boswas`: nothing is read or written through a link below the
+configuration directory. A `kdeglobals` or `boswasrc` larger than 1 MiB is
+refused as well. Bytes that are not UTF-8 in those two files are kept as
+they are.
 
-The login screen (SDDM) is system-wide and does not follow a user's preset.
-Its background is `/usr/share/boswas/branding/login-background.png`, the
-Horizon lock screen artwork. An administrator who wants the login screen to
-match a preset can apply it, then use System Settings > Colors & Themes >
-Login Screen (SDDM) > Apply Plasma Settings, which copies their Plasma
-settings (colours, fonts, cursor theme) to the login screen. The lock screen
-is per user and follows the preset.
+Running applications pick the new colours up when they next read
+`kdeglobals`; an application that is already open may need a restart.
+
+`boswas-preset current` reports the recorded choice, if it names one of the
+presets. Files written by earlier versions, which ran KDE's `kwriteconfig6`
+for this, have the same format and are read as before. A user who has not
+applied a preset has the Boswas Prism look, and `current` prints nothing
+(`{"current": null}` with `--json`).
+
+`boswas-preset reset` returns to Prism after a preset: it removes
+`~/.config/boswas/appearance.toml` (the compositor and the shell fall back
+to Prism), merges the Boswas Prism colours
+(`/usr/share/color-schemes/BoswasPrism.colors`) into `~/.config/kdeglobals`,
+removes `Current` from `~/.config/boswasrc` (and the file, if nothing else
+is in it) and asks the compositor to reload. `~/.config/boswas/compositor.toml`,
+the user's own settings, is not touched. Control Center's "Reset to Boswas
+Default" button runs it.
+
+Exit status: 0 success, 1 a step failed (the message names the step:
+`appearance`, `colours` or `record`) or the presets file is unreadable,
+2 unknown preset, 3 usage error, 4 run as root. With `--json`, success
+prints `{"applied": "<id>"}` or `{"reset": true, "default": "Boswas Prism"}`
+and errors print `{"error", "code", "step"}`.
+
+The preset list comes from `/usr/share/boswas/presets/presets.json`
+(`BOSWAS_PRESETS_FILE` overrides it and `BOSWAS_COLOR_SCHEMES` the directory
+of the colour schemes, for tests). Identifiers and labels in it are checked
+before they become parts of file names.
+
+### What a preset does not change
+
+- the accent colour of the panel, launcher, window frames and lock screen:
+  they use the Prism accent in every preset;
+- the icon theme (Boswas Prism stays) and the panel;
+- the colours of Boswas Terminal: it has its own colour schemes. Its
+  default one follows light or dark like the rest of the desktop and takes
+  no colour from a preset;
+- the lock and login screens' background. The lock screen is per user: it
+  follows the preset's light or dark variant and has the same background as
+  the desktop. The login screen (`boswas-shell --greeter`) is system-wide,
+  in the Prism dark theme with the default background. The lock screen art
+  (`/usr/share/boswas/presets/lock/<id>.png`) and
+  `/usr/share/boswas/branding/login-background.png` (a copy of Horizon's)
+  are installed and nothing in the tree reads them.
 
 ## Files
 
 | Path | What |
 |---|---|
-| `presets.json` | The presets: palettes, terminal colours, wallpaper parameters, panel style, icon theme |
+| `presets.json` | The presets: names, light or dark, palettes, wallpaper parameters, the panel of the preview sketch |
 | `tools/build_presets.py` | The generator (Python 3 standard library) |
 | `tools/repack_png.py` | Re-deflates rendered PNGs at maximum compression (used by `install.sh`) |
-| `color-schemes/Boswas<Label>.colors` | KDE colour schemes (generated) |
-| `konsole/Boswas<Label>.colorscheme`, `konsole/Boswas <Label>.profile` | Konsole (generated) |
-| `look-and-feel/com.boswas.<id>/` | Global Themes: `metadata.json`, `contents/defaults`, `contents/layouts/org.kde.plasma.desktop-layout.js` (generated) |
+| `color-schemes/Boswas<Label>.colors` | Colour schemes for KDE applications (generated) |
 | `wallpapers/Boswas-<Label>/` | `metadata.json`, `light.svg`, `dark.svg`, `lock.svg` (generated) |
-| `wallpapers/Boswas/metadata.json` | The default wallpaper name `Boswas` (the system defaults use it); `install.sh` fills it with Horizon's images |
+| `wallpapers/Boswas/metadata.json` | The default wallpaper name `Boswas`; `install.sh` fills it with Horizon's images |
 | `previews/<id>.svg` | The wallpaper with a schematic window and panel in the preset colours (generated) |
 | `boswas_preset/`, `bin/boswas-preset` | The `boswas-preset` tool |
+| `man/boswas-preset.1` | Its manual page |
 | `install.sh` | Renders and installs everything into a DESTDIR |
 | `tests/` | Unit tests |
 
@@ -227,15 +236,15 @@ cd desktop/presets && python3 -B -m unittest discover -s tests -v
 BOSWAS_PRESETS_FULL_INSTALL=1 python3 -B -m unittest discover -s tests -p test_install.py   # full install
 ```
 
-The tests check `presets.json`, that the generated files are up to date, the
-colour schemes (every group and key, valid colours, the contrast rules, the
-warning colours), the Global Themes (metadata, references to existing colour
-schemes, wallpapers, icon themes and `com.boswas.splash`, the layout
-scripts), the Konsole files, the wallpaper sources (inlining and rendering
-them), the absence of teal, and `boswas-preset` with a fake command runner.
-`test_layout_execution.py` also runs the layout scripts, with KDE's default
-panel template, against a mock of the Plasma scripting API; it needs the
-`py_mini_racer` module (V8) and is skipped without it.
+The tests check `presets.json`, that the generated files are up to date and
+that nothing is generated for Plasma or Konsole, the colour schemes (every
+group and key, valid colours, the contrast rules, the warning colours), the
+wallpaper sources (inlining and rendering them), the absence of teal, and
+`boswas-preset` in a temporary home: the three files it writes, the merge
+into `kdeglobals`, what stays in `boswasrc`, the refusal of symbolic links
+and other odd targets, a failing write, `reset`, the request to the
+compositor (a socket below `/tmp` stands in for it), and that the tool
+starts no program and names no KDE program.
 
 ## Installing
 
@@ -243,25 +252,26 @@ panel template, against a mock of the Plasma scripting API; it needs the
 desktop/presets/install.sh DESTDIR
 ```
 
-needs `python3` and `rsvg-convert` (librsvg2-bin); with netpbm (`pngtopnm`,
-`pnmtojpeg`) it also writes each Global Theme's `fullscreenpreview.jpg`. It
-refuses to run if the generated files are stale, inlines the brand assets
-with `build/scripts/inline-svg.py`, renders every wallpaper at 3840x2160
-(one size; Plasma scales it), and installs files with mode 0644 (the tool
+needs `python3` and `rsvg-convert` (librsvg2-bin). It refuses to run if the
+generated files are stale, inlines the brand assets with
+`build/scripts/inline-svg.py`, renders every wallpaper at 3840x2160 (one
+size; the shell scales it), and installs files with mode 0644 (the tool
 0755):
 
 | Installed | From |
 |---|---|
 | `/usr/share/color-schemes/Boswas<Label>.colors` | `color-schemes/` |
-| `/usr/share/plasma/look-and-feel/com.boswas.<id>/` | `look-and-feel/`, plus `contents/previews/preview.png` (600x338) and `fullscreenpreview.jpg` (1920x1080) |
-| `/usr/share/wallpapers/Boswas-<Label>/` | `metadata.json`, `contents/images/3840x2160.png` (light), `contents/images_dark/3840x2160.png` (dark), `contents/screenshot.png` |
+| `/usr/share/wallpapers/Boswas-<Label>/` | `metadata.json`, `contents/images/3840x2160.png` (light), `contents/images_dark/3840x2160.png` (dark), `contents/screenshot.png` (480x270) |
 | `/usr/share/wallpapers/Boswas/` | Horizon's images (copies) |
-| `/usr/share/konsole/` | `konsole/` |
 | `/usr/share/boswas/presets/lock/<id>.png` | `lock.svg`, 3840x2160 |
 | `/usr/share/boswas/presets/previews/<id>.png` | `previews/<id>.svg`, 480x270 |
 | `/usr/share/boswas/presets/presets.json` | `presets.json` |
-| `/usr/share/boswas/branding/login-background.png` | Horizon's lock screen (copy) |
+| `/usr/share/boswas/branding/login-background.png` | Horizon's lock screen art (copy) |
 | `/usr/lib/boswas/python/boswas_preset/`, `/usr/bin/boswas-preset` | the tool |
 
-Everything installed takes about 29 MB (149 files; the second names are
+The wallpaper directories keep the layout Control Center reads
+(`metadata.json` with the name, `contents/images/` and
+`contents/images_dark/`).
+
+Everything installed takes about 27 MB (79 files; the second names are
 plain copies, because Debian packages should not contain hard links).

@@ -12,37 +12,51 @@ Depends: python3 (>= 3.11),
          python3-pyside6.qtcore,
          python3-pyside6.qtgui,
          python3-pyside6.qtwidgets,
+         python3-pyside6.qtnetwork,
+         python3-pyside6.qtdbus,
          qt6-svg-plugins,
          boswas-branding (>= 1.0~alpha3),
          boswas-cli (>= 1.0~alpha3),
          boswas-device-agent (>= 1.0~alpha3),
-         kde-cli-tools,
-         libkf6kcmutils-bin,
+         libglib2.0-bin,
+         systemd,
+         passwd,
+         tzdata,
+         xkb-data,
          ${misc:Depends}
-Recommends: boswas-compat-manager,
+Recommends: boswas-desktop,
+            boswas-apps,
+            accountsservice,
+            boswas-compat-manager,
             boswas-sysops,
             boswas-android,
             network-manager,
+            iproute2,
+            locales,
             flatpak,
             pci.ids,
-            usb.ids,
-            dolphin,
-            kinfocenter
+            usb.ids
 Description: Boswas OS Control Center, Security Center and Software Center
- The settings hub of Boswas OS (KDE Plasma). One window with a page per
- area, each showing the state of the device as the system reports it,
- offering the actions of that area, and opening the matching KDE settings
- modules (kcmshell6) for everything configured there:
+ The settings hub of Boswas OS. One window with a page per area, each
+ showing the state of the device as the system reports it and holding the
+ settings of that area as native sections that apply at once:
  .
-  * Personalization: Boswas desktop presets (boswas-preset) and the KDE
-    appearance modules
-  * Network: connections, addresses, Wi-Fi radio (NetworkManager)
+  * Personalization: Boswas desktop presets (boswas-preset), colour mode,
+    background and motion
+  * Network and Bluetooth: Wi-Fi networks, airplane mode, connection
+    details, Bluetooth devices (through the Boswas services bridge)
+  * Display and Devices: screens, night light, mouse, touchpad, keyboard
+    (the compositor's configuration)
+  * Sound and Power: devices and volume, battery, power mode, brightness
+  * System: date and time, region and language
+  * Users: the own account (picture, name, password), other users, adding
+    and removing users (AccountsService)
   * Storage: disks, file systems, and freeing space
   * Hardware & Drivers: PCI and USB devices, their drivers, and missing
     firmware with the Debian package that provides it
   * Boswas Software Center: installed applications; Debian packages from the
     signed repositories, Flatpak applications and AppImages; files routed to
-    the right installer by their content
+    the right installer by their content; default and start-up applications
   * Windows Compatibility: runtime health and the Compatibility Manager
   * Android: the optional Waydroid runtime (boswas-android), Android apps and
     APK files
@@ -50,9 +64,8 @@ Description: Boswas OS Control Center, Security Center and Software Center
     device agent's state, as Secure, Warning, Attention or Error
   * Boswas Update Center: automatic updates, pending updates, check for and
     install updates
-  * Bluetooth, Display, Sound, Power, Users, Devices, Privacy and System
-    pages, About Boswas OS with a system overview, and in live sessions a way
-    to restart into the installer
+  * Privacy, About Boswas OS with a system overview, and in live sessions a
+    way to restart into the installer
  .
  Control Center runs as the desktop user and never as root. It starts only
  a fixed list of programs, each with a validated argument list and a

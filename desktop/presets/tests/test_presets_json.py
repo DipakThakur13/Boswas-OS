@@ -14,8 +14,7 @@ PALETTE_KEYS = {
 }
 VARIANT_KEYS = {"base", "glow", "glow_opacity", "ambient", "ambient_opacity", "ring", "ring_opacity",
                 "accent", "accent_hi", "mark", "mark_opacity", "motif_colors"}
-PRESET_KEYS = {"id", "label", "name", "description", "variant", "icon_theme", "plasma_style",
-               "panel", "palette", "terminal", "wallpaper"}
+PRESET_KEYS = {"id", "label", "name", "description", "variant", "preview", "palette", "wallpaper"}
 
 
 class PresetsJsonTest(unittest.TestCase):
@@ -28,7 +27,8 @@ class PresetsJsonTest(unittest.TestCase):
 
     def test_horizon_is_the_default(self):
         self.assertEqual(self.data["default"], "horizon")
-        self.assertEqual(self.data["schema"], 1)
+        self.assertEqual(self.data["schema"], 2)
+        self.assertEqual(set(self.data), {"schema", "default", "presets"})
 
     def test_keys_and_names(self):
         for p in self.presets:
@@ -39,24 +39,24 @@ class PresetsJsonTest(unittest.TestCase):
                 self.assertEqual(p["name"], "Boswas " + p["label"])
                 self.assertTrue(10 < len(p["description"]) <= 200, p["description"])
 
-    def test_variant_icons_and_plasma_style(self):
+    def test_variants(self):
         light = {p["id"] for p in self.presets if p["variant"] == "light"}
         self.assertEqual(light, {"pearl", "classic"})
         for p in self.presets:
             with self.subTest(preset=p["id"]):
                 self.assertIn(p["variant"], ("dark", "light"))
-                self.assertEqual(p["icon_theme"], "Boswas" if p["variant"] == "dark" else "Boswas-Light")
-                self.assertIn(p["plasma_style"], ("default", "breeze-dark", "breeze-light"))
 
-    def test_panels(self):
+    def test_preview_sketch(self):
+        """How the preview picture draws the panel; nothing of the desktop follows it."""
         for p in self.presets:
             with self.subTest(preset=p["id"]):
-                if p["id"] == "classic":
-                    self.assertEqual(p["panel"], {"style": "full-width",
-                                                  "task_manager": "org.kde.plasma.taskmanager"})
-                else:
-                    self.assertEqual(p["panel"], {"style": "floating",
-                                                  "task_manager": "org.kde.plasma.icontasks"})
+                self.assertEqual(p["preview"], {"panel": "full-width" if p["id"] == "classic" else "floating"})
+
+    def test_nothing_for_plasma_or_konsole(self):
+        """No Plasma style, panel applet, icon theme of a Global Theme or Konsole palette is described."""
+        text = support.PRESETS_FILE.read_text(encoding="utf-8").lower()
+        for word in ("plasma", "org.kde", "konsole", "task_manager", "icon_theme", "terminal"):
+            self.assertNotIn(word, text)
 
     def test_palette_tokens(self):
         for p in self.presets:
@@ -74,15 +74,6 @@ class PresetsJsonTest(unittest.TestCase):
         self.assertEqual(horizon["accent"], "#D9B26E")      # Gold 500
         self.assertEqual(horizon["selection"], "#D9B26E")
         self.assertEqual(horizon["window"], "#111A2B")      # Navy 800
-
-    def test_terminal_colours(self):
-        for p in self.presets:
-            with self.subTest(preset=p["id"]):
-                t = p["terminal"]
-                self.assertEqual(set(t), {"background", "foreground", "colors"})
-                self.assertEqual(len(t["colors"]), 16)
-                for value in [t["background"], t["foreground"], *t["colors"]]:
-                    self.assertRegex(value, support.HEX)
 
     def test_wallpaper_parameters(self):
         for p in self.presets:
@@ -116,12 +107,12 @@ class ReadmeTest(unittest.TestCase):
     def test_token_table_matches_presets_json(self):
         readme = (support.PRESETS_DIR / "README.md").read_text(encoding="utf-8")
         for p in support.presets():
-            c, t = p["palette"], p["terminal"]
+            c = p["palette"]
             row = (f"| **{p['label']}** (`{p['id']}`) | {p['variant']} | `{c['window']}` | `{c['view']}` | "
                    f"`{c['header']}` | `{c['selection']}` / `{c['selection_text']}` | `{c['accent']}` | "
-                   f"`{c['text']}` / `{c['muted']}` | `{c['neutral']}` | `{t['background']}` / `{t['foreground']}` |")
+                   f"`{c['text']}` / `{c['muted']}` | `{c['neutral']}` |")
             with self.subTest(preset=p["id"]):
-                self.assertIn(row, readme)
+                self.assertIn(row, readme.splitlines())
 
 
 class NoTealTest(unittest.TestCase):

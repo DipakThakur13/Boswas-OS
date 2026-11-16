@@ -1,0 +1,121 @@
+.TH BOSWAS-REMINDERS 1 "November 2026" "boswas-apps 1.0~alpha3" "Boswas OS"
+.SH NAME
+boswas-reminders \- show alarms, timers and calendar reminders while the applications are closed
+.SH SYNOPSIS
+.B boswas-reminders
+.RB [ \-\-verbose ]
+.br
+.B boswas-reminders
+.B \-\-status
+.br
+.B boswas-reminders
+.BR \-\-version " | " \-\-help
+.SH DESCRIPTION
+.B boswas-reminders
+is a small program without a window that runs in the desktop session. It
+reads the alarms, timers and focus session of
+.BR boswas\-clock (1)
+and the events of
+.BR boswas\-calendar (1)
+from their files, sleeps until the next one is due, and then shows a
+desktop notification through org.freedesktop.Notifications:
+.IP \(bu 2
+an alarm, with the buttons
+.B Snooze
+and
+.BR Dismiss ,
+urgent, so that it stays until it is answered;
+.IP \(bu 2
+a timer that ran down, with
+.B Dismiss
+and
+.BR Restart ;
+.IP \(bu 2
+the end of a focus period or of a break;
+.IP \(bu 2
+a reminder of a calendar event, with
+.BR Open ,
+.B Snooze
+and
+.BR Dismiss .
+Events of calendars that are hidden in Calendar do not remind.
+.PP
+With an alarm, a timer or a reminder it plays a short chime when
+python3\-pyside6.qtmultimedia is installed and there is an audio output.
+The chime is played by a helper process, so the service itself never loads
+the multimedia libraries.
+.PP
+The service wakes up when something is due, when one of the files changes,
+when the computer resumes from sleep (logind's PrepareForSleep signal), and
+otherwise once a minute. Each time it works from the clocks as they are
+then, so a wall clock or time zone that was changed neither loses an alarm
+nor repeats one. Alarms follow the local time: an alarm set for 07:00 rings
+at 07:00 before and after a change to or from summer time; a time in the
+hour that is skipped rings one hour later, a time in the hour that
+repeats rings once.
+.PP
+What became due while the computer was off or asleep is handled when the
+service runs again: an alarm or timer that is at most ten minutes late and a
+reminder of an event that has not ended are shown as usual; everything
+older is summed up in one notification per application. Nothing is shown
+twice: what was shown is recorded. A snooze is written to disk at once and
+survives a restart, and an alarm that was ringing unanswered when the
+service stopped rings again when it starts.
+.PP
+One service runs per session; a second one exits at once with status 0.
+The service ends cleanly on SIGTERM, SIGINT and SIGHUP.
+.SH OPTIONS
+.TP
+.B \-\-status
+Print whether the service runs, the time zone in use, the next alarm and
+the next time the service would wake up, and exit with 0 when a service is
+running and 1 when none is.
+.TP
+.B \-\-verbose
+Write more about failed notifications to standard error.
+.TP
+.B \-\-version
+Print the version and exit.
+.TP
+.B \-\-help
+Print a summary of the options and exit.
+.SH FILES
+.TP
+.I /etc/xdg/autostart/com.boswas.Reminders.desktop
+Starts the service with the Boswas session (OnlyShowIn=Boswas). To switch
+it off for one user, copy the file to
+.I ~/.config/autostart
+and add the line
+.BR Hidden=true .
+.TP
+.I $XDG_DATA_HOME/com.boswas.Clock/clock.json
+Read; changed (under the same lock Clock uses) when
+.B Restart
+is pressed on a timer's notification and when an alarm that rings once has
+rung.
+.TP
+.I $XDG_DATA_HOME/com.boswas.Calendar/calendar.json
+Read.
+.TP
+.I $XDG_CONFIG_HOME/com.boswas.Clock/settings.json
+Read for the time format and whether to play the chime.
+.TP
+.I $XDG_STATE_HOME/com.boswas.Reminders/state.json
+What was shown, what is snoozed, and up to when everything was handled.
+.TP
+.I $XDG_RUNTIME_DIR/boswas-reminders.lock
+Locked by the running service.
+.SH EXIT STATUS
+0 after a clean end, or when another service already runs; 1 from
+.B \-\-status
+when no service runs; 2 for wrong options; 4 when started as root, which
+the service refuses.
+.SH NOTES
+The service needs the session's D\-Bus and a notification service that
+supports actions. While there is no notification service it keeps a due
+item and tries again for ten minutes. It holds about 45 MB of memory, most
+of it shared libraries of Python and Qt, and uses no processor time
+between its wake\-ups.
+.SH SEE ALSO
+.BR boswas\-clock (1),
+.BR boswas\-calendar (1)

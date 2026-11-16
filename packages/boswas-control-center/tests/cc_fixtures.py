@@ -31,16 +31,25 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve()
 PACKAGE = HERE.parents[1]
+# The sibling packages of the monorepo, and the Boswas UI toolkit the widgets are built on.
 for path in (PACKAGE.parent / "boswas-cli", PACKAGE.parent / "boswas-compat", PACKAGE.parent / "boswas-device-agent",
-             PACKAGE):
+             PACKAGE.parents[1] / "desktop" / "ui" / "qt", PACKAGE):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
 from boswas_agent.localapi import ApiError  # noqa: E402
 
+# The toolkit writes the images of its style sheet to the user's cache; in a test run they go to a
+# temporary directory instead (boswas_fluent.assets needs no Qt).
+import tempfile  # noqa: E402
+
+from boswas_fluent import assets as _fluent_assets  # noqa: E402
+
+_FLUENT_IMAGES = tempfile.TemporaryDirectory(prefix="fluent-test-images-")
+_fluent_assets.set_cache_root(_FLUENT_IMAGES.name)
+
 from boswas_control_center import commands  # noqa: E402
 from boswas_control_center.backend import AGENT_SOCKET, Backend  # noqa: E402
-from boswas_control_center.catalog import KCM_MODULES  # noqa: E402
 
 E = commands.EXECUTABLES
 
@@ -273,7 +282,7 @@ class FakeCommands:
     """Stands in for commands.CommandRunner: records argv, never starts a process."""
 
     def __init__(self, root: Path):
-        self.installed = set(E.values()) - {E["plasmashell"]}
+        self.installed = set(E.values())
         self.outputs: dict[tuple, commands.Completed] = {
             (E["boswas"], "--json", "status"): completed(json.dumps(STATUS)),
             (E["boswas-preset"], "--json", "list"): completed(json.dumps(preset_doc(root))),
@@ -290,8 +299,6 @@ class FakeCommands:
             (E["nmcli"], "-t", "-f", "IP4.ADDRESS,IP4.GATEWAY,IP6.ADDRESS", "device", "show", "wlp2s0"):
                 completed(NMCLI_SHOW),
             (E["nmcli"], "-t", "radio", "wifi"): completed("enabled\n"),
-            (E["nmcli"], "radio", "wifi", "off"): completed(),
-            (E["nmcli"], "device", "disconnect", "wlp2s0"): completed(),
             (E["lsblk"], "-J", "-b", "-o", "NAME,TYPE,SIZE,FSTYPE,MOUNTPOINTS,MODEL,TRAN,RM,RO"): completed(LSBLK),
             (E["flatpak"], "remotes", "--system", "--columns=name,url,options"): completed(FLATPAK_SYSTEM_REMOTES),
             (E["flatpak"], "remotes", "--user", "--columns=name,url,options"): completed(""),
@@ -328,9 +335,13 @@ class FakeCommands:
             self.timeouts.append(timeout)
         if command[0] == E["apt-config"]:
             return completed(APT_SHELL)
-        if command[:2] == [E["boswas-preset"], "apply"]:
+        if command[:2] == [E["boswas-preset"], "apply"] or command == [E["boswas-preset"], "reset"]:
             return self.outputs.get(tuple(command), completed())
         return self.outputs.get(tuple(command), completed("", 1, "no canned output"))
+
+    def converse(self, command: list[str], dialogue, timeout: float = 60.0) -> int:
+        self._check(command)
+        raise AssertionError("no test of the whole window changes a password")
 
     def start(self, command: list[str], settle: float = commands.START_SETTLE) -> None:
         self._check(command)
@@ -437,8 +448,6 @@ BOSWAS_GIT_COMMIT="205e3f45b5fe0fe5f5ac29ea3ed93f65330e1ec0"
 CPUINFO = ("processor\t: 0\nvendor_id\t: GenuineIntel\nmodel name\t: Intel(R) Core(TM) i7-1265U\n\n"
            "processor\t: 1\nvendor_id\t: GenuineIntel\nmodel name\t: Intel(R) Core(TM) i7-1265U\n\n")
 MEMINFO = "MemTotal:       16303520 kB\nMemFree:         8123456 kB\n"
-METAINFO = ('<?xml version="1.0"?><component><id>org.kde.plasmashell</id><releases>'
-            '<release version="6.3.6" date="2025-07-08"/><release version="6.3.5"/></releases></component>')
 UU_LOG = ("2026-10-03 06:12:01,123 INFO Starting unattended upgrades script\n"
           "2026-10-03 06:12:05,456 INFO Packages that will be upgraded: libssl3t64 openssl\n"
           "2026-10-03 06:13:10,789 INFO All upgrades installed\n")
@@ -461,9 +470,6 @@ def write(path: Path, text: str | bytes) -> Path:
     else:
         path.write_text(text, encoding="utf-8")
     return path
-
-
-MISSING_KCMS = frozenset({"kcm_feedback", "kcm_tablet"})
 
 
 def make_root(base: Path, live: bool = False, battery: bool = True, uu_log: bool = True) -> Path:
@@ -496,12 +502,7 @@ def make_root(base: Path, live: bool = False, battery: bool = True, uu_log: bool
                                                        'APT::Periodic::Unattended-Upgrade "1";\n')
     if uu_log:
         write(root / "var/log/unattended-upgrades/unattended-upgrades.log", UU_LOG)
-    write(root / "usr/share/metainfo/org.kde.plasmashell.metainfo.xml", METAINFO)
-    kcms = root / "usr/lib/x86_64-linux-gnu/qt6/plugins/plasma/kcms"
-    for module in sorted(KCM_MODULES - MISSING_KCMS):
-        sub = "systemsettings_qwidgets" if module in ("kcm_networkmanagement", "kcm_proxy", "kcm_kwallet5", "kcm_clock",
-                                                      "kcm_recentFiles") else "systemsettings"
-        write(kcms / sub / f"{module}.so", "")
+    write(root / "usr/share/boswas/compositor/version", "1.0~alpha3\n")
     # sysfs: an Ethernet controller without a driver, a GPU with one, a USB keyboard (serial numbers present but
     # never read), the ids databases and /proc/stat.
     pci = root / "sys/bus/pci/devices"
@@ -554,7 +555,8 @@ def make_xdg(base: Path) -> dict:
           "Icon=firefox-esr\nExec=/usr/lib/firefox-esr/firefox-esr %u\n")
     write(system / "hidden.desktop", DESKTOP + "Name=Hidden Tool\nExec=hidden\nNoDisplay=true\n")
     write(system / "gnome-only.desktop", DESKTOP + "Name=GNOME Only\nExec=gnome-thing\nOnlyShowIn=GNOME;\n")
-    write(system / "not-kde.desktop", DESKTOP + "Name=Not In KDE\nExec=thing\nNotShowIn=KDE;\n")
+    write(system / "not-boswas.desktop", DESKTOP + "Name=Not On Boswas\nExec=thing\nNotShowIn=Boswas;\n")
+    write(system / "boswas-only.desktop", DESKTOP + "Name=Boswas Only\nExec=boswas-thing\nOnlyShowIn=Boswas;\n")
     write(system / "kde-only.desktop", DESKTOP + "Name=KDE Only\nExec=kde-thing\nOnlyShowIn=KDE;\n")
     write(system / "missing-tryexec.desktop", DESKTOP + "Name=Missing Program\nExec=nothing\n"
           "TryExec=/nonexistent/program\n")
@@ -589,3 +591,26 @@ class Rig:
         self.services = FakeServices()
         self.backend = Backend(root=str(self.root), environ=self.environ, commands_runner=self.commands,
                                client_factory=self.services.factory)
+
+
+def use_fake_bridge():
+    """Make every window of the tests use a FakeBridge: no test ever starts the real services bridge."""
+    from boswas_control_center.ui import bridgeclient
+    bridgeclient.factory = bridgeclient.FakeBridge
+    return bridgeclient
+
+
+def use_rig_for_settings(rig):
+    """Point the settings sections at a Rig: its environment, its recording runner and its root.
+
+    Returns a function that puts the real ones back (for addCleanup).
+    """
+    from boswas_control_center.ui.settings import context
+    saved = (context.environ, context.runner, context.root)
+    context.environ = lambda: rig.environ
+    context.runner = lambda: rig.commands
+    context.root = str(rig.root)
+
+    def restore():
+        context.environ, context.runner, context.root = saved
+    return restore

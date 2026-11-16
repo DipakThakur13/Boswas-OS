@@ -427,6 +427,58 @@ class SandboxTests(CompatTestCase):
         self.assertNotIn("DISPLAY", self.env_of(self.build(policy.Grants(display=False), session)))
         self.assertIsNone(sandbox.x11_socket("remote.example:10.0"))
 
+    def test_display_grant_binds_the_wayland_socket_of_the_boswas_desktop(self):
+        import socket as socketlib
+        uid = os.getuid()
+        runtime = self.root / "runtime"
+        runtime.mkdir()
+        listener = socketlib.socket(socketlib.AF_UNIX)
+        listener.bind(str(runtime / "wayland-1"))
+        self.addCleanup(listener.close)
+        (runtime / "wayland-file").write_text("not a socket")
+        env = {"WAYLAND_DISPLAY": "wayland-1", "XDG_RUNTIME_DIR": str(runtime)}
+        session = sandbox.HostSession.current(self.root / "home", env)
+        self.assertEqual(session.wayland_display, "wayland-1")
+        argv = self.build(policy.Grants(display=True), session)
+        inside = f"/run/user/{uid}/wayland-1"
+        self.assertEqual(argv[argv.index(inside) - 2:argv.index(inside) + 1],
+                         ["--ro-bind", str(runtime / "wayland-1"), inside])
+        self.assertEqual(self.env_of(argv)["WAYLAND_DISPLAY"], "wayland-1")
+        self.assertNotIn("DISPLAY", self.env_of(argv), "no X server: Wine uses its Wayland driver")
+        # Without the grant, and for anything that is not a socket name, nothing is bound.
+        self.assertNotIn("WAYLAND_DISPLAY", self.env_of(self.build(policy.Grants(display=False), session)))
+        for bad in ("wayland-file", "../wayland-1", "/tmp/wayland-1", "wayland-", "x11", "wayland-1/../../bus"):
+            other = sandbox.HostSession.current(self.root / "home", dict(env, WAYLAND_DISPLAY=bad))
+            argv = self.build(policy.Grants(display=True), other)
+            self.assertNotIn("WAYLAND_DISPLAY", self.env_of(argv), bad)
+            self.assertFalse(any("wayland" in part for part in argv), bad)
+
+    def test_a_sandboxed_application_is_not_let_onto_the_sessions_x_server(self):
+        # The Boswas desktop runs an X server for X11 applications. Its
+        # clients can watch each other, so with a Wayland socket to give,
+        # the X11 socket stays outside the sandbox.
+        import socket as socketlib
+        runtime = self.root / "runtime"
+        runtime.mkdir()
+        listener = socketlib.socket(socketlib.AF_UNIX)
+        listener.bind(str(runtime / "wayland-1"))
+        self.addCleanup(listener.close)
+        sock = self.root / "tmp/.X11-unix/X0"
+        sock.parent.mkdir(parents=True)
+        sock.write_text("")
+        xauth = self.tmp / "xauth"
+        xauth.write_text("cookie")
+        env = {"WAYLAND_DISPLAY": "wayland-1", "XDG_RUNTIME_DIR": str(runtime), "DISPLAY": ":0",
+               "XAUTHORITY": str(xauth)}
+        session = sandbox.HostSession.current(self.root / "home", env)
+        self.assertEqual((session.wayland_display, session.display), ("wayland-1", ":0"))
+        argv = self.build(policy.Grants(display=True), session)
+        inside = self.env_of(argv)
+        self.assertEqual(inside["WAYLAND_DISPLAY"], "wayland-1")
+        self.assertNotIn("DISPLAY", inside)
+        self.assertNotIn("XAUTHORITY", inside)
+        self.assertFalse(any("X11" in part for part in argv), argv)
+
     def test_folder_grants(self):
         (self.home / "Documents").mkdir()
         argv = self.build(policy.Grants(folders=("documents", "downloads")))

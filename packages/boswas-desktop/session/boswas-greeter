@@ -1,0 +1,22 @@
+#!/bin/sh
+# boswas-greeter: the login screen, run by greetd as its greeter user.
+#
+# It starts the compositor with only the greeter as its shell. If the
+# graphical login cannot start (no usable graphics device, a broken
+# driver), it falls back to greetd's text login, so there is always a way
+# to sign in.
+export XDG_CURRENT_DESKTOP=Boswas
+export XDG_SESSION_TYPE=wayland
+export XCURSOR_THEME="${XCURSOR_THEME:-Boswas-Cursors}"
+
+started=$(date +%s)
+/usr/bin/boswas-compositor --config /usr/share/boswas/compositor/greeter.toml
+status=$?
+# A greeter that ends normally was asked to (a login succeeded).
+[ "$status" -eq 0 ] && exit 0
+# It failed: if that happened at once, the graphical login is not usable.
+if [ $(($(date +%s) - started)) -lt 10 ] && [ -x /usr/sbin/agreety ]; then
+	echo "Boswas OS: the graphical login could not start; using the text login." >&2
+	exec /usr/sbin/agreety --cmd /usr/bin/boswas-session
+fi
+exit "$status"

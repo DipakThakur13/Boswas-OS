@@ -2,8 +2,9 @@
 
   boswas-compat-manager                 open the window
   boswas-compat-manager --install FILE  open the install flow and check FILE
-                                        (the Dolphin "Install with Boswas
-                                        Compatibility Manager" action)
+                                        ("Install with Boswas Compatibility
+                                        Manager", which file managers offer
+                                        under "Open with" for .exe and .msi)
   boswas-compat-manager --version
 """
 

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Reminders
+Comment=Shows alarms, timers and calendar reminders while Clock and Calendar are closed
+Exec=boswas-reminders
+Icon=preferences-system-time
+Terminal=false
+NoDisplay=true
+OnlyShowIn=Boswas;
+StartupNotify=false

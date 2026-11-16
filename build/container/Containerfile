@@ -20,7 +20,10 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # cross-compilers that build the 64-bit and 32-bit Windows test application
 # from source (tests/compatibility/fixtures/), openssl (device credentials and signed
 # policies in the agent and Control Plane tests) and PySide6 with Qt's
-# offscreen platform (Compatibility Manager widget tests).
+# offscreen platform (Compatibility Manager widget tests), and the Rust
+# toolchain with the libraries the native desktop (boswas-desktop) and the
+# boot screen (boswas-bootsplash) are built against. cargo downloads the
+# crates pinned in their Cargo.lock files from crates.io.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
         live-build debootstrap \
@@ -31,7 +34,13 @@ RUN apt-get update \
         librsvg2-bin fonts-lato potrace netpbm \
         python3 openssl \
         python3-pyside6.qtcore python3-pyside6.qtgui python3-pyside6.qtwidgets qt6-qpa-plugins \
+        python3-pyside6.qtsvg python3-pyside6.qtdbus python3-pyside6.qtnetwork \
+        python3-pyside6.qtmultimedia python3-pyside6.qtpdf python3-pyside6.qtprintsupport \
+        qt6-image-formats-plugins dbus-daemon xwayland x11-apps grim desktop-file-utils \
         apparmor gcc-mingw-w64-x86-64-win32 gcc-mingw-w64-i686-win32 \
+        cargo rustc pkgconf \
+        libgbm-dev libinput-dev libpam0g-dev libpixman-1-dev libseat-dev libudev-dev libxkbcommon-dev \
+        fonts-inter \
         qemu-system-x86 qemu-utils ovmf \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*

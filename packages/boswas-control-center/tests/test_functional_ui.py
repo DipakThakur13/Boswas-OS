@@ -42,6 +42,8 @@ if PYSIDE:
     from boswas_control_center import android, catalog, commands, jobs
     from boswas_control_center.commands import EXECUTABLES as E
     from boswas_control_center.ui.main_window import MainWindow
+
+    fx.use_fake_bridge()
     from boswas_control_center.ui.software_tabs import APPIMAGE_WARNING, LOCAL_DEB_WARNING
 
     APP = QApplication.instance() or QApplication(["test"])
@@ -73,6 +75,7 @@ class FunctionalCase(unittest.TestCase):
         sys.excepthook = lambda *exc: self.errors.append("".join(traceback.format_exception(*exc)))
         self.tmp = tempfile.TemporaryDirectory()
         self.rig = fx.Rig(Path(self.tmp.name), live=self.live)
+        self.addCleanup(fx.use_rig_for_settings(self.rig))
         self.cmd = self.rig.commands
         self.windows: list = []
         self.questions: list[tuple[str, str, str]] = []
@@ -494,19 +497,6 @@ class StorageAndNetworkTest(FunctionalCase):
         self.settle(w)
         self.assertFalse((thumbs / "a.png").exists())
         self.assertIn("2.0 KiB freed", page.cleanup_message.text.text())
-
-    def test_network(self):
-        w = self.window()
-        page = self.show(w, "network")
-        self.assertEqual(page.summary.headline.text(), "Connected (Wi-Fi: Home:Net)")
-        self.assertEqual(sorted(page.device_buttons), ["wlp2s0"])  # the unavailable device offers no button
-        self.assertFalse(page.hardware_button.isHidden())
-        page.wifi_button.click()
-        self.settle(w)
-        self.assertIn([E["nmcli"], "radio", "wifi", "off"], self.cmd.ran)
-        page.hardware_button.click()
-        self.settle(w)
-        self.assertEqual(w.current_page(), "hardware")
 
     def test_overview(self):
         page = self.show(self.window(), "about")

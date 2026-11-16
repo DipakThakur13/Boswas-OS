@@ -1,4 +1,4 @@
-.TH BOSWAS-COMPAT-MANAGER 1 "October 2026" "boswas-compat-manager 1.0~alpha3" "Boswas OS"
+.TH BOSWAS-COMPAT-MANAGER 1 "November 2026" "boswas-compat-manager 1.0~alpha3" "Boswas OS"
 .SH NAME
 boswas-compat-manager \- manage Windows applications on Boswas OS
 .SH SYNOPSIS
@@ -37,9 +37,11 @@ with the message
 Open the install page and check
 .I file
 (a Windows program or Windows Installer package). Nothing is installed
-before the check result is shown and the installation is confirmed. The
-file manager action \(lqInstall with Boswas Compatibility Manager\(rq uses
-this option.
+before the check result is shown and the installation is confirmed.
+Boswas Files and other file managers offer this for Windows programs and
+installer packages under \(lqOpen with\(rq, as \(lqInstall with Boswas
+Compatibility Manager\(rq; opening such a file still runs
+\(lqRun with Boswas\(rq.
 .TP
 .B \-\-version
 Print the version and exit.
@@ -47,6 +49,18 @@ Print the version and exit.
 .B \-\-help
 Print a short usage summary and exit.
 .SH FILES
+.TP
+.I /usr/share/applications/com.boswas.CompatibilityManager.Install.desktop
+The \(lqOpen with\(rq entry for .exe and .msi files (not shown in the
+application menu).
+.TP
+.I /usr/share/applications/boswas\-mimeapps.list
+Names \(lqRun with Boswas\(rq
+.RB ( boswas\-winapp (1))
+as the default application of those files on the Boswas desktop. A choice
+in
+.I ~/.config/mimeapps.list
+comes first.
 .TP
 .I $XDG_RUNTIME_DIR/boswas/session.sock
 The user's Boswas session service, used for every application operation.

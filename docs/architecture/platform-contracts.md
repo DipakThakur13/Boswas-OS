@@ -1,8 +1,13 @@
-# Platform contracts: boswas-sysops, boswas-android, Control Center
+# Platform contracts: boswas-sysops, boswas-android, Control Center, Boswas Desktop
 
 The interfaces between the privileged helper, the Android runtime manager and
 Boswas Control Center. Each component is tested against this document with
 fakes of the others; a change here changes all three.
+
+Section 4 describes the interfaces of the native desktop (`boswas-desktop`,
+ADR-0026) that other Boswas components use: its configuration files, its
+control socket, the service bridge for Settings (ADR-0035), the design
+tokens and the version file.
 
 ## 1. boswas-sysops: the only privileged helper
 
@@ -187,3 +192,225 @@ set, and `/usr/bin/boswas-android`. Long operations use a streaming call that
 reads JSON Lines, shows progress, offers Cancel only while the last `start` /
 `progress` line says `cancellable`, and reports success only on a `result`
 line with `ok: true`.
+
+Its settings sections (ADR-0041) use two interfaces of section 4 and
+nothing else of the desktop: the service bridge, started by its fixed
+path without arguments, one per window; and the compositor's user
+configuration, which it writes through its one file writer
+(`userfiles.write_config`) before sending `reload-config` to the public
+control socket, with `outputs` for the monitors. It never writes
+`[policy]`, `[shell]`, `[input_method]` or `[lock] command`.
+
+## 4. Boswas Desktop: configuration, control socket, service bridge, tokens
+
+### Compositor configuration (TOML)
+
+Layers, later ones overriding earlier ones key by key:
+
+| File | Owner | May contain |
+|------|-------|-------------|
+| `/usr/share/boswas/compositor/compositor.toml` | boswas-desktop (never edited) | everything, including `[policy]` |
+| `/etc/boswas/compositor.toml` | the administrator (not shipped) | everything, including `[policy]` |
+| `$XDG_CONFIG_HOME/boswas/compositor.toml` | the user (and Settings, which writes it for the user) | everything except `[policy]` and the `command` keys of `[shell]`, `[lock]` and `[input_method]`, which are ignored there with a warning |
+| `$XDG_CONFIG_HOME/boswas/appearance.toml` | `boswas-preset` (rewritten as a whole) | the `[appearance]` table only; anything else makes the file ignored |
+
+A file that does not parse or contains an unknown key is reported and
+ignored as a whole; the session still starts. `--config FILE` replaces all
+layers (the login screen uses `/usr/share/boswas/compositor/greeter.toml`).
+
+| Table | Keys |
+|-------|------|
+| `[keyboard]` | `layout`, `variant`, `model`, `options` (XKB names); `repeat_delay` (ms, 100–2000); `repeat_rate` (per second, 1–100); `numlock` (on when the session starts) |
+| `[pointer]` | mice and trackballs: `natural_scroll`, `accel_speed` (−1.0 to 1.0), `accel_profile` (`"adaptive"` or `"flat"`), `left_handed`, `cursor_theme`, `cursor_size` (16–96) |
+| `[touchpad]` | `tap_to_click`, `natural_scroll`, `accel_speed` (−1.0 to 1.0), `disable_while_typing`, `gestures` (three- and four-finger swipes) |
+| `[output]` | `scale`: 1.0, 1.25, 1.5, 1.75 or 2.0, for every output that has no setting of its own |
+| `[outputs.NAME]` | one monitor, by connector name (`eDP-1`, `HDMI-A-1`): `enabled`, `mode` (`"1920x1080"` or `"1920x1080@60"`, one of the modes the monitor offers), `scale`, `position` (`[x, y]` of its top-left corner in logical pixels), `rotation` (`"normal"`, `"90"`, `"180"`, `"270"`). An invalid value is ignored alone. The last enabled monitor is never turned off |
+| `[night_light]` | `enabled`; `temperature` (2500–6500 kelvin); `scheduled` with `from` and `to` (`"HH:MM"`, local time) |
+| `[power]` | `screen_off_seconds` (0: never; otherwise 30 to 21600) |
+| `[lock]` | `idle_seconds` (0: never, if the policy allows); `command` (the lock screen program; system files only) |
+| `[shell]` | `command` (the shell program; system files only) |
+| `[input_method]` | `command` (the input method program, started as a trusted client; empty for none; system files only) |
+| `[xwayland]` | `enabled` (default `true`) |
+| `[apps]` | `terminal`, `files`, `settings`, `task_manager` (argument lists for Ctrl+Alt+T, Super+E, Super+I and Ctrl+Shift+Esc) |
+| `[appearance]` | `scheme` (`"dark"` or `"light"`), `reduced_motion`, `wallpaper` (PNG or JPEG file) |
+| `[policy]` | `lock_idle_max_seconds` (0: no limit; shipped: 600), `privileged_protocols` (`"shell"`, shipped; `"all"` for development only) |
+
+Shipped policy: the session locks after at most 600 seconds without input,
+and only programs the compositor starts get the privileged protocols.
+`boswas security status` (check `screen-lock`) reads the two system files
+to report the lock policy. `boswas-compositor(1)` is the reference for
+every key.
+
+`reload-config` applies the keyboard, pointer and touchpad settings, the
+appearance, the cursor, the monitors, night light and the lock and
+screen-off times to the running session. The shell command, the input
+method command and `privileged_protocols` are fixed for the session.
+
+`boswas-preset apply` writes `appearance.toml` (scheme and wallpaper),
+merges the preset's colours into the user's `kdeglobals` for KDE
+applications, records the preset in `boswasrc`, and sends `reload-config`.
+It writes the three files itself and starts no program (ADR-0042).
+
+### Control socket
+
+`$XDG_RUNTIME_DIR/boswas-<WAYLAND_DISPLAY>.sock`, a Unix stream socket,
+mode 0600. The path is printed by `boswas-compositor --print-env` as
+`BOSWAS_COMPOSITOR_SOCKET`. UTF-8, one JSON object per line in each
+direction; a line longer than 64 KiB closes the connection; at most 32
+connections.
+
+```
+-> {"id": 1, "cmd": "version"}
+<- {"id": 1, "ok": true, "data": {"name": "boswas-compositor", "version": "1.0.0-alpha.3", "trusted": false, "locked": false}}
+-> {"id": 2, "cmd": "windows"}
+<- {"id": 2, "ok": false, "error": "\"windows\" is not available on this connection"}
+```
+
+`id` is optional and echoed. Two kinds of connection:
+
+- **public**: any connection to the socket file;
+- **trusted**: the descriptor the compositor passes to a program it starts
+  itself (`BOSWAS_COMPOSITOR_FD`: the shell, the lock screen, the greeter,
+  a configured input method). With `privileged_protocols = "all"` public
+  connections are trusted too.
+
+Commands of every connection (the static test stage pins this set):
+
+| Command | Arguments | Reply data |
+|---------|-----------|------------|
+| `version` | – | `name`, `version`, `trusted`, `locked` |
+| `lock` | – | `null`; the session is locked when the reply arrives |
+| `reload-config` | – | `{"warnings": [...]}` |
+| `outputs` | – | every monitor: `name`, `description`, `make`, `model`, `physical_width_mm`, `physical_height_mm`, `enabled`, `x`, `y`, `width`, `height`, `scale`, `rotation`, `mode` (`width`, `height`, `refresh` in millihertz), `modes` (the same, with `preferred`), `usable`. A monitor that is connected and turned off is `{name, enabled: false}`. This is what every client already sees as `wl_output`, plus the modes |
+| `capture` | `mode`: `"region"` (default) or `"screen"` | `null`. Opens the shell's capture screen, where the user chooses and confirms; nothing is captured by the command itself |
+
+Commands of a trusted connection:
+
+| Command | Arguments | Reply data |
+|---------|-----------|------------|
+| `subscribe` | – | `windows`, `workspaces`, `outputs`, `locked`, `appearance`, `night_light`, `layout`, `overview`, `show_desktop`, `capturing`; events follow |
+| `windows` | – | list of `{id, title, app_id, active, minimized, tile, maximized, fullscreen, urgent, x11, workspace, output, x, y, width, height}` (for an X11 window `app_id` is its class) |
+| `workspaces` | – | `{active, count}` |
+| `workspace` | `index` | `{active, count}` |
+| `new-workspace` | – | `{active, count}` |
+| `close-workspace` | `index` | `{active, count}`; its windows move to the neighbour |
+| `move-to-workspace` | `window`, `index` | `null` |
+| `activate`, `minimize`, `toggle-minimize`, `close` | `window` (id) | `null` |
+| `tile` | `window`, `tile`: `floating`, `maximized`, `fullscreen`, `left`, `right`, `top-left`, `top-right`, `bottom-left`, `bottom-right` | `null` |
+| `overview` | optional `active` (without it: toggle) | `{active}`: whether Task View is open |
+| `show-desktop` | optional `active` | `{active}` |
+| `night-light` | optional `enabled` (without it: toggle), optional `temperature` | `{enabled, temperature, active}` |
+| `next-layout` | – | `{layouts, codes, active}` |
+| `thumbnail` | `window`, `path` (absolute; PNG), optional `width` (16 to 1024, default 240) | answered after the next frame |
+| `screenshot` | `path` (absolute; PNG), optional `output` | answered after the next frame |
+| `capture-answer` | `request` (the id of a `capture-request` event), `allow` | `null`, or an error when no such question is open |
+| `capture-stop` | – | `null`; every permission to capture ends |
+| `quit` | – | `null`; the session ends |
+| `pointer`, `button`, `key`, `scroll` | test input injection | refused without `--test-input` |
+
+Events after `subscribe`, as `{"event": NAME, "data": ...}`:
+
+| Event | Data | Meaning |
+|-------|------|---------|
+| `windows` | the window list | a window appeared, changed or went away (at most once per turn of the event loop) |
+| `workspace` | `{active, count}` | desktops changed |
+| `outputs` | as the `outputs` reply | monitors changed |
+| `lock` | `{locked}` | the session was locked or unlocked |
+| `config` | the appearance (`scheme`, `wallpaper`, `reduced_motion`) | after a reload |
+| `night-light` | `{enabled, temperature, active}` | `active`: the screens are tinted now |
+| `layout` | `{layouts, codes, active}` | the keyboard layouts or the active one changed |
+| `overview`, `show-desktop` | `{active}` | Task View or show desktop was toggled |
+| `launcher`, `quick-settings`, `notifications`, `run` | `{}` | Super, Super+A, Super+N, Super+R |
+| `capture` | `{mode}` | Print, Super+Shift+S or the public `capture` command |
+| `taskbar-app` | `{index, shift}` | Super+1 to 9 |
+| `media-key` | `{key, locked}` | a volume, brightness or media key |
+| `bell` | `{}` | an application rang the system bell |
+| `capture-request` | `{id, program}` | a program asks to see the screen; answer with `capture-answer` |
+| `capture-request-closed` | `{id}` | the question is over (timed out, or the session locked) |
+| `capturing` | `{programs}` | which programs may capture now |
+
+Command line: `boswas-compositor --send version|lock|reload-config|outputs|capture
+[--control-socket PATH]` sends one public command and prints the reply. The
+sleep hook (`/usr/lib/systemd/system-sleep/boswas-lock`) and the boot test
+lock that way; `boswas-preset` writes `reload-config` to the socket itself.
+There is no command that unlocks.
+
+The limits of a public connection, the trust of a started program, the
+lock behaviour and the capture question are pinned down by
+`packages/boswas-desktop/crates/boswas-compositor/tests/headless.rs`.
+
+### Service bridge (for Settings)
+
+`/usr/libexec/boswas/boswas-services-bridge` runs the network, Bluetooth,
+audio, power and brightness backends of the shell (`boswas-services`,
+ADR-0035) as the user who starts it. One JSON object per line in each
+direction, on its standard input and output; a line longer than 16 KiB is
+an error; it ends when its input closes. `BOSWAS_LOG` sets the log
+filter; messages go to standard error.
+
+Events (standard output). Each carries the whole state of one service:
+
+    {"event": "ready", "version": "1.0.0-alpha.3"}
+    {"event": "network", "available": true, "connectivity": "full", "wired": false, "wifi_present": true,
+     "wifi_enabled": true, "wifi_connected": "Home", "wifi_scanning": false,
+     "access_points": [{"ssid", "strength", "secured", "known", "connected", "connecting"}],
+     "vpn": false, "airplane": false, "error": null}
+    {"event": "bluetooth", ...}   {"event": "audio", ...}   {"event": "power", ...}
+    {"event": "brightness", "level": 0.8}
+    {"event": "error", "message": "..."}
+
+`connectivity` is `none`, `limited`, `portal` or `full`. A daemon that is
+not running shows as `available: false`, never as an error. `error` in a
+network event is in exactly one event; the state without it follows. The
+field lists of the other events are in
+`packages/boswas-desktop/crates/boswas-services-bridge/src/protocol.rs`.
+
+Commands (standard input), as `{"cmd": NAME, ...}`:
+
+| `cmd` | Fields |
+|-------|--------|
+| `refresh` | `service`: `network`, `bluetooth`, `audio`, `power` or `brightness` |
+| `wifi-set-enabled`, `airplane-mode`, `bluetooth-set-enabled`, `bluetooth-discover` | `enabled` |
+| `wifi-scan`, `wifi-disconnect` | – |
+| `wifi-connect` | `ssid` (at most 32 bytes), optional `passphrase` (1 to 256 bytes) |
+| `wifi-forget` | `ssid` |
+| `bluetooth-connect`, `bluetooth-disconnect`, `bluetooth-forget` | `address` (`AA:BB:CC:DD:EE:FF`) |
+| `set-volume`, `set-input-volume` | `volume` 0 to 1.5 |
+| `set-muted`, `set-input-muted` | `muted` |
+| `set-default-output`, `set-default-input` | `id` |
+| `set-brightness` | `level` 0 to 1 |
+| `set-power-profile` | `profile`: `power-saver`, `balanced` or `performance` |
+
+Anything else is answered with an `error` event. The bridge offers no
+power actions, notifications or authentication. A Wi-Fi passphrase travels
+on the pipe only, never on a command line.
+
+### Environment of a session
+
+`boswas-session` sets `XDG_CURRENT_DESKTOP=Boswas`,
+`XDG_SESSION_DESKTOP=boswas`, `XDG_SESSION_TYPE=wayland`,
+`QT_QPA_PLATFORM=wayland;xcb` and the other toolkit variables;
+`WAYLAND_DISPLAY` is set by the compositor. `DISPLAY` names the session's
+X server (ADR-0034) for the programs the compositor and the shell start,
+and is removed when there is none; it is not published to the systemd
+user manager or to D-Bus activation. Programs started by the shell never
+inherit `WAYLAND_SOCKET` or `BOSWAS_COMPOSITOR_FD`. Components detect the
+native desktop by `Boswas` in `XDG_CURRENT_DESKTOP`.
+
+### Files other components read
+
+| Path | Written by | Read by | Content |
+|------|-----------|---------|---------|
+| `/usr/share/boswas/compositor/version` | boswas-desktop (package build) | Control Center (About). `boswas info` asks dpkg for the version of `boswas-desktop` instead | The package version, one line (for example `1.0~alpha3`) |
+| `/usr/share/boswas/ui/tokens.json` | boswas-branding | `boswas_fluent` (the Qt toolkit) at run time, and any tool that needs Boswas colours or geometry | Boswas UI tokens, version 3 (ADR-0033). The Rust programs compile the same file in and do not read it at run time |
+| `/usr/lib/boswas/python/boswas_fluent/` | boswas-branding | the Boswas Qt applications | The toolkit (ADR-0039); its interface is `desktop/ui/qt/README.md` |
+| `/usr/share/boswas/kde-settings/kdeglobals` | boswas-branding | KDE and Qt applications (through `XDG_CONFIG_DIRS`) | Prism colour scheme, `Boswas-Prism` icon theme, Breeze widget style where a user has installed it |
+| `/usr/share/icons/Boswas-Cursors/` | boswas-branding | the compositor (`[pointer] cursor_theme`), every client through `XCURSOR_THEME`, and programs that load the theme `default` through Debian's `x-cursor-theme` alternative (registered by the package, priority 150) | The pointer theme (ADR-0043): XCursor files at the nominal sizes 24, 32, 48, 64 and 96 under `cursors/`, `index.theme`, and `cursor.theme` for the alternative |
+| `$XDG_CONFIG_HOME/boswas/shell.toml` | boswas-shell (may be edited by hand) | boswas-shell | `[taskbar] pinned` and `[start] pinned`: lists of desktop file ids |
+| `/usr/share/xdg-desktop-portal/boswas-portals.conf` | boswas-desktop | xdg-desktop-portal (`XDG_CURRENT_DESKTOP=Boswas`) | GTK back end by default; the wlroots back end for ScreenCast and Screenshot |
+| `/etc/xdg/xdg-desktop-portal-wlr/Boswas` | boswas-desktop | xdg-desktop-portal-wlr | `chooser_type=none`: the first monitor is shared |
+| `/etc/boswas/greetd.toml` | boswas-desktop; live-config appends `[initial_session]` on the live medium only | greetd | Login configuration |
+| `/etc/pam.d/boswas-lock` | boswas-desktop | `boswas-shell --lock` (libpam) | `common-auth` and `common-account` |
+
+The boot screen's control protocol (`/run/boswas-bootsplash/socket`, root
+only) is described in `packages/boswas-bootsplash/README.md`.

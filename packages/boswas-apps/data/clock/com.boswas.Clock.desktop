@@ -1,0 +1,25 @@
+[Desktop Entry]
+Type=Application
+Name=Clock
+GenericName=Clock
+Comment=Alarms, timers, a stopwatch, a world clock and focus sessions
+Exec=boswas-clock %U
+Icon=preferences-system-time
+Terminal=false
+StartupNotify=true
+StartupWMClass=com.boswas.Clock
+Categories=Utility;Clock;Qt;
+Keywords=clock;alarm;timer;stopwatch;countdown;world clock;time zone;focus;pomodoro;
+Actions=alarms;timers;stopwatch;
+
+[Desktop Action alarms]
+Name=Alarms
+Exec=boswas-clock --page=alarms
+
+[Desktop Action timers]
+Name=Timers
+Exec=boswas-clock --page=timers
+
+[Desktop Action stopwatch]
+Name=Stopwatch
+Exec=boswas-clock --page=stopwatch
