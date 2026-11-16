@@ -52,8 +52,21 @@ fi
 compositor=/usr/bin/boswas-compositor
 ready=/usr/libexec/boswas/boswas-session-ready
 
-"$compositor" "$@" -- "$ready"
+# The messages of the compositor and of what it starts go to the journal
+# ("journalctl -b -t boswas-session"), not onto the console behind the
+# desktop. systemd-cat runs the compositor in its own place, so the exit
+# status is the compositor's.
+log=""
+[ -S /run/systemd/journal/stdout ] && [ -x /usr/bin/systemd-cat ] &&
+	log="/usr/bin/systemd-cat --identifier=boswas-session"
+
+# shellcheck disable=SC2086
+$log "$compositor" "$@" -- "$ready"
 status=$?
+if [ "$status" -ne 0 ]; then
+	echo "boswas-session: the desktop ended with status $status" >&2
+	[ -n "$log" ] && echo "boswas-session: why: journalctl -b -t boswas-session" >&2
+fi
 
 # The session is over: stop what was started for it.
 if command -v systemctl >/dev/null 2>&1; then

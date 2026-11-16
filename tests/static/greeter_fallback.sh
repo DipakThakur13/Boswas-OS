@@ -28,6 +28,7 @@ chmod 0755 "$root/usr/bin/boswas-compositor" "$root/usr/sbin/agreety"
 sed -e "s#/usr/bin/boswas-compositor#$root/usr/bin/boswas-compositor#g" \
 	-e "s#/usr/sbin/agreety#$root/usr/sbin/agreety#g" \
 	-e "s#/proc/uptime#$root/proc/uptime#g" \
+	-e "s#/run/systemd/journal/stdout#$root/run/systemd/journal/stdout#g" \
 	"$repo/packages/boswas-desktop/session/boswas-greeter" > "$root/greeter"
 
 set +e

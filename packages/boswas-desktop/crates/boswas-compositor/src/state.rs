@@ -316,6 +316,8 @@ pub struct Boswas {
     /// Why the compositor is ending with a failure status; set together
     /// with stopping the event loop.
     pub failure: Option<Failure>,
+    /// The compositor is ending; nothing is started any more.
+    stopping: bool,
     /// The input method's control connection (its liveness) and when it
     /// was last started.
     input_method: (Option<u64>, Vec<Instant>),
@@ -522,6 +524,7 @@ impl Boswas {
             shell_pid: None,
             shell_end: None,
             failure: None,
+            stopping: false,
             input_method: (None, Vec::new()),
             swipe: None,
             touch_pointer: None,
@@ -583,10 +586,17 @@ impl Boswas {
         })
     }
 
+    /// Ends the compositor: the session is over (the shell asked for it
+    /// after a login on the login screen, or when the user signed out).
+    pub fn stop(&mut self) {
+        self.stopping = true;
+        self.loop_signal.stop();
+    }
+
     /// Ends the compositor with a failure status and its one-line reason.
     pub fn fail(&mut self, failure: Failure) {
         self.failure.get_or_insert(failure);
-        self.loop_signal.stop();
+        self.stop();
     }
 
     /// Where windows fly to when they are minimized: the middle of the
@@ -909,17 +919,24 @@ impl Boswas {
     /// the compositor ends with [`Failure::Shell`] and its caller shows a
     /// text login.
     fn supervise_shell(&mut self) {
-        if self.config.shell.command.is_empty() || self.ipc.has_shell() || self.failure.is_some() {
+        if self.config.shell.command.is_empty() || self.ipc.has_shell() || self.stopping {
             return;
         }
         let ended = self.shell_end.clone().unwrap_or_else(|| "it closed its connection".into());
         match self.shell_supervisor.not_running(Instant::now()) {
             Next::Start => self.start_shell(),
-            Next::Wait(Some(pause)) => warn!(
-                "the shell ended {} times in a row right after it started (last: {ended}); the session stays and the shell is tried again in {} s",
-                self.shell_supervisor.failures(),
-                pause.as_secs()
-            ),
+            Next::Wait(Some(pause)) => {
+                let (what, kept) = if self.config.is_login_screen() {
+                    ("the login screen", "it")
+                } else {
+                    ("the shell", "the session stays and the shell")
+                };
+                warn!(
+                    "{what} ended {} times in a row right after it started (last: {ended}); {kept} is tried again in {} s",
+                    self.shell_supervisor.failures(),
+                    pause.as_secs()
+                );
+            }
             Next::Wait(None) => {}
             Next::GiveUp(times) => self.fail(Failure::Shell(format!(
                 "the login screen ({}) ended {times} times in a row right after it started (last: {ended}); giving up so that a text login can be shown instead",

@@ -7,13 +7,23 @@
 //!   `DrmCompositor`
 //! * input through libinput
 //!
-//! Outputs of the primary GPU are driven; connectors on a second GPU are
-//! reported and left alone (multi-GPU output is a later milestone).
+//! Outputs of one GPU are driven: the one the firmware booted with, else
+//! the first that works; connectors on a second GPU are left alone
+//! (multi-GPU output is a later milestone). Devices come and go while the
+//! compositor runs: during boot the driver may bind a moment after the
+//! compositor started, and a native driver replaces the firmware's
+//! framebuffer device. When the device in use goes away, or none is in use,
+//! the next one that appears is taken and the session's windows stay.
+//!
+//! Start-up fails with [`Failure::Startup`] and a message that names the
+//! likely causes when the seat is not handed over, when no graphics device
+//! appears, and (for the login screen) when no output can be set up.
 
 use std::{
     collections::HashMap,
+    os::fd::OwnedFd,
     path::{Path, PathBuf},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use smithay::{
@@ -24,7 +34,7 @@ use smithay::{
             Fourcc,
         },
         drm::{
-            compositor::FrameFlags,
+            compositor::{FrameFlags, PrimaryPlaneElement},
             exporter::gbm::GbmFramebufferExporter,
             output::{DrmOutput, DrmOutputManager, DrmOutputRenderElements},
             DrmDevice, DrmDeviceFd, DrmEvent, DrmEventMetadata, DrmEventTime, DrmNode, NodeType,
@@ -46,7 +56,7 @@ use smithay::{
     reexports::{
         calloop::{
             timer::{TimeoutAction, Timer},
-            RegistrationToken,
+            EventLoop, RegistrationToken,
         },
         drm::{
             self,
@@ -62,11 +72,24 @@ use smithay::{
 };
 use tracing::{debug, error, info, warn};
 
-use super::Backend;
-use crate::{render::OutputRenderElement, state::Boswas};
+use super::{seatlog, Backend};
+use crate::{exit::Failure, render::OutputRenderElement, state::Boswas};
 
 /// Scan-out formats tried in order.
 const COLOR_FORMATS: &[Fourcc] = &[Fourcc::Argb8888, Fourcc::Xrgb8888, Fourcc::Abgr8888];
+
+/// How long the seat may take to hand the devices over after it was opened
+/// (logind enables the session once its virtual terminal is in front).
+const SEAT_WAIT: Duration = Duration::from_secs(4);
+/// How long the first graphics device may take to appear: during boot the
+/// compositor can be started before the driver has bound.
+const DEVICE_WAIT: Duration = Duration::from_secs(10);
+/// How long the login screen waits for a first output before it gives way
+/// to the text login.
+const OUTPUT_WAIT: Duration = Duration::from_secs(5);
+
+/// A device number (`dev_t`), as udev reports it.
+type DeviceId = u64;
 
 type OutputManager = DrmOutputManager<
     GbmAllocator<DrmDeviceFd>,
@@ -98,6 +121,7 @@ struct Surface {
 /// The GPU that drives the displays.
 struct Device {
     node: DrmNode,
+    path: PathBuf,
     token: RegistrationToken,
     manager: OutputManager,
     renderer: GlesRenderer,
@@ -106,11 +130,21 @@ struct Device {
 
 pub struct Udev {
     session: LibSeatSession,
+    /// The seat's name (`seat0`).
+    seat: String,
     device: Option<Device>,
+    /// Why the last graphics device that was tried could not be used.
+    device_error: Option<String>,
+    /// Why there is no output, when there is none.
+    output_error: Option<String>,
     clock: Clock<Monotonic>,
+    libinput: Option<Libinput>,
     /// Every input device, to mirror keyboard LEDs and to apply settings
     /// again when the configuration changes.
     inputs: Vec<smithay::reexports::input::Device>,
+    /// The seat is enabled: this session owns the devices (it does not
+    /// before logind activated it, and while another virtual terminal is in
+    /// front).
     active: bool,
     /// The night light colour temperature the outputs should show.
     temperature: Option<u32>,
@@ -120,32 +154,74 @@ pub struct Udev {
     outputs_changed: bool,
 }
 
-/// Opens the session, the primary GPU and the input devices.
-pub fn init(state: &mut Boswas) -> Result<(), Box<dyn std::error::Error>> {
-    let (session, notifier) = LibSeatSession::new().map_err(|e| {
-        format!("no session ({e}): boswas-compositor must be started from a login on a virtual terminal or by a display manager")
+/// Opens the session, a graphics device and the input devices.
+pub fn init(
+    event_loop: &mut EventLoop<'static, Boswas>,
+    state: &mut Boswas,
+) -> Result<(), Box<dyn std::error::Error>> {
+    seatlog::install();
+    let (session, notifier) = LibSeatSession::new().map_err(|err| {
+        Failure::Startup(no_seat_message(&format!("no seat could be opened ({err})"), &seatlog::errors()))
     })?;
     let seat = session.seat();
 
-    // The GPU the firmware booted with, else the first one.
-    let gpu: PathBuf = primary_gpu(&seat)
-        .ok()
-        .flatten()
-        .or_else(|| all_gpus(&seat).ok().and_then(|gpus| gpus.into_iter().next()))
-        .ok_or("no graphics device found")?;
-    info!("using graphics device {}", gpu.display());
-
     state.backend = Backend::Udev(Box::new(Udev {
         session: session.clone(),
+        seat: seat.clone(),
         device: None,
+        device_error: None,
+        output_error: None,
         clock: Clock::new(),
+        libinput: None,
         inputs: Vec::new(),
-        active: true,
+        active: session.is_active(),
         temperature: None,
         powered: true,
         outputs_changed: false,
     }));
-    with_udev(state, |udev, state| udev.add_device(state, &gpu))?;
+
+    // The seat being enabled and disabled: at start, on VT switches and
+    // around suspend.
+    state.loop_handle.insert_source(notifier, |event, &mut (), state| {
+        let _ = with_udev(state, |udev, state| {
+            match event {
+                SessionEvent::PauseSession => udev.paused(),
+                SessionEvent::ActivateSession => udev.activated(state),
+            }
+            Ok(())
+        });
+    })?;
+
+    // No device can be opened before the seat is enabled. An opened seat
+    // that never is, is the sign of a session that does not own it.
+    if !wait_for(event_loop, state, SEAT_WAIT, |udev| udev.active)? {
+        let problem = format!("the seat {seat} was opened but not enabled within {} s", SEAT_WAIT.as_secs());
+        return Err(Failure::Startup(no_seat_message(&problem, &seatlog::errors())).into());
+    }
+
+    // Graphics devices that appear and go away, and monitor hotplug.
+    let udev_backend = UdevBackend::new(&seat)?;
+    state.loop_handle.insert_source(udev_backend, |event, _, state| {
+        let _ = with_udev(state, |udev, state| {
+            match event {
+                UdevEvent::Added { path, .. } => udev.device_added(state, &path),
+                UdevEvent::Changed { device_id } => udev.device_changed(state, device_id),
+                UdevEvent::Removed { device_id } => udev.device_removed(state, device_id),
+            }
+            Ok(())
+        });
+    })?;
+    with_udev(state, |udev, state| {
+        udev.find_device(state);
+        if udev.device.is_none() {
+            info!("no usable graphics device yet; waiting up to {} s for one", DEVICE_WAIT.as_secs());
+        }
+        Ok(())
+    })?;
+    if !wait_for(event_loop, state, DEVICE_WAIT, |udev| udev.device.is_some())? {
+        let tried = with_udev(state, |udev, _| Ok(udev.device_error.take()))?;
+        return Err(Failure::Startup(no_device_message(DEVICE_WAIT, tried.as_deref())).into());
+    }
 
     // Input.
     let mut libinput = Libinput::new_with_udev::<LibinputSessionInterface<LibSeatSession>>(session.clone().into());
@@ -153,6 +229,9 @@ pub fn init(state: &mut Boswas) -> Result<(), Box<dyn std::error::Error>> {
         .udev_assign_seat(&seat)
         .map_err(|()| "libinput could not open the seat's input devices")?;
     let input_backend = LibinputInputBackend::new(libinput.clone());
+    if let Backend::Udev(udev) = &mut state.backend {
+        udev.libinput = Some(libinput);
+    }
     state.loop_handle.insert_source(input_backend, |mut event, _, state| {
         match &mut event {
             InputEvent::DeviceAdded { device } => {
@@ -174,64 +253,83 @@ pub fn init(state: &mut Boswas) -> Result<(), Box<dyn std::error::Error>> {
         state.process_input_event(event);
     })?;
 
-    // VT switches and suspend.
-    state.loop_handle.insert_source(notifier, move |event, &mut (), state| match event {
-        SessionEvent::PauseSession => {
-            info!("session paused");
-            libinput.suspend();
-            if let Backend::Udev(udev) = &mut state.backend {
-                udev.active = false;
-                if let Some(device) = &mut udev.device {
-                    device.manager.pause();
-                    for surface in device.surfaces.values_mut() {
-                        surface.pending = false;
-                    }
-                }
-            }
+    // A desktop session without a monitor waits for one (a docked laptop
+    // with its lid closed, a monitor that is switched on later). The login
+    // screen has no reason to exist without one: the text login is shown
+    // instead, on whatever the kernel's console reaches.
+    let has_outputs = |udev: &Udev| udev.device.as_ref().is_some_and(|device| !device.surfaces.is_empty());
+    if state.config.is_login_screen() {
+        if !wait_for(event_loop, state, OUTPUT_WAIT, has_outputs)? {
+            let problem = with_udev(state, |udev, _| Ok(udev.output_error.take()))?;
+            return Err(Failure::Startup(no_output_message(OUTPUT_WAIT, problem.as_deref())).into());
         }
-        SessionEvent::ActivateSession => {
-            info!("session resumed");
-            if libinput.resume().is_err() {
-                warn!("libinput did not resume");
-            }
-            if let Backend::Udev(udev) = &mut state.backend {
-                udev.active = true;
-                if let Some(device) = &mut udev.device {
-                    if let Err(err) = device.manager.activate(false) {
-                        error!("could not reactivate the display device: {err}");
-                    }
-                    for surface in device.surfaces.values_mut() {
-                        surface.pending = false;
-                        surface.drm_output.reset_buffers();
-                    }
-                }
-            }
-            state.schedule_redraw();
-        }
-    })?;
-
-    // Monitor hotplug.
-    let udev_backend = UdevBackend::new(&seat)?;
-    state.loop_handle.insert_source(udev_backend, |event, _, state| match event {
-        UdevEvent::Changed { device_id } => {
-            let _ = with_udev(state, |udev, state| {
-                if udev.device.as_ref().is_some_and(|d| d.node.dev_id() == device_id) {
-                    udev.scan_connectors(state);
-                }
-                Ok(())
-            });
-        }
-        UdevEvent::Added { .. } => debug!("a graphics device appeared; outputs stay on the primary GPU"),
-        UdevEvent::Removed { device_id } => {
-            let _ = with_udev(state, |udev, state| {
-                if udev.device.as_ref().is_some_and(|d| d.node.dev_id() == device_id) {
-                    udev.remove_device(state);
-                }
-                Ok(())
-            });
-        }
-    })?;
+    } else if !matches!(&state.backend, Backend::Udev(udev) if has_outputs(udev)) {
+        warn!("no monitor could be set up yet; the desktop appears when one is connected");
+    }
     Ok(())
+}
+
+/// Runs the event loop until `done` holds for the backend, for `limit` at
+/// most. Returns whether it holds.
+fn wait_for(
+    event_loop: &mut EventLoop<'static, Boswas>,
+    state: &mut Boswas,
+    limit: Duration,
+    done: impl Fn(&Udev) -> bool,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    let deadline = Instant::now() + limit;
+    loop {
+        if matches!(&state.backend, Backend::Udev(udev) if done(udev)) {
+            return Ok(true);
+        }
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Ok(false);
+        }
+        event_loop.dispatch(Some(left.min(Duration::from_millis(250))), state)?;
+    }
+}
+
+/// The one line that explains a seat that cannot be used: what happened,
+/// what libseat itself reported, and what usually causes it.
+fn no_seat_message(problem: &str, libseat_errors: &[String]) -> String {
+    let reported = if libseat_errors.is_empty() {
+        String::new()
+    } else {
+        format!("; libseat reported: {}", libseat_errors.join("; "))
+    };
+    format!(
+        "no usable seat: {problem}{reported}. Likely causes: boswas-compositor was not started from a login \
+         session on a virtual terminal (by greetd, or from a login on a text console); logind refused to \
+         activate the session because polkit is not running (package polkitd); another display server \
+         holds the seat"
+    )
+}
+
+/// The one line that explains a missing graphics device. `tried` is why the
+/// last device that was there could not be used.
+fn no_device_message(waited: Duration, tried: Option<&str>) -> String {
+    match tried {
+        Some(tried) => format!(
+            "no usable graphics device within {} s (last tried: {tried}). The device needs a DRM/KMS driver \
+             and an EGL driver (package libgl1-mesa-dri)",
+            waited.as_secs()
+        ),
+        None => format!(
+            "no graphics device appeared within {} s: no DRM/KMS driver is bound to a display adapter \
+             (\"nomodeset\" on the kernel command line turns them all off)",
+            waited.as_secs()
+        ),
+    }
+}
+
+/// The one line that explains why the login screen has no output.
+fn no_output_message(waited: Duration, problem: Option<&str>) -> String {
+    format!(
+        "no output within {} s: {}. The login screen needs a connected monitor the graphics device can drive",
+        waited.as_secs(),
+        problem.unwrap_or("the graphics device reports no connected monitor")
+    )
 }
 
 /// Runs `f` with the udev backend taken out of the state, so it can borrow
@@ -332,6 +430,110 @@ pub fn temperature_gains(kelvin: u32) -> [f64; 3] {
 }
 
 impl Udev {
+    /// The seat was disabled: another virtual terminal is in front, or the
+    /// system is about to sleep. The devices must not be used until it is
+    /// enabled again.
+    fn paused(&mut self) {
+        info!("session paused");
+        self.active = false;
+        if let Some(libinput) = &self.libinput {
+            libinput.suspend();
+        }
+        if let Some(device) = &mut self.device {
+            device.manager.pause();
+            for surface in device.surfaces.values_mut() {
+                surface.pending = false;
+            }
+        }
+    }
+
+    /// The seat was enabled: at start, or after [`Udev::paused`].
+    fn activated(&mut self, state: &mut Boswas) {
+        info!("session active");
+        self.active = true;
+        if let Some(libinput) = &mut self.libinput {
+            if libinput.resume().is_err() {
+                warn!("libinput did not resume");
+            }
+        }
+        match &mut self.device {
+            Some(device) => {
+                if let Err(err) = device.manager.activate(false) {
+                    error!("could not reactivate the display device: {err}");
+                }
+                for surface in device.surfaces.values_mut() {
+                    surface.pending = false;
+                    surface.drm_output.reset_buffers();
+                }
+            }
+            // A device that appeared while the seat was away.
+            None => self.find_device(state),
+        }
+        state.schedule_redraw();
+    }
+
+    /// Takes a graphics device into use when none is: the one the firmware
+    /// booted with first, else any other of the seat that works.
+    fn find_device(&mut self, state: &mut Boswas) {
+        if self.device.is_some() || !self.active {
+            return;
+        }
+        let mut candidates: Vec<PathBuf> = primary_gpu(&self.seat).ok().flatten().into_iter().collect();
+        for gpu in all_gpus(&self.seat).unwrap_or_default() {
+            if !candidates.contains(&gpu) {
+                candidates.push(gpu);
+            }
+        }
+        for path in candidates {
+            match self.add_device(state, &path) {
+                Ok(()) => {
+                    info!("using graphics device {}", path.display());
+                    self.device_error = None;
+                    self.scan_connectors(state);
+                    return;
+                }
+                Err(err) => {
+                    warn!("graphics device {} cannot be used: {err}", path.display());
+                    self.device_error = Some(format!("{}: {err}", path.display()));
+                }
+            }
+        }
+    }
+
+    /// A graphics device appeared. It is taken when none is in use: the
+    /// first device of a late driver, or the native driver's device that
+    /// replaces the firmware framebuffer's.
+    fn device_added(&mut self, state: &mut Boswas, path: &Path) {
+        if self.device.is_some() {
+            return debug!("graphics device {} appeared; outputs stay on the device in use", path.display());
+        }
+        info!("graphics device {} appeared", path.display());
+        self.find_device(state);
+    }
+
+    /// A graphics device changed: a monitor was connected or disconnected.
+    fn device_changed(&mut self, state: &mut Boswas, device_id: DeviceId) {
+        match &self.device {
+            Some(device) if device.node.dev_id() == device_id => self.scan_connectors(state),
+            Some(_) => {}
+            None => self.find_device(state),
+        }
+    }
+
+    /// A graphics device went away. When it was the one in use, its outputs
+    /// go with it; the windows stay and move to the outputs of the next
+    /// device.
+    fn device_removed(&mut self, state: &mut Boswas, device_id: DeviceId) {
+        if !self.device.as_ref().is_some_and(|device| device.node.dev_id() == device_id) {
+            return;
+        }
+        self.remove_device(state);
+        self.find_device(state);
+        if self.device.is_none() {
+            warn!("no graphics device is left; the session goes on and is shown again when one appears");
+        }
+    }
+
     pub fn switch_vt(&mut self, vt: i32) {
         if let Err(err) = self.session.change_vt(vt) {
             warn!("could not switch to virtual terminal {vt}: {err}");
@@ -417,13 +619,46 @@ impl Udev {
         }
     }
 
+    /// Opens a graphics device through the seat and prepares rendering on
+    /// it. Its outputs are set up by [`Udev::scan_connectors`].
     fn add_device(&mut self, state: &mut Boswas, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
         let node = DrmNode::from_path(path)?;
         let fd = self.session.open(
             path,
             OFlags::RDWR | OFlags::CLOEXEC | OFlags::NOCTTY | OFlags::NONBLOCK,
         )?;
-        let fd = DrmDeviceFd::new(DeviceFd::from(fd));
+        let fd = DeviceFd::from(fd);
+        match Self::prepare_device(state, node, path, DrmDeviceFd::new(fd.clone())) {
+            Ok(device) => {
+                self.device = Some(device);
+                Ok(())
+            }
+            Err(err) => {
+                // The seat gets the device back, so it can be opened again.
+                self.release(fd, path);
+                Err(err)
+            }
+        }
+    }
+
+    /// Gives an opened device back to the seat, once nothing else holds it.
+    fn release(&mut self, fd: DeviceFd, path: &Path) {
+        match TryInto::<OwnedFd>::try_into(fd) {
+            Ok(fd) => {
+                if let Err(err) = self.session.close(fd) {
+                    debug!("closing {}: {err}", path.display());
+                }
+            }
+            Err(_) => debug!("{} is still in use somewhere; it closes with its last user", path.display()),
+        }
+    }
+
+    fn prepare_device(
+        state: &mut Boswas,
+        node: DrmNode,
+        path: &Path,
+        fd: DrmDeviceFd,
+    ) -> Result<Device, Box<dyn std::error::Error>> {
         let (drm, notifier) = DrmDevice::new(fd.clone(), true)?;
         let gbm = GbmDevice::new(fd)?;
 
@@ -435,8 +670,8 @@ impl Udev {
         // by this renderer only.
         let mut renderer = unsafe { GlesRenderer::new(context)? };
         crate::effects::init_gles(&mut renderer);
-        state.rounds_corners = true;
 
+        // The last step that can fail: from here on the device is in use.
         let token = state.loop_handle.insert_source(notifier, move |event, metadata, state| match event {
             DrmEvent::VBlank(crtc) => {
                 let _ = with_udev(state, |udev, state| {
@@ -446,6 +681,7 @@ impl Udev {
             }
             DrmEvent::Error(err) => error!("display device error: {err}"),
         })?;
+        state.rounds_corners = true;
 
         state.shm_state.update_formats(renderer.shm_formats());
         let render_node = node.node_with_type(NodeType::Render).and_then(Result::ok).unwrap_or(node);
@@ -471,28 +707,41 @@ impl Udev {
             COLOR_FORMATS.iter().copied(),
             render_formats,
         );
-        self.device = Some(Device {
+        Ok(Device {
             node,
+            path: path.to_owned(),
             token,
             manager,
             renderer,
             surfaces: HashMap::new(),
-        });
-        self.scan_connectors(state);
-        Ok(())
+        })
     }
 
+    /// Takes the device in use out of use: its outputs disappear (windows
+    /// stay where they are) and the seat gets the device back.
     fn remove_device(&mut self, state: &mut Boswas) {
-        if let Some(device) = self.device.take() {
-            for (_, surface) in device.surfaces {
-                state.space.unmap_output(&surface.output);
-                state.display_handle.remove_global::<Boswas>(surface.global);
-            }
-            state.loop_handle.remove(device.token);
-            if let Some(global) = state.dmabuf_global.take() {
-                state.dmabuf_state.destroy_global::<Boswas>(&state.display_handle, global);
-            }
+        let Some(device) = self.device.take() else {
+            return;
+        };
+        info!("graphics device {} went away", device.path.display());
+        let Device { path, token, manager, renderer, surfaces, .. } = device;
+        let fd = manager.device().device_fd().device_fd();
+        for (_, surface) in surfaces {
+            state.space.unmap_output(&surface.output);
+            state.display_handle.remove_global::<Boswas>(surface.global);
         }
+        state.loop_handle.remove(token);
+        if let Some(global) = state.dmabuf_global.take() {
+            state.dmabuf_state.destroy_global::<Boswas>(&state.display_handle, global);
+        }
+        // The renderer goes before the device it draws on.
+        drop(renderer);
+        drop(manager);
+        self.release(fd, &path);
+        self.output_error = None;
+        let outputs = state.outputs_json();
+        state.ipc_event("outputs", outputs);
+        state.schedule_redraw();
     }
 
     /// Brings outputs in line with the connected monitors.
@@ -510,6 +759,10 @@ impl Udev {
             .filter_map(|handle| drm.get_connector(*handle, true).ok())
             .filter(|info| info.state() == connector::State::Connected && !info.modes().is_empty())
             .collect();
+        // Why a connected monitor could not be set up (the last reason).
+        let mut problem = connected.is_empty().then(|| {
+            format!("{} reports no connected monitor", device.path.display())
+        });
 
         // Monitors that went away.
         let gone: Vec<crtc::Handle> = device
@@ -580,15 +833,20 @@ impl Udev {
                     taken.push(crtc);
                     assignments.push((info, crtc));
                 }
-                None => warn!("no free CRTC for connector {:?}-{}", info.interface(), info.interface_id()),
+                None => {
+                    warn!("no free CRTC for connector {}", connector_name(&info));
+                    problem = Some(format!("{} has no free CRTC for {}", device.path.display(), connector_name(&info)));
+                }
             }
         }
         for (info, crtc) in assignments {
             if let Err(err) = connect(device, state, &info, crtc) {
-                warn!("could not set up {:?}-{}: {err}", info.interface(), info.interface_id());
+                warn!("could not set up {}: {err}", connector_name(&info));
+                problem = Some(format!("{} could not be set up on {}: {err}", connector_name(&info), device.path.display()));
             }
         }
         arrange_outputs(device, state);
+        self.output_error = if device.surfaces.is_empty() { problem } else { None };
         let outputs = state.outputs_json();
         state.ipc_event("outputs", outputs);
         state.schedule_redraw();
@@ -658,8 +916,20 @@ impl Udev {
         let result = surface
             .drm_output
             .render_frame(&mut device.renderer, &elements, clear, FrameFlags::DEFAULT);
-        let (rendered, states) = match result {
-            Ok(frame) => (!frame.is_empty, frame.states),
+        let (rendered, states, unfinished) = match result {
+            Ok(frame) => {
+                // Where the kernel cannot wait for the renderer itself (no
+                // fence the driver takes: a software renderer, a firmware
+                // framebuffer), the frame must be complete before it is
+                // handed over. A device that copies the frame to the screen
+                // at that moment (simpledrm) would otherwise show whatever
+                // part was drawn by then, and never the rest of it.
+                let unfinished = match &frame.primary_element {
+                    PrimaryPlaneElement::Swapchain(element) if frame.needs_sync() => Some(element.sync.clone()),
+                    _ => None,
+                };
+                (!frame.is_empty, frame.states, unfinished)
+            }
             Err(err) => {
                 warn!("rendering {} failed: {err}", output.name());
                 return;
@@ -669,6 +939,11 @@ impl Udev {
 
         let time = state.start_time.elapsed();
         if rendered {
+            if let Some(sync) = unfinished {
+                if sync.wait().is_err() {
+                    debug!("waiting for the frame of {} was interrupted", output.name());
+                }
+            }
             let feedback = state.take_presentation_feedback(&output, &states);
             match surface.drm_output.queue_frame(Some(feedback)) {
                 Ok(()) => surface.pending = true,
@@ -941,5 +1216,48 @@ fn arrange_outputs(device: &Device, state: &mut Boswas) {
                 state.move_window(&window, area.loc + smithay::utils::Point::from((32, 32)));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_seat_that_cannot_be_used_explains_itself_in_one_line() {
+        let denied = ["Could not activate session: Access denied".to_owned()];
+        let message = no_seat_message("the seat seat0 was opened but not enabled within 4 s", &denied);
+        assert!(message.starts_with("no usable seat: the seat seat0 was opened but not enabled within 4 s"), "{message}");
+        assert!(message.contains("libseat reported: Could not activate session: Access denied"), "{message}");
+        // The three usual causes are named.
+        for cause in ["login session on a virtual terminal", "polkit is not running", "another display server holds the seat"] {
+            assert!(message.contains(cause), "{cause}: {message}");
+        }
+        assert!(!message.contains('\n') && !message.contains("  "), "one line: {message:?}");
+        // Without anything from libseat there is nothing to quote.
+        let message = no_seat_message("no seat could be opened (Failed to open session: No such device)", &[]);
+        assert!(!message.contains("libseat reported"), "{message}");
+        assert!(message.contains("polkit"), "{message}");
+    }
+
+    #[test]
+    fn a_missing_graphics_device_says_whether_one_was_there() {
+        let none = no_device_message(Duration::from_secs(10), None);
+        assert!(none.starts_with("no graphics device appeared within 10 s"), "{none}");
+        assert!(none.contains("nomodeset"), "{none}");
+        let unusable = no_device_message(Duration::from_secs(10), Some("/dev/dri/card0: EGL is not available"));
+        assert!(unusable.contains("last tried: /dev/dri/card0: EGL is not available"), "{unusable}");
+        for message in [none, unusable] {
+            assert!(!message.contains('\n') && !message.contains("  "), "one line: {message:?}");
+        }
+    }
+
+    #[test]
+    fn a_login_screen_without_an_output_says_why() {
+        let unplugged = no_output_message(Duration::from_secs(5), None);
+        assert!(unplugged.starts_with("no output within 5 s: the graphics device reports no connected monitor"), "{unplugged}");
+        let failed = no_output_message(Duration::from_secs(5), Some("Virtual-1 could not be set up on /dev/dri/card0: no supported format"));
+        assert!(failed.contains("Virtual-1 could not be set up on /dev/dri/card0: no supported format"), "{failed}");
+        assert!(!failed.contains('\n') && !failed.contains("  "), "one line: {failed:?}");
     }
 }

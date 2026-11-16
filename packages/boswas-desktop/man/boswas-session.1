@@ -45,6 +45,12 @@ login of the first virtual terminal is started in its place
 .RI ( boswas\-login\-fallback.service ).
 .IP \(bu 2
 The other virtual terminals (Ctrl+Alt+F2 to F6) keep their text logins.
+.PP
+The messages of the compositor and of the programs it starts go to the
+journal, not to the console: those of a session under the identifier
+\fBboswas\-session\fR (\fBjournalctl \-b \-t boswas\-session\fR), those of
+the login screen under \fBboswas\-greeter\fR (readable by an
+administrator). Without the journal they stay on standard error.
 .SH FILES
 .TP
 .I /usr/share/wayland\-sessions/boswas.desktop

@@ -91,15 +91,9 @@ mod tests {
     #[test]
     fn errors_of_libseat_are_kept_and_other_crates_are_not_passed_on() {
         use log::Log;
-        let record = |target: &'static str, level| {
-            log::Record::builder()
-                .target(target)
-                .level(level)
-                .args(format_args!("[libseat/backend/seatd.c:64] Could not connect to socket"))
-                .build()
-        };
-        assert!(Bridge.enabled(record("libseat::log_handler", log::Level::Error).metadata()));
-        assert!(!Bridge.enabled(record("cosmic_text::shape", log::Level::Error).metadata()));
+        let metadata = |target| log::Metadata::builder().target(target).level(log::Level::Error).build();
+        assert!(Bridge.enabled(&metadata("libseat::log_handler")));
+        assert!(!Bridge.enabled(&metadata("cosmic_text::shape")));
         let before = errors().len();
         Bridge.log(&log::Record::builder().target("cosmic_text").level(log::Level::Error).args(format_args!("x")).build());
         Bridge.log(&log::Record::builder().target("libseat").level(log::Level::Info).args(format_args!("x")).build());

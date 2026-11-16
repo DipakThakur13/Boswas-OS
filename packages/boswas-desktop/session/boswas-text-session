@@ -12,9 +12,10 @@ cat <<'MESSAGE'
 
 Boswas OS: the graphical desktop could not start on this computer, so this
 is a text session.
-  boswas-session                 try to start the desktop from here
-  journalctl -b -p warning       what went wrong during this start
-  exit                           sign out
+  boswas-session                        try to start the desktop from here
+  journalctl -b -t boswas-session       why the desktop did not start for you
+  sudo journalctl -b -t boswas-greeter  why the login screen did not start
+  exit                                  sign out
 
 MESSAGE
 cd "${HOME:-/}" 2>/dev/null || cd /

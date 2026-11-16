@@ -11,6 +11,11 @@
 //!   closed
 //! * a locked session stays locked when the lock screen dies, and unlocks
 //!   only when a lock client says so
+//! * a login screen that keeps failing ends the compositor with the exit
+//!   status its start script falls back to the text login on, while a
+//!   desktop session stays and tries its shell again with a growing pause
+//! * a seat that cannot be opened ends the compositor with the start-up
+//!   status and a message that names the causes
 
 use std::{
     io::{BufRead, BufReader, Write},
@@ -88,6 +93,7 @@ impl Compositor {
         let runtime = tempfile::Builder::new().prefix("bw").tempdir_in("/tmp").unwrap();
         let config_path = runtime.path().join("compositor.toml");
         std::fs::write(&config_path, config.replace("@HELPER@", &helper_command())).unwrap();
+        let log = std::fs::File::create(runtime.path().join("compositor.log")).unwrap();
         let mut child = Command::new(env!("CARGO_BIN_EXE_boswas-compositor"))
             .args(["--backend", "headless", "--headless-size", "800x600", "--test-input", "--print-env"])
             .arg("--config")
@@ -97,8 +103,9 @@ impl Compositor {
             .env("BOSWAS_TEST_OUT", runtime.path().join("helper.out"))
             .env_remove("WAYLAND_DISPLAY")
             .env_remove("WAYLAND_SOCKET")
+            .env_remove("BOSWAS_LOG")
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::from(log))
             .spawn()
             .expect("the compositor starts");
         let mut stdout = BufReader::new(child.stdout.take().unwrap());
@@ -134,6 +141,22 @@ impl Compositor {
     fn helper_output(&self) -> String {
         std::fs::read_to_string(self.runtime.path().join("helper.out")).unwrap_or_default()
     }
+
+    /// What the compositor wrote to standard error so far.
+    fn log(&self) -> String {
+        std::fs::read_to_string(self.runtime.path().join("compositor.log")).unwrap_or_default()
+    }
+
+    /// Waits for the compositor to end by itself and returns its exit
+    /// status.
+    fn wait_for_exit(&mut self) -> Option<i32> {
+        wait_for("the compositor to end", || self.child.try_wait().unwrap()).code()
+    }
+}
+
+/// The lines the compositor logged as errors.
+fn error_lines(log: &str) -> Vec<&str> {
+    log.lines().filter(|line| line.contains(" ERROR ")).collect()
 }
 
 impl Drop for Compositor {
@@ -896,6 +919,126 @@ fn only_a_lock_client_unlocks_the_session() {
     assert!(compositor.helper_output().contains("locked"));
 }
 
+/// The rest of a configuration whose shell is under test.
+const NO_LOCK: &str = "[lock]\nidle_seconds = 0\ncommand = []\n[policy]\nlock_idle_max_seconds = 0\n";
+
+#[test]
+fn a_login_screen_that_keeps_failing_ends_the_compositor_with_its_own_status() {
+    // The shell is the login screen (`--greeter`) and ends at once.
+    let config = format!("[shell]\ncommand = [\"/bin/sh\", \"-c\", \"exit 7\", \"--greeter\"]\n{NO_LOCK}");
+    let mut compositor = Compositor::start(&config, "none");
+    // (Within the patience of `wait_for`: three starts and one pause.)
+    assert_eq!(compositor.wait_for_exit(), Some(4), "{}", compositor.log());
+    let log = compositor.log();
+    let errors = error_lines(&log);
+    assert_eq!(errors.len(), 1, "one line says why: {log}");
+    for part in ["the login screen (/bin/sh -c exit 7 --greeter) ended 3 times in a row", "exit status: 7", "text login"] {
+        assert!(errors[0].contains(part), "{part}: {}", errors[0]);
+    }
+    assert_eq!(log.matches("started the shell").count(), 3, "{log}");
+    assert!(!compositor.control.exists(), "the control socket is removed on the way out");
+}
+
+#[test]
+fn a_login_screen_that_cannot_be_started_ends_the_compositor_too() {
+    let config = format!("[shell]\ncommand = [\"/nonexistent/boswas-shell\", \"--greeter\"]\n{NO_LOCK}");
+    let mut compositor = Compositor::start(&config, "none");
+    assert_eq!(compositor.wait_for_exit(), Some(4), "{}", compositor.log());
+    let log = compositor.log();
+    let errors = error_lines(&log);
+    assert_eq!(errors.len(), 1, "{log}");
+    assert!(errors[0].contains("it could not be started: /nonexistent/boswas-shell"), "{}", errors[0]);
+}
+
+#[test]
+fn a_desktop_session_stays_when_its_shell_keeps_failing() {
+    let config = format!("[shell]\ncommand = [\"/bin/sh\", \"-c\", \"exit 7\"]\n{NO_LOCK}");
+    let mut compositor = Compositor::start(&config, "none");
+    // The pauses grow: 2 s after the second failed start, 4 s after the third.
+    for pause in ["tried again in 2 s", "tried again in 4 s"] {
+        wait_for(pause, || compositor.log().contains(pause).then_some(()));
+    }
+    let log = compositor.log();
+    assert!(log.contains("ended 3 times in a row right after it started (last: exit status: 7); the session stays"), "{log}");
+    assert!(error_lines(&log).is_empty(), "{log}");
+    // The session is still there for its applications.
+    assert!(compositor.child.try_wait().unwrap().is_none(), "the compositor ended: {log}");
+    let conn = compositor.wayland();
+    let (mut queue, mut client, _toplevel) = open_window(&conn, "Still here", 0xff20_4060);
+    let mut control = compositor.control();
+    wait_for("the window", || {
+        queue.roundtrip(&mut client).unwrap();
+        control.raw("{\"cmd\":\"version\"}\n").filter(|reply| reply["ok"] == true)
+    });
+}
+
+#[test]
+fn a_shell_that_says_quit_and_leaves_ends_the_compositor_normally() {
+    // What the login screen does after a successful login: it asks the
+    // compositor to end and is gone before the compositor has read that.
+    let config = format!("[shell]\ncommand = @HELPER@\n{NO_LOCK}");
+    let mut compositor = Compositor::start(&config, "quit-and-leave");
+    assert_eq!(compositor.wait_for_exit(), Some(0), "{}", compositor.log());
+    let log = compositor.log();
+    assert_eq!(log.matches("started the shell").count(), 1, "the shell is not started again: {log}");
+    assert!(log.contains("boswas-compositor stopped"), "{log}");
+    assert!(error_lines(&log).is_empty(), "{log}");
+}
+
+#[test]
+fn the_login_screen_runs_no_x_server() {
+    // What the shell is given as its X display, in a desktop session and on
+    // the login screen.
+    let display_of = |greeter: &str| {
+        let script = "echo display=${DISPLAY:-none} > \\\"$BOSWAS_TEST_OUT\\\"; exec sleep 30";
+        let config = format!("[shell]\ncommand = [\"/bin/sh\", \"-c\", \"{script}\"{greeter}]\n{NO_LOCK}");
+        let compositor = Compositor::start(&config, "none");
+        let output = wait_for("the shell", || Some(compositor.helper_output()).filter(|out| out.contains("display=")));
+        (output.trim().to_owned(), compositor.log())
+    };
+    let (display, log) = display_of(", \"--greeter\"");
+    assert_eq!(display, "display=none", "{log}");
+    assert!(!log.contains("XWayland"), "the X server is not even looked for: {log}");
+    if installed("Xwayland") {
+        let (display, log) = display_of("");
+        assert!(display.starts_with("display=:"), "{display}: {log}");
+    }
+}
+
+#[cfg(feature = "udev")]
+#[test]
+fn without_a_seat_the_compositor_ends_with_the_start_up_status_and_says_why() {
+    // libseat is told to use a seat daemon that is not there, so no seat
+    // can be opened wherever this test runs.
+    let runtime = tempfile::Builder::new().prefix("bw").tempdir_in("/tmp").unwrap();
+    let config = runtime.path().join("compositor.toml");
+    std::fs::write(&config, "[shell]\ncommand = []\n").unwrap();
+    let started = Instant::now();
+    let output = Command::new(env!("CARGO_BIN_EXE_boswas-compositor"))
+        .args(["--backend", "udev", "--config"])
+        .arg(&config)
+        .env("XDG_RUNTIME_DIR", runtime.path())
+        .env("LIBSEAT_BACKEND", "seatd")
+        .env("SEATD_SOCK", runtime.path().join("no-seatd.sock"))
+        .env_remove("WAYLAND_DISPLAY")
+        .env_remove("WAYLAND_SOCKET")
+        .env_remove("BOSWAS_LOG")
+        .stdin(Stdio::null())
+        .output()
+        .expect("the compositor starts");
+    let log = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(3), "{log}");
+    assert!(started.elapsed() < Duration::from_secs(15), "it does not wait for a seat that cannot come: {:?}", started.elapsed());
+    let errors = error_lines(&log);
+    assert_eq!(errors.len(), 1, "one line says why: {log}");
+    for part in ["no usable seat: no seat could be opened", "virtual terminal", "polkit is not running", "another display server"] {
+        assert!(errors[0].contains(part), "{part}: {}", errors[0]);
+    }
+    // What libseat itself had to say is in the log, and quoted in the reason.
+    assert!(log.lines().any(|line| line.contains(" libseat: ")), "{log}");
+    assert!(errors[0].contains("libseat reported: "), "{}", errors[0]);
+}
+
 /// Not a test of its own: the body of the helper program the compositor
 /// starts in the tests above (this binary with `--ignored --exact`).
 #[test]
@@ -933,6 +1076,18 @@ fn trusted_helper() {
             report("done");
             // Stay alive like a shell would; the compositor is killed by the test.
             std::thread::sleep(Duration::from_secs(60));
+        }
+        "quit-and-leave" => {
+            use std::os::fd::FromRawFd;
+            let fd: i32 = std::env::var("BOSWAS_COMPOSITOR_FD").unwrap().parse().unwrap();
+            // SAFETY: the descriptor was passed to this process by the
+            // compositor for exactly this use.
+            let mut stream = unsafe { UnixStream::from_raw_fd(fd) };
+            stream.write_all(b"{\"cmd\":\"quit\"}\n").unwrap();
+            // Closed at once: the request and the end of the connection
+            // reach the compositor together.
+            drop(stream);
+            std::thread::sleep(Duration::from_millis(300));
         }
         "lock-and-die" | "lock-and-unlock" => {
             let (globals, mut queue) = registry_queue_init::<Client>(&conn).unwrap();

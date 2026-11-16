@@ -24,8 +24,17 @@ uptime_seconds()
 	cut -d' ' -f1 /proc/uptime 2>/dev/null | cut -d. -f1
 }
 
+# The compositor's messages belong in the journal ("journalctl -b -t
+# boswas-greeter"), not on the console the login screen is about to cover:
+# greetd leaves this script's output on the terminal. systemd-cat runs the
+# compositor in its own place, so the exit status is the compositor's.
+log=""
+[ -S /run/systemd/journal/stdout ] && [ -x /usr/bin/systemd-cat ] &&
+	log="/usr/bin/systemd-cat --identifier=boswas-greeter"
+
 started=$(uptime_seconds)
-/usr/bin/boswas-compositor --config /usr/share/boswas/compositor/greeter.toml
+# shellcheck disable=SC2086
+$log /usr/bin/boswas-compositor --config /usr/share/boswas/compositor/greeter.toml
 status=$?
 [ "$status" -eq 0 ] && exit 0
 
@@ -37,6 +46,7 @@ case "$status" in
 esac
 if [ "$fallback" = yes ] && [ -x /usr/sbin/agreety ]; then
 	echo "Boswas OS: the graphical login could not start (status $status); this is the text login." >&2
+	[ -n "$log" ] && echo "Why: journalctl -b -t boswas-greeter (as an administrator)" >&2
 	exec /usr/sbin/agreety --cmd /usr/libexec/boswas/boswas-text-session
 fi
 exit "$status"
