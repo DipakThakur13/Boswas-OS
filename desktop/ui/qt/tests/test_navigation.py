@@ -136,6 +136,38 @@ class NavigationTest(Base):
         self.assertEqual((nav.current(), nav.list.currentRow(), nav.footer_list.currentRow()), ("network", 1, -1))
         self.assertEqual(nav.footer_list.height(), ROW_HEIGHT)
 
+    def test_a_page_that_holds_the_keyboard_can_be_left_for_a_footer_page(self):
+        from PySide6.QtWidgets import QLineEdit
+        nav = fluent.NavigationView()
+        field = QLineEdit()
+        nav.add_page("home", "Home", field)
+        nav.add_page("network", "Network", QLabel("network page"))
+        nav.add_page("about", "About", QLabel("about page"), footer=True)
+        self.show(nav, 1000, 600)
+        nav.activateWindow()
+        field.setFocus()
+        testing.process(20)
+        changes = []
+        nav.current_changed.connect(changes.append)
+        # Hiding the page moves the keyboard focus on; whatever takes it
+        # must not select a page of its own.
+        nav.set_current("about")
+        testing.process(20)
+        self.assertEqual((nav.current(), changes), ("about", ["about"]))
+        self.assertIs(nav.stack.currentWidget(), nav.page("about"))
+        self.assertEqual((nav.list.currentRow(), nav.footer_list.currentRow()), (-1, 0))
+        self.assertFalse(nav.page("home").isVisible())
+        # The pane lists still work with the keyboard afterwards.
+        nav.list.setFocus()
+        testing.process(20)
+        self.assertEqual(nav.current(), "about", "focusing the list alone changes nothing")
+        self.assertIs(nav.stack.currentWidget(), nav.page("about"))
+        testing.key(nav.list, Qt.Key.Key_Return)
+        self.assertEqual(nav.current(), "home", "Enter chooses the row the keyboard is on")
+        self.assertEqual((nav.list.currentRow(), nav.footer_list.currentRow()), (0, -1))
+        testing.key(nav.list, Qt.Key.Key_Down)
+        self.assertEqual(nav.current(), "network")
+
     def test_the_selection_pill_slides(self):
         nav = self.view()
         testing.process(20)

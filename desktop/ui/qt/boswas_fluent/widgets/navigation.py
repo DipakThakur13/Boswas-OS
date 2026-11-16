@@ -156,6 +156,33 @@ class NavigationList(QListWidget):
                 total += self.sizeHintForRow(row) if self.sizeHintForRow(row) > 0 else ROW_HEIGHT
         return total
 
+    def focusInEvent(self, event) -> None:
+        # Qt gives a list without a current row its first row as soon as it
+        # gets the keyboard. Here the current row is the page that is shown,
+        # so that would switch pages just by tabbing into the pane, or when
+        # a page that held the keyboard is hidden and the focus moves on.
+        # The row becomes the keyboard position only: an arrow key, Enter or
+        # Space selects.
+        if self.currentRow() >= 0:
+            super().focusInEvent(event)
+            return
+        blocked = self.blockSignals(True)
+        try:
+            super().focusInEvent(event)
+        finally:
+            self.blockSignals(blocked)
+        self.viewport().update()
+
+    def keyPressEvent(self, event) -> None:
+        item = self.currentItem()
+        if (event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space) and item is not None
+                and not item.isSelected() and self.selectable(self.currentRow())):
+            # The keyboard position that focusInEvent gave: now it is chosen.
+            item.setSelected(True)
+            self.currentRowChanged.emit(self.currentRow())
+            return
+        super().keyPressEvent(event)
+
     def mousePressEvent(self, event) -> None:
         self.pressed_row = self.indexAt(event.position().toPoint()).row()
         self.viewport().update()
