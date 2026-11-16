@@ -28,7 +28,7 @@ class StopwatchPage(QWidget):
         buttons = QHBoxLayout()
         buttons.setSpacing(12)
         self.start_button = fluent.Button("Start", self, icon="media-playback-start-symbolic", accent=True)
-        self.lap_button = fluent.Button("Lap", self, icon="view-pin-symbolic")
+        self.lap_button = fluent.Button("Lap", self, icon="flag-symbolic")
         self.reset_button = fluent.Button("Reset", self, icon="view-refresh-symbolic")
         self.start_button.setToolTip("Start or pause (Space)")
         self.lap_button.setToolTip("Record a lap (L)")

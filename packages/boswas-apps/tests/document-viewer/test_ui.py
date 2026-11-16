@@ -692,10 +692,10 @@ class PackagingTest(unittest.TestCase):
         lines = (PACKAGE / "data" / "document-viewer" / "com.boswas.DocumentViewer.desktop").read_text().splitlines()
         entry = dict(line.split("=", 1) for line in lines[1:lines.index("")] if "=" in line)
         self.assertEqual((entry["Name"], entry["Icon"], entry["MimeType"], entry["Exec"]),
-                         ("Document Viewer", "okular", "application/pdf;", "boswas-document-viewer %F"))
+                         ("Document Viewer", "boswas-document-viewer", "application/pdf;", "boswas-document-viewer %F"))
         self.assertEqual(entry["StartupWMClass"], "com.boswas.DocumentViewer")
         icons = PACKAGE.parents[1] / "desktop" / "icons" / "Boswas-Prism" / "scalable" / "apps"
-        self.assertTrue((icons / "okular.svg").is_file())
+        self.assertTrue((icons / "boswas-document-viewer.svg").is_file())
         manual = (PACKAGE / "man" / "boswas-document-viewer.1").read_text()
         for wanted in (".SH NAME", ".SH SYNOPSIS", ".SH DESCRIPTION", ".SH OPTIONS", ".SH FILES", ".SH SEE ALSO"):
             self.assertIn(wanted, manual)

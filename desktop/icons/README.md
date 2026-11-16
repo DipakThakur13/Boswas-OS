@@ -115,8 +115,8 @@ PDF), Orchid (audio, fonts), Iris (software packages, JSON), Sky (Windows).
 
 ### Icons
 
-264 designs, written as 461 files: 312 in `Boswas-Prism/` (95 applications,
-19 places, 17 devices, 32 mimetypes, 48 status, 101 actions) and the 149
+300 designs, written as 535 files: 350 in `Boswas-Prism/` (97 applications,
+19 places, 17 devices, 32 mimetypes, 48 status, 137 actions) and the 185
 symbolic icons again in `Boswas-Prism-Light/`. Aliases are separate files
 with the same drawing and their own id prefix. This table is printed by
 `tools/build_prism.py --table`; the tests check that it matches.
@@ -132,8 +132,8 @@ with the same drawing and their own id prefix. This table is printed by
 | apps | Web Browser | azure | Globe with equator, accent meridian (a generic browser, not a vendor logo). | `web-browser`, `firefox-esr`, `konqueror` |
 | apps | Calculator | slate | Calculator with plus, minus, times and equals keys, accent display. | `accessories-calculator`, `org.kde.kcalc` |
 | apps | Text Editor | azure | Page with text lines, accent pencil. | `accessories-text-editor`, `kwrite`, `org.kde.kwrite`, `kate`, `org.kde.kate`, `gvim` |
-| apps | Image Viewer | sun | Picture frame with mountains, accent sun. | `gwenview`, `org.kde.gwenview`, `preferences-desktop-wallpaper` |
-| apps | Document Viewer | coral | Open book, accent bookmark ribbon. | `okular`, `org.kde.okular` |
+| apps | Image Viewer | sun | Picture frame with mountains, accent sun. | `gwenview`, `org.kde.gwenview`, `preferences-desktop-wallpaper`, `boswas-photos` |
+| apps | Document Viewer | coral | Open book, accent bookmark ribbon. | `okular`, `org.kde.okular`, `boswas-document-viewer` |
 | apps | Archive Manager | slate | Archive box with lid, accent handle slot. | `utilities-file-archiver`, `ark`, `org.kde.ark` |
 | apps | Screenshot | coral | Viewfinder corners, accent shutter dot. | `spectacle`, `org.kde.spectacle` |
 | apps | Help | azure | Ring, accent question mark. | `help-browser`, `org.kde.khelpcenter` |
@@ -388,6 +388,42 @@ with the same drawing and their own id prefix. This table is printed by
 | actions | Save As | symbolic | Floppy disk with a pencil. | `document-save-as-symbolic` |
 | actions | Select All | symbolic | Square inside four corners. | `edit-select-all-symbolic` |
 | actions | Touchpad | symbolic | Touchpad with its two buttons. | `input-touchpad-symbolic` |
+| actions | Success | symbolic | Ring with a check mark. | `dialog-positive-symbolic` |
+| actions | Extract | symbolic | Arrow rising out of an open box. | `archive-extract-symbolic` |
+| actions | Add to Archive | symbolic | Arrow going down into an open box. | `archive-insert-symbolic` |
+| actions | Properties | symbolic | Sheet with the letter i. | `document-properties-symbolic` |
+| actions | Preview | symbolic | Sheet under a magnifying glass. | `document-preview-symbolic` |
+| actions | Text Document | symbolic | Sheet with three lines of text. | `text-x-generic-symbolic` |
+| actions | Log | symbolic | Sheet with three lines of text. | `text-x-log-symbolic` |
+| actions | Log Viewer | symbolic | Sheet with three lines of text. | `utilities-log-viewer-symbolic` |
+| actions | Clear History | symbolic | Arrow turning back around a cross. | `edit-clear-history-symbolic` |
+| actions | Cancel | symbolic | Ring with a cross. | `process-stop-symbolic` |
+| actions | Run | symbolic | Ring with a play triangle. | `system-run-symbolic` |
+| actions | Install | symbolic | Arrow pointing down into a tray. | `run-install-symbolic` |
+| actions | Install Software | symbolic | Arrow pointing down into a tray. | `system-software-install-symbolic` |
+| actions | Details View | symbolic | Three rows, each with a short and a long cell. | `view-list-details-symbolic` |
+| actions | Light | symbolic | Sun with eight rays. | `weather-clear-symbolic` |
+| actions | Dark | symbolic | Crescent moon. | `weather-clear-night-symbolic` |
+| actions | Keep on Top | symbolic | Pushpin. | `window-pin-symbolic` |
+| actions | Flash | symbolic | Lightning bolt. | `camera-flash-symbolic` |
+| actions | Switch Camera | symbolic | Camera with two arrows turning inside it. | `camera-switch-symbolic` |
+| actions | Timer | symbolic | Stopwatch: a dial with a crown and one hand. | `timer-symbolic` |
+| actions | Stopwatch | symbolic | Stopwatch: a dial with a crown and one hand. | `stopwatch-symbolic` |
+| actions | Countdown | symbolic | Hourglass. | `hourglass-symbolic` |
+| actions | Alarm | symbolic | Alarm clock: a dial with two bells and two feet. | `alarm-symbolic` |
+| actions | World | symbolic | Globe with the equator and one meridian. | `globe-symbolic` |
+| actions | Focus | symbolic | Target: two rings around a dot. | `focus-symbolic` |
+| actions | Flag | symbolic | Flag on a pole. | `flag-symbolic` |
+| actions | Torch | symbolic | Hand torch, lit. | `torch-symbolic` |
+| actions | Repeat One | symbolic | The repeat loop around the figure 1. | `media-playlist-repeat-song-symbolic` |
+| actions | Playlist | symbolic | Three lines of a list and a play triangle. | `playlist-symbolic` |
+| actions | Music | symbolic | Two joined notes. | `audio-x-generic-symbolic` |
+| actions | Video | symbolic | Frame of film with a play triangle. | `video-x-generic-symbolic` |
+| actions | Mini Player | symbolic | Window with a smaller one in its corner. | `view-dual-symbolic` |
+| actions | Performance | symbolic | Frame with a pulse line: activity over time. | `utilities-system-monitor-symbolic` |
+| actions | Services | symbolic | Three sheets lying on each other. | `view-layers-symbolic` |
+| actions | Game Controller | symbolic | Game controller. | `input-gaming-symbolic` |
+| actions | Tablet | symbolic | Drawing tablet with a pen resting on it. | `input-tablet-symbolic` |
 <!-- END PRISM ICON TABLE -->
 
 Notes on names:
@@ -396,7 +432,9 @@ Notes on names:
   Prism, so a component that asks for `boswas-control-center` or
   `org.kde.dolphin` finds it in either pack.
 * **Native desktop.** `boswas-launcher` (`boswas-shell`), `boswas-lock`,
-  `boswas-files` and `boswas-terminal` are the names of the native shell.
+  `boswas-files` and `boswas-terminal` are the names of the native shell;
+  `boswas-photos` and `boswas-document-viewer` are the names Boswas Photos
+  and Boswas Document Viewer ask for.
   The shell loads the symbolic icons by the names in the table, from
   `scalable/status` and `scalable/actions`.
 * **Folders.** `folder-downloads`, `folder-images`, `folder-video` and

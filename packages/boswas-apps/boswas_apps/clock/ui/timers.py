@@ -136,7 +136,7 @@ class TimersPage(QWidget):
         self.grid = CardGrid(column_width=260)
         self.stack.addWidget(scroll_page(self.grid))
         self.empty = fluent.EmptyState("No timers", "Add a timer for the tea, the laundry or the next break.",
-                                       "preferences-system-time-symbolic", "Add a timer")
+                                       "hourglass-symbolic", "Add a timer")
         self.empty.action_triggered.connect(self.add_timer)
         self.stack.addWidget(self.empty)
         self.expanded_holder = QWidget()

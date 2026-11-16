@@ -78,7 +78,7 @@ class _RecentModel(QAbstractListModel):
 
 class ViewerWindow(fluent.FluentWindow):
     def __init__(self, arguments: list[str] | None = None) -> None:
-        super().__init__(APP_ID, DISPLAY_NAME, icon="okular", size=(1180, 800), minimum_size=(640, 460))
+        super().__init__(APP_ID, DISPLAY_NAME, icon="boswas-document-viewer", size=(1180, 800), minimum_size=(640, 460))
         self.worker = fluent.Worker(self, max_threads=2)
         try:
             self.store = Store(fluent.state_dir(APP_ID))
@@ -351,7 +351,7 @@ class ViewerWindow(fluent.FluentWindow):
         layout.setContentsMargins(32, 16, 32, 24)
         layout.setSpacing(12)
         self.welcome = fluent.EmptyState("Open a PDF document", "Drop a document here, or choose one to read.",
-                                         "okular", "Open document")
+                                         "boswas-document-viewer", "Open document")
         self.welcome.action_triggered.connect(self.browse)
         self.welcome.setSizePolicy(self.welcome.sizePolicy().horizontalPolicy(), self.welcome.sizePolicy().Policy.Fixed)
         self.recent_title = fluent.Label("Recent documents", "body-strong")

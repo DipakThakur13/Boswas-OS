@@ -27,7 +27,7 @@ def main(argv: list[str] | None = None) -> int:
     # A running instance may have another working directory: hand it absolute names.
     forwarded = [argv[0] if argv else PROGRAM, *cli.absolute(argv[1:])]
     return fluent.run(APP_ID, PhotosWindow, argv=forwarded, display_name=DISPLAY_NAME, version=__version__,
-                      icon="gwenview")
+                      icon="boswas-photos")
 
 
 if __name__ == "__main__":

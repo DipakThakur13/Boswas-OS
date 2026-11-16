@@ -128,7 +128,7 @@ class AlarmsPage(QWidget):
         self.grid = CardGrid(column_width=280)
         self.stack.addWidget(scroll_page(self.grid))
         self.empty = fluent.EmptyState("No alarms yet", "Add an alarm and it rings at its time, also while Clock "
-                                       "is closed.", "preferences-system-time-symbolic", "Add an alarm")
+                                       "is closed.", "alarm-symbolic", "Add an alarm")
         self.empty.action_triggered.connect(self.add_alarm)
         self.stack.addWidget(self.empty)
         layout.addWidget(self.stack, 1)

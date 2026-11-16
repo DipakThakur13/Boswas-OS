@@ -25,7 +25,7 @@ _ESCAPES = {"s": " ", "n": "\n", "t": "\t", "r": "\r", "\\": "\\"}
 
 @dataclass(frozen=True)
 class Application:
-    entry_id: str            # "org.kde.gwenview.desktop"
+    entry_id: str            # "com.boswas.Photos.desktop"
     name: str
     icon: str
     exec_line: str

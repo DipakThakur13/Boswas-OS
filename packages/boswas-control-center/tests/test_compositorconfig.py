@@ -190,7 +190,8 @@ class SchemaTest(unittest.TestCase):
                           config["output"]["scale"], config["appearance"]["scheme"]),
                          (300, 600, 600, 24, 1.0, "dark"))
         config["apps"]["terminal"].append("x")
-        self.assertEqual(cc.defaults()["apps"]["terminal"], ["konsole"])
+        self.assertEqual(cc.defaults()["apps"]["terminal"], ["boswas-terminal"])
+        self.assertEqual(cc.defaults()["apps"]["files"], ["boswas-files"])
 
 
 class SnapshotTest(Files):

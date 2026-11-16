@@ -17,9 +17,9 @@ Python suites, which were run). The numbers move as work lands.
 | Suite | Tests | What they cover |
 |-------|-------|-----------------|
 | `boswas-ui` (Rust) | 26 | The token file as the programs read it, drawing, text, icons, the materials |
-| `boswas-compositor`, unit | 72 | The configuration layers and their rules (a user cannot relax the lock policy or name a trusted program; a damaged file is ignored alone), the shortcut table, snapping and the layouts of the window picker, Task View, the snap layouts and the window menu, the frame geometry, the clip geometry, animation timelines, capture regions (also on a rotated output), EDID names |
-| `boswas-compositor`, end to end | 11 | The real binary on its headless back end with real clients and the control socket: ordinary clients get no privileged protocol and a started program does; the limits of the public control socket; a window's life; the window picker, Task View, snap keys and window menu through injected keys; screen capture only after the user's answer and never while locked (with `grim`); an X11 program through Xwayland (with `xclock`); the lock across a crashed lock screen |
-| `boswas-services`, unit | 59 | Parsers, limits, conversions and policies of the ten services |
+| `boswas-compositor`, unit | 74 | The configuration layers and their rules (a user cannot relax the lock policy, name a trusted program or turn X11 back on; a damaged file is ignored alone), the shortcut table, snapping and the layouts of the window picker, Task View, the snap layouts and the window menu, the frame geometry, the clip geometry, animation timelines, capture regions (also on a rotated output), EDID names |
+| `boswas-compositor`, end to end | 12 | The real binary on its headless back end with real clients and the control socket: ordinary clients get no privileged protocol and a started program does; a configured input method gets its two protocols and nothing else; the limits of the public control socket; a window's life; the window picker, Task View, snap keys and window menu through injected keys; screen capture only after the user's answer and never while locked (with `grim`); an X11 program through Xwayland (with `xclock`); the lock across a crashed lock screen |
+| `boswas-services`, unit | 60 | Parsers, limits, conversions and policies of the ten services; what the lock screen, the login screen and Settings may each ask for |
 | `boswas-services`, integration | 85 | Every service against two private `dbus-daemon` processes and scripted stand-ins (see below): notifications, tray, media, network, Bluetooth, audio, power, brightness, session, the polkit agent, start-up and shut-down, buses that go away, and that no secret reaches the log |
 | `boswas-services-bridge` | 5 + 1 | The command parser, and the program itself: it reports states, answers bad lines and ends with its input |
 | `boswas-shell` | 88 | Every surface drawn in both schemes and checked for controls inside the surface and reachable by keyboard; the taskbar's grouping and layout, Start's search, toasts and the notification centre, the dialogs (Run without a shell, the polkit dialog, the choice of administrator), the capture mark, pinned applications, the greetd messages, the PAM conversation, the users the greeter lists |
@@ -85,9 +85,28 @@ Recorded by the builders; not repeatable from the test suite.
 - A window's rounded lower corner in a nested run on OpenGL ES with
   Mesa's software driver.
 
-No package build of `boswas-desktop` or `boswas-branding` with this
-round's changes is recorded in the builders' reports. `./test.sh
---packages-only` has to show that they still build and pass lintian.
+- The real compositor and shell, run headless (software rendering,
+  stand-in services) as an unprivileged user, with the real Files,
+  Terminal, Text Editor, Calculator, Settings, Task Manager, Calendar,
+  Photos and Clock as Wayland clients: window frames, the taskbar with
+  running marks, Start with the pinned applications, Task View with live
+  previews, snapping two windows side by side, quick settings and the
+  notification centre, in the dark and the light scheme. Settings showed
+  the compositor's real output on its Display page, and Task Manager the
+  machine's real figures.
+
+Package builds: every package was built with `dpkg-buildpackage` and its
+test suites in this build environment (an Ubuntu-based sandbox with the
+1.85 Rust toolchain and build dependencies not checked, not the Debian 13
+builder container), followed by lintian and the package test stage.
+Result of the last complete run (2026-11-16, before the pointer theme and
+the removal of the Plasma and Konsole data): the 13 device packages and the
+Control Plane built with their tests, lintian reported no errors or
+warnings, and the package stage passed 68 checks, skipped one (the
+AppArmor compile check: `apparmor_parser` is not installed here) and
+failed one, a check that still expected a KDE dependency of Boswas
+Control Center. The builder container and `./test.sh` on Debian 13 still
+have to confirm it.
 
 ## Not verified
 
@@ -103,9 +122,9 @@ Nothing below could be exercised in the build environment.
 | System services | NetworkManager, BlueZ, PipeWire (`pw-dump`, `wpctl`), UPower, power-profiles-daemon, logind and polkit: every backend has run against stand-ins only. The polkit helper protocol, the shape of `pw-dump`'s JSON and NetworkManager's settings dictionaries were written without a real daemon to compare with |
 | Authentication | A `pkexec` call answered by the shell's agent. Until that has run, no administrator action from the desktop is known to work |
 | Screen capture | Screen sharing and screenshots through `xdg-desktop-portal-wlr`; capture of a rotated monitor end to end; what the consent dialog names for the portal back end |
-| X11 | Xwayland on hardware; the clipboard between X11 and Wayland applications; Wine through Xwayland, and which display driver Wine chooses when both sockets are in its sandbox (ADR-0034) |
+| X11 | Xwayland on hardware; the clipboard between X11 and Wayland applications; Wine's Wayland driver on Debian 13 (the sandbox gives a Windows application the Wayland socket and no X11 socket, ADR-0034) |
 | Input methods | No input method has been run on the compositor; none is in the image |
-| Applications on the desktop | No run of Firefox, Wine or Waydroid on the native compositor is recorded, and none of the Boswas applications or Control Center has been started in a real session (window activation, the primary selection, drag and drop between programs, an input method's window) |
+| Applications on the desktop | No run of Firefox, Wine or Waydroid on the native compositor is recorded. The Boswas applications and Control Center have not been started in a real session on hardware (window activation, the primary selection, drag and drop between programs, an input method's window); see "Looked at by hand" for the headless run |
 | Applications and devices | See the next section: a camera, removable drives, sound, real documents. Printing was tried to a PDF file only, and the image has no print service (CUPS is not in the manifest) |
 | Settings | Every section that talks to a system service ran against a stand-in: the real bridge reported "not available" here. Arranging several monitors is tested against a model only (the headless back end has one output and ignores a scale change on reload). `timedatectl` and `localectl` changes behind polkit |
 | Performance | Frame times, memory and start-up time of the compositor and the shell. Only the boot screen has measured frame costs, on the build machine |
@@ -130,7 +149,7 @@ do on purpose or not yet; "not verified" is what could not be tried here.
 | Task Manager | No network column per process; no efficiency mode; no way to disconnect a session. A process that used almost no CPU shows a change of its memory or disk use up to 8 seconds late | A real Wayland session; a real GPU, battery and Wi-Fi adapter (fake sysfs in the tests); the polkit question when a service is started or stopped; "Open file location" against the running Files. Tried live against a real systemd user manager and a real logind on a private bus; its CPU figures were compared with `top` |
 | Clock | No choice of alarm sound | The chime (Qt Multimedia crashes in this environment); logind's wake-up signal |
 | Calendar | No accounts and no synchronisation; no printing; resizing by dragging only in the week and day views; it does not notice when another program changes its file; events of a hidden calendar do not remind | Reminders against the real notification service of the shell (tested against a stand-in on a private bus) |
-| Control Center, settings | Editing a proxy; managing VPN connections; a test sound; an automatic suspend time; identifying monitors; a pointer theme; drawing tablets; more than four keyboard layouts; locking an account. Passwords set for other users are SHA-512 crypt, not Debian 13's default scheme, and are not checked by `pam_pwquality` | See the table above. For the Users page: the shape of `busctl`'s replies, the conversation with `passwd` under real PAM modules, polkit's questions through the shell's agent, signing in as a user it created, removing a user with and without the files, the picture on the login screen |
+| Control Center, settings | Editing a proxy; managing VPN connections; a test sound; an automatic suspend time; identifying monitors; a pointer theme; drawing tablets; more than four keyboard layouts; locking an account. Passwords set for other users are SHA-512 crypt, not Debian 13's default scheme, and only the length and character-class rules of `pwquality` are applied to them | See the table above. For the Users page: the shape of `busctl`'s replies, the conversation with `passwd` under real PAM modules, polkit's questions through the shell's agent, signing in as a user it created, removing a user with and without the files, the picture on the login screen |
 
 Icons: the applications ask for some symbolic icons the Boswas Prism pack
 does not draw (the reports name them). Ten were added; the others fall

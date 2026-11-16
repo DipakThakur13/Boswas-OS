@@ -60,6 +60,7 @@ boswas-control-center boswas-update-center boswas-software-center boswas-install
 boswas-windows-application boswas-windows-installer wine wine-stable boswas-compat-status
 boswas-repair boswas-sandbox boswas-app-policy
 boswas-launcher boswas-shell boswas-lock boswas-files boswas-terminal
+boswas-photos boswas-document-viewer
 """.split(),
     "places": """
 folder folder-open user-home user-desktop folder-documents folder-download folder-downloads
@@ -129,6 +130,16 @@ video-display-symbolic drive-harddisk-symbolic drive-removable-media-symbolic
 document-open-recent-symbolic object-rotate-right-symbolic object-rotate-left-symbolic
 object-flip-horizontal-symbolic object-flip-vertical-symbolic zoom-fit-best-symbolic
 zoom-original-symbolic document-save-as-symbolic edit-select-all-symbolic input-touchpad-symbolic
+archive-extract-symbolic archive-insert-symbolic document-properties-symbolic
+document-preview-symbolic text-x-generic-symbolic text-x-log-symbolic utilities-log-viewer-symbolic
+edit-clear-history-symbolic process-stop-symbolic system-run-symbolic run-install-symbolic
+system-software-install-symbolic view-list-details-symbolic weather-clear-symbolic
+weather-clear-night-symbolic window-pin-symbolic camera-flash-symbolic camera-switch-symbolic
+timer-symbolic stopwatch-symbolic hourglass-symbolic alarm-symbolic globe-symbolic focus-symbolic
+flag-symbolic torch-symbolic media-playlist-repeat-song-symbolic playlist-symbolic
+audio-x-generic-symbolic video-x-generic-symbolic view-dual-symbolic
+utilities-system-monitor-symbolic view-layers-symbolic input-gaming-symbolic input-tablet-symbolic
+dialog-positive-symbolic
 """.split(),
 }
 

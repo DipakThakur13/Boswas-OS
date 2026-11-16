@@ -361,8 +361,8 @@ SCHEMA: dict[str, dict[str, Key]] = {
     "input_method": {"command": _program((), user=False)},
     "xwayland": {"enabled": _boolean(True)},
     "apps": {
-        "terminal": _program(("konsole",)),
-        "files": _program(("dolphin",)),
+        "terminal": _program(("boswas-terminal",)),
+        "files": _program(("boswas-files",)),
         "settings": _program(("boswas-control-center",)),
         "task_manager": _program(("boswas-task-manager",)),
     },

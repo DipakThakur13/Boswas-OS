@@ -68,15 +68,15 @@ class ClockWindow(fluent.FluentWindow):
         self.status = nav.add_banner(fluent.InfoBar("info"))
         self.status.hide()
         self.status.action_triggered.connect(self._banner_action)
-        nav.add_page("focus", "Focus sessions", icon="emblem-default-symbolic", factory=lambda: FocusPage(
+        nav.add_page("focus", "Focus sessions", icon="focus-symbolic", factory=lambda: FocusPage(
             self.context, self), keywords=("pomodoro", "break", "goal"))
-        nav.add_page("timers", "Timers", icon="power-profile-balanced-symbolic", factory=lambda: TimersPage(
+        nav.add_page("timers", "Timers", icon="hourglass-symbolic", factory=lambda: TimersPage(
             self.context, self), keywords=("countdown",))
-        nav.add_page("alarms", "Alarms", icon="notification-symbolic", factory=lambda: AlarmsPage(self.context, self),
+        nav.add_page("alarms", "Alarms", icon="alarm-symbolic", factory=lambda: AlarmsPage(self.context, self),
                      keywords=("wake", "ring"))
-        nav.add_page("stopwatch", "Stopwatch", icon="preferences-system-time-symbolic",
+        nav.add_page("stopwatch", "Stopwatch", icon="stopwatch-symbolic",
                      factory=lambda: StopwatchPage(self.context, self), keywords=("lap",))
-        nav.add_page("world", "World clock", icon="mark-location-symbolic", factory=lambda: WorldPage(
+        nav.add_page("world", "World clock", icon="globe-symbolic", factory=lambda: WorldPage(
             self.context, self), keywords=("time zone", "city"))
         nav.add_page("settings", "Settings", icon="preferences-system-symbolic", factory=self._settings_page,
                      footer=True)
@@ -192,12 +192,12 @@ class ClockWindow(fluent.FluentWindow):
                                  for minutes in sorted({*model.SNOOZE_CHOICES, values.default_snooze})],
                                 "default_snooze")
         layout.addWidget(fluent.SettingsCard("Snooze", "The snooze time a new alarm starts with",
-                                             "notification-symbolic", self.snooze_box))
+                                             "alarm-symbolic", self.snooze_box))
         self.focus_box = combo([(textfmt.duration_words(minutes * 60), minutes)
                                 for minutes in sorted({15, 20, 25, 30, 45, 50, 60, 90, values.focus_minutes})],
                                "focus_minutes")
         layout.addWidget(fluent.SettingsCard("Focus period", "How long you focus before a break",
-                                             "emblem-default-symbolic", self.focus_box))
+                                             "focus-symbolic", self.focus_box))
         self.break_box = combo([(textfmt.duration_words(minutes * 60), minutes)
                                 for minutes in sorted({3, 5, 10, 15, 20, 30, values.break_minutes})],
                                "break_minutes")

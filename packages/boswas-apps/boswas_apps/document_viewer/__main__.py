@@ -33,7 +33,7 @@ def main(argv: list[str] | None = None) -> int:
         return ViewerWindow(arguments)
 
     return fluent.run(APP_ID, factory, argv=[argv[0], *qt_arguments, *files], display_name=DISPLAY_NAME,
-                      version=__version__, icon="okular")
+                      version=__version__, icon="boswas-document-viewer")
 
 
 if __name__ == "__main__":

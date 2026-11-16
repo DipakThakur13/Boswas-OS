@@ -18,7 +18,7 @@ Results are a **local self-assessment**, not remote attestation.
 | Audit | auditd + rules for identity, privilege and security-config changes, kernel modules, time | `audit` | **FAIL** if inactive |
 | Remote access | No SSH server installed. A fresh install of openssh-server is not enabled automatically (systemd preset). If provisioned: keys only, no root, 3 tries | `ssh-server` | WARN if running |
 | Administrative access | Root locked by the installer. The installer-created user is in `sudo`; sudo with password, `use_pty`, 5-minute timestamp. No NOPASSWD, no hidden accounts | `root-account` (as root) | WARN if root has a password |
-| Passwords | pam_pwquality: min 12 chars, 2 classes, dictionary and username checks, enforced for root. Not applied to a password an administrator sets for another user in Control Center > Users (see [System applications and Settings](#system-applications-and-settings)) | (none) | (none) |
+| Passwords | pam_pwquality: min 12 chars, 2 classes, dictionary and username checks, enforced for root. For a password an administrator sets for another user in Control Center > Users, which does not pass PAM, the dialog applies the length and class rules itself and nothing more (see [System applications and Settings](#system-applications-and-settings)) | (none) | (none) |
 | Screen lock | Owned by the compositor (ADR-0028): locks after at most 10 minutes without input, before suspend and hibernate, and on Super+L. The maximum is a `[policy]` value that a user's configuration cannot raise. A crashed lock screen leaves the session locked and blank | `screen-lock` | WARN if the lock is off or users may turn it off |
 | Desktop isolation | The compositor offers ordinary applications the application protocols only: no window list, no clipboard control, no panels or overlays, no input injection. Privileged protocols go only to programs the compositor starts itself; sandboxed clients never get them (ADR-0026). A program gets pictures of the screen only after the user has allowed it in a dialog of the shell, and a mark on the taskbar shows while it may (ADR-0037). X11 applications share one X server and are not isolated from each other (ADR-0034) | test suite | (none) |
 | Login | greetd with the Boswas greeter, which runs as the unprivileged user `_greetd`; authentication by PAM in greetd. No automatic login on installed systems; text-login fallback (ADR-0030) | test suite | (none) |
@@ -113,16 +113,16 @@ X11 itself does not separate its clients:
 - the X server is given the clipboard of Wayland applications only while
   an X11 window has the keyboard, and then every X11 application can
   read it;
-- the WinCompat sandbox binds the X11 socket next to the Wayland socket
-  whenever `DISPLAY` names one, which it does for applications started
-  from Start or the taskbar. Wine then prefers its X11 driver, so such a
-  Windows application is an X11 client. The earlier caveat (X11 clients
-  observing each other) applies again. Which driver Wine uses on the
-  desktop has not been tested.
+- the WinCompat sandbox does not let a Windows application onto that X
+  server: where it can give the compositor's Wayland socket it does not
+  bind the X11 socket (`boswas_compat/sandbox.py`), so a sandboxed
+  application stays an ordinary Wayland client and cannot watch X11
+  windows. Wine's Wayland driver on Debian 13 has not been tested.
 
-`[xwayland] enabled = false` turns the X server off, but it is an
-ordinary setting that a user's file can override. A device that must not
-run X11 applications leaves the `xwayland` package out.
+`[xwayland] enabled = false` in a system file turns the X server off,
+and a user's file does not turn it back on (a user can turn it off for
+their own session). A device that must never run X11 applications can
+also leave the `xwayland` package out.
 
 ### Screen capture
 
@@ -207,10 +207,12 @@ person's own password goes through `passwd` and PAM. A password that an
 administrator sets for someone else is hashed in Control Center as
 SHA-512 crypt and passed to the service over D-Bus, never on a command
 line. Two limits follow from that path: the hash is not Debian 13's
-default scheme (yescrypt), and the password does not pass through PAM,
-so the `pam_pwquality` rule of this baseline (12 characters, two
-classes) is not applied to it. Control Center's own check asks for 8
-characters and refuses the user name.
+default scheme (yescrypt), and the password does not pass through PAM.
+The dialog therefore reads the device's `pwquality` settings and applies
+their minimum length and number of character classes itself (12
+characters and two classes with this baseline), and refuses the user
+name; the dictionary and other `pam_pwquality` checks are not made on
+this path.
 
 Boswas maintains this code itself; Debian's security support covers Qt,
 PySide6 and FFmpeg beneath it. None of the applications has run on the
@@ -223,7 +225,9 @@ desktop yet, and none has had a security review.
   `boswas-shell --greeter`, and an input method if `[input_method]
   command` names one (none is shipped). Each gets a Wayland connection
   and a control descriptor that the compositor created for that one
-  process. A program cannot obtain them by connecting to a socket, and
+  process. The input method's connection carries the input-method and
+  virtual-keyboard protocols only, and its control descriptor is not a
+  trusted one. A program cannot obtain them by connecting to a socket, and
   the shell removes both from the environment of every application it
   starts. Which programs these are is read from the system files only: a
   user's configuration cannot name them. A configured input method has

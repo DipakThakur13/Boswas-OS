@@ -65,7 +65,7 @@ class PhotosWindow(fluent.FluentWindow):
     """The Photos window. ``arguments`` are the command line arguments without the program name."""
 
     def __init__(self, arguments: list[str] | None = None) -> None:
-        super().__init__(APP_ID, DISPLAY_NAME, icon="gwenview", size=(1180, 760), minimum_size=(640, 440))
+        super().__init__(APP_ID, DISPLAY_NAME, icon="boswas-photos", size=(1180, 760), minimum_size=(640, 440))
         decode.configure()
         self.settings_path = fluent.config_dir(APP_ID) / "settings.json"
         self.settings = settings_module.load(self.settings_path)

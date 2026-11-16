@@ -25,11 +25,11 @@ from .startup_page import StartupPage
 
 _PAGES = (
     ("processes", ProcessesPage, "view-app-grid-symbolic"),
-    ("performance", PerformancePage, "power-profile-performance-symbolic"),
-    ("startup", StartupPage, "media-playback-start-symbolic"),
+    ("performance", PerformancePage, "utilities-system-monitor-symbolic"),
+    ("startup", StartupPage, "power-profile-performance-symbolic"),
     ("users", UsersPage, "avatar-default-symbolic"),
     ("details", DetailsPage, "view-list-symbolic"),
-    ("services", ServicesPage, "view-task-symbolic"),
+    ("services", ServicesPage, "view-layers-symbolic"),
     ("settings", SettingsPage, "preferences-system-symbolic"),
 )
 

@@ -361,6 +361,8 @@ APP_HUES = {
 APP_EXTRA_ALIASES = {
     "system-file-manager": ("boswas-files",),
     "utilities-terminal": ("boswas-terminal",),
+    "gwenview": ("boswas-photos",),
+    "okular": ("boswas-document-viewer",),
 }
 
 
@@ -1664,6 +1666,223 @@ MORE_ACTION_ICONS = [
 
 
 # ---------------------------------------------------------------------------
+# Symbolic icons the system applications ask for by name: archives, the
+# camera, the media player, the clock, Task Manager and Settings.
+# ---------------------------------------------------------------------------
+BOX = "M72 124H56Q36 124 36 144V200Q36 220 56 220H200Q220 220 220 200V144Q220 124 200 124H184"
+
+
+def a_extract():
+    """Arrow rising out of an open box."""
+    return [y_s(line((128, 164), (128, 36)) + line((80, 84), (128, 36), (176, 84))), y_s(BOX)]
+
+
+def a_insert():
+    """Arrow going down into an open box."""
+    return [y_s(line((128, 32), (128, 164)) + line((80, 116), (128, 164), (176, 116))), y_s(BOX)]
+
+
+def a_properties():
+    """Sheet with the letter i."""
+    return [y_s(SHEET, 20), y_f(circle(130, 116, 13)), y_s(line((130, 152), (130, 188)), 20)]
+
+
+def a_preview():
+    """Sheet under a magnifying glass."""
+    return [y_s("M108 224H72Q56 224 56 208V48Q56 32 72 32H148L204 88V100", 20),
+            y_s(circle(160, 164, 38), 20), y_s(line((188, 192), (222, 226)), 22)]
+
+
+def a_text_document():
+    """Sheet with three lines of text."""
+    return [y_s(SHEET, 20), y_s(line((92, 120), (168, 120)) + line((92, 156), (168, 156)) +
+                                line((92, 192), (140, 192)), 16)]
+
+
+def a_clear_history():
+    """Arrow turning back around a cross."""
+    c, r = (128, 128), 92
+    tx, ty = arc_tangent(300)
+    return [y_s(arc(*c, r, 300, 240) + arrowhead(polar(*c, r, 300), (-tx, -ty), 40, 44), 20),
+            y_s(line((102, 102), (154, 154)) + line((154, 102), (102, 154)), 20)]
+
+
+def a_process_stop():
+    """Ring with a cross."""
+    return [y_s(circle(128, 128, 96), 20), y_s(line((92, 92), (164, 164)) + line((164, 92), (92, 164)), 20)]
+
+
+def a_run():
+    """Ring with a play triangle."""
+    return [y_s(circle(128, 128, 96), 20), y_fs(poly((108, 88), (108, 168), (172, 128)), 14)]
+
+
+def a_columns():
+    """Three rows, each with a short and a long cell."""
+    return [y_s("".join(line((36, y), (76, y)) + line((116, y), (220, y)) for y in (64, 128, 192)))]
+
+
+def a_moon():
+    """Crescent moon."""
+    return [y_fs(crescent(128, 128, 92, 40, -40, 84), 12)]
+
+
+def a_camera_switch():
+    """Camera with two arrows turning inside it."""
+    body = ("M52 72H84L100 48H156L172 72H204Q220 72 220 88V188Q220 204 204 204H52Q36 204 36 188V88"
+            "Q36 72 52 72Z")
+    c, r = (128, 138), 34
+    turn = (arc(*c, r, 200, 330) + arrowhead(polar(*c, r, 330), arc_tangent(330), 22, 44) +
+            arc(*c, r, 20, 150) + arrowhead(polar(*c, r, 150), arc_tangent(150), 22, 44))
+    return [y_s(body, 20), y_s(turn, 14)]
+
+
+def a_stopwatch():
+    """Stopwatch: a dial with a crown and one hand."""
+    return [y_s(circle(128, 144, 80), 20), y_s(line((104, 28), (152, 28)) + line((128, 28), (128, 60)), 20),
+            y_s(line((128, 144), (160, 108)), 20), y_s(line((196, 72), (212, 56)), 20)]
+
+
+def a_hourglass():
+    """Hourglass."""
+    return [y_s(line((60, 32), (196, 32)) + line((60, 224), (196, 224)), 20),
+            y_s("M76 32V60Q76 92 128 128Q180 164 180 196V224", 20),
+            y_s("M180 32V60Q180 92 128 128Q76 164 76 196V224", 20)]
+
+
+def a_alarm():
+    """Alarm clock: a dial with two bells and two feet."""
+    return [y_s(circle(128, 140, 76), 20), y_s(line((128, 96), (128, 140), (158, 158)), 20),
+            y_s(line((40, 76), (80, 40)) + line((216, 76), (176, 40)), 22),
+            y_s(line((76, 204), (60, 224)) + line((180, 204), (196, 224)), 20)]
+
+
+def a_globe():
+    """Globe with the equator and one meridian."""
+    return [y_s(circle(128, 128, 96), 20), y_s(line((32, 128), (224, 128)), 16),
+            y_s(ellipse(128, 128, 42, 96), 16)]
+
+
+def a_focus():
+    """Target: two rings around a dot."""
+    return [y_s(circle(128, 128, 96), 20), y_s(circle(128, 128, 50), 18), y_f(circle(128, 128, 16))]
+
+
+def a_flag():
+    """Flag on a pole."""
+    return [y_s(line((60, 28), (60, 228)), 22), y_s("M60 44H196L164 92L196 140H60", 20)]
+
+
+def a_torch():
+    """Hand torch, lit."""
+    return [y_s("M96 116H160L176 84V56H80V84Z", 20), y_s(rr(100, 116, 56, 108, 12), 20),
+            y_s(line((128, 152), (128, 172)), 18),
+            y_s(line((128, 28), (128, 20)) + line((84, 30), (78, 20)) + line((172, 30), (178, 20)), 14)]
+
+
+def a_repeat_one():
+    """The repeat loop around the figure 1."""
+    return [y_s("M48 124V104Q48 72 80 72H204" + arrowhead((212, 72), (1, 0), 36, 44), 20),
+            y_s("M208 132V152Q208 184 176 184H52" + arrowhead((44, 184), (-1, 0), 36, 44), 20),
+            y_s(line((118, 116), (130, 106), (130, 150)), 14)]
+
+
+def a_playlist():
+    """Three lines of a list and a play triangle."""
+    return [y_s(line((36, 64), (220, 64)) + line((36, 128), (132, 128)) + line((36, 192), (132, 192))),
+            y_fs(poly((172, 124), (172, 204), (228, 164)), 12)]
+
+
+def a_music():
+    """Two joined notes."""
+    return [y_s("M96 184V60L200 40V164", 20), y_f(ellipse(72, 186, 30, 24)), y_f(ellipse(176, 166, 30, 24))]
+
+
+def a_film():
+    """Frame of film with a play triangle."""
+    return [y_s(rr(28, 52, 200, 152, 18), 20), y_fs(poly((108, 96), (108, 160), (160, 128)), 12),
+            y_s(line((64, 52), (64, 84)) + line((64, 172), (64, 204)) + line((192, 52), (192, 84)) +
+                line((192, 172), (192, 204)), 14)]
+
+
+def a_picture_in_picture():
+    """Window with a smaller one in its corner."""
+    return [y_s("M108 204H52Q36 204 36 188V68Q36 52 52 52H204Q220 52 220 68V108", 20),
+            y_fs(rr(140, 140, 84, 68, 10), 10)]
+
+
+def a_pulse():
+    """Frame with a pulse line: activity over time."""
+    return [y_s(rr(28, 44, 200, 168, 18), 20),
+            y_s(line((56, 136), (92, 136), (112, 92), (140, 172), (160, 124), (200, 124)), 16)]
+
+
+def a_layers():
+    """Three sheets lying on each other."""
+    return [y_s(poly((128, 32), (224, 84), (128, 136), (32, 84)), 20),
+            y_s(line((32, 128), (128, 180), (224, 128)), 20), y_s(line((32, 172), (128, 224), (224, 172)), 20)]
+
+
+def a_gamepad():
+    """Game controller."""
+    return [y_s("M76 72H180Q216 72 224 108L236 164Q240 196 212 196Q196 196 184 180L172 164H84L72 180"
+                "Q60 196 44 196Q16 196 20 164L32 108Q40 72 76 72Z", 20),
+            y_s(line((72, 116), (104, 116)) + line((88, 100), (88, 132)), 14), y_f(circle(172, 116, 12))]
+
+
+def a_tablet():
+    """Drawing tablet with a pen resting on it."""
+    return [y_s("M144 84H52Q28 84 28 108V196Q28 220 52 220H204Q228 220 228 196V136", 20),
+            y_s(line((116, 156), (212, 44)), 22), y_fs(poly((88, 188), (98, 158), (116, 174)), 8)]
+
+
+def a_success():
+    """Ring with a check mark."""
+    return [y_s(circle(128, 128, 96), 20), y_s(line((84, 132), (114, 162), (172, 100)), 20)]
+
+
+APP_ACTION_ICONS = [
+    ("dialog-positive-symbolic", "Success", a_success),
+    ("archive-extract-symbolic", "Extract", a_extract),
+    ("archive-insert-symbolic", "Add to Archive", a_insert),
+    ("document-properties-symbolic", "Properties", a_properties),
+    ("document-preview-symbolic", "Preview", a_preview),
+    ("text-x-generic-symbolic", "Text Document", a_text_document),
+    ("text-x-log-symbolic", "Log", doc(lambda: a_text_document(), "Sheet with three lines of text.")),
+    ("utilities-log-viewer-symbolic", "Log Viewer", doc(lambda: a_text_document(), "Sheet with three lines of text.")),
+    ("edit-clear-history-symbolic", "Clear History", a_clear_history),
+    ("process-stop-symbolic", "Cancel", a_process_stop),
+    ("system-run-symbolic", "Run", a_run),
+    ("run-install-symbolic", "Install", doc(lambda: a_download(), "Arrow pointing down into a tray.")),
+    ("system-software-install-symbolic", "Install Software",
+     doc(lambda: a_download(), "Arrow pointing down into a tray.")),
+    ("view-list-details-symbolic", "Details View", a_columns),
+    ("weather-clear-symbolic", "Light", doc(lambda: s_brightness(), "Sun with eight rays.")),
+    ("weather-clear-night-symbolic", "Dark", a_moon),
+    ("window-pin-symbolic", "Keep on Top", doc(lambda: a_pin(), "Pushpin.")),
+    ("camera-flash-symbolic", "Flash", doc(lambda: s_bolt(), "Lightning bolt.")),
+    ("camera-switch-symbolic", "Switch Camera", a_camera_switch),
+    ("timer-symbolic", "Timer", a_stopwatch),
+    ("stopwatch-symbolic", "Stopwatch", doc(lambda: a_stopwatch(), "Stopwatch: a dial with a crown and one hand.")),
+    ("hourglass-symbolic", "Countdown", a_hourglass),
+    ("alarm-symbolic", "Alarm", a_alarm),
+    ("globe-symbolic", "World", a_globe),
+    ("focus-symbolic", "Focus", a_focus),
+    ("flag-symbolic", "Flag", a_flag),
+    ("torch-symbolic", "Torch", a_torch),
+    ("media-playlist-repeat-song-symbolic", "Repeat One", a_repeat_one),
+    ("playlist-symbolic", "Playlist", a_playlist),
+    ("audio-x-generic-symbolic", "Music", a_music),
+    ("video-x-generic-symbolic", "Video", a_film),
+    ("view-dual-symbolic", "Mini Player", a_picture_in_picture),
+    ("utilities-system-monitor-symbolic", "Performance", a_pulse),
+    ("view-layers-symbolic", "Services", a_layers),
+    ("input-gaming-symbolic", "Game Controller", a_gamepad),
+    ("input-tablet-symbolic", "Tablet", a_tablet),
+]
+
+
+# ---------------------------------------------------------------------------
 # The icon list: (context, file name, title, glyph, aliases, hue).
 # Aliases are written as real files (same drawing, own id prefix).
 # ---------------------------------------------------------------------------
@@ -1822,7 +2041,8 @@ def icons() -> list[tuple]:
     rows += [(MIME, name, title, glyph, aliases, hue_name) for name, title, glyph, aliases, hue_name in MIME_ICONS]
     rows += [(MIME, "inode-directory", "Folder", p_folder, (), "azure")]
     rows += [(STATUS, name, title, glyph, (), None) for name, title, glyph in STATUS_ICONS + MORE_STATUS_ICONS]
-    rows += [(ACTIONS, name, title, glyph, (), None) for name, title, glyph in ACTION_ICONS + MORE_ACTION_ICONS]
+    rows += [(ACTIONS, name, title, glyph, (), None)
+             for name, title, glyph in ACTION_ICONS + MORE_ACTION_ICONS + APP_ACTION_ICONS]
     return rows
 
 

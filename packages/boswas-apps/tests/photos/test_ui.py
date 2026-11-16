@@ -1794,11 +1794,11 @@ class PackagingTest(unittest.TestCase):
         self.assertEqual(keys["Name"], "Photos")
         self.assertEqual(keys["GenericName"], "Image Viewer")
         self.assertEqual(keys["Exec"], "boswas-photos %F")
-        self.assertEqual(keys["Icon"], "gwenview")
+        self.assertEqual(keys["Icon"], "boswas-photos")
         self.assertEqual(keys["StartupWMClass"], APP_ID)
         self.assertEqual(keys["Type"], "Application")
         icons = self.ROOT.parents[1] / "desktop" / "icons" / "Boswas-Prism" / "scalable" / "apps"
-        self.assertTrue((icons / "gwenview.svg").is_file())
+        self.assertTrue((icons / "boswas-photos.svg").is_file())
         testing.app()
         offered = [mime for mime in keys["MimeType"].split(";") if mime]
         self.assertEqual(len(offered), len(set(offered)))
