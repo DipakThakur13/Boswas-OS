@@ -5,7 +5,9 @@
 //! [`Output::present`] together with the rectangles that changed, so only
 //! those pixels are copied and flushed.
 
+use std::fs::File;
 use std::io;
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use crate::gfx::{Canvas, Rect};
@@ -85,6 +87,39 @@ pub fn open_display(wait: Duration) -> io::Result<Box<dyn Output>> {
     }
 }
 
+/// A graphics device that is already open.
+#[derive(Debug)]
+pub enum Device {
+    /// A DRM device (`/dev/dri/cardN`).
+    Card(File),
+    /// A legacy frame buffer (`/dev/fb0`).
+    FrameBuffer(File),
+}
+
+/// The same choice as [`open_display`] among devices that another process
+/// opened and handed over (see [`crate::broker`]): the first DRM device with
+/// a connected display, else a frame buffer.
+pub fn open_devices(devices: Vec<Device>) -> io::Result<Box<dyn Output>> {
+    let mut last = io::Error::new(io::ErrorKind::NotFound, "no graphics device");
+    let mut frame_buffers = Vec::new();
+    for device in devices {
+        match device {
+            Device::Card(file) => match drm::DrmOutput::from_file(file, Path::new(drm::DRI_DIR)) {
+                Ok(out) => return Ok(Box::new(out)),
+                Err(e) => last = e,
+            },
+            Device::FrameBuffer(file) => frame_buffers.push(file),
+        }
+    }
+    for file in frame_buffers {
+        match fbdev::FbOutput::from_file(file) {
+            Ok(out) => return Ok(Box::new(out)),
+            Err(e) => last = e,
+        }
+    }
+    Err(io::Error::new(last.kind(), format!("no usable display: {last}")))
+}
+
 /// Copy the rows of `rect` from the canvas into a little-endian XRGB8888
 /// buffer with the given stride. Shared by the DRM and fbdev outputs.
 pub(crate) fn copy_xrgb(canvas: &Canvas, rect: &Rect, target: &mut [u8], stride: usize) {
@@ -122,5 +157,12 @@ mod tests {
         // Damage outside the canvas or a short target is ignored.
         copy_xrgb(&canvas, &Rect::new(-5, -5, 100, 100), &mut target, stride);
         copy_xrgb(&canvas, &Rect::new(0, 0, 4, 3), &mut [0u8; 7], stride);
+    }
+
+    #[test]
+    fn handed_over_files_that_are_no_graphics_devices_are_refused() {
+        assert_eq!(open_devices(Vec::new()).err().unwrap().kind(), io::ErrorKind::NotFound);
+        let null = || File::open("/dev/null").unwrap();
+        assert!(open_devices(vec![Device::FrameBuffer(null()), Device::Card(null())]).is_err());
     }
 }

@@ -76,12 +76,18 @@ pub struct Resources {
 
 impl Resources {
     pub fn new(theme: &'static Theme) -> Self {
+        Self::with_text(theme, TextEngine::new())
+    }
+
+    /// The resources with a given text engine instead of the system's
+    /// fonts.
+    pub fn with_text(theme: &'static Theme, text: TextEngine) -> Self {
         let icon_theme = match theme.scheme {
             Scheme::Dark => "Boswas-Prism",
             Scheme::Light => "Boswas-Prism-Light",
         };
         Self {
-            text: TextEngine::new(),
+            text,
             icons: IconLoader::new(icon_theme),
             theme,
             backdrop: None,
@@ -796,7 +802,11 @@ pub mod testing {
 
     /// Runs `draw` on a fresh canvas and returns the canvas and the hits.
     pub fn render(width: f32, height: f32, scale: f32, scheme: Scheme, pointer: Option<(f32, f32)>, focus: Option<&Action>, draw: impl FnOnce(&mut Frame)) -> (Canvas, Vec<Hit>) {
-        let mut res = Resources::new(Theme::of(scheme));
+        render_with(Resources::new(Theme::of(scheme)), width, height, scale, pointer, focus, draw)
+    }
+
+    /// [`render`] with given resources (for one, a machine without fonts).
+    pub fn render_with(mut res: Resources, width: f32, height: f32, scale: f32, pointer: Option<(f32, f32)>, focus: Option<&Action>, draw: impl FnOnce(&mut Frame)) -> (Canvas, Vec<Hit>) {
         let mut canvas = Canvas::new(width, height, scale).unwrap();
         let mut hits = Vec::new();
         let mut frame = Frame {

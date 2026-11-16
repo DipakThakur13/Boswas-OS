@@ -2,10 +2,16 @@
 //!
 //! Keys are read from the virtual console in raw, no-echo mode, already
 //! translated by the kernel with the keymap the initramfs loaded, exactly as
-//! Plymouth and the plain console prompt get them. While the boot screen is
-//! shown the console is in graphics mode so the kernel does not draw text
-//! over it. Everything changed here is put back by [`Console::restore`],
-//! which also runs on drop.
+//! Plymouth and the plain console prompt get them. Other programs reset the
+//! console's terminal settings during boot (systemd does when it starts), so
+//! the daemon checks them again and again with [`Console::ensure_raw`].
+//! While the boot screen is shown the console is in graphics mode so the
+//! kernel does not draw text over it. Everything changed here is put back by
+//! [`Console::restore`], which also runs on drop.
+//!
+//! Once another program runs a graphical session on the console (see
+//! [`Console::taken_by_another`]) its text/graphics mode is no longer ours
+//! to change: nothing here touches it then.
 
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
@@ -39,6 +45,54 @@ impl std::fmt::Debug for Console {
             .field("graphics", &self.graphics)
             .finish()
     }
+}
+
+/// The local and input modes that must be off for unbuffered, unechoed,
+/// untranslated input.
+fn cooked_local() -> LocalModes {
+    LocalModes::ICANON
+        | LocalModes::ECHO
+        | LocalModes::ECHOE
+        | LocalModes::ECHOK
+        | LocalModes::ECHONL
+        | LocalModes::ISIG
+        | LocalModes::IEXTEN
+}
+
+fn cooked_input() -> InputModes {
+    InputModes::ICRNL
+        | InputModes::INLCR
+        | InputModes::IGNCR
+        | InputModes::IXON
+        | InputModes::ISTRIP
+        | InputModes::BRKINT
+        | InputModes::PARMRK
+}
+
+/// The settings with raw, no-echo input.
+fn raw_of(mut settings: Termios) -> Termios {
+    settings.local_modes.remove(cooked_local());
+    settings.input_modes.remove(cooked_input());
+    settings.special_codes[SpecialCodeIndex::VMIN] = 1;
+    settings.special_codes[SpecialCodeIndex::VTIME] = 0;
+    settings
+}
+
+/// Whether the settings are the ones [`raw_of`] produces.
+fn is_raw(settings: &Termios) -> bool {
+    !settings.local_modes.intersects(cooked_local())
+        && !settings.input_modes.intersects(cooked_input())
+        && settings.special_codes[SpecialCodeIndex::VMIN] == 1
+        && settings.special_codes[SpecialCodeIndex::VTIME] == 0
+}
+
+/// Whether a console with this switching mode (`VT_GETMODE`) and keyboard
+/// mode (`KDGKBMODE`) is run by a graphical session. logind, seatd and
+/// display servers that manage the console themselves all take control of
+/// console switching (`VT_PROCESS`), turn the console keyboard off
+/// (`K_OFF`), or both; the boot screen does neither.
+pub fn session_owns(vt_mode: Option<u8>, kb_mode: Option<i32>) -> bool {
+    vt_mode == Some(sys::VT_PROCESS) || kb_mode == Some(sys::K_OFF)
 }
 
 fn open_tty(path: &Path) -> io::Result<File> {
@@ -81,35 +135,30 @@ impl Console {
     }
 
     /// Unbuffered, no-echo input; output processing stays as it was so that
-    /// other writers to the console still get proper line breaks.
+    /// other writers to the console still get proper line breaks. Input
+    /// typed before the call is discarded.
     pub fn set_raw(&mut self) -> io::Result<()> {
         let current = termios::tcgetattr(&self.file)?;
         if self.saved_termios.is_none() {
             self.saved_termios = Some(current.clone());
         }
-        let mut raw = current;
-        raw.local_modes.remove(
-            LocalModes::ICANON
-                | LocalModes::ECHO
-                | LocalModes::ECHOE
-                | LocalModes::ECHOK
-                | LocalModes::ECHONL
-                | LocalModes::ISIG
-                | LocalModes::IEXTEN,
-        );
-        raw.input_modes.remove(
-            InputModes::ICRNL
-                | InputModes::INLCR
-                | InputModes::IGNCR
-                | InputModes::IXON
-                | InputModes::ISTRIP
-                | InputModes::BRKINT
-                | InputModes::PARMRK,
-        );
-        raw.special_codes[SpecialCodeIndex::VMIN] = 1;
-        raw.special_codes[SpecialCodeIndex::VTIME] = 0;
-        termios::tcsetattr(&self.file, OptionalActions::Flush, &raw)?;
+        termios::tcsetattr(&self.file, OptionalActions::Flush, &raw_of(current))?;
         Ok(())
+    }
+
+    /// Put the terminal back into raw, no-echo mode if another program
+    /// changed its settings since [`Console::set_raw`]. Keys already typed
+    /// are kept. Returns true when the settings had to be put back.
+    pub fn ensure_raw(&mut self) -> bool {
+        if self.saved_termios.is_none() {
+            return false; // never made raw, or already given back
+        }
+        match termios::tcgetattr(&self.file) {
+            Ok(current) if !is_raw(&current) => {
+                termios::tcsetattr(&self.file, OptionalActions::Now, &raw_of(current)).is_ok()
+            }
+            _ => false,
+        }
     }
 
     /// Put the terminal settings back (keeps the console mode).
@@ -119,10 +168,19 @@ impl Console {
         }
     }
 
+    /// Whether another program runs a graphical session on this console now
+    /// (a compositor started by the login manager). From then on the
+    /// console's text/graphics mode belongs to that program.
+    pub fn taken_by_another(&self) -> bool {
+        self.vt.is_some()
+            && session_owns(sys::vt_mode(self.file.as_fd()).ok(), sys::kb_mode(self.file.as_fd()).ok())
+    }
+
     /// Stop (true) or resume (false) the kernel drawing text on the console.
-    /// A no-op on terminals that are not virtual consoles.
+    /// A no-op on terminals that are not virtual consoles, and on a console
+    /// another program has taken.
     pub fn set_graphics(&mut self, on: bool) {
-        if self.vt.is_none() {
+        if self.vt.is_none() || self.taken_by_another() {
             return;
         }
         if self.saved_mode.is_none() {
@@ -173,11 +231,12 @@ impl Console {
         let _ = self.file.write_all(text.as_bytes());
     }
 
-    /// Undo everything: terminal settings and text mode.
+    /// Undo everything: terminal settings and text mode. The mode is left
+    /// alone on a console another program has taken.
     pub fn restore(&mut self) {
         self.restore_termios();
         if self.graphics || self.saved_mode.is_some() {
-            if self.vt.is_some() {
+            if self.vt.is_some() && !self.taken_by_another() {
                 let _ = sys::kd_set_mode(self.file.as_fd(), sys::KD_TEXT);
             }
             self.graphics = false;
@@ -186,9 +245,10 @@ impl Console {
     }
 
     /// Force text mode, whatever state this value believes the console is in
-    /// (used by the supervisor after the worker died).
+    /// (used by the supervisor after the worker died), unless another
+    /// program has taken the console.
     pub fn force_text(&mut self) {
-        if self.vt.is_some() {
+        if self.vt.is_some() && !self.taken_by_another() {
             let _ = sys::kd_set_mode(self.file.as_fd(), sys::KD_TEXT);
         }
         self.graphics = false;
@@ -212,5 +272,89 @@ impl AsFd for Console {
 impl Drop for Console {
     fn drop(&mut self) {
         self.restore();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rustix::pty::{grantpt, openpt, ptsname, unlockpt, OpenptFlags};
+
+    /// A pseudo-terminal: the master end and the console opened on the slave.
+    fn pty() -> (File, Console) {
+        let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY).unwrap();
+        grantpt(&master).unwrap();
+        unlockpt(&master).unwrap();
+        let slave = ptsname(&master, Vec::new()).unwrap();
+        let console = Console::open(Path::new(slave.to_str().unwrap())).unwrap();
+        (File::from(master), console)
+    }
+
+    fn cooked(master: &File) -> bool {
+        termios::tcgetattr(master).unwrap().local_modes.contains(LocalModes::ECHO | LocalModes::ICANON)
+    }
+
+    /// What systemd does to the console when it starts: sane line settings.
+    fn reset(master: &File) {
+        let mut sane = termios::tcgetattr(master).unwrap();
+        sane.local_modes.insert(LocalModes::ICANON | LocalModes::ECHO | LocalModes::ISIG);
+        sane.input_modes.insert(InputModes::ICRNL);
+        termios::tcsetattr(master, OptionalActions::Now, &sane).unwrap();
+    }
+
+    #[test]
+    fn raw_mode_is_put_back_after_another_program_reset_the_terminal() {
+        let (mut master, mut console) = pty();
+        assert!(cooked(&master));
+        assert!(!console.ensure_raw(), "nothing to put back before raw mode was asked for");
+        assert!(cooked(&master));
+        console.set_raw().unwrap();
+        assert!(!cooked(&master));
+        assert!(!console.ensure_raw(), "untouched settings are left alone");
+
+        reset(&master);
+        assert!(cooked(&master));
+        assert!(console.ensure_raw());
+        assert!(!cooked(&master), "echo and line buffering are off again");
+        assert!(!console.ensure_raw());
+
+        // Keys typed before the settings are put back are not thrown away.
+        reset(&master);
+        master.write_all(b"k\r").unwrap();
+        assert!(console.ensure_raw());
+        let mut buf = [0u8; 8];
+        let mut got = Vec::new();
+        for _ in 0..50 {
+            let n = console.read(&mut buf).unwrap();
+            got.extend_from_slice(&buf[..n]);
+            if got.len() >= 2 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(got.first(), Some(&b'k'), "{got:?}");
+
+        // Giving the terminal back ends it: the settings are no longer ours.
+        console.restore_termios();
+        assert!(cooked(&master));
+        assert!(!console.ensure_raw());
+        assert!(cooked(&master));
+    }
+
+    #[test]
+    fn a_console_run_by_a_graphical_session_is_recognised() {
+        // The kernel's own console, or one the boot screen put into graphics mode.
+        assert!(!session_owns(Some(0), Some(1)));
+        assert!(!session_owns(Some(0), Some(3)));
+        assert!(!session_owns(None, None));
+        // logind and seatd: switching under the session's control, keyboard off.
+        assert!(session_owns(Some(sys::VT_PROCESS), Some(sys::K_OFF)));
+        assert!(session_owns(Some(sys::VT_PROCESS), Some(3)));
+        assert!(session_owns(Some(0), Some(sys::K_OFF)));
+        // A pseudo-terminal is nobody's console.
+        let (_master, mut console) = pty();
+        assert!(!console.is_vt() && !console.taken_by_another());
+        console.set_graphics(true);
+        assert!(!console.graphics());
     }
 }

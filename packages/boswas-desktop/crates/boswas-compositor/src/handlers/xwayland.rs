@@ -54,7 +54,7 @@ impl Boswas {
     /// Starts the XWayland server, when the configuration asks for it and
     /// the program is installed. Applications find it through `DISPLAY`.
     pub fn start_xwayland(&mut self) {
-        if !self.config.xwayland.enabled {
+        if !self.config.runs_xwayland() {
             return;
         }
         let spawned = XWayland::spawn(

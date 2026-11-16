@@ -76,6 +76,7 @@ use crate::{
     backend::Backend,
     config::Config,
     cursor::CursorTheme,
+    exit::Failure,
     handlers::screencopy::Screencopy,
     ipc::Ipc,
     render::Overlays,
@@ -89,6 +90,7 @@ use crate::{
         switcher::Switcher,
         windowmenu::{KeyAdjust, WindowMenu},
     },
+    supervise::{Next, Supervisor},
 };
 
 /// The most exit animations at once; more (a session closing all its
@@ -305,7 +307,15 @@ pub struct Boswas {
     pub idle_inhibitors: Vec<WlSurface>,
     pub ipc: Ipc,
     pub children: Vec<Child>,
-    shell_started: Vec<Instant>,
+    /// When the shell is started again after it ended, and when no more.
+    shell_supervisor: Supervisor,
+    /// The shell's process, to learn how it ended.
+    shell_pid: Option<u32>,
+    /// How the shell last ended (or why it could not be started).
+    shell_end: Option<String>,
+    /// Why the compositor is ending with a failure status; set together
+    /// with stopping the event loop.
+    pub failure: Option<Failure>,
     /// The input method's control connection (its liveness) and when it
     /// was last started.
     input_method: (Option<u64>, Vec<Instant>),
@@ -508,7 +518,10 @@ impl Boswas {
             idle_inhibitors: Vec::new(),
             ipc: Ipc::default(),
             children: Vec::new(),
-            shell_started: Vec::new(),
+            shell_supervisor: Supervisor::new(config.is_login_screen()),
+            shell_pid: None,
+            shell_end: None,
+            failure: None,
             input_method: (None, Vec::new()),
             swipe: None,
             touch_pointer: None,
@@ -558,9 +571,22 @@ impl Boswas {
         id
     }
 
-    /// The text engine; system fonts are scanned on first use.
+    /// The text engine; system fonts are scanned on first use. Without any
+    /// usable font the compositor runs on: titles and labels stay empty.
     pub fn text(&mut self) -> &mut TextEngine {
-        self.text.get_or_insert_with(TextEngine::new)
+        self.text.get_or_insert_with(|| {
+            let engine = TextEngine::new();
+            if !engine.has_fonts() {
+                warn!("no usable font found (fontconfig, /usr/share/fonts, /usr/local/share/fonts, the user's fonts): window titles and labels are drawn without text");
+            }
+            engine
+        })
+    }
+
+    /// Ends the compositor with a failure status and its one-line reason.
+    pub fn fail(&mut self, failure: Failure) {
+        self.failure.get_or_insert(failure);
+        self.loop_signal.stop();
     }
 
     /// Where windows fly to when they are minimized: the middle of the
@@ -853,25 +879,52 @@ impl Boswas {
         }
     }
 
-    /// Starts the shell, unless it has been restarting in a loop.
+    /// Starts the shell.
     pub fn start_shell(&mut self) {
         let command = self.config.shell.command.clone();
         if command.is_empty() {
             return;
         }
-        let now = Instant::now();
-        self.shell_started.retain(|t| now.duration_since(*t) < Duration::from_secs(60));
-        if self.shell_started.len() >= 5 {
-            warn!("the shell exited five times within a minute; not restarting it again");
-            return;
-        }
-        self.shell_started.push(now);
+        self.shell_supervisor.started(Instant::now());
         match self.spawn_trusted(&command) {
             Ok(connection) => {
                 self.ipc.shell = connection;
+                self.shell_pid = self.children.last().map(Child::id);
+                self.shell_end = None;
                 info!("started the shell: {}", command.join(" "));
             }
-            Err(err) => warn!("could not start the shell: {err}"),
+            Err(err) => {
+                self.ipc.shell = None;
+                self.shell_pid = None;
+                warn!("could not start the shell: {err}");
+                self.shell_end = Some(format!("it could not be started: {err}"));
+            }
+        }
+    }
+
+    /// Starts the shell again when it is gone: at once after a single end,
+    /// after a growing pause when it keeps ending right after its start.
+    /// A desktop session is kept whatever its shell does (applications may
+    /// be open); the login screen is nothing without its shell, so there
+    /// the compositor ends with [`Failure::Shell`] and its caller shows a
+    /// text login.
+    fn supervise_shell(&mut self) {
+        if self.config.shell.command.is_empty() || self.ipc.has_shell() || self.failure.is_some() {
+            return;
+        }
+        let ended = self.shell_end.clone().unwrap_or_else(|| "it closed its connection".into());
+        match self.shell_supervisor.not_running(Instant::now()) {
+            Next::Start => self.start_shell(),
+            Next::Wait(Some(pause)) => warn!(
+                "the shell ended {} times in a row right after it started (last: {ended}); the session stays and the shell is tried again in {} s",
+                self.shell_supervisor.failures(),
+                pause.as_secs()
+            ),
+            Next::Wait(None) => {}
+            Next::GiveUp(times) => self.fail(Failure::Shell(format!(
+                "the login screen ({}) ended {times} times in a row right after it started (last: {ended}); giving up so that a text login can be shown instead",
+                self.config.shell.command.join(" ")
+            ))),
         }
     }
 
@@ -900,10 +953,23 @@ impl Boswas {
     /// Collects exited children; restarts the shell and the input method
     /// when they are gone.
     pub fn reap_children(&mut self) {
-        self.children.retain_mut(|child| !matches!(child.try_wait(), Ok(Some(_)) | Err(_)));
-        if !self.config.shell.command.is_empty() && !self.ipc.has_shell() {
-            self.start_shell();
+        let shell_pid = self.shell_pid;
+        let mut shell_end = None;
+        self.children.retain_mut(|child| match child.try_wait() {
+            Ok(None) => true,
+            Ok(Some(status)) => {
+                if Some(child.id()) == shell_pid {
+                    shell_end = Some(status.to_string());
+                }
+                false
+            }
+            Err(_) => false,
+        });
+        if shell_end.is_some() {
+            self.shell_pid = None;
+            self.shell_end = shell_end;
         }
+        self.supervise_shell();
         if !self.config.input_method.command.is_empty() && !self.input_method.0.is_some_and(|id| self.ipc.is_open(id)) {
             self.start_input_method();
         }

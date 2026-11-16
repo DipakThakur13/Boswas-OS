@@ -335,6 +335,23 @@ fn main() {
     }
 }
 
+/// What to tell the user when no usable font is installed (`None` when
+/// there is one).
+fn missing_fonts(mode: Mode, has_fonts: bool) -> Option<String> {
+    if has_fonts {
+        return None;
+    }
+    let consequence = match mode {
+        Mode::Desktop => "the desktop cannot show any text and does not start",
+        Mode::Greeter => "the login screen cannot show any text and does not start",
+        Mode::Lock => "the lock screen shows no text (type the password and press Enter to unlock)",
+    };
+    Some(format!(
+        "no usable font found in the fontconfig directories, /usr/share/fonts, /usr/local/share/fonts \
+         or the user's font directories: {consequence}; install a font package such as fonts-inter"
+    ))
+}
+
 fn run(mode: Mode) -> Result<i32, Box<dyn std::error::Error>> {
     // The control descriptor is taken (and made close-on-exec) before
     // anything else, so no child process can inherit it.
@@ -351,6 +368,18 @@ fn run(mode: Mode) -> Result<i32, Box<dyn std::error::Error>> {
         Ok("light") => Scheme::Light,
         _ => Scheme::Dark,
     };
+    // Fonts are read once, here. A desktop or a login screen without a
+    // single letter is of no use, and whoever started it must learn that
+    // it failed.
+    let res = Resources::new(Theme::of(scheme));
+    if let Some(problem) = missing_fonts(mode, res.text.has_fonts()) {
+        if mode != Mode::Lock {
+            return Err(problem.into());
+        }
+        // The lock screen stays: without it the session could not be
+        // unlocked at all.
+        error!("{problem}");
+    }
     let (user, user_name) = pam::current_user();
     let locale = std::env::var("LC_TIME")
         .or_else(|_| std::env::var("LC_MESSAGES"))
@@ -432,7 +461,7 @@ fn run(mode: Mode) -> Result<i32, Box<dyn std::error::Error>> {
         qh: qh.clone(),
         loop_handle: event_loop.handle(),
         auth_sender,
-        res: Resources::new(Theme::of(scheme)),
+        res,
         background: Background::default(),
         surfaces: Vec::new(),
         output_sizes: Vec::new(),
@@ -1325,3 +1354,21 @@ delegate_layer!(Shell);
 delegate_session_lock!(Shell);
 delegate_data_device!(Shell);
 delegate_registry!(Shell);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_fonts_are_reported_once_and_say_what_follows() {
+        for mode in [Mode::Desktop, Mode::Greeter, Mode::Lock] {
+            assert_eq!(missing_fonts(mode, true), None);
+            let problem = missing_fonts(mode, false).unwrap();
+            assert!(problem.starts_with("no usable font found"), "{problem}");
+            assert!(problem.contains("/usr/share/fonts") && problem.contains("fonts-inter"), "{problem}");
+            assert!(!problem.contains('\n'), "one line: {problem}");
+        }
+        assert!(missing_fonts(Mode::Greeter, false).unwrap().contains("login screen"));
+        assert!(missing_fonts(Mode::Lock, false).unwrap().contains("press Enter to unlock"));
+    }
+}
