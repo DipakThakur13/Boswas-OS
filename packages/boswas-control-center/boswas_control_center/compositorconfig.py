@@ -50,10 +50,10 @@ Where things are written
     symbolic links) is done by userfiles.write_config / remove_config, the
     only code of Control Center that changes files.
 
-The compositor reads a configuration with an unknown key or a value of the
-wrong type as if every file were empty (it falls back to its built-in
-defaults and reports "configuration ignored"); a file that is not TOML is
-skipped alone. Snapshot mirrors both, so the pages show what is in use.
+The compositor ignores a file with an unknown key or a value of the wrong
+type as a whole (and reports it), and so it does a file that is not TOML;
+what the other files say stays in use. Snapshot mirrors that, so the pages
+show what is in use.
 
 The control socket ($XDG_RUNTIME_DIR/boswas-$WAYLAND_DISPLAY.sock, one JSON
 object per line) is spoken by Control: reload_config() and outputs().
@@ -180,7 +180,7 @@ class Key:
 
     kind: str                                    # bool, int, float, str, strings or position (how it is written)
     default: object                              # the compositor's built-in value (None: not set)
-    accepts: Callable[[object], bool]            # readable at all; anything else discards the configuration
+    accepts: Callable[[object], bool]            # readable at all; anything else makes the compositor ignore the file
     check: Callable[[object], object]            # the value as written by Settings; raises InvalidValue
     tidy: Callable[[object], object]             # what the compositor makes of a readable value
     user: bool = True                            # False: only the administrator's files may set it
@@ -503,7 +503,7 @@ class Layer:
     name: str                 # defaults, system, user or appearance
     path: str
     state: str                # missing, used, skipped (not usable: only this file is left out) or
-    #                           rejected (an unknown key or a wrong type: the whole configuration is discarded)
+    #                           rejected (an unknown key or a wrong type: the compositor ignores the whole file)
     problem: str = ""         # why it is skipped or rejected
     values: Mapping[str, dict] = field(default_factory=dict)      # what it contributes
     data: bytes | None = None                                     # its content (None when missing or unreadable)
@@ -573,8 +573,8 @@ class Snapshot:
         self.layers: tuple[Layer, ...] = tuple(layers)
         self.rejected = next((layer for layer in self.layers if layer.state == "rejected"), None)
         merged: dict = {}
-        if self.rejected is None:
-            for layer in self.layers:
+        for layer in self.layers:
+            if layer.state != "rejected":
                 _merge(merged, layer.values)
         self.values = _tidy(merged)
 
@@ -591,11 +591,11 @@ class Snapshot:
     def source(self, table: str, key: str) -> str:
         """Where the value in use comes from: built-in, or the layer defaults, system, user or appearance."""
         _key(table, key)
-        if self.rejected is not None:
-            return "built-in"
         path = ("outputs", table[len("outputs."):]) if table.startswith("outputs.") else (table,)
         found = "built-in"
         for layer in self.layers:
+            if layer.state == "rejected":
+                continue
             entries: object = layer.values
             for part in path:
                 entries = entries.get(part, {}) if isinstance(entries, dict) else {}
@@ -623,7 +623,7 @@ class Snapshot:
         for layer in self.layers:
             if layer.state == "rejected":
                 found.append(f"{layer.path} has an entry the desktop does not understand ({layer.problem}). "
-                             "Until that is repaired the desktop uses its built-in settings.")
+                             "The desktop ignores this file until that is repaired.")
             elif layer.state == "skipped":
                 found.append(f"{layer.path} is not used by the desktop: {layer.problem}.")
         return found

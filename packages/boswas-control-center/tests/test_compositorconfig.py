@@ -284,7 +284,7 @@ class SnapshotTest(Files):
         self.put(self.look, "appearance = 3\n")
         self.assertEqual(self.settings.snapshot().layer("appearance").state, "skipped")
 
-    def test_an_unknown_key_or_a_wrong_type_discards_the_whole_configuration(self):
+    def test_an_unknown_key_or_a_wrong_type_makes_the_desktop_ignore_that_file(self):
         self.put(self.system, "[keyboard]\nlayout = \"de\"\n")
         for text in ("[keyboard]\nlayuot = \"us\"\n", "[nonsense]\nx = 1\n", "[keyboard]\nrepeat_delay = 250.5\n",
                      "[keyboard]\nrepeat_delay = \"fast\"\n", "keyboard = 3\n", "[outputs]\neDP-1 = 3\n",
@@ -294,9 +294,9 @@ class SnapshotTest(Files):
             self.put(self.user, text)
             snapshot = self.settings.snapshot()
             self.assertEqual(snapshot.layer("user").state, "rejected", text)
-            self.assertEqual(snapshot.get("keyboard", "layout"), "us", text)
-            self.assertEqual(snapshot.source("keyboard", "layout"), "built-in", text)
-            self.assertIn("built-in settings", snapshot.problems()[0])
+            self.assertEqual(snapshot.get("keyboard", "layout"), "de", text)       # the other files stay in use
+            self.assertEqual(snapshot.source("keyboard", "layout"), "system", text)
+            self.assertIn("ignores this file", snapshot.problems()[0])
         self.put(self.user, "[output]\nscale = 2\n[pointer]\naccel_speed = 1\n")       # whole numbers are fine
         snapshot = self.settings.snapshot()
         self.assertEqual((snapshot.layer("user").state, snapshot.get("output", "scale"),
@@ -1079,7 +1079,8 @@ class RealCompositorTest(unittest.TestCase):
         (directory / "compositor.toml").write_text("[keyboard]\nlayuot = \"us\"\n")
         warnings = self.settings.reload()
         self.assertEqual(len(warnings), 1)
-        self.assertIn("configuration ignored", warnings[0])
+        self.assertIn("ignored", warnings[0])
+        self.assertIn("compositor.toml", warnings[0])
         self.assertEqual(self.settings.snapshot().layer("user").state, "rejected")
         applied = self.settings.apply({("keyboard", "numlock"): True})          # Settings repairs the file
         self.assertEqual(applied.warnings, ())

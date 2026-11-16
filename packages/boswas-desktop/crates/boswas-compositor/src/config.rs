@@ -372,7 +372,7 @@ impl Config {
         let mut merged = Table::new();
         for path in system {
             if let Some(table) = read_table(path, &mut warnings) {
-                merge(&mut merged, table);
+                apply_layer(&mut merged, table, path, &mut warnings);
             }
         }
         if let Some(mut table) = user.and_then(|path| read_table(path, &mut warnings)) {
@@ -389,15 +389,17 @@ impl Config {
                     }
                 }
             }
-            merge(&mut merged, table);
+            if let Some(path) = user {
+                apply_layer(&mut merged, table, path, &mut warnings);
+            }
         }
-        if let Some(table) = appearance.and_then(|path| read_table(path, &mut warnings)) {
+        if let Some((path, table)) = appearance.and_then(|path| Some((path, read_table(path, &mut warnings)?))) {
             // The preset file decides the look and nothing else.
             match table.get("appearance") {
                 Some(Value::Table(look)) if table.len() == 1 => {
                     let mut only = Table::new();
                     only.insert("appearance".into(), Value::Table(look.clone()));
-                    merge(&mut merged, only);
+                    apply_layer(&mut merged, only, path, &mut warnings);
                 }
                 _ => warnings.push("appearance.toml may only contain the [appearance] table; ignored".into()),
             }
@@ -589,6 +591,20 @@ fn read_table(path: &Path, warnings: &mut Vec<String>) -> Option<Table> {
     }
 }
 
+/// Lays one file's settings over what the earlier files gave, if the result
+/// is still a configuration: a file with an unknown key or a value of the
+/// wrong kind is reported and ignored as a whole, and what the files before
+/// it decided stays. (Without this a user's damaged file would also throw
+/// away the administrator's settings, the lock policy among them.)
+fn apply_layer(merged: &mut Table, layer: Table, path: &Path, warnings: &mut Vec<String>) {
+    let mut candidate = merged.clone();
+    merge(&mut candidate, layer);
+    match Value::Table(candidate.clone()).try_into::<Config>() {
+        Ok(_) => *merged = candidate,
+        Err(err) => warnings.push(format!("{}: ignored: {}", path.display(), err.to_string().trim())),
+    }
+}
+
 /// Deep merge: tables merge key by key, every other value is replaced.
 fn merge(base: &mut Table, over: Table) {
     for (key, value) in over {
@@ -749,6 +765,53 @@ mod tests {
         assert!(warnings.iter().any(|w| w.contains("[lock] command")), "{warnings:?}");
         assert!(c.input_method.command.is_empty(), "a user file cannot install an input method");
         assert!(warnings.iter().any(|w| w.contains("[input_method] command")), "{warnings:?}");
+    }
+
+    #[test]
+    fn a_damaged_file_is_ignored_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let defaults = file(dir.path(), "defaults.toml", "[keyboard]\nlayout = \"in\"\n[lock]\nidle_seconds = 600\n");
+        let admin = file(
+            dir.path(),
+            "admin.toml",
+            "[policy]\nlock_idle_max_seconds = 300\n[lock]\nidle_seconds = 300\ncommand = [\"/usr/libexec/lock\"]\n",
+        );
+        // An unknown key: the user's file goes, the administrator's policy
+        // stays (it must not fall back to the built-in ten minutes).
+        let user = file(dir.path(), "user.toml", "[lock]\nidle_seconds = 200\n[keyboard]\nno_such_key = 1\n");
+        let (c, warnings) = Config::load_from(&[&defaults, &admin], Some(&user));
+        assert_eq!(c.policy.lock_idle_max_seconds, 300);
+        assert_eq!(c.lock.idle_seconds, 300, "nothing of the damaged file applies");
+        assert_eq!(c.lock.command, ["/usr/libexec/lock"]);
+        assert_eq!(c.keyboard.layout, "in");
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].contains("user.toml") && warnings[0].contains("no_such_key"), "{warnings:?}");
+
+        // A value of the wrong kind is the same.
+        let user = file(dir.path(), "user2.toml", "[keyboard]\nrepeat_rate = \"fast\"\nlayout = \"us\"\n");
+        let (c, warnings) = Config::load_from(&[&defaults, &admin], Some(&user));
+        assert_eq!(c.keyboard.layout, "in");
+        assert_eq!(c.policy.lock_idle_max_seconds, 300);
+        assert!(warnings.iter().any(|w| w.contains("user2.toml")), "{warnings:?}");
+
+        // A damaged administrator file does not take the shipped defaults
+        // or the user's own settings with it.
+        let broken_admin = file(dir.path(), "admin2.toml", "[policy]\nlock_idle_max_seconds = \"never\"\n");
+        let user = file(dir.path(), "user3.toml", "[lock]\nidle_seconds = 120\n");
+        let (c, warnings) = Config::load_from(&[&defaults, &broken_admin], Some(&user));
+        assert_eq!(c.keyboard.layout, "in");
+        assert_eq!(c.lock.idle_seconds, 120);
+        assert_eq!(c.policy.lock_idle_max_seconds, 600, "the built-in policy");
+        assert!(warnings.iter().any(|w| w.contains("admin2.toml")), "{warnings:?}");
+
+        // The preset file too: a wrong value there leaves the rest alone.
+        let user = file(dir.path(), "user4.toml", "[appearance]\nscheme = \"light\"\n[lock]\nidle_seconds = 100\n");
+        let look = file(dir.path(), "appearance.toml", "[appearance]\nreduced_motion = \"yes\"\n");
+        let (c, warnings) = Config::load_layers(&[&defaults, &admin], Some(&user), Some(&look));
+        assert_eq!(c.appearance.scheme, "light");
+        assert_eq!(c.lock.idle_seconds, 100);
+        assert_eq!(c.policy.lock_idle_max_seconds, 300);
+        assert!(warnings.iter().any(|w| w.contains("appearance.toml")), "{warnings:?}");
     }
 
     #[test]
