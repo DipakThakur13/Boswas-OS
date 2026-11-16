@@ -154,6 +154,24 @@ getent passwd _greetd >/dev/null || fail "the greeter user _greetd does not exis
 grep -q '^command = "/usr/libexec/boswas/boswas-greeter"$' /etc/boswas/greetd.toml \
 	|| fail "/etc/boswas/greetd.toml does not start the Boswas login screen"
 grep -q '^\[initial_session\]' /etc/boswas/greetd.toml && fail "the image signs a user in automatically"
+# A boot must never end on an empty console: the text login behind the login
+# screen, and behind a login manager that cannot run.
+grep -qx 'OnFailure=boswas-login-fallback.service' /usr/lib/systemd/system/greetd.service.d/10-boswas.conf \
+	&& [ -s /usr/lib/systemd/system/boswas-login-fallback.service ] && [ -x /usr/libexec/boswas/boswas-login-fallback ] \
+	|| fail "the text login that takes over when greetd fails is not installed"
+[ -x /usr/libexec/boswas/boswas-text-session ] || fail "the text session of the fallback login is missing"
+[ -s /usr/lib/systemd/system/getty@.service ] || fail "there is no getty unit for the fallback text login"
+# What the login screen cannot start without.
+for package in polkitd fontconfig-config fonts-inter libpam-systemd; do
+	dpkg-query -W -f='${db:Status-Status}' "$package" 2>/dev/null | grep -qx installed \
+		|| fail "$package, which the login screen needs, is not installed"
+done
+[ -s /etc/fonts/fonts.conf ] || fail "there is no font configuration (/etc/fonts/fonts.conf)"
+# The live session signs in the user the boot medium names (live-config's own default is "user").
+grep -qx 'LIVE_USERNAME="boswas"' /etc/live/config.conf.d/boswas.conf 2>/dev/null \
+	|| fail "the live session's settings do not name the live user"
+grep -q 'username=\*' /usr/lib/live/config/9000-boswas 2>/dev/null \
+	|| fail "the live session's component does not read the user name from the kernel command line"
 [ -s /etc/pam.d/boswas-lock ] || fail "the lock screen's PAM service is missing"
 python3 -IB -c '
 import tomllib
