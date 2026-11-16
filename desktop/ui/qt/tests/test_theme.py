@@ -311,6 +311,22 @@ class IconTest(Base):
             self.assertIsNone(icons.icon_path(name), repr(name))
         self.assertTrue(fluent.icon("../../../etc/passwd").isNull())
 
+    def test_an_icon_directory_that_may_not_be_read_is_skipped(self):
+        from unittest import mock
+        real = Path.is_file
+
+        def is_file(path):
+            if "/forbidden/" in str(path):
+                raise PermissionError(13, "Permission denied", str(path))
+            return real(path)
+
+        icons.clear_cache()
+        roots = [Path("/forbidden/share/icons")] + icons.icon_roots()
+        with mock.patch.object(icons, "icon_roots", return_value=roots), mock.patch.object(Path, "is_file", is_file):
+            self.assertIsNotNone(icons.icon_path("folder"), "the next directory still answers")
+            self.assertIsNone(icons.icon_path("no-such-icon-in-any-directory"))
+        icons.clear_cache()
+
     def test_symbolic_icons_take_the_text_colour(self):
         icon = fluent.icon("go-next-symbolic")
         dark = fluent.theme().color("text").lower()

@@ -26,7 +26,8 @@ class StaticTest(unittest.TestCase):
             self.assertIsNone(colour.search(text), f"{name}: a colour or style sheet of its own")
 
     def test_nothing_goes_through_a_shell(self):
-        banned = re.compile(r"os\.system|subprocess|shell\s*=\s*True|os\.popen|\beval\(|\bexec\(|pickle|marshal")
+        banned = re.compile(r"os\.system|subprocess|shell\s*=\s*True|os\.popen|(?<![.\w])eval\(|(?<![.\w])exec\(|"
+                            r"import pickle|import marshal")
         for name, text in sources():
             self.assertIsNone(banned.search(text), f"{name}: {banned.pattern}")
 

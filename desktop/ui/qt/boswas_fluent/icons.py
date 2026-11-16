@@ -70,7 +70,13 @@ def icon_path(name: str) -> Path | None:
         for theme_dir in THEME_DIRS:
             for context in CONTEXTS:
                 candidate = root / theme_dir / "scalable" / context / f"{name}.svg"
-                if candidate.is_file():
+                try:
+                    exists = candidate.is_file()
+                except OSError:
+                    # A directory of XDG_DATA_DIRS that may not be read: it
+                    # has no icon for us.
+                    exists = False
+                if exists:
                     found = candidate
                     break
             if found:
