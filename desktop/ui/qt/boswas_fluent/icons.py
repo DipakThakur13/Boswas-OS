@@ -49,7 +49,7 @@ def icon_roots() -> list[Path]:
     """The directories searched for the Boswas Prism themes, in order."""
     roots = []
     checkout = Path(__file__).resolve().parents[3] / "icons"
-    if (checkout / THEME_DIRS[0] / "index.theme").is_file():
+    if os.path.isfile(checkout / THEME_DIRS[0] / "index.theme"):
         roots.append(checkout)
     data_home = os.environ.get("XDG_DATA_HOME") or ""
     roots.append((Path(data_home) if data_home.startswith("/") else Path.home() / ".local/share") / "icons")

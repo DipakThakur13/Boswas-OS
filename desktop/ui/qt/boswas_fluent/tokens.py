@@ -113,7 +113,7 @@ def tokens_path() -> Path:
         return Path(override)
     here = Path(__file__).resolve()
     checkout = here.parents[2] / "tokens.json"
-    if here.parents[1].name == "qt" and here.parents[2].name == "ui" and checkout.is_file():
+    if here.parents[1].name == "qt" and here.parents[2].name == "ui" and os.path.isfile(checkout):
         return checkout
     return INSTALLED_TOKENS
 

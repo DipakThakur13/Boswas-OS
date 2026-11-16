@@ -121,7 +121,7 @@ class SingleInstance(QObject):
         busy to answer within the wait: the message is in its socket and is
         read when it gets to it. Its socket is never taken away.
         """
-        if not path.exists():
+        if not os.path.exists(path):
             return False
         client = QLocalSocket()
         try:

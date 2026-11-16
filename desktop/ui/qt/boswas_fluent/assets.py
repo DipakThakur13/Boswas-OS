@@ -204,10 +204,10 @@ def ensure(theme: Theme) -> Path:
     """Write the images of ``theme`` if they are not there yet; returns their directory."""
     key = digest(theme)
     known = _ensured.get(key)
-    if known is not None and (known / ".complete").is_file():
+    if known is not None and os.path.isfile(known / ".complete"):
         return known
     directory = _writable_dir(theme)
-    if not (directory / ".complete").is_file():
+    if not os.path.isfile(directory / ".complete"):
         for name, svg in sources(theme).items():
             _write(directory / f"{name}.svg", svg.encode("utf-8"))
             _write(directory / f"{name}.png", render_png(svg, 1))

@@ -192,9 +192,9 @@ class ThemeManager(QObject):
         directory = appearance.user_dir()
         wanted = [directory / "appearance.toml", directory / "compositor.toml"]
         # Watch the directory to see files being created or replaced; until it exists, its parent.
-        wanted.append(directory if directory.is_dir() else appearance.config_home())
+        wanted.append(directory if os.path.isdir(directory) else appearance.config_home())
         watched = set(self._watcher.files()) | set(self._watcher.directories())
-        present = {str(path) for path in wanted if path.exists()}
+        present = {str(path) for path in wanted if os.path.exists(path)}
         if watched - present:
             self._watcher.removePaths(sorted(watched - present))
         if present - watched:
@@ -214,7 +214,7 @@ def _add_icon_search_paths() -> None:
     paths = list(QIcon.themeSearchPaths())
     wanted = []
     checkout = Path(__file__).resolve().parents[3] / "icons"
-    if (checkout / "Boswas-Prism" / "index.theme").is_file():
+    if os.path.isfile(checkout / "Boswas-Prism" / "index.theme"):
         wanted.append(str(checkout))
     data_home = os.environ.get("XDG_DATA_HOME") or ""
     wanted.append(str((Path(data_home) if data_home.startswith("/") else Path.home() / ".local/share") / "icons"))
