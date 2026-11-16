@@ -1,0 +1,6 @@
+#!/usr/bin/python3 -IB
+"""Boswas Camera. See boswas-camera(1)."""
+import sys
+sys.path.insert(0, "/usr/lib/boswas/python")
+from boswas_apps.camera.__main__ import main  # noqa: E402
+sys.exit(main())

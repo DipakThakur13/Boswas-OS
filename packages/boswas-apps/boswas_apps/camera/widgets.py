@@ -204,9 +204,8 @@ class Viewfinder(QWidget):
             painter.restore()
         if self.grid:
             painter.save()
-            pen = QPen(fluent.qcolor("on-accent" if fluent.theme().is_dark else "surface"), 1)
             painter.setOpacity(0.55)
-            painter.setPen(pen)
+            painter.setPen(QPen(Qt.GlobalColor.white, 1))
             for step in (1, 2):
                 x, y = self.width() * step // 3, self.height() * step // 3
                 painter.drawLine(x, 0, x, self.height())

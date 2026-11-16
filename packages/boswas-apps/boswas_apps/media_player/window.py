@@ -469,7 +469,7 @@ class MainWindow(fluent.FluentWindow):
         self.setWindowTitle(f"{title} – Media Player" if title else "Media Player")
 
     def _video_changed(self, has_video: bool) -> None:
-        if has_video and not self._mini and self.controller.state() == "playing":
+        if has_video and not self._mini and self.controller.play_intent():
             self.show_now_playing()
         elif not has_video and self._fullscreen:
             self.toggle_fullscreen()

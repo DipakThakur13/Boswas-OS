@@ -10,7 +10,7 @@ import boswas_fluent as fluent
 from boswas_fluent import paint
 
 from . import glyphs, model
-from .controller import SEEK_STEP_MS, PlayerController
+from .controller import PlayerController
 from .model import format_time
 from .widgets import CoverView, PlayButton, SeekSlider, VideoSurface
 
@@ -39,10 +39,7 @@ class ElidedLabel(QWidget):
         self.update()
 
     def sizeHint(self) -> QSize:
-        metrics = self.fontMetrics() if self._style == "body" else None
-        height = fluent.theme().type(self._style).line_height
-        _ = metrics
-        return QSize(40, height)
+        return QSize(40, fluent.theme().type(self._style).line_height)
 
     def minimumSizeHint(self) -> QSize:
         return QSize(24, self.sizeHint().height())
@@ -482,5 +479,3 @@ class MiniPlayer(QWidget):
     def paintEvent(self, _event) -> None:
         QPainter(self).fillRect(self.rect(), fluent.qcolor("surface"))
 
-
-__all__ = ["ElidedLabel", "MiniPlayer", "NowPlayingBar", "NowPlayingPage", "SEEK_STEP_MS", "rate_text", "volume_icon"]

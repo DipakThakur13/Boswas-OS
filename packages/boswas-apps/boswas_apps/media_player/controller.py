@@ -92,6 +92,10 @@ class PlayerController(QObject):
     def has_video(self) -> bool:
         return self._has_video
 
+    def play_intent(self) -> bool:
+        """Whether the current track was asked to play (true before the backend reports "playing")."""
+        return self._play_intent
+
     def can_seek(self) -> bool:
         return self.current() is not None and self.backend.seekable()
 

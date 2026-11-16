@@ -20,7 +20,7 @@ from PySide6.QtCore import QEvent, QMimeData, QPoint, QPointF, Qt, QTimer, QUrl 
 from PySide6.QtGui import QDropEvent, QMouseEvent  # noqa: E402
 from PySide6.QtWidgets import QAbstractButton, QApplication, QToolButton  # noqa: E402
 
-from boswas_apps.media_player import model, window as window_module  # noqa: E402
+from boswas_apps.media_player import window as window_module  # noqa: E402
 from boswas_apps.media_player.window import MainWindow  # noqa: E402
 
 CTRL, ALT, SHIFT = (Qt.KeyboardModifier.ControlModifier, Qt.KeyboardModifier.AltModifier,
