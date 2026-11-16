@@ -76,7 +76,7 @@ language with Boswas's own colours, icons and typeface (ADR-0033).
 | `boswas-services` | boswas-desktop (library) | Rust, no `unsafe` | What the shell shows and controls: notifications, tray, media players, network, Bluetooth, audio, power, brightness, session and authentication (ADR-0035) |
 | `boswas-services-bridge` | boswas-desktop | Rust | The network, Bluetooth, audio, power and brightness backends for the Settings application, as JSON lines on its standard input and output |
 | `boswas-ui` | boswas-desktop (library) | Rust, no `unsafe` | Design tokens, software drawing, text, icons and materials shared by the compositor's window frames and the shell |
-| `boswas-session`, `boswas-greeter` | boswas-desktop | POSIX shell | Session start after login; the login screen's start with a text-login fallback |
+| `boswas-session`, `boswas-greeter` | boswas-desktop | POSIX shell | Session start after login; the login screen's start, with greetd's text login when the compositor cannot start (ADR-0044) |
 | `boswas-bootsplashd`, `boswas-bootsplash` | boswas-bootsplash | Rust | Boot, disk-unlock and shutdown screens (in the initramfs and the system) |
 | `boswas_fluent` | boswas-branding | Python (PySide6) | The Qt toolkit of the Boswas applications: theme, style sheet and widgets from the design tokens (ADR-0039) |
 | The system applications | boswas-apps | Python (PySide6 on `boswas_fluent`) | Files, Terminal, Text Editor, Calculator, Photos, Document Viewer, Archive Manager, Media Player, Camera, Clock, Calendar with its reminders service, Task Manager (ADR-0040) |
@@ -96,10 +96,12 @@ other, not Wayland applications. Details: ADR-0026, ADR-0028, ADR-0034,
 ADR-0037 and `docs/security/baseline.md`.
 
 **State of verification.** The desktop packages have automated tests
-that run without hardware, and nothing of the stack has yet booted: no
-image has been built from this manifest, and the QEMU boot test, real
-graphics hardware, the greetd login, the boot screen on an encrypted disk
-and every real system service are not verified.
+that run without hardware. The built packages have been booted in a
+virtual machine on another distribution's base system, from the boot
+screen through the login to the desktop, with every fallback to a text
+login (ADR-0044). No image has been built from this manifest: the QEMU
+boot test, Debian 13 itself, real graphics hardware, the boot screen on
+an encrypted disk and every real system service are not verified.
 [verification.md](verification.md) lists both sides.
 
 ## System applications
@@ -174,7 +176,7 @@ Licences: Debian components keep their own (see
 | Debian 13 base | **Implemented** |
 | Desktop | **Native Boswas desktop implemented** (`boswas-desktop`; ADR-0026 to ADR-0028, ADR-0030, ADR-0033 to ADR-0037): compositor with Fluent window frames, animations, Task View, snap layouts, per-monitor settings, night light and Xwayland; shell with taskbar, Start, quick settings, notifications, tray, the polkit dialog and screen capture; lock screen and greeter. It replaces KDE Plasma, which shipped up to 1.0~alpha3. **Not yet boot-tested, and not run against real system services.** Open: a second GPU, HDR and variable refresh rate, live blur, a screen reader interface, an input method in the image (see the roadmap) |
 | System applications | **Implemented** (`boswas-apps`, ADR-0040): Files, Terminal, Text Editor, Calculator, Photos, Document Viewer, Archive Manager, Media Player, Camera, Clock, Calendar, Task Manager and a reminders service, in place of KDE's applications. Firefox ESR is the browser. **Not run on the desktop yet** |
-| Boot screen | **Implemented** (`boswas-bootsplash`, ADR-0029, in the Boswas UI look since ADR-0038), replaces Plymouth. **Not yet boot-tested** |
+| Boot screen | **Implemented** (`boswas-bootsplash`, ADR-0029, in the Boswas UI look since ADR-0038), replaces Plymouth. Booted in a virtual machine from the packages (ADR-0044); **not yet on the image or on hardware** |
 | Boswas branding (boot menu, installer, boot screen, login, lock, desktop, icons, pointer, About) | **Implemented**; Boswas UI v3 tokens (ADR-0033), the Prism icon pack (ADR-0031), the Boswas-Cursors pointer theme (ADR-0043) and the Qt toolkit `boswas_fluent` (ADR-0039) |
 | Secure Boot | **Boot chain ready:** the ISO boots with Secure Boot enforced via Debian's signed shim, GRUB and kernel; enforcement policy comes later |
 | LUKS2 full-disk encryption | **Implemented** (installer policy: guided encrypted LVM) |

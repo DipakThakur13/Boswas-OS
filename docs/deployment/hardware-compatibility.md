@@ -82,12 +82,19 @@ Plymouth:
   at scale 1.
 - **Software rendering:** where Mesa has no hardware driver (virtual
   machines without 3D acceleration, `nomodeset`) it falls back to
-  llvmpipe. That is expected to work and is slower; it has **not been
-  boot-tested** yet.
+  llvmpipe. That works and is slower: the login screen and the desktop
+  were booted this way in a virtual machine, on QEMU's standard VGA and on
+  the firmware frame buffer (ADR-0044). Under `nomodeset` there is no KMS
+  device at all: the compositor cannot start and the text login is shown.
 - **Boot screen (`boswas-bootsplash`):** needs only a KMS device with dumb
   buffers, or a frame buffer (`/dev/fb0`). It follows the switch from the
   firmware frame buffer to the real driver. Without either, boot messages
-  and the passphrase prompt appear on the text console.
+  and the passphrase prompt appear on the text console. A 24-bit legacy
+  frame buffer is not drawn on (the DRM device is used where there is
+  one).
+- **When the desktop cannot start** on a machine (no usable graphics
+  device, a driver that fails), the boot ends at a text login, not at an
+  empty screen (ADR-0044).
 - **Input:** keyboards, mice, touchpads (with gestures), touch screens and
   drawing tablets through libinput. Only keyboard and pointer input has
   been exercised, and only as injected events in tests.
@@ -148,9 +155,9 @@ What has been validated where. "VM" means QEMU under software emulation
 | SATA / NVMe storage | virtio only | Not tested |
 | Wired Ethernet / Wi-Fi / Bluetooth drivers | virtio-net only | Not tested |
 | Intel / AMD / NVIDIA graphics | QEMU standard VGA only (Plasma desktop, 1.0~alpha3) | Not tested |
-| Native desktop on a display (`boswas-compositor`, DRM/KMS, libinput, libseat) | Not tested. Development only: headless (software) and nested in a window with OpenGL ES on llvmpipe | Not tested |
-| Boot screen and LUKS2 passphrase prompt (`boswas-bootsplash`) | Not tested on a boot. Development only: headless, and the passphrase path with Debian's unlock helper in a scratch root | Not tested |
-| Login screen (greetd, Boswas greeter), lock on suspend | Not tested | Not tested |
+| Native desktop on a display (`boswas-compositor`, DRM/KMS, libinput, libseat) | Booted from the built packages on another distribution's base system (Ubuntu 24.04), not from the image: QEMU standard VGA and the firmware frame buffer, software rendering, keyboard only (ADR-0044). **Not tested on Debian 13 or from the ISO** | Not tested |
+| Boot screen and LUKS2 passphrase prompt (`boswas-bootsplash`) | The boot screen: booted as above, from the initramfs to the hand-over, with a driver that loads late or replaces the firmware frame buffer. The passphrase prompt: not on a boot (Debian's unlock helper in a scratch root only) | Not tested |
+| Login screen (greetd, Boswas greeter), lock on suspend | Login screen, sign-in and the text-login fallbacks: booted as above. Lock on suspend: not tested | Not tested |
 | Quick settings and Settings against the real services (NetworkManager, BlueZ, PipeWire, UPower, polkit) | Not tested (stand-ins only) | Not tested |
 | System applications with devices (camera, removable drives, sound) | Not tested (stand-ins only) | Not tested |
 | Low disk space / low memory | Not tested | Not tested |

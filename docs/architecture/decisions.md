@@ -1128,9 +1128,13 @@ daemon cannot drive, or when localised boot text is required.
   which the compositor starts; the target no longer starts one.)*
 - **Fallback.** If the graphical greeter fails within ten seconds of its
   start, `boswas-greeter` runs greetd's text login (`agreety`) with the
-  same session command, so there is always a way to sign in.
+  same session command, so there is always a way to sign in. *(Changed by
+  ADR-0044: the fallback follows the compositor's exit status, the text
+  login opens a shell and not the desktop, and a greetd that fails is
+  followed by getty.)*
 - **Live medium.** live-config appends an `[initial_session]` for the live
-  user to `/etc/boswas/greetd.toml` at boot. The shipped file contains
+  user to `/etc/boswas/greetd.toml` at boot *(only when that user exists,
+  ADR-0044)*. The shipped file contains
   none, and the image check fails the build if it does: an installed
   system always shows the login screen.
 
@@ -1157,7 +1161,9 @@ its Wayland greeter depends on a compositor Boswas no longer ships.
 - `sddm` is no longer a protected package of `boswas-sysops`; `greetd` is.
 - **Not verified yet:** a login on a real boot (greetd, PAM, logind seat
   hand-over to the user's compositor), the text-login fallback, and the
-  live session's automatic login. Verified: the drop-in and configuration
+  live session's automatic login. *(Since ADR-0044 these have been booted
+  in a virtual machine, on another distribution's base system; not yet on
+  Debian 13 or on hardware.)* Verified: the drop-in and configuration
   contents by static and package tests, and the greeter's message encoding
   by unit tests.
 
@@ -2431,3 +2437,183 @@ up in a real session; the alternative on a Debian 13 image; twelve of the
 
 **Revisit when** a designer reviews the shapes, or a display scale shows
 that more sizes are needed.
+
+## ADR-0044 A boot always ends at a way to sign in
+
+**Context.** On 2026-11-16 the image was started and stopped at a black
+screen with a blinking text cursor. The packages were then installed in a
+virtual machine (QEMU without hardware acceleration; an Ubuntu 24.04 root
+file system with systemd 255, greetd 0.9.0 and libseat 0.8.0, because the
+build environment cannot reach a Debian mirror) and booted until every
+step from the boot loader to the desktop had been seen.
+
+The cause on the live medium: the live-config component of the image wrote
+greetd's automatic sign-in for the user in `LIVE_USERNAME`. Nothing set
+that variable, so it held live-config's own default, `user`, while the
+live user of the image is `boswas`. greetd refuses a session for a user
+that does not exist, the unit failed five times in a few seconds, systemd
+stopped starting it, and the first console had no login of any kind: the
+greetd drop-in conflicts with `getty@tty1`.
+
+The boots showed more ways to the same screen:
+
+- logind activates a session only when polkit allows it. Without
+  `polkitd` (it was a recommendation) libseat fell back to a mode in which
+  an unprivileged compositor cannot open the graphics device.
+- Without `/etc/fonts/fonts.conf` (package `fontconfig-config`, which
+  nothing depended on) or without a font, the shell ended on its first
+  line of text. The compositor started it again without a pause, for
+  ever, behind a black screen.
+- The text login that `boswas-greeter` fell back to started
+  `boswas-session`, the desktop that had just failed.
+- The fallback applied only to a compositor that failed within ten
+  seconds; one that started and then had nothing to show never ended.
+- The boot screen drew only its moving ring after the display's driver
+  had replaced the firmware frame buffer, could not open a graphics device
+  that appeared after it had entered its sandbox, and could be left
+  running, holding the console, by a second start or a daemon that did
+  not answer.
+
+**Decision.** A boot ends at the login screen, or at a text login, never
+at a console without one. Each layer has a way down to the next.
+
+- **The live user.** `config/boswas/live-config.conf` sets
+  `LIVE_USERNAME="boswas"`, the one place the name is written. The
+  component reads `username=` and `noautologin` from the kernel command
+  line as live-config's own components do (each component is a process of
+  its own and parses them itself), and writes an automatic sign-in only
+  when that user exists. Otherwise the login screen is shown.
+- **Exit statuses of the compositor** are a contract with the login
+  screen's start script: 0 the session ended as asked, 1 any other error,
+  2 usage, 3 it could not start (no usable seat, no graphics device within
+  the wait, or, for the login screen, no output), 4 the login screen kept
+  failing (three starts in a row that each ended within 30 seconds). One
+  line on standard error says what was wrong.
+- **From the login screen to greetd's text login.** `boswas-greeter` runs
+  `agreety` when the compositor ends with 3 or 4, or with any other
+  failure within 30 seconds of its start; a compositor that fails later is
+  started again by greetd. The text login starts
+  `/usr/libexec/boswas/boswas-text-session`: a login shell with a note
+  that says how to start the desktop (`boswas-session`) and where the log
+  is. It does not start the desktop itself.
+- **From greetd to getty.** The greetd drop-in names
+  `OnFailure=boswas-login-fallback.service`. systemd triggers it at every
+  failed attempt, so the unit waits until greetd is either running again
+  or has failed for good, and only then starts `getty@tty1.service`.
+  Naming getty directly in `OnFailure=` was tried first and failed in the
+  virtual machine: getty was started and stopped with every restart of
+  greetd until it ran into its own start limit.
+- **What the login screen cannot start without is a dependency.**
+  `boswas-desktop` depends on `polkitd`, `fontconfig-config`,
+  `fonts-inter` and `libpam-systemd`. The first and the third were
+  recommendations; the other two came with other packages by chance.
+- **The shell and fonts.** The text engine looks in `/usr/share/fonts`,
+  `/usr/local/share/fonts` and the user's font directories when
+  fontconfig yields nothing. With no font at all the desktop shell and
+  the login screen end with status 1 and one line that names the remedy.
+  The lock screen stays, without text: ending it would leave a session
+  that cannot be unlocked.
+- **The shell under the compositor.** A shell that ends is started again
+  at once; one that keeps ending within 30 seconds of its start is
+  started after a pause that doubles from 2 seconds to a minute. A
+  desktop session is never given up, because the user's applications are
+  in it. The login screen is given up after three failed starts
+  (status 4). The login screen's compositor starts no X server.
+- **Seat and graphics device.** The compositor waits up to 4 seconds for
+  the seat to be enabled before it opens a device, and up to 10 seconds
+  for a graphics device that is not there yet. When the device in use
+  goes away (the firmware frame buffer, replaced by the display's own
+  driver) it takes the next one and the windows stay. libseat's messages
+  are in the compositor's log. A login screen without an output for 5
+  seconds ends with status 3; a desktop session waits for a monitor.
+- **Software rendering.** On a device without a hardware renderer the
+  compositor waits for the frame to be complete before it is shown.
+  Before, a frame could be put on a firmware frame buffer half drawn and
+  the missing parts were not drawn again.
+- **End of the login screen.** The greeter says `quit` and closes its
+  connection in one step; the compositor dropped the request with the
+  connection and was stopped by greetd five seconds later. Requests sent
+  before the close are carried out.
+- **The session script** skips a profile file with a syntax error instead
+  of ending with it.
+- **Messages go to the journal.** The compositor writes to standard
+  error, which greetd leaves on the terminal: its lines were visible on
+  the console between the boot screen and the login screen, and were in no
+  log afterwards. `boswas-greeter` and `boswas-session` start the
+  compositor through `systemd-cat` (identifiers `boswas-greeter` and
+  `boswas-session`) when the journal is there; the exit status stays the
+  compositor's. The text session's note names both.
+- **The boot screen** (`boswas-bootsplash`, follows ADR-0029 and
+  ADR-0038):
+  - It draws the whole picture again after it has set a mode on a display.
+  - Its supervisor, which is outside the sandbox, opens graphics devices
+    for the sandboxed worker and passes them over the socket pair between
+    them: only character devices with the DRM or frame buffer major
+    number, opened relative to a `/dev` descriptor held from the start.
+    The worker's Landlock rules gain the console node and nothing else,
+    so `/dev` with its disks stays closed to it.
+  - One boot screen at a time: the supervisor holds
+    `/run/boswas-bootsplash/lock`. A second start leaves a running one
+    alone. `quit` terminates a daemon that does not answer within three
+    seconds, and the hand-over unit no longer depends on a pid file.
+  - It never puts a console back into text mode, and never takes a
+    display back, once another program runs a graphical session there.
+  - Raw keyboard mode is put back when the console is reset during boot,
+    so Escape keeps working after the switch to the real root.
+  - It stops drawing on a legacy frame buffer that has been replaced and
+    moves to the DRM device.
+  - The initramfs hook copies the DRM drivers itself, with the selection
+    Debian's Plymouth hook makes (Debian's initramfs-tools has no
+    `FRAMEBUFFER` option; `MODULES=dep` takes this machine's drivers
+    only). The start unit lets the daemon wait up to eight seconds for a
+    display that is not there yet.
+  - Emergency and rescue mode end the boot screen before their shell
+    starts (drop-ins for `emergency.service` and `rescue.service`; ADR-0006).
+- **Boot loader.** On BIOS machines the live medium's menu loads GRUB's
+  video modules and asks for a 1024x768 mode for the kernel when none is
+  set; installed systems keep GRUB's mode (`GRUB_GFXPAYLOAD_LINUX=keep`).
+  The boot screen then has a frame buffer before the display's driver is
+  loaded.
+
+**Why.** The failure that was reported had one cause, but the system had
+no layer that could fail without taking the login with it. A managed
+device that shows a cursor and nothing else cannot be repaired by the
+person in front of it, and cannot be reached to find out why. A text
+login is a poor desktop and a sufficient way in.
+
+**Consequences.**
+
+- `polkitd` and `fonts-inter` are installed wherever `boswas-desktop` is.
+- An image built with a wrong live user name shows the login screen
+  instead of the desktop. The image check fails the build when
+  `LIVE_USERNAME` is not set in the installed settings file or the
+  component does not read `username=`.
+- With the DRM drivers and their firmware the initramfs is as large as
+  one made for Plymouth. In the virtual machine, whose firmware package
+  holds every vendor's files, it grew from 65 MB to 143 MB; the logo
+  appeared after the same 11 seconds as before.
+- The boot screen's last frame does not stay until the login screen
+  draws: greetd switches to and clears the console first, so the display
+  is an empty console for the moment the compositor needs to start.
+- The boot screen refuses a 24-bit legacy frame buffer (it draws on the
+  DRM device in that case), and a frame buffer device that a DRM driver
+  emulates did not show what was drawn into it in the virtual machine.
+- **Verified** by boots of the built packages in the virtual machine:
+  the login screen and a sign-in to the desktop; an automatic sign-in;
+  the text login when the automatic sign-in names a missing user, without
+  polkit, with the shell missing, under `nomodeset` and when greetd
+  fails; the login screen without the font configuration; a graphics
+  driver that loads late, or replaces the firmware frame buffer before
+  or under the running compositor; a complete desktop on the firmware
+  frame buffer; the boot screen items above. `tests/static/` runs the
+  live-config component and the greeter script with stand-ins.
+- **Not verified:** Debian 13 itself (its initramfs-tools, its libseat
+  and greetd versions, its package names), the ISO build and the live
+  medium as built, the boot loader changes, real hardware, a login screen
+  without any output, the boot screen's hand-over to a compositor other
+  than through a stand-in, rescue mode, and a desktop shell that keeps
+  failing on a booted system (tests only).
+
+**Revisit when** the image is built and booted on Debian 13, and when
+hardware validation shows a path to a screen without a login that this
+list does not cover.
