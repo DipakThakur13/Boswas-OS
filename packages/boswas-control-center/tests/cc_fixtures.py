@@ -594,3 +594,19 @@ def use_fake_bridge():
     from boswas_control_center.ui import bridgeclient
     bridgeclient.factory = bridgeclient.FakeBridge
     return bridgeclient
+
+
+def use_rig_for_settings(rig):
+    """Point the settings sections at a Rig: its environment, its recording runner and its root.
+
+    Returns a function that puts the real ones back (for addCleanup).
+    """
+    from boswas_control_center.ui.settings import context
+    saved = (context.environ, context.runner, context.root)
+    context.environ = lambda: rig.environ
+    context.runner = lambda: rig.commands
+    context.root = str(rig.root)
+
+    def restore():
+        context.environ, context.runner, context.root = saved
+    return restore

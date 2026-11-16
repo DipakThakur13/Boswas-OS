@@ -57,7 +57,8 @@ EXPECTED_SYSOPS = {"apt-refresh", "apt-upgrade", "apt-install", "apt-remove", "a
                    "journal-vacuum", "firmware-report", "flatpak-remote-enable", "flatpak-remote-disable"}
 # Changing files is allowed only in userfiles.py: AppImages, their menu entries, the thumbnail cache, the
 # settings files of write_config()/remove_config() (boswas/compositor.toml and its .bak, boswas/appearance.toml,
-# mimeapps.list, autostart/<id>.desktop in the user's config directory) and the account picture ~/.face.
+# mimeapps.list, autostart/<id>.desktop in the user's config directory), the account picture ~/.face and the
+# list of recently used files (recently-used.xbel, emptied).
 FILE_CHANGING_OS = {"remove", "unlink", "rename", "replace", "makedirs", "mkdir", "chmod"}
 FILE_WRITER = "boswas_control_center/userfiles.py"
 FORBIDDEN_MODULES = {"multiprocessing", "pty", "pexpect", "webbrowser", "ctypes", "pickle", "shelve", "marshal",

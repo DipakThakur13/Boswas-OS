@@ -23,21 +23,22 @@ when the dialog closes.
 
 from __future__ import annotations
 
-import os
 import time
 
 import boswas_fluent as fluent
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QGuiApplication
-from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QWidget
+from PySide6.QtWidgets import QGridLayout, QVBoxLayout, QWidget
 
 from ... import commands, netinfo
 from ... import servicebridge as sb
 from ...errors import CommandUnavailable, user_message
 from .. import bridgeclient
+from . import context
 from .widgets import BridgeSection, Busy, ElidedLabel, RowList, Section, set_checked
 
 CONNECT_SECONDS = 50.0
+STATUS_HEIGHT = 52             # the passphrase dialog's line for "Connecting…" or an error
 BLUETOOTH_SECONDS = 45.0
 SIGNAL_WORDS = {"excellent": "Excellent signal", "good": "Good signal", "ok": "Fair signal", "weak": "Weak signal",
                 "none": "Very weak signal"}
@@ -79,11 +80,19 @@ class PassphraseDialog(fluent.ContentDialog):
         self.box = fluent.PasswordBox(self, placeholder="Password")
         self.box.setAccessibleName(f"Password for {ssid}")
         self.box.setMaxLength(sb.MAX_SECRET_BYTES)
-        self.problem = fluent.InfoBar("error", parent=self, closable=False)
+        # The dialog is placed when it opens: the room for "Connecting…" or the error is there from the start.
+        self.status = QWidget(self)
+        self.status.setMinimumHeight(STATUS_HEIGHT)
+        status = QVBoxLayout(self.status)
+        status.setContentsMargins(0, 0, 0, 0)
+        self.problem = fluent.InfoBar("error", parent=self.status, closable=False)
         self.problem.hide()
-        self.busy = Busy("Connecting…", self)
-        for widget in (self.box, self.problem, self.busy):
-            self.content_layout.addWidget(widget)
+        self.busy = Busy("Connecting…", self.status)
+        status.addWidget(self.problem)
+        status.addWidget(self.busy)
+        status.addStretch(1)
+        self.content_layout.addWidget(self.box)
+        self.content_layout.addWidget(self.status)
         # Connect must not close the dialog: it stays until the network accepts the password.
         self.primary_button.clicked.disconnect()
         self.primary_button.clicked.connect(self.submit)
@@ -456,7 +465,7 @@ class InterfaceCard(fluent.SettingsExpander):
 
 def read_details() -> netinfo.Details:
     """Blocking: the interfaces, addresses, gateways and DNS servers of this device."""
-    return netinfo.read(commands.CommandRunner(), commands.argv)
+    return netinfo.read(context.runner(), commands.argv, context.root)
 
 
 class DetailsSection(Section):
@@ -560,7 +569,7 @@ class ProxySection(Section):
 
     def __init__(self, parent: QWidget | None = None, *, environ=None):
         super().__init__(parent)
-        self.environ = os.environ if environ is None else environ
+        self.environ = context.environ() if environ is None else environ
         self.card = self.add(fluent.SettingsExpander("Proxy of this session", "", None, None, self))
         self.card.add_row("Where this comes from", "The proxy is set by environment variables (http_proxy, "
                           "https_proxy, no_proxy) when you sign in, for example by your administrator in "

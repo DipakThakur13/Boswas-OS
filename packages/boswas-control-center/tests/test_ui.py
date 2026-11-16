@@ -73,6 +73,7 @@ class UiTestCase(unittest.TestCase):
         sys.excepthook = lambda *exc: self.errors.append("".join(traceback.format_exception(*exc)))
         self.tmp = tempfile.TemporaryDirectory()
         self.rig = fx.Rig(Path(self.tmp.name), live=self.live)
+        self.addCleanup(fx.use_rig_for_settings(self.rig))
         self.windows: list = []
         self.questions: list[tuple[str, str, str]] = []
         self.answer = True

@@ -59,10 +59,11 @@ and asks the compositor to load it again; see
 Date and time and Region and language (page System) use
 .BR timedatectl (1)
 and
-.BR localectl (1);
-Users uses the AccountsService on the system bus. For changes that need
-administrator rights those services ask polkit themselves, and the shell's
-agent shows the question. Default applications are written to
+.BR localectl (1).
+For changes that need administrator rights systemd's services ask polkit
+themselves, and the shell's agent shows the question. Managing user
+accounts is not part of this version: the Users page appears once it is.
+Default applications are written to
 .I ~/.config/mimeapps.list
 and start\-up applications to
 .IR ~/.config/autostart .
@@ -198,8 +199,9 @@ Default applications.
 Start\-up applications the user added, and the files that switch off a
 system\-wide one.
 .TP
-.I ~/.face
-The account picture.
+.I ~/.local/share/recently\-used.xbel
+The shared list of recently used files, emptied by "Clear" on the Privacy
+page.
 .TP
 .I $XDG_RUNTIME_DIR/boswas\-fluent/com.boswas.ControlCenter.sock
 Where the running window listens for a second start of the program.

@@ -199,6 +199,7 @@ class PageTest(unittest.TestCase):
         sys.excepthook = lambda *exc: self.errors.append("".join(traceback.format_exception(*exc)))
         self.tmp = tempfile.TemporaryDirectory()
         self.rig = fx.Rig(Path(self.tmp.name))
+        self.addCleanup(fx.use_rig_for_settings(self.rig))
         self.saved = settings._sections
         settings._sections = [Recorder, Screens, Tall, Sound, Broken, FailsToLoad] if not self.sections \
             else list(self.sections)

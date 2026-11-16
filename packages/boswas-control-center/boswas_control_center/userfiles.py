@@ -9,8 +9,10 @@
   <config>/mimeapps.list                                 default applications
   <config>/autostart/<id>.desktop                        start-up applications and their overrides
   ~/.face                                                the account picture
+  <data>/recently-used.xbel                              the list of recently used files (emptied)
 
-<config> is $XDG_CONFIG_HOME when that is an absolute path, else ~/.config.
+<config> is $XDG_CONFIG_HOME when that is an absolute path, else ~/.config;
+<data> is $XDG_DATA_HOME when that is an absolute path, else ~/.local/share.
 The settings files are written by write_config() and deleted by
 remove_config(), which accept the names of CONFIG_FILES (and
 autostart/<id>.desktop) only: the content replaces the file atomically (a
@@ -422,3 +424,57 @@ def write_face(environ, data: bytes) -> str:
     finally:
         os.close(dir_fd)
     return path
+
+
+# --- the list of recently used files ------------------------------------------------------------------------------
+
+RECENT_FILE = "recently-used.xbel"
+MAX_RECENT = 16 * 1024 * 1024
+EMPTY_RECENT = (b'<?xml version="1.0" encoding="UTF-8"?>\n<xbel version="1.0"\n'
+                b'      xmlns:bookmark="http://www.freedesktop.org/standards/desktop-bookmarks"\n'
+                b'      xmlns:mime="http://www.freedesktop.org/standards/shared-mime-info"\n></xbel>\n')
+
+
+def data_dir(environ) -> str:
+    """The user's data directory: $XDG_DATA_HOME when it is an absolute path, else ~/.local/share."""
+    base = environ.get("XDG_DATA_HOME") or ""
+    if isinstance(base, str) and os.path.isabs(base) and "\0" not in base:
+        return os.path.normpath(base)
+    return os.path.join(_home(environ), ".local", "share")
+
+
+def recent_files_count(environ) -> int:
+    """How many files the freedesktop list of recently used files (recently-used.xbel) names; 0 without one."""
+    path = os.path.join(data_dir(environ), RECENT_FILE)
+    try:
+        if os.path.islink(path) or not os.path.isfile(path):
+            return 0
+        with open(path, "rb") as handle:
+            return handle.read(MAX_RECENT).count(b"<bookmark ")
+    except OSError:
+        return 0
+
+
+def clear_recent_files(environ) -> int:
+    """Empty recently-used.xbel (it stays, as a list without entries); returns how many entries it had.
+
+    Applications that follow the freedesktop convention read this list for
+    their "recent files". A list that is a symbolic link or not a regular
+    file is refused; no list at all is nothing to clear.
+    """
+    directory = data_dir(environ)
+    path = os.path.join(directory, RECENT_FILE)
+    count = recent_files_count(environ)
+    try:
+        dir_fd = os.open(directory, _DIR_FLAGS)
+    except FileNotFoundError:
+        return 0
+    except OSError as exc:
+        raise UserFileError(f"{directory} cannot be used ({_reason(exc)}).") from None
+    try:
+        if _kind(RECENT_FILE, dir_fd) == "missing":
+            return 0
+        _replace_file(dir_fd, RECENT_FILE, EMPTY_RECENT, 0o600, path)
+    finally:
+        os.close(dir_fd)
+    return count
