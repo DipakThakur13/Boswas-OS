@@ -10,6 +10,26 @@
 ## explicit choice. It never starts an installer, opens a web page or touches
 ## internal disks.
 
+Cmdline ()
+{
+	# The live user's name. live-config hands every component its default
+	# ("user") in LIVE_USERNAME; the name on the kernel command line
+	# (username=..., set in config/live-build/auto/config) has to be read by
+	# each component itself, as 0030-user-setup does when it creates the user.
+	for _PARAMETER in ${LIVE_CONFIG_CMDLINE}
+	do
+		case "${_PARAMETER}" in
+			live-config.username=*|username=*)
+				LIVE_USERNAME="${_PARAMETER#*username=}"
+				;;
+
+			live-config.noautologin|noautologin)
+				_BOSWAS_NOAUTOLOGIN="true"
+				;;
+		esac
+	done
+}
+
 Init ()
 {
 	if component_was_executed "boswas"
@@ -43,11 +63,24 @@ EOF
 	# Sign the live user in: greetd starts the Boswas session once at boot.
 	# (Only the live medium does this; an installed system always shows the
 	# login screen.)
+	#
+	# greetd ends with an error when the user of its initial session does
+	# not exist, and then nothing is on the screen. So the entry is written
+	# only for a user that exists (0030-user-setup has created it by now);
+	# without it the login screen is shown. "noautologin" on the kernel
+	# command line asks for the login screen as well.
 	_GREETD="/etc/boswas/greetd.toml"
-	if [ -f "${_GREETD}" ] && ! grep -qs '^\[initial_session\]' "${_GREETD}"
+	_USER="${LIVE_USERNAME:-boswas}"
+	if [ "${_BOSWAS_NOAUTOLOGIN}" = "true" ]
+	then
+		:
+	elif ! getent passwd "${_USER}" > /dev/null 2>&1
+	then
+		echo "boswas: no live user \"${_USER}\": the login screen is shown instead of signing in" >&2
+	elif [ -f "${_GREETD}" ] && ! grep -qs '^\[initial_session\]' "${_GREETD}"
 	then
 		printf '\n[initial_session]\ncommand = "/usr/bin/boswas-session"\nuser = "%s"\n' \
-			"${LIVE_USERNAME:-boswas}" >> "${_GREETD}"
+			"${_USER}" >> "${_GREETD}"
 	fi
 
 	# Marker for Boswas tools (Control Center, terminal banner, boswas-info).
@@ -58,5 +91,6 @@ EOF
 	touch /var/lib/live/config/boswas
 }
 
+Cmdline
 Init
 Config

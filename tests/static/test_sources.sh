@@ -305,6 +305,21 @@ check "screen lock: the session is locked before suspend (sleep hook) and by the
 		grep -q 'system-sleep/boswas-lock' packages/boswas-desktop/debian/rules"
 check_not "login: the shipped greetd configuration signs nobody in automatically" \
 	grep -q 'initial_session' packages/boswas-desktop/session/greetd.toml
+# The live session signs in the live user that exists. (live-config hands components the default
+# name "user"; a component must read username= from the kernel command line itself. With the wrong
+# name greetd ends with an error and the screen stays empty.)
+live_cmdline="$(sed -n 's/.*--bootappend-live "\([^"]*\)".*/\1/p' config/live-build/auto/config)"
+live_user="$(sed -n 's/.*username=\([^ "]*\).*/\1/p' <<<"$live_cmdline")"
+check "live session: the image's kernel command line names the live user" test -n "$live_user"
+check "live session: the automatic sign-in is for the user named on the kernel command line ($live_user)" \
+	bash -c "[ \"\$(tests/static/live_session_user.sh '$live_cmdline' '$live_user')\" = '$live_user' ]"
+check "live session: also when the Boswas settings file does not name the user" \
+	bash -c "[ \"\$(BOSWAS_LIVE_CONF=/dev/null tests/static/live_session_user.sh '$live_cmdline' '$live_user')\" = '$live_user' ]"
+check "live session: another name on the kernel command line is followed" \
+	bash -c "[ \"\$(tests/static/live_session_user.sh 'boot=live components username=anita' anita)\" = anita ]"
+check "live session: no automatic sign-in for a user that does not exist, or with noautologin (the login screen is shown)" \
+	bash -c "[ \"\$(tests/static/live_session_user.sh '$live_cmdline' nobody-else)\" = none ] &&
+		[ \"\$(tests/static/live_session_user.sh '$live_cmdline noautologin' '$live_user')\" = none ]"
 check "boot screen: conflicts with plymouth and puts its client under that name only inside the initramfs" \
 	bash -c "grep -qx 'Conflicts: plymouth' packages/boswas-bootsplash/debian/control &&
 		! grep -qE 'usr/(s?bin)/plymouth' packages/boswas-bootsplash/debian/rules &&
