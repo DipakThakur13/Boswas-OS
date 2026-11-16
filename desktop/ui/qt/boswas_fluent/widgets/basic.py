@@ -283,7 +283,16 @@ class ToggleSwitch(QAbstractButton):
 
     def knob_position(self) -> float:
         """0.0 (off) to 1.0 (on); in between while the switch animates."""
+        self._settle()
         return self._position
+
+    def _settle(self) -> None:
+        # setChecked() with signals blocked (a page that shows the real
+        # state without announcing a change) starts no animation: the knob
+        # then simply stands where the state says.
+        running = self._animation is not None and self._animation.state() == QVariantAnimation.State.Running
+        if not running:
+            self._position = 1.0 if self.isChecked() else 0.0
 
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)
@@ -296,6 +305,7 @@ class ToggleSwitch(QAbstractButton):
             painter.setPen(qcolor("text" if enabled else "text-disabled"))
             painter.drawText(QRectF(0, 0, track.left() - self._GAP, self.height()),
                              int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter), self.state_text())
+        self._settle()
         position = self._position
         radius = track.height() / 2
         # Off: an outlined track. On: the accent fill fades in over it.

@@ -107,6 +107,22 @@ class BasicTest(Base):
         self.assertEqual(narrow, fluent.ToggleSwitch.TRACK.width())
         self.assertGreater(wide, narrow)
 
+    def test_toggle_switch_follows_a_state_set_without_signals(self):
+        switch = self.show(fluent.ToggleSwitch())
+        heard = []
+        switch.toggled.connect(heard.append)
+        blocked = switch.blockSignals(True)
+        switch.setChecked(True)
+        switch.blockSignals(blocked)
+        self.assertEqual(heard, [], "nothing was announced")
+        self.assertEqual(switch.knob_position(), 1.0, "but the knob stands where the state says")
+        on = switch.grab().toImage()
+        blocked = switch.blockSignals(True)
+        switch.setChecked(False)
+        switch.blockSignals(blocked)
+        self.assertEqual(switch.knob_position(), 0.0)
+        self.assertNotEqual(switch.grab().toImage(), on)
+
     def test_toggle_switch_animates_unless_motion_is_reduced(self):
         switch = self.show(fluent.ToggleSwitch())
         switch.setChecked(True)
