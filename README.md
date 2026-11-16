@@ -1,6 +1,6 @@
 # Boswas OS
 
-**Boswas OS v1** is the Boswas Group company-managed desktop operating
+**Boswas OS v3** is the Boswas Group company-managed desktop operating
 system, built on **Debian 13 "trixie"** with the **native Boswas desktop**:
 its own Wayland compositor, shell, lock and login screens and boot screen,
 written in Rust, its own system applications and settings, all in the
