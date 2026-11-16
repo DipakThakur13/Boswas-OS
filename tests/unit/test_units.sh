@@ -2,7 +2,8 @@
 # Python unit tests of the Boswas components: boswas-compat, the device agent,
 # the Compatibility Manager and Boswas Control Center (Qt tests run offscreen
 # when PySide6 is installed), the privileged helper (boswas-sysops), the
-# Android runtime manager (boswas-android), the Control Plane (including the end-to-end
+# Android runtime manager (boswas-android), the system applications
+# (boswas-apps), the Control Plane (including the end-to-end
 # agent <-> Control Plane tests over mutual TLS), the presets (boswas-preset,
 # generated themes), the Boswas UI tokens and the icon themes, and the Rust
 # test suites of the native desktop (compositor, shell, design system) and
@@ -18,6 +19,23 @@ for dir in packages/boswas-compat packages/boswas-device-agent packages/boswas-c
 	desktop/ui desktop/ui/qt desktop/presets desktop/icons; do
 	name="$(basename "$dir")"
 	out="$(cd "$BOSWAS_REPO_ROOT/$dir" && python3 -B -m unittest discover -s tests 2>&1)"
+	count="$(grep -oE '^Ran [0-9]+ tests?' <<<"$out" | grep -oE '[0-9]+')"
+	skipped="$(grep -oE 'skipped=[0-9]+' <<<"$out" | grep -oE '[0-9]+' || true)"
+	if grep -qE '^OK' <<<"$out"; then
+		pass "$name unit tests (${count:-?} tests${skipped:+, $skipped skipped})"
+	else
+		fail "$name unit tests: $(grep -E '^(FAIL|ERROR):' <<<"$out" | head -5 | tr '\n' ';')"
+	fi
+done
+
+# The system applications (boswas-apps): one suite per application, on the
+# toolkit of this checkout.
+apps="$BOSWAS_REPO_ROOT/packages/boswas-apps"
+for suite in "$apps"/tests/*/; do
+	[ -n "$(find "$suite" -name 'test_*.py' -print -quit 2>/dev/null)" ] || continue
+	name="boswas-apps/$(basename "$suite")"
+	out="$(cd "$apps" && PYTHONPATH="$apps:$BOSWAS_REPO_ROOT/desktop/ui/qt" \
+		python3 -B -m unittest discover -s "$suite" -t "$suite" 2>&1)"
 	count="$(grep -oE '^Ran [0-9]+ tests?' <<<"$out" | grep -oE '[0-9]+')"
 	skipped="$(grep -oE 'skipped=[0-9]+' <<<"$out" | grep -oE '[0-9]+' || true)"
 	if grep -qE '^OK' <<<"$out"; then
