@@ -246,7 +246,7 @@ def _open_directory(env: Mapping[str, str], directories: tuple[str, ...], create
                     return None
                 os.mkdir(part, mode=0o700, dir_fd=current)
             elif kind == "link":
-                raise Refused(f"{shown} is a symbolic link; refusing to write through it")
+                raise Refused(f"{shown} is a symbolic link; refusing to follow it")
             elif kind != "dir":
                 raise Refused(f"{shown} is not a folder")
             following = os.open(part, _DIR_FLAGS | os.O_NOFOLLOW, dir_fd=current)
@@ -260,7 +260,7 @@ def _open_directory(env: Mapping[str, str], directories: tuple[str, ...], create
 
 def _refuse_unless_replaceable(kind: str, shown: Path) -> None:
     if kind == "link":
-        raise Refused(f"{shown} is a symbolic link; refusing to write through it")
+        raise Refused(f"{shown} is a symbolic link; refusing to follow it")
     if kind not in ("missing", "file"):
         raise Refused(f"{shown} is not a regular file; it was not changed")
 
@@ -279,7 +279,7 @@ def check_user_file(env: Mapping[str, str], target: tuple[tuple[str, ...], str])
 
 def _decode(data: bytes, shown: Path) -> str:
     if len(data) > MAX_FILE:
-        raise Refused(f"{shown} is larger than {MAX_FILE // 1024} KiB; it was not changed")
+        raise Refused(f"{shown} is larger than {MAX_FILE // 1024} KiB")
     # Bytes that are not UTF-8 come back out as they went in.
     return data.decode("utf-8", "surrogateescape")
 
@@ -301,7 +301,7 @@ def read_user_file(env: Mapping[str, str], target: tuple[tuple[str, ...], str]) 
             return None
         except OSError as error:
             if error.errno == errno.ELOOP:          # replaced by a link since the check above
-                raise Refused(f"{shown} is a symbolic link; refusing to write through it") from None
+                raise Refused(f"{shown} is a symbolic link; refusing to follow it") from None
             raise
         with os.fdopen(descriptor, "rb") as handle:
             if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
@@ -384,19 +384,20 @@ def appearance_text(preset: dict) -> str:
             f"wallpaper = {_toml_string(wallpaper_image(preset))}\n")
 
 
-def _ini_groups(text: str) -> list[tuple[str | None, list[str]]]:
-    """Split KConfig text into (group header, lines of the group), in order.
-    The lines before the first header come first, under None."""
+def _ini_groups(text: str) -> list[tuple[str | None, str, list[str]]]:
+    """Split KConfig text into its groups, in order: (the header without the
+    blanks around it, the header line as it is written, the lines of the
+    group). The lines before the first header come first, under None."""
     lines = text.split("\n")
     if lines[-1] == "":
         lines.pop()                                 # the end of the last line
-    groups: list[tuple[str | None, list[str]]] = [(None, [])]
+    groups: list[tuple[str | None, str, list[str]]] = [(None, "", [])]
     for line in lines:
         stripped = line.strip()
         if stripped.startswith("[") and stripped.endswith("]"):
-            groups.append((stripped, []))
+            groups.append((stripped, line, []))
         else:
-            groups[-1][1].append(line)
+            groups[-1][2].append(line)
     return groups
 
 
@@ -406,8 +407,8 @@ def merge_colors(kdeglobals: str, scheme: str, name: str) -> str:
     def is_color(header: str | None) -> bool:
         return header is not None and (header.startswith("[Colors:") or header == "[WM]")
 
-    kept = [(header, body) for header, body in _ini_groups(kdeglobals) if not is_color(header)]
-    colors = [(header, body) for header, body in _ini_groups(scheme) if is_color(header)]
+    kept = [(header, body) for header, _line, body in _ini_groups(kdeglobals) if not is_color(header)]
+    colors = [(header, body) for header, _line, body in _ini_groups(scheme) if is_color(header)]
     for index, (header, body) in enumerate(kept):
         if header == "[General]":
             kept[index] = (header, [line for line in body if _entry_key(line) != "ColorScheme"])
@@ -449,28 +450,28 @@ def edit_kconfig(text: str, group: str, key: str, value: str | None) -> str:
     header = f"[{group}]"
     groups = _ini_groups(text)
     first = None
-    for index, (name, body) in enumerate(groups):
+    for index, (name, _line, body) in enumerate(groups):
         if name == header:
             body[:] = [line for line in body if _entry_key(line) != key]
             if first is None:
                 first = index
     if value is None:
-        groups = [(name, body) for name, body in groups if name != header or any(line.strip() for line in body)]
+        groups = [entry for entry in groups if entry[0] != header or any(line.strip() for line in entry[2])]
     elif first is None:
-        name, body = groups[-1]
+        name, _line, body = groups[-1]
         if (name is not None or body) and (not body or body[-1].strip()):
             body.append("")
-        groups.append((header, [f"{key}={value}"]))
+        groups.append((header, header, [f"{key}={value}"]))
     else:
-        body = groups[first][1]
+        body = groups[first][2]
         position = len(body)
         while position > 0 and not body[position - 1].strip():
             position -= 1
         body.insert(position, f"{key}={value}")
     out: list[str] = []
-    for name, body in groups:
+    for name, line, body in groups:
         if name is not None:
-            out.append(name)
+            out.append(line)
         out.extend(body)
     return "\n".join(out) + "\n" if out else ""
 
