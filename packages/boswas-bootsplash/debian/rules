@@ -42,9 +42,10 @@ endif
 override_dh_auto_install:
 	install -D -m 0755 $(BIN)/boswas-bootsplashd $(PKG)/usr/libexec/boswas/boswas-bootsplashd
 	install -D -m 0755 $(BIN)/boswas-bootsplash $(PKG)/usr/bin/boswas-bootsplash
-	# initramfs-tools: the hook that copies both programs into the initramfs
-	# (and links the client as /bin/plymouth there), the option that brings
-	# in graphics drivers, and the scripts that start, re-root and stop it
+	# initramfs-tools: the hook that copies both programs and the graphics
+	# drivers into the initramfs (and links the client as /bin/plymouth
+	# there), Ubuntu's frame buffer option, and the scripts that start,
+	# re-root and stop it
 	install -D -m 0755 initramfs/hook $(INITRAMFS)/hooks/boswas-bootsplash
 	install -D -m 0644 initramfs/conf-hook $(INITRAMFS)/conf-hooks.d/boswas-bootsplash
 	install -D -m 0755 initramfs/init-premount $(INITRAMFS)/scripts/init-premount/boswas-bootsplash
@@ -59,6 +60,9 @@ override_dh_auto_install:
 	install -D -m 0644 systemd/boswas-bootsplash-ask-password.path $(UNITS)/boswas-bootsplash-ask-password.path
 	install -D -m 0644 systemd/console-agent.conf \
 		$(UNITS)/systemd-ask-password-console.path.d/50-boswas-bootsplash.conf
+	# the emergency and rescue shells end the boot screen before they start
+	install -D -m 0644 systemd/quit-before-shell.conf $(UNITS)/emergency.service.d/50-boswas-bootsplash.conf
+	install -D -m 0644 systemd/quit-before-shell.conf $(UNITS)/rescue.service.d/50-boswas-bootsplash.conf
 	for want in sysinit.target:start.service sysinit.target:ask-password.path multi-user.target:quit.service \
 		poweroff.target:poweroff.service halt.target:halt.service reboot.target:reboot.service \
 		kexec.target:reboot.service; do \

@@ -87,6 +87,28 @@ pub fn open_display(wait: Duration) -> io::Result<Box<dyn Output>> {
     }
 }
 
+/// Look for a display again after the one in use was lost, from inside the
+/// sandbox. A DRM device is preferred wherever it comes from: opened here
+/// (possible while the device directory is the one the sandbox was entered
+/// with), or opened by the supervisor and handed over through `helper`
+/// (needed once that directory has been made again for a new driver). The
+/// frame buffer is the last choice.
+pub fn reopen_display(helper: Option<&mut crate::broker::Client>, wait: Duration) -> io::Result<Box<dyn Output>> {
+    let direct = match drm::DrmOutput::open_any() {
+        Ok(out) => return Ok(Box::new(out)),
+        Err(e) => e,
+    };
+    if let Some(helper) = helper {
+        if let Ok(out) = helper.devices(wait).and_then(open_devices) {
+            return Ok(out);
+        }
+    }
+    match fbdev::FbOutput::open(Path::new(fbdev::DEFAULT_DEVICE)) {
+        Ok(out) => Ok(Box::new(out)),
+        Err(_) => Err(io::Error::new(direct.kind(), format!("no usable display: {direct}"))),
+    }
+}
+
 /// A graphics device that is already open.
 #[derive(Debug)]
 pub enum Device {

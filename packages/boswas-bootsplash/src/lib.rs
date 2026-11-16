@@ -8,7 +8,9 @@
 //!   frame buffer, or files (headless, for tests).
 //! * [`daemon`] is the event loop; [`launch`] starts it safely; [`tty`] and
 //!   [`editor`] handle the console keyboard and the passphrase;
-//!   [`sandbox`] is what the daemon gives up once running.
+//!   [`sandbox`] is what the daemon gives up once running; [`runtime`] is
+//!   its lock and runtime directory; [`broker`] is how the sandboxed daemon
+//!   gets a graphics device that appeared after it started.
 //! * [`proto`], [`client`], [`compat`], [`cli`] and [`agent`] are the control
 //!   protocol and the command line client, including the Plymouth-compatible
 //!   subset used inside the initramfs and the systemd password agent.
@@ -19,6 +21,7 @@
 
 pub mod agent;
 pub mod assets;
+pub mod broker;
 pub mod cli;
 pub mod client;
 pub mod cmdline;
@@ -30,6 +33,7 @@ pub mod launch;
 pub mod output;
 pub mod png;
 pub mod proto;
+pub mod runtime;
 pub mod sandbox;
 pub mod scene;
 pub mod sys;

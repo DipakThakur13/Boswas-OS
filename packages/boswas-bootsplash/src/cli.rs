@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use crate::agent;
 use crate::client::{self, DEFAULT_SOCKET};
 use crate::compat::{self, Command, Invocation};
-use crate::proto::Response;
+use crate::proto::{Request, Response};
 
 /// Run the client and return its exit status.
 pub fn run(argv0: &str, args: &[String]) -> i32 {
@@ -61,14 +61,14 @@ fn execute(socket: &Path, command: Command) -> i32 {
         }
         Command::Accepted => i32::from(!client::ping(socket)),
         Command::Agent => agent::run(socket, Path::new(agent::ASK_DIR)),
-        Command::Send(request) => match client::request(socket, &request) {
-            Ok(Response::Ok) => 0,
-            Ok(Response::Error(reason)) => {
-                eprintln!("boswas-bootsplash: {reason}");
-                1
-            }
-            Ok(Response::Password(_)) | Err(_) => 1,
-        },
+        Command::Send(request) => {
+            // `quit` ends the boot screen even when it does not answer.
+            let outcome = match request {
+                Request::Quit { retain } => client::quit(socket, retain),
+                request => client::request(socket, &request),
+            };
+            respond(outcome)
+        }
         Command::AskPassword { prompt } => match client::ask_password(socket, &prompt, || true) {
             Ok(Some(passphrase)) => {
                 // Exactly the passphrase, no newline: the caller reads to end of file.
@@ -81,6 +81,18 @@ fn execute(socket: &Path, command: Command) -> i32 {
             }
             Ok(None) | Err(_) => 1,
         },
+    }
+}
+
+/// The exit status for the outcome of a request.
+fn respond(outcome: std::io::Result<Response>) -> i32 {
+    match outcome {
+        Ok(Response::Ok) => 0,
+        Ok(Response::Error(reason)) => {
+            eprintln!("boswas-bootsplash: {reason}");
+            1
+        }
+        Ok(Response::Password(_)) | Err(_) => 1,
     }
 }
 

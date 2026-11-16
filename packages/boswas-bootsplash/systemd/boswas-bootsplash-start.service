@@ -3,7 +3,10 @@ Description=Show the Boswas OS boot screen
 Documentation=man:boswas-bootsplashd(8)
 DefaultDependencies=no
 Wants=boswas-bootsplash-ask-password.path
-After=systemd-udev-trigger.service systemd-udevd.service systemd-vconsole-setup.service
+# After the device manager has started loading drivers. Nothing here asks
+# for systemd-udev-settle.service (that would slow every boot); the unit is
+# only ordered after it on systems where something else waits for it.
+After=systemd-udev-trigger.service systemd-udevd.service systemd-udev-settle.service systemd-vconsole-setup.service
 Before=sysinit.target boswas-bootsplash-ask-password.service
 ConditionKernelCommandLine=splash
 ConditionKernelCommandLine=!nosplash
@@ -14,7 +17,15 @@ IgnoreOnIsolate=true
 # Normally the boot screen is already up (started in the initramfs) and this
 # returns at once. Otherwise the daemon detaches and keeps running after
 # this command has returned; boswas-bootsplash-quit.service ends it.
+#
+# --wait: when this unit runs, the graphics driver may still be loading (the
+# initramfs did not have it, or it is slow to find its display). The daemon
+# looks for a display for up to eight seconds and returns as soon as there is
+# one, so a boot with a display is not held up. A machine without any
+# display waits that long once and continues on the text console; with
+# "nomodeset" on the kernel command line no driver will come and the wait is
+# the daemon's short default.
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=-/usr/libexec/boswas/boswas-bootsplashd --mode=boot
-TimeoutStartSec=20
+ExecStart=-/usr/libexec/boswas/boswas-bootsplashd --mode=boot --wait=8000
+TimeoutStartSec=30

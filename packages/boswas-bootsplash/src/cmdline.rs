@@ -3,6 +3,8 @@
 //! `splash` turns the boot screen on (as it does for Plymouth); `nosplash`,
 //! `plymouth.enable=0` or `boswas.splash=off` turn it off and always win;
 //! `boswas.splash=static` keeps the screen but stops the animation.
+//! `nomodeset` (a kernel switch, not one of ours) is noted: no graphics
+//! driver will load, so there is no point in waiting for one.
 
 /// What the kernel command line asks for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -12,6 +14,8 @@ pub struct BootParams {
     /// Animate: the ring turns, the caret blinks, a rejected passphrase
     /// shakes the text box.
     pub animate: bool,
+    /// Graphics drivers may load (no `nomodeset`).
+    pub modeset: bool,
 }
 
 /// Parse the contents of `/proc/cmdline`.
@@ -19,10 +23,12 @@ pub fn parse(cmdline: &str) -> BootParams {
     let mut wanted = false;
     let mut refused = false;
     let mut animate = true;
+    let mut modeset = true;
     for token in cmdline.split_ascii_whitespace() {
         match token {
             "splash" => wanted = true,
             "nosplash" | "plymouth.enable=0" => refused = true,
+            "nomodeset" => modeset = false,
             _ => {
                 if token.starts_with("splash=") {
                     wanted = true;
@@ -36,7 +42,7 @@ pub fn parse(cmdline: &str) -> BootParams {
             }
         }
     }
-    BootParams { splash: wanted && !refused, animate }
+    BootParams { splash: wanted && !refused, animate, modeset }
 }
 
 #[cfg(test)]
@@ -69,5 +75,13 @@ mod tests {
         assert!(p.splash && !p.animate);
         assert!(parse("quiet splash").animate);
         assert!(parse("splash boswas.splash=unknown").animate);
+    }
+
+    #[test]
+    fn nomodeset_is_noticed() {
+        assert!(parse("quiet splash").modeset);
+        let p = parse("root=/dev/vda rw quiet splash nomodeset");
+        assert!(p.splash && !p.modeset);
+        assert!(parse("splash nomodesetx xnomodeset").modeset);
     }
 }

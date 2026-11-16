@@ -5,9 +5,13 @@
 //!
 //! * `no_new_privs`, so nothing it could ever execute gains privileges;
 //! * a Landlock domain that allows file access only below the graphics
-//!   device directory, the frame buffer device and its own runtime
-//!   directory, denies TCP entirely, and (where the kernel supports it)
-//!   blocks signals and abstract-socket connections to other processes;
+//!   device directory, the frame buffer device, the console device it
+//!   already has open and its own runtime directory, denies TCP entirely,
+//!   and (where the kernel supports it) blocks signals and abstract-socket
+//!   connections to other processes. The rules belong to the directories
+//!   and device nodes that exist when the sandbox is entered; graphics
+//!   devices under a device directory made later come from the supervisor
+//!   as open descriptors ([`crate::broker`]);
 //! * three capabilities out of root's full set: `CAP_SYS_ADMIN` (to become
 //!   DRM master again after the screen was hidden or the graphics driver
 //!   changed), `CAP_SYS_TTY_CONFIG` (console text/graphics mode) and
@@ -105,8 +109,10 @@ pub fn display_devices() -> Vec<PathBuf> {
 }
 
 /// Make sure the DRM device directory exists before the sandbox is entered,
-/// so that a graphics driver loaded later (replacing the firmware frame
-/// buffer) is still reachable from inside it.
+/// so that the first graphics driver, loaded later, puts its device into a
+/// directory the sandbox allows. (A directory the kernel made itself is
+/// removed with its last device and made again for the next driver; for
+/// that case see [`crate::broker`].)
 pub fn prepare_device_dir() {
     let dir = Path::new(crate::output::drm::DRI_DIR);
     if !dir.exists() && Path::new("/dev").is_dir() {

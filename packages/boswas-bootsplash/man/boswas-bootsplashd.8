@@ -34,6 +34,20 @@ or cannot start, the disk passphrase is asked for on the text console as
 usual.
 .PP
 The Escape key switches between the boot screen and the text console.
+.PP
+Only one boot screen runs at a time. Starting
+.B boswas-bootsplashd
+while one is running tells that one which screen to show
+.RB ( \-\-mode )
+and starts nothing; if the running one does not answer, it is left exactly
+as it is.
+.PP
+Graphics devices change while a system starts: the firmware's frame buffer
+is replaced by the driver of the graphics hardware when that driver loads.
+The boot screen notices that its device is gone and continues on the new
+one. If no display returns within two seconds it gives the screen to the
+text console, where a passphrase prompt is then shown as a line of text,
+and comes back when a display appears.
 .SH OPTIONS
 .TP
 .BR \-\-mode= boot | shutdown | reboot
@@ -56,7 +70,14 @@ Control socket (default:
 Console to read keys from (default: the virtual console in the foreground).
 .TP
 .BI \-\-wait= MILLISECONDS
-How long to wait for a display to appear (default: 1500).
+How long to wait for a display to appear before giving up (default: 1500).
+The daemon starts as soon as there is one.
+.I boswas-bootsplash-start.service
+passes 8000, because it can run before a graphics driver has found its
+display. With
+.B nomodeset
+on the kernel command line no driver will load, and a longer wait is cut
+to the default.
 .TP
 .BI \-\-headless= WIDTH x HEIGHT
 Draw to memory instead of a display. Frames are saved on request in the
@@ -85,13 +106,26 @@ console before any user exists. Once the display, the console and the
 control socket are open it keeps only what it needs: it sets
 .BR no_new_privs ,
 enters a Landlock domain that allows file access only to the graphics
-devices and its runtime directory and denies TCP, and drops all capabilities
+devices, the console device and its runtime directory and denies TCP, and
+drops all capabilities
 except three (display master, console mode, following the root switch). It
 has no network code. The passphrase is held in one buffer that is wiped
 after use and is never written to a log. Clients must be root.
 .PP
-A supervising process restores the text console if the boot screen ends
-abnormally.
+The Landlock rules name the graphics device directory as it is when the
+daemon starts. A graphics device that appears later in a directory made
+anew (the kernel removes and recreates
+.I /dev/dri
+when one driver replaces another) is opened by the supervising process and
+passed to the daemon as an open descriptor. The supervising process is not
+confined; it takes no input except that one request and passes nothing but
+graphics device nodes.
+.PP
+The supervising process restores the text console and removes the control
+socket and the pid file if the boot screen ends abnormally.
+.PP
+Neither process puts a console into text mode, or takes a display back,
+once another program runs a graphical session there.
 .SH FILES
 .TP
 .I /run/boswas-bootsplash/socket
@@ -100,7 +134,13 @@ Control socket.
 .I /run/boswas-bootsplash/pid
 Process ID of the boot screen while it runs.
 .TP
+.I /run/boswas-bootsplash/lock
+Locked for as long as a boot screen runs. The file stays when it ends.
+.TP
 .I /usr/share/initramfs-tools/hooks/boswas-bootsplash
-Puts the boot screen into the initramfs.
+Puts the boot screen and the graphics drivers into the initramfs.
+.TP
+.IR /usr/lib/systemd/system/emergency.service.d/50-boswas-bootsplash.conf ", " rescue.service.d/50-boswas-bootsplash.conf
+End the boot screen before the emergency or rescue shell starts.
 .SH SEE ALSO
 .BR boswas-bootsplash (1)

@@ -12,13 +12,24 @@
 //! Once another program runs a graphical session on the console (see
 //! [`Console::taken_by_another`]) its text/graphics mode is no longer ours
 //! to change: nothing here touches it then.
+//!
+//! A terminal can be hung up under the daemon: the kernel does that to a
+//! console when a program that had it as its controlling terminal ends
+//! (every command of systemd's emergency shell unit does), and a login
+//! program does it on purpose. Every descriptor that was open then is dead
+//! from that moment on and answers each call with an error, so the console
+//! could not even be put back into text mode through it. [`Console::revive`]
+//! notices and opens the terminal again, through the directory of its
+//! device node, which is kept open because paths stop leading there for a
+//! process left behind in the initramfs.
 
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
-use std::os::fd::AsFd;
+use std::os::fd::{AsFd, OwnedFd};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
+use rustix::fs::{Mode, OFlags};
 use rustix::termios::{self, InputModes, LocalModes, OptionalActions, SpecialCodeIndex, Termios};
 
 use crate::sys;
@@ -30,6 +41,11 @@ pub const DEFAULT_TTY: &str = "/dev/tty0";
 pub struct Console {
     file: File,
     path: PathBuf,
+    /// The directory of the terminal's device node, to open the terminal
+    /// again after it was hung up.
+    dir: Option<OwnedFd>,
+    /// Hung up, and it could not be opened again.
+    lost: bool,
     /// Number of the virtual console, when this is one.
     vt: Option<u16>,
     saved_termios: Option<Termios>,
@@ -122,7 +138,64 @@ impl Console {
                 }
             }
         }
-        Ok(Console { file, path, vt, saved_termios: None, saved_mode: None, graphics: false })
+        let dir = path.parent().and_then(|dir| {
+            rustix::fs::open(dir, OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC, Mode::empty()).ok()
+        });
+        Ok(Console { file, path, dir, lost: false, vt, saved_termios: None, saved_mode: None, graphics: false })
+    }
+
+    /// Open the terminal again: by its name in the directory that was kept
+    /// open, else by its path.
+    fn reopen(&mut self) -> bool {
+        let flags = OFlags::RDWR | OFlags::NOCTTY | OFlags::NONBLOCK | OFlags::CLOEXEC;
+        let reopened = match (&self.dir, self.path.file_name()) {
+            (Some(dir), Some(name)) => rustix::fs::openat(dir, name, flags, Mode::empty()).map(File::from).ok(),
+            _ => open_tty(&self.path).ok(),
+        };
+        match reopened {
+            Some(file) if termios::tcgetattr(&file).is_ok() => {
+                self.file = file;
+                self.lost = false;
+                true
+            }
+            _ => {
+                self.lost = true;
+                false
+            }
+        }
+    }
+
+    /// Make sure the terminal can be used: if it was hung up since it was
+    /// opened, open it again. Returns false when it is gone for good. The
+    /// terminal settings are not touched (a hang-up resets them; see
+    /// [`Console::ensure_raw`]).
+    pub fn revive(&mut self) -> bool {
+        if termios::tcgetattr(&self.file).is_ok() {
+            self.lost = false;
+            return true;
+        }
+        self.reopen()
+    }
+
+    /// Whether the terminal was hung up and could not be opened again:
+    /// nothing can be read from it, and waiting for input on it would
+    /// return at once for ever.
+    pub fn lost(&self) -> bool {
+        self.lost
+    }
+
+    /// Switch the console between text and graphics mode. A terminal that
+    /// is hung up at just that moment is opened again and asked again.
+    fn set_mode(&mut self, mode: i32) -> bool {
+        for _ in 0..3 {
+            if sys::kd_set_mode(self.file.as_fd(), mode).is_ok() {
+                return true;
+            }
+            if !self.reopen() {
+                return false;
+            }
+        }
+        false
     }
 
     pub fn path(&self) -> &Path {
@@ -150,8 +223,8 @@ impl Console {
     /// changed its settings since [`Console::set_raw`]. Keys already typed
     /// are kept. Returns true when the settings had to be put back.
     pub fn ensure_raw(&mut self) -> bool {
-        if self.saved_termios.is_none() {
-            return false; // never made raw, or already given back
+        if self.saved_termios.is_none() || !self.revive() {
+            return false; // never made raw, already given back, or gone
         }
         match termios::tcgetattr(&self.file) {
             Ok(current) if !is_raw(&current) => {
@@ -164,6 +237,7 @@ impl Console {
     /// Put the terminal settings back (keeps the console mode).
     pub fn restore_termios(&mut self) {
         if let Some(saved) = self.saved_termios.take() {
+            self.revive();
             let _ = termios::tcsetattr(&self.file, OptionalActions::Now, &saved);
         }
     }
@@ -171,9 +245,12 @@ impl Console {
     /// Whether another program runs a graphical session on this console now
     /// (a compositor started by the login manager). From then on the
     /// console's text/graphics mode belongs to that program.
-    pub fn taken_by_another(&self) -> bool {
-        self.vt.is_some()
-            && session_owns(sys::vt_mode(self.file.as_fd()).ok(), sys::kb_mode(self.file.as_fd()).ok())
+    pub fn taken_by_another(&mut self) -> bool {
+        if self.vt.is_none() {
+            return false;
+        }
+        self.revive();
+        session_owns(sys::vt_mode(self.file.as_fd()).ok(), sys::kb_mode(self.file.as_fd()).ok())
     }
 
     /// Stop (true) or resume (false) the kernel drawing text on the console.
@@ -187,7 +264,7 @@ impl Console {
             self.saved_mode = sys::kd_get_mode(self.file.as_fd()).ok();
         }
         let mode = if on { sys::KD_GRAPHICS } else { sys::KD_TEXT };
-        if sys::kd_set_mode(self.file.as_fd(), mode).is_ok() {
+        if self.set_mode(mode) {
             self.graphics = on;
         }
     }
@@ -217,12 +294,23 @@ impl Console {
         self.vt.is_some() && sys::kb_leds(self.file.as_fd()).map(|leds| leds & sys::LED_CAPS != 0).unwrap_or(false)
     }
 
-    /// Read what has been typed. Returns 0 when nothing is waiting.
+    /// Read what has been typed. Returns 0 when nothing is waiting. A
+    /// terminal that turns out to be hung up is opened again (or marked as
+    /// lost, see [`Console::lost`]); what is typed from then on is read by
+    /// the next call.
     pub fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self.file.read(buf) {
+            Ok(0) => {
+                // End of input on a terminal: it was hung up.
+                self.reopen();
+                Ok(0)
+            }
             Ok(n) => Ok(n),
             Err(e) if matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted) => Ok(0),
-            Err(e) => Err(e),
+            Err(e) => {
+                self.reopen();
+                Err(e)
+            }
         }
     }
 
@@ -237,7 +325,7 @@ impl Console {
         self.restore_termios();
         if self.graphics || self.saved_mode.is_some() {
             if self.vt.is_some() && !self.taken_by_another() {
-                let _ = sys::kd_set_mode(self.file.as_fd(), sys::KD_TEXT);
+                self.set_mode(sys::KD_TEXT);
             }
             self.graphics = false;
             self.saved_mode = None;
@@ -249,7 +337,7 @@ impl Console {
     /// program has taken the console.
     pub fn force_text(&mut self) {
         if self.vt.is_some() && !self.taken_by_another() {
-            let _ = sys::kd_set_mode(self.file.as_fd(), sys::KD_TEXT);
+            self.set_mode(sys::KD_TEXT);
         }
         self.graphics = false;
     }
@@ -339,6 +427,50 @@ mod tests {
         assert!(cooked(&master));
         assert!(!console.ensure_raw());
         assert!(cooked(&master));
+    }
+
+    #[test]
+    fn a_terminal_that_was_hung_up_is_opened_again() {
+        let (mut master, mut console) = pty();
+        console.set_raw().unwrap();
+        assert!(console.revive() && !console.lost());
+        // Stand-in for the hang-up: the descriptor the console holds stops
+        // being a terminal (every call on a hung-up terminal fails too).
+        let path = console.path().to_path_buf();
+        console.file = File::open("/dev/null").unwrap();
+        assert!(termios::tcgetattr(&console.file).is_err());
+        assert!(console.revive(), "found again through the directory of its device node");
+        assert!(!console.lost());
+        assert!(termios::tcgetattr(&console.file).is_ok());
+        // It is the same terminal: what is typed arrives, raw mode can be put back.
+        assert!(!console.ensure_raw(), "nothing changed the settings in between");
+        master.write_all(b"x").unwrap();
+        let mut buf = [0u8; 4];
+        let mut got = 0;
+        for _ in 0..50 {
+            got = console.read(&mut buf).unwrap();
+            if got > 0 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(&buf[..got], b"x");
+        // Reading end-of-input also means a hang-up, and is handled the same way.
+        console.file = File::open("/dev/null").unwrap();
+        assert_eq!(console.read(&mut buf).unwrap(), 0);
+        assert!(!console.lost() && termios::tcgetattr(&console.file).is_ok());
+        // Putting the settings back works through the reopened terminal.
+        console.file = File::open("/dev/null").unwrap();
+        console.restore_termios();
+        assert!(cooked(&master));
+
+        // A terminal that no longer exists is lost, and says so.
+        console.file = File::open("/dev/null").unwrap();
+        console.dir = None;
+        console.path = PathBuf::from("/nonexistent/tty");
+        assert!(!console.revive() && console.lost());
+        assert!(!console.ensure_raw());
+        assert_ne!(console.path(), path);
     }
 
     #[test]

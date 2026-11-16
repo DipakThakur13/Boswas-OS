@@ -189,12 +189,12 @@ impl Client {
             let mut space = [MaybeUninit::<u8>::uninit(); rustix::cmsg_space!(ScmRights(MAX_DEVICES))];
             let mut control = RecvAncillaryBuffer::new(&mut space);
             let flags = RecvFlags::CMSG_CLOEXEC | RecvFlags::DONTWAIT;
-            let length = match rustix::net::recvmsg(&self.channel, &mut [IoSliceMut::new(&mut answer)], &mut control, flags)
-            {
-                Ok(message) => message.bytes.min(answer.len()),
-                Err(rustix::io::Errno::AGAIN) | Err(rustix::io::Errno::INTR) => continue,
-                Err(e) => return Err(e.into()),
-            };
+            let length =
+                match rustix::net::recvmsg(&self.channel, &mut [IoSliceMut::new(&mut answer)], &mut control, flags) {
+                    Ok(message) => message.bytes.min(answer.len()),
+                    Err(rustix::io::Errno::AGAIN) | Err(rustix::io::Errno::INTR) => continue,
+                    Err(e) => return Err(e.into()),
+                };
             let mut descriptors: Vec<OwnedFd> = Vec::new();
             for message in control.drain() {
                 if let RecvAncillaryMessage::ScmRights(received) = message {
@@ -236,9 +236,13 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("boswas-bootsplash-dev-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("dri/by-path")).unwrap();
-        for (file, contents) in
-            [("dri/card1", "one"), ("dri/card0", "zero"), ("dri/card10", "ten"), ("dri/renderD128", "render"), ("fb0", "fb")]
-        {
+        for (file, contents) in [
+            ("dri/card1", "one"),
+            ("dri/card0", "zero"),
+            ("dri/card10", "ten"),
+            ("dri/renderD128", "render"),
+            ("fb0", "fb"),
+        ] {
             std::fs::write(dir.join(file), contents).unwrap();
         }
         dir
