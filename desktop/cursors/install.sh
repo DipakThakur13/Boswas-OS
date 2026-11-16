@@ -5,6 +5,7 @@
 # tools/build_cursors.py) with rsvg-convert at the nominal sizes 24, 32, 48,
 # 64 and 96 and writes
 #   /usr/share/icons/Boswas-Cursors/index.theme
+#   /usr/share/icons/Boswas-Cursors/cursor.theme       for the x-cursor-theme alternative
 #   /usr/share/icons/Boswas-Cursors/cursors/<shape>       XCursor files
 #   /usr/share/icons/Boswas-Cursors/cursors/<other name>  symbolic links to a shape
 # The XCursor files are written by tools/xcursor.py; xcursorgen is not used.
@@ -51,3 +52,9 @@ theme="$dest/usr/share/icons/Boswas-Cursors"
 install -d -m 0755 "$theme/cursors"
 python3 -B "$tool" assemble "$source/cursors.json" "$stage" "$theme/cursors"
 install -m 0644 "$source/index.theme" "$theme/index.theme"
+
+# What Debian's x-cursor-theme alternative points /usr/share/icons/default/index.theme
+# at, for the programs that load the theme called "default" (GTK and X11
+# clients that do not read XCURSOR_THEME). The package registers it.
+printf '[Icon Theme]\nInherits=Boswas-Cursors\n' > "$stage/cursor.theme"
+install -m 0644 "$stage/cursor.theme" "$theme/cursor.theme"

@@ -111,7 +111,7 @@ class InstalledThemeTest(unittest.TestCase):
 
     # -- names ---------------------------------------------------------------
     def test_directory_holds_exactly_the_manifest_s_names(self):
-        self.assertEqual(sorted(p.name for p in self.theme.iterdir()), ["cursors", "index.theme"])
+        self.assertEqual(sorted(p.name for p in self.theme.iterdir()), ["cursor.theme", "cursors", "index.theme"])
         self.assertEqual(sorted(p.name for p in self.cursors.iterdir()), sorted(self.targets))
         for name, shape in self.targets.items():
             path = self.cursors / name
@@ -149,6 +149,12 @@ class InstalledThemeTest(unittest.TestCase):
         index = self.theme / "index.theme"
         self.assertEqual(stat.S_IMODE(index.stat().st_mode), 0o644)
         self.assertEqual(index.read_bytes(), (support.SOURCE_DIR / "index.theme").read_bytes())
+
+    def test_the_file_for_the_default_theme_alternative_inherits_this_theme(self):
+        # Debian points /usr/share/icons/default/index.theme at a theme's cursor.theme.
+        default = self.theme / "cursor.theme"
+        self.assertEqual(stat.S_IMODE(default.stat().st_mode), 0o644)
+        self.assertEqual(default.read_text(encoding="utf-8"), "[Icon Theme]\nInherits=Boswas-Cursors\n")
 
     # -- XCursor files -------------------------------------------------------
     def test_every_file_has_all_five_sizes(self):

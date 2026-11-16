@@ -71,6 +71,7 @@ needs `python3` and `rsvg-convert` (librsvg2-bin) and writes
 
 ```
 DESTDIR/usr/share/icons/Boswas-Cursors/index.theme
+DESTDIR/usr/share/icons/Boswas-Cursors/cursor.theme               for the default-theme alternative
 DESTDIR/usr/share/icons/Boswas-Cursors/cursors/<shape>         XCursor file
 DESTDIR/usr/share/icons/Boswas-Cursors/cursors/<other name>    symbolic link to a shape
 ```
@@ -86,6 +87,12 @@ XCursor file).
 
 `index.theme` has no `Inherits` line: every name the desktop asks for is in
 the theme, and nothing is taken from another theme.
+
+`cursor.theme` is what Debian's `x-cursor-theme` alternative points
+`/usr/share/icons/default/index.theme` at (`Inherits=Boswas-Cursors`). The
+package that installs the theme, boswas-branding, registers it, so programs
+that load the theme called `default` (GTK and X11 clients that do not read
+`XCURSOR_THEME`) get the same pointers as the compositor.
 
 To look at the result:
 
