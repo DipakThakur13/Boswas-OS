@@ -2383,7 +2383,10 @@ for KDE applications the image no longer has.
   export. For programs that load the theme called `default` instead (GTK
   and X11 clients), the package registers the theme as Debian's
   `x-cursor-theme` alternative with priority 150, above Adwaita (90) and
-  Breeze (102); the alternative is removed with the package. A user's
+  Breeze (102); the alternative is removed with the package. The package
+  also ships the directory of the alternative's link
+  (`/usr/share/icons/default`), as Debian's cursor themes do, so the
+  registration does not depend on one of them being installed. A user's
   choice in Settings (`cursor_theme`, `cursor_size`) is unchanged.
 - **What left the image.** `breeze-cursor-theme` and `kde-style-breeze`
   are no longer in the package lists, and `boswas-desktop` no longer

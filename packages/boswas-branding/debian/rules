@@ -81,6 +81,10 @@ override_dh_auto_install:
 	# The pointer theme of the desktop. The maintainer scripts register it
 	# as Debian's default cursor theme (the x-cursor-theme alternative).
 	sh $(DESK)/cursors/install.sh $(CURDIR)/$(PKG)
+	# The directory of the alternative's link. Debian's cursor themes ship
+	# it too; without it the registration in postinst would fail on a system
+	# that has none of them.
+	install -d -m 0755 $(SHARE)/icons/default
 	# Terminal: the prompt and welcome Boswas Terminal starts bash with
 	install -D -m 0644 $(DESK)/terminal/bashrc $(SHARE)/boswas/terminal/bashrc
 	install -D -m 0755 $(DESK)/terminal/boswas-welcome $(PKG)/usr/bin/boswas-welcome

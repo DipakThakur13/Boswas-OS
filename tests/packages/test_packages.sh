@@ -319,6 +319,7 @@ check "pointer: Boswas-Cursors is shipped (XCursor files and the names toolkits 
 		grep -q 'XCURSOR_THEME:-Boswas-Cursors' '$extract/usr/libexec/boswas/boswas-greeter'"
 check "pointer: boswas-branding registers the theme as the default cursor theme (x-cursor-theme alternative) and removes it again" \
 	bash -c "grep -qx 'Inherits=Boswas-Cursors' '$extract/usr/share/icons/Boswas-Cursors/cursor.theme' &&
+		test -d '$extract/usr/share/icons/default' && ! test -e '$extract/usr/share/icons/default/index.theme' &&
 		c=\$(mktemp -d) && dpkg-deb -e '$debs/boswas-branding_${BOSWAS_VERSION_ID}_all.deb' \"\$c\" &&
 		grep -q 'update-alternatives --install /usr/share/icons/default/index.theme x-cursor-theme' \"\$c/postinst\" &&
 		grep -q '/usr/share/icons/Boswas-Cursors/cursor.theme 150' \"\$c/postinst\" &&
