@@ -120,9 +120,14 @@ Control Plane built with all their test suites (351 Rust tests in
 other packages); lintian reported no errors or warnings; the package stage
 passed 94 checks, failed none and skipped three for programs that are not
 installed here (`apparmor_parser`, `desktop-file-validate`,
-`update-desktop-database`); the static stage passed 72 checks.
-The builder container and `./test.sh` on Debian 13 still have to confirm
-it.
+`update-desktop-database`); the static stage passed 72 checks; the unit
+stage (`tests/unit/test_units.sh`) passed all 27 of its lines, the Rust
+suites among them. After two late corrections (Calendar's narrow window,
+and the directory of the default cursor theme's link in
+`boswas-branding`) the two packages were rebuilt with their tests and the
+package stage and lintian were run again on the final set, with the same
+result. The builder container and `./test.sh` on Debian 13 still have to
+confirm it.
 
 Qt Multimedia in this environment: the sandbox has PySide6 6.12, whose
 audio back end is PipeWire, and `libpipewire` without its configuration
