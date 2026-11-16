@@ -2080,11 +2080,14 @@ single set of rules.
 - **What can be played or shown follows Qt:** media through Qt
   Multimedia's FFmpeg back end, PDF through Qt PDF, pictures through Qt's
   image plugins.
+- **Printing means a PDF file for now.** The applications print through
+  Qt's print dialog, and the image has no print service (the manifest
+  does not select CUPS).
 - **Not verified yet:** none of them has run on the Boswas desktop. The
   build environment runs as root, which the applications refuse, so they
   were exercised through their tests on Qt's offscreen platform and not
   through their launchers. The Camera has run against a stand-in camera
-  only. No real printer, no real removable drive with udisks and polkit,
+  only. No printer, no real removable drive with udisks and polkit,
   no PDF from outside the tests, no audible sound. `verification.md` has
   the list per application.
 
@@ -2137,6 +2140,18 @@ Replaces ADR-0026's "native settings pages are planned work".
   change that needs administrator rights systemd's services ask polkit,
   and the shell's agent shows the question); `mimeapps.list` for default
   applications; `~/.config/autostart` for start-up applications.
+- **User accounts go through AccountsService.** The Users page asks the
+  service with `busctl` and validated arguments for everything that is
+  not a secret; polkit decides, and the shell's agent asks. A person's
+  own password is changed by `passwd` on a pseudo-terminal, so the
+  system's password rules apply. Another user's password, or a new
+  user's, is turned into a SHA-512 crypt hash in Control Center and given
+  to the service over D-Bus. No password and no hash is ever part of a
+  command line, and nothing typed is kept or logged. The account that is
+  signed in and the last administrator cannot be removed, and the last
+  administrator cannot be made a standard user. Without AccountsService
+  the page lists the accounts of `/etc/passwd` read-only, and only the
+  own password can be changed.
 - **One audited file writer.** `userfiles.py` stays the only module of
   Control Center that writes or deletes files (a safety test enforces
   it). Its `write_config` accepts a short allow-list of names
@@ -2176,23 +2191,32 @@ Replaces ADR-0026's "native settings pages are planned work".
   had is kept; comments and anything the compositor does not know are
   not. When something cannot be kept, the previous file is copied to
   `compositor.toml.bak` first and the user is told.
-- **Left out:** the Users page (not built; the page stays hidden),
-  editing a proxy (shown read-only), managing VPN connections (status
-  only), a test sound, an automatic suspend time (the compositor has no
-  key for it), identifying monitors, a pointer theme, drawing tablets,
-  more than four keyboard layouts (the limit of XKB).
+- **Passwords set for others are SHA-512 crypt** (5000 rounds), not the
+  yescrypt that Debian 13 uses by default, because the hash is made in
+  Control Center. A person's own password goes through PAM and gets the
+  system's scheme.
+- **Left out:** editing a proxy (shown read-only), managing VPN
+  connections (status only), a test sound, an automatic suspend time (the
+  compositor has no key for it), identifying monitors, a pointer theme,
+  drawing tablets, more than four keyboard layouts (the limit of XKB),
+  locking an account.
 - `boswas-control-center` no longer depends on `kde-cli-tools` and
   `libkf6kcmutils-bin`; it depends on `libglib2.0-bin`, `systemd`,
-  `tzdata`, `xkb-data` and the QtNetwork module instead.
+  `passwd`, `tzdata`, `xkb-data` and the QtNetwork and QtDBus modules
+  instead, and recommends `accountsservice`.
 - **Not verified yet:** every section that talks to a system service ran
   against stand-ins; the real bridge reported "not available" in the
   build environment, which has no NetworkManager, BlueZ, sound server or
   polkit. The display and input sections have three opt-in tests against
   the real compositor on its headless back end, which has one output and
   ignores a scale change on reload: arranging several monitors is tested
-  against a model only.
+  against a model only. The Users page has seen no AccountsService, no
+  polkit and no PAM: the shape of `busctl`'s replies, the conversation
+  with `passwd` (a PAM module that opens the terminal itself would not be
+  answered) and signing in with an account it created are all untried.
 
-**Revisit when** the Users page lands (accounts need AccountsService and
-polkit, a third backend), when an administrator must lock a setting that
-is not policy today, or when settings have to follow a user between
-devices.
+**Revisit when** the first run on a real system shows that the
+conversation with `passwd` or AccountsService differs, when passwords set
+for others must use the system's hashing scheme, when an administrator
+must lock a setting that is not policy today, or when settings have to
+follow a user between devices.

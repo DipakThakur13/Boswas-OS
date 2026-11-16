@@ -183,6 +183,37 @@ to NetworkManager, BlueZ, UPower, logind and the sound server.
 None of this has run against the real daemons; the polkit helper
 protocol in particular is tested against a stand-in only.
 
+### System applications and Settings
+
+The system applications (`boswas-apps`, ADR-0040) and Control Center are
+ordinary clients of the compositor and get no extra rights. Their own
+rules: they refuse to run as root; they start other programs with
+argument lists and never through a shell; they parse file names, file
+contents and terminal output with bounds-checked code and size limits;
+Files asks before it starts a program, an executable script or a desktop
+entry; the Archive Manager extracts without following symbolic links or
+leaving the destination, skips device files, drops set-user-ID bits and
+stops at the size of a decompression bomb; deleting goes to the Trash.
+
+Control Center changes desktop settings through two interfaces only
+(ADR-0041): the service bridge, and the user's layer of the compositor's
+configuration, written by its one audited file writer. It never writes
+`[policy]` or the trusted programs, and since the compositor checks each
+file on its own, a damaged user file cannot remove an administrator's
+policy.
+
+User accounts are changed through AccountsService, which asks polkit. A
+person's own password goes through `passwd` and PAM. A password that an
+administrator sets for someone else is hashed in Control Center as
+SHA-512 crypt and passed to the service over D-Bus, never on a command
+line; that is a weaker scheme than Debian 13's default (yescrypt), and
+`pwquality` is not consulted on that path beyond Control Center's own
+checks.
+
+Boswas maintains this code itself; Debian's security support covers Qt,
+PySide6 and FFmpeg beneath it. None of the applications has run on the
+desktop yet, and none has had a security review.
+
 ### Who is trusted
 
 - **Programs the compositor starts itself**: `boswas-shell` (taskbar,

@@ -130,7 +130,7 @@ network exists; `config/boswas/firmware-required.list` is the build gate.
 | boswas-device-agent | Device agent service, per-user session agent, `boswas-device`. Depends on `boswas-compat`, `openssl` (device key, policy signatures) and `systemd` |
 | boswas-compat-manager | Compatibility Manager GUI. Depends on PySide6 (`python3-pyside6.qtcore`, `qtgui`, `qtwidgets`, Debian's LGPL Qt bindings, about 30 MB with their Qt libraries), on `boswas-branding` for the toolkit and on `boswas-device-agent` |
 | boswas-sysops | The only privileged helper (ADR-0024): fixed operations started with pkexec, one polkit action each. Depends on `apt`, `pkexec`, `polkitd` |
-| boswas-control-center | Control Center, Security Center and Software Center (PySide6, on the toolkit of `boswas-branding`). Depends on `kde-cli-tools` and `libkf6kcmutils-bin`; the Plasma settings modules it can open are no longer installed. Its native settings pages are reserved for ADR-0041 |
+| boswas-control-center | Control Center with native settings (ADR-0041), Security Center and Software Center (PySide6, on the toolkit of `boswas-branding`). Depends on `python3-pyside6.qtnetwork` and `qtdbus`, `qt6-svg-plugins`, `libglib2.0-bin` (`gio launch`), `systemd` (`timedatectl`, `localectl`, `busctl`), `passwd` (the own password), `tzdata` and `xkb-data` (time zones and keyboard layouts it offers); no longer on `kde-cli-tools` and `libkf6kcmutils-bin`. Recommends `boswas-desktop` (the service bridge), `boswas-apps`, `accountsservice` (the Users page), `iproute2`, `locales`, `network-manager` and others |
 | boswas-android | Android runtime manager and APK inspection (ADR-0025). The Android runtime (Waydroid) itself is **not** in the image: it is installed on request after installation |
 | boswas-desktop | The native desktop (ADR-0026 to ADR-0028, ADR-0030, ADR-0033 to ADR-0037): `boswas-compositor`, `boswas-shell` (taskbar, Start, quick settings, notifications, the polkit agent, lock screen, greeter), `boswas-services-bridge` (the same service backends for Settings), the session, the greetd drop-in and the lock screen's PAM service. Rust, `amd64`. Depends on `greetd`, `dbus-user-session`, `libegl1`, `libgles2`, `libgl1-mesa-dri`, `libpam-runtime`, `xkb-data` and, through its shared libraries, libseat, libinput, libudev, GBM, pixman, xkbcommon and PAM. Recommends `boswas-branding`, `breeze-cursor-theme`, `fonts-inter`, `qt6-wayland`, `xwayland`, `xdg-desktop-portal-gtk`, `xdg-desktop-portal-wlr`, `polkitd`, `network-manager`, `bluez`, `pipewire-bin`, `wireplumber`, `upower`, `power-profiles-daemon` (all in the manifest): each is optional at run time, and what it serves shows as not available without it |
 | boswas-bootsplash | The boot, disk-unlock and shutdown screens (ADR-0029, ADR-0038). Rust, `amd64`. Depends on `initramfs-tools`; conflicts with `plymouth`. Build-depends on `fonts-inter`: the glyphs of the typeface are built into the program, and the font itself is not installed by this package |
@@ -164,8 +164,9 @@ Not selected (would arrive with a profile later): LibreOffice, printing
 supersedes the "no X server" of ADR-0026). `xserver-xorg` is not named
 and not pinned.
 
-The system applications of `boswas-apps` are not in the manifest yet:
-reserved, ADR-0040.
+*The rows of this page for the system applications (`boswas-apps`,
+ADR-0040) and for the KDE applications that left the list are being
+revised with the final package list and are not complete.*
 
 ## Build-time only: Rust crates
 

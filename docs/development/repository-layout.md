@@ -31,9 +31,12 @@ created by the milestone that implements them.
 │   ├── branding/                           Boswas OS logo (source/), traced mark,
 │   │                                       Orbitron wordmarks, boot menu, login logo,
 │   │                                       tools
-│   ├── ui/                                 Boswas UI: tokens.json (the Prism palette,
-│   │                                       geometry, type, motion; ADR-0031), the KDE
-│   │                                       colour schemes generated from it, tools, tests
+│   ├── ui/                                 Boswas UI: tokens.json (the Fluent design
+│   │                                       language with the Prism colours; ADR-0033),
+│   │                                       the KDE colour schemes generated from it,
+│   │                                       tools, tests
+│   │   └── qt/                             boswas_fluent, the PySide6 toolkit of the
+│   │                                       Boswas applications (ADR-0039), its tests
 │   ├── fonts/orbitron/                     brand typeface (SIL OFL 1.1)
 │   ├── presets/                            the ten presets (colour schemes, wallpapers,
 │   │                                       Konsole; Plasma Global Themes, unused on the
@@ -54,23 +57,37 @@ created by the milestone that implements them.
 │   ├── boswas-device-agent/                device agent, session agent, boswas-device,
 │   │                                       message schemas, systemd units, unit tests
 │   ├── boswas-compat-manager/              Compatibility Manager (PySide6), unit + Qt tests
-│   ├── boswas-control-center/              Control Center (PySide6), unit + Qt tests
+│   ├── boswas-control-center/              Control Center (PySide6): pages, the native
+│   │                                       settings sections (ui/settings/, ADR-0041),
+│   │                                       unit + Qt tests
+│   ├── boswas-apps/                        the system applications (PySide6, ADR-0040):
+│   │                                       boswas_apps/<application>/, bin/ launchers,
+│   │                                       data/ desktop entries, man/, tests/<application>/
 │   ├── boswas-sysops/                      the privileged helper and its polkit actions
 │   ├── boswas-android/                     Android runtime manager (Waydroid, opt-in)
 │   ├── boswas-desktop/                     the native desktop (Rust workspace, ADR-0026):
 │   │   ├── Cargo.toml, Cargo.lock          workspace and the pinned crate versions
-│   │   ├── crates/boswas-ui/               design tokens, drawing, text, icons (no unsafe)
+│   │   ├── crates/boswas-ui/               design tokens, drawing, text, icons,
+│   │   │                                   materials (no unsafe)
 │   │   ├── crates/boswas-compositor/       the Wayland compositor (Smithay): src/backend
 │   │   │                                   (udev, winit, headless), src/handlers
-│   │   │                                   (protocols), src/shell (windows, frames,
-│   │   │                                   grabs), ipc.rs (control socket), tests/
+│   │   │                                   (protocols, Xwayland, screen capture),
+│   │   │                                   src/shell (windows, frames, window picker,
+│   │   │                                   Task View, snap layouts, window menu),
+│   │   │                                   ipc.rs (control socket), tests/
 │   │   │                                   (end-to-end, headless)
-│   │   ├── crates/boswas-shell/            panel, launcher, wallpaper, lock screen,
-│   │   │                                   greeter, PAM and greetd clients
+│   │   ├── crates/boswas-services/         the session's services: notifications, tray,
+│   │   │                                   network, Bluetooth, audio, power, polkit
+│   │   │                                   agent (no unsafe); README.md, tests/it/
+│   │   ├── crates/boswas-services-bridge/  the same backends for Settings (JSON lines)
+│   │   ├── crates/boswas-shell/            taskbar, Start, quick settings, notifications,
+│   │   │                                   dialogs, wallpaper, lock screen, greeter,
+│   │   │                                   PAM and greetd clients
 │   │   ├── config/                         compositor.toml (defaults and policy),
 │   │   │                                   greeter.toml
 │   │   ├── session/                        boswas-session, greeter, greetd drop-in and
-│   │   │                                   configuration, PAM service, sleep hook
+│   │   │                                   configuration, PAM service, sleep hook,
+│   │   │                                   portal configuration
 │   │   └── man/  debian/
 │   └── boswas-bootsplash/                  boot, disk-unlock and shutdown screens (Rust,
 │                                           ADR-0029): src/, initramfs/ hooks, systemd/
@@ -93,10 +110,11 @@ security/firewall/nftables.conf ──(packages/boswas-security/debian/rules)─
 desktop/…  ─────────────────────(packages/boswas-branding/debian/rules)──▶ boswas-branding.deb
 desktop/ui/tokens.json ─┬─(build_kde_colors.py, build_prism.py; committed output)──▶ colour schemes, icons
                         ├─(compiled in: boswas-ui)──▶ packages/boswas-desktop ──(cargo, debian/rules)──▶ boswas-desktop.deb
-                        └─(build.rs, with desktop/branding artwork)──▶ packages/boswas-bootsplash ──▶ boswas-bootsplash.deb
+                        ├─(build.rs, with desktop/branding artwork and fonts-inter)──▶ packages/boswas-bootsplash ──▶ boswas-bootsplash.deb
+                        └─(installed; read at run time by desktop/ui/qt)──▶ boswas-branding.deb ◀── boswas-apps, Control Center, Compatibility Manager
 crates.io (versions in Cargo.lock) ──(cargo --locked, at package build time)──▶ the two Rust packages
 compatibility/… + packages/boswas-compat ──(packages/boswas-compat/debian/rules)──▶ boswas-compat.deb
-packages/boswas-device-agent, packages/boswas-compat-manager ──(debian/rules)──▶ their .debs
+packages/boswas-device-agent, packages/boswas-compat-manager, packages/boswas-apps ──(debian/rules)──▶ their .debs
 control-plane/ (+ shared agent/compat modules) ──(control-plane/debian/rules)──▶ server/boswas-control-plane.deb
                                                                                │
 config/live-build/ + .debs + rendered branding ──(build/scripts/prepare-live-config.sh)──▶ work/lb

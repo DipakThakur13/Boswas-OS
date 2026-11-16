@@ -58,9 +58,16 @@ class RunDialog(fluent.ContentDialog):
         form.addRow(fluent.Label("Open:"), self.command)
         form.addRow(fluent.Label("Folder:"), self.directory)
         self.content_layout.addLayout(form)
+        # The message has its place from the start, so that the dialog need not grow when one appears.
+        place = QWidget()
+        place.setMinimumHeight(64)
+        holder = QVBoxLayout(place)
+        holder.setContentsMargins(0, 0, 0, 0)
         self.error = fluent.InfoBar("error", closable=False)
         self.error.hide()
-        self.content_layout.addWidget(self.error)
+        holder.addWidget(self.error)
+        holder.addStretch(1)
+        self.content_layout.addWidget(place)
         self.command.returnPressed.connect(lambda: self.done(fluent.ContentDialog.Result.PRIMARY))
         self.directory.returnPressed.connect(lambda: self.done(fluent.ContentDialog.Result.PRIMARY))
 
@@ -76,7 +83,6 @@ class RunDialog(fluent.ContentDialog):
                 self._start(arguments, directory)
             except actions.ActionError as error:
                 self.error.show_message("error", str(error))
-                self._place()
                 self.command.setFocus(Qt.FocusReason.OtherFocusReason)
                 self.command.selectAll()
                 return

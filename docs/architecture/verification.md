@@ -29,7 +29,7 @@ Python suites, which were run). The numbers move as work lands.
 | `desktop/icons` (Python) | 42 | The icon packs |
 | `desktop/presets` (Python) | 75 (2 skipped here) | The presets and `boswas-preset` |
 | `boswas-compat-manager` (Python) | 107 | The Compatibility Manager on the toolkit |
-| `boswas-control-center` (Python) | 538 (4 skipped) when the settings landed; the Users page is adding more | The settings framework and every section against stand-ins (a fake bridge, a model of the compositor's files), the file writer against symbolic links and read-only directories, the safety rules (only one module writes files, only one starts programs, no KDE program is named), the earlier pages |
+| `boswas-control-center` (Python) | 584 (4 skipped) | The settings framework and every section against stand-ins (a fake bridge, a model of the compositor's files), the file writer against symbolic links and read-only directories, the safety rules (only one module writes files, only one starts programs, no KDE program is named), the Users page against a stand-in for AccountsService and a scripted `passwd`, SHA-512 crypt against the specification's vectors, the earlier pages |
 | `boswas-apps` (Python), one suite per application | Terminal 302, Archive Manager 255, Files 229, Photos 204, Calculator 160, Media Player 136, Text Editor 131, Calendar 112, Reminders 103, Document Viewer 90, Clock 58, Camera 39 | Each application's logic (parsers, file operations, the terminal emulator against hostile input, 78 extraction tests with hand-built hostile archives) and its window through real clicks and keys on Qt's offscreen platform, with stand-ins where the real thing would touch the system |
 
 One more `#[test]` in the compositor's end-to-end file is a helper
@@ -107,7 +107,7 @@ Nothing below could be exercised in the build environment.
 | X11 | Xwayland on hardware; the clipboard between X11 and Wayland applications; Wine through Xwayland, and which display driver Wine chooses when both sockets are in its sandbox (ADR-0034) |
 | Input methods | No input method has been run on the compositor; none is in the image |
 | Applications on the desktop | No run of Firefox, Wine or Waydroid on the native compositor is recorded, and none of the Boswas applications or Control Center has been started in a real session (window activation, the primary selection, drag and drop between programs, an input method's window) |
-| Applications and devices | See the next section: a camera, a printer, removable drives, sound, real documents |
+| Applications and devices | See the next section: a camera, removable drives, sound, real documents. Printing was tried to a PDF file only, and the image has no print service (CUPS is not in the manifest) |
 | Settings | Every section that talks to a system service ran against a stand-in: the real bridge reported "not available" here. Arranging several monitors is tested against a model only (the headless back end has one output and ignores a scale change on reload). `timedatectl` and `localectl` changes behind polkit |
 | Performance | Frame times, memory and start-up time of the compositor and the shell. Only the boot screen has measured frame costs, on the build machine |
 | Accessibility and review | No screen reader interface exists for the shell or for what the compositor draws. No external security review and no design review have taken place |
@@ -130,7 +130,7 @@ do on purpose or not yet; "not verified" is what could not be tried here.
 | Camera | Flash, exposure, focus and zoom appear only when the camera reports them | Everything: there is no camera here. Capture, recording, pause, unplugging and the error texts ran against a fake camera |
 | Clock | No choice of alarm sound | The chime (Qt Multimedia crashes in this environment); logind's wake-up signal |
 | Calendar | No accounts and no synchronisation; no printing; resizing by dragging only in the week and day views; it does not notice when another program changes its file; events of a hidden calendar do not remind | Reminders against the real notification service of the shell (tested against a stand-in on a private bus) |
-| Control Center, settings | The Users page; editing a proxy; managing VPN connections; a test sound; an automatic suspend time; identifying monitors; a pointer theme; drawing tablets; more than four keyboard layouts | See the table above |
+| Control Center, settings | Editing a proxy; managing VPN connections; a test sound; an automatic suspend time; identifying monitors; a pointer theme; drawing tablets; more than four keyboard layouts; locking an account. Passwords set for other users are SHA-512 crypt, not Debian 13's default scheme | See the table above. For the Users page: the shape of `busctl`'s replies, the conversation with `passwd` under real PAM modules, polkit's questions through the shell's agent, signing in as a user it created, removing a user with and without the files, the picture on the login screen |
 
 Icons: the applications ask for some symbolic icons the Boswas Prism pack
 does not draw (the reports name them). Ten were added; the others fall
@@ -157,4 +157,5 @@ ADR.
 - The shortcuts are fixed; there is no shortcut editor.
 - There is no office suite and no mail client in the image, and the
   Document Viewer reads PDF only (ADR-0040).
-- Control Center cannot manage user accounts yet (ADR-0041).
+- There is no print service in the image: the applications' Print
+  dialogs can print to a PDF file only.

@@ -147,9 +147,10 @@ registry. There are two backends:
 
 Date and time and region use `timedatectl` and `localectl`; default and
 start-up applications are files in the user's configuration directory.
-`[policy]` and the trusted programs stay the administrator's: Settings
-never writes them and shows a limit set by policy as the organisation's.
-The Users page is not built yet. `docs/experience/control-center.md`
+User accounts go through AccountsService and polkit (the own password
+through `passwd`). `[policy]` and the trusted programs stay the
+administrator's: Settings never writes them and shows a limit set by
+policy as the organisation's. `docs/experience/control-center.md`
 describes every page.
 
 ## Debian upstream and Boswas components
@@ -182,7 +183,7 @@ Licences: Debian components keep their own (see
 | `boswas`, `boswas-info`, `boswas-status` | **Implemented**: read-only, `--json` |
 | WinCompat (`boswas-winapp`, per-app prefixes, sandbox, AppArmor profile, manifests, catalog, policy) | **Implemented** (`boswas-compat`). 64-bit and 32-bit Windows applications (ADR-0022, which supersedes ADR-0014) |
 | Compatibility Manager | **Implemented** (`boswas-compat-manager`, PySide6 on `boswas_fluent`), a client of the user's session agent |
-| Control Center | **Implemented** (`boswas-control-center`, PySide6 on `boswas_fluent`): native settings sections in place of the Plasma modules (ADR-0041), and the Security, Software and Update Centers. The Users page is not built yet. **Its settings have run against stand-ins of the system services only** |
+| Control Center | **Implemented** (`boswas-control-center`, PySide6 on `boswas_fluent`): native settings sections in place of the Plasma modules (ADR-0041), user accounts included, and the Security, Software and Update Centers. **Its settings have run against stand-ins of the system services only** |
 | Device agent, enrollment, heartbeat | **Implemented** (`boswas-device-agent`: system service, per-user session agent, `boswas-device`). Standalone unless a Control Plane is configured |
 | Control Plane, signed policy, fleet dashboard | **Implemented** as a separate server package (`boswas-control-plane`, not on devices); policy hierarchy and organisation model open |
 | Boswas Store, app policy | Milestone 6. `boswas app` reserved |

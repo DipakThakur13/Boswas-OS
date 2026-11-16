@@ -23,7 +23,7 @@ hardware, not a public Linux distribution.
 >   applications; Task Manager is being finished
 > - **native settings** in Boswas Control Center, in place of Plasma's
 >   settings modules: network, Bluetooth, sound, power, display, input,
->   personalization, date and time
+>   personalization, date and time, user accounts
 > - the Boswas OS experience: Boswas OS identity, Boswas UI (the Fluent
 >   design language with the Prism colours, in one token file), the Boswas
 >   Prism icon pack, ten presets, Boswas Control Center (with the Security,
@@ -93,7 +93,7 @@ What it does today:
   monitors (arrangement, resolution, scale, rotation), night light,
   mouse, touchpad, keyboard layouts, colour mode and background, lock and
   screen timeouts, date and time, region, default and start-up
-  applications.
+  applications, user accounts.
 - **Other applications:** any Wayland application, and X11 applications
   through Xwayland. A program gets pictures of the screen only after the
   user has allowed it.
@@ -103,9 +103,9 @@ What it does today:
 | Rust unit tests of the compositor, shell, service backends, UI library and boot screen | Building the ISO with the new manifest |
 | Compositor end-to-end tests on its headless backend with real clients: protocol trust, the control socket, window management, screen capture behind consent, an X11 program, the session lock | The QEMU boot test (`tests/boot/qemu_boot_test.py`, rewritten for the new desktop) |
 | The service backends against stand-ins of NetworkManager, BlueZ, UPower, logind, polkit and the sound server | The same backends against the real daemons; first of all the polkit agent, which every administrator action from the desktop needs |
-| The Qt toolkit, the system applications and the settings sections on Qt's offscreen platform, with stand-ins for cameras, printers, drives and services | The hardware path: DRM/KMS, libinput, libseat (compiled, not run) |
+| The Qt toolkit, the system applications and the settings sections on Qt's offscreen platform, with stand-ins for cameras, drives and services | The hardware path: DRM/KMS, libinput, libseat (compiled, not run) |
 | Three opt-in settings tests against the real compositor on its headless backend | The greetd login on a real boot; the boot screen on real hardware, including the disk-unlock prompt |
-| | The system applications and Control Center on the running desktop, and with real devices (a camera, a printer, removable drives, sound) |
+| | The system applications and Control Center on the running desktop, and with real devices (a camera, removable drives, sound) |
 | | Screen sharing through the portal; Wine and Waydroid on the new desktop |
 | | Whether Debian trixie resolves the new image manifest's dependencies and has every package under the name used |
 
@@ -120,8 +120,9 @@ HDR or variable refresh rate, no screen reader for the shell. The full
 list is in [docs/experience/README.md](docs/experience/README.md#known-gaps).
 
 What the system applications and the settings leave out is listed in
-ADR-0040 and ADR-0041: among other things there is no office suite, the
-Document Viewer reads PDF only, and Control Center has no Users page yet.
+ADR-0040 and ADR-0041: among other things there is no office suite and
+no print service (printing means a PDF file), and the Document Viewer
+reads PDF only.
 
 ## Build
 

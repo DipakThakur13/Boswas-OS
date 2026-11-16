@@ -75,8 +75,11 @@ Plymouth:
 - **Desktop (`boswas-compositor`):** opens the display through DRM/KMS and
   renders with OpenGL ES 2 through GBM and EGL (Mesa). Outputs of the
   primary GPU are used; displays connected to a second GPU are not driven
-  yet. One scale factor applies to all displays. No HDR, no variable
-  refresh rate. The proprietary NVIDIA driver is not supported.
+  yet. Each display has its own mode, scale, position and rotation
+  (Control Center > Display). No HDR, no variable refresh rate. The
+  proprietary NVIDIA driver is not supported. Night light needs a driver
+  with gamma tables. X11 applications run through Xwayland and are drawn
+  at scale 1.
 - **Software rendering:** where Mesa has no hardware driver (virtual
   machines without 3D acceleration, `nomodeset`) it falls back to
   llvmpipe. That is expected to work and is slower; it has **not been
@@ -85,8 +88,16 @@ Plymouth:
   buffers, or a frame buffer (`/dev/fb0`). It follows the switch from the
   firmware frame buffer to the real driver. Without either, boot messages
   and the passphrase prompt appear on the text console.
-- **Input:** keyboards, mice and touchpads through libinput. Touch screens
-  and drawing tablets are not handled by the compositor yet.
+- **Input:** keyboards, mice, touchpads (with gestures), touch screens and
+  drawing tablets through libinput. Only keyboard and pointer input has
+  been exercised, and only as injected events in tests.
+- **Other devices the desktop now talks to:** Wi-Fi and Bluetooth adapters
+  (through NetworkManager and BlueZ), sound devices (PipeWire), the
+  battery and the backlight, cameras (the Camera application, through Qt
+  Multimedia) and removable drives (Files, through UDisks2). None of
+  these paths has run on hardware. Printers are not supported in this
+  image: no print service (CUPS) is in the manifest, so the applications'
+  Print dialogs can print to a PDF file only.
 - **If the graphical login cannot start** (no usable graphics device),
   the login falls back to a text login on the first virtual terminal.
 
@@ -105,9 +116,12 @@ real hardware:
    encryption, firewall, AppArmor and audit.
 4. **Devices:** graphics (internal and external display), Wi-Fi, Bluetooth,
    audio (speakers, microphone), webcam, touchpad and suspend/resume all
-   work. The desktop renders with the hardware driver, not llvmpipe
-   (the compositor's log names the renderer), and the session is locked
-   when the device resumes.
+   work, from the desktop: Wi-Fi and Bluetooth from quick settings, sound
+   and brightness from their keys, the webcam in Camera, an external
+   display arranged in Control Center, night light. The desktop renders
+   with the hardware driver, not llvmpipe (the compositor's log names the
+   renderer), window corners are round, and the session is locked when
+   the device resumes.
 5. **Firmware:** `fwupdmgr get-devices` lists the system firmware where the
    vendor publishes to LVFS.
 6. **Battery:** life is within 20% of the vendor's Linux or Windows figure.
@@ -137,4 +151,6 @@ What has been validated where. "VM" means QEMU under software emulation
 | Native desktop on a display (`boswas-compositor`, DRM/KMS, libinput, libseat) | Not tested. Development only: headless (software) and nested in a window with OpenGL ES on llvmpipe | Not tested |
 | Boot screen and LUKS2 passphrase prompt (`boswas-bootsplash`) | Not tested on a boot. Development only: headless, and the passphrase path with Debian's unlock helper in a scratch root | Not tested |
 | Login screen (greetd, Boswas greeter), lock on suspend | Not tested | Not tested |
+| Quick settings and Settings against the real services (NetworkManager, BlueZ, PipeWire, UPower, polkit) | Not tested (stand-ins only) | Not tested |
+| System applications with devices (camera, removable drives, sound) | Not tested (stand-ins only) | Not tested |
 | Low disk space / low memory | Not tested | Not tested |

@@ -61,9 +61,9 @@ preseeded. **You** always provide:
 
 After the reboot, type the encryption passphrase at the Boswas boot screen
 (one dot per character; Escape switches between the boot screen and the
-text console), then log in at the Boswas login screen with the
-user name and password of the administrator account. The login screen has
-no user list.
+text console), then log in at the Boswas login screen: press a key, choose
+the administrator account from the list (or type another user name) and
+enter its password.
 
 ## 5. Verify
 

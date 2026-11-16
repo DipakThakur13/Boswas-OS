@@ -59,8 +59,20 @@ it when it starts.
   capture (`docs/security/baseline.md`). Pictures the user takes are
   saved to the user's Pictures folder. Neither Boswas OS nor the device
   agent captures the screen, and there is no remote command for it.
-- **Wi-Fi passphrases** typed in quick settings go to NetworkManager,
-  which stores the connection as it does for every other tool.
+- **Wi-Fi passphrases** typed in quick settings or in Control Center go
+  to NetworkManager, which stores the connection as it does for every
+  other tool.
+- **The Boswas applications** keep their settings and state in the
+  user's home, under `~/.config/<application id>/` and
+  `~/.local/state/<application id>/` (for example
+  `com.boswas.Terminal`): window sizes, recent files, the Media Player's
+  library index and play queue, the Text Editor's last session including
+  text that was not saved, Clock's alarms and Calendar's events. None of
+  it is sent anywhere. The applications use the network only where that
+  is the function the user asked for (the Media Player playing an
+  address); the Calculator and the Calendar never do.
+- **Settings** (Control Center) writes only the settings files listed in
+  `docs/experience/control-center.md`, all in the user's home.
 
 ## Windows applications (WinCompat)
 

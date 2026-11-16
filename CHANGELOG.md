@@ -28,7 +28,7 @@ Verification status of the native desktop
   compositor end-to-end tests on the headless backend with real clients;
   the service backends against stand-ins of the system daemons; the Qt
   toolkit, the system applications and the settings on Qt's offscreen
-  platform; the static test stage.
+  platform.
 - **Not yet verified:** the ISO build with the new manifest; the QEMU boot
   test; the hardware path (DRM/KMS, libinput, libseat); the greetd login on
   a real boot; the boot screen on real hardware and its disk-unlock prompt;
@@ -285,7 +285,9 @@ Verification status of the native desktop
     layouts, colour mode, background, motion, and the lock and screen-off
     times, by writing the compositor's user configuration;
   - date and time, region and language, default and start-up
-    applications, recent files.
+    applications, recent files;
+  - user accounts: your picture, name and password, other people's
+    accounts, adding and removing users, through AccountsService.
   - The sidebar search finds a setting and jumps to it; a second start
     brings the running window forward. The program is built on the Boswas
     Qt toolkit, and no KDE helper program is used any more.
@@ -393,8 +395,9 @@ Verification status of the native desktop
   show through.
 - **Quick settings and Settings** *(native desktop)*: Bluetooth devices
   that need a PIN cannot be paired, and enterprise Wi-Fi (802.1X) cannot
-  be set up. Control Center has no Users page yet, shows the proxy
-  read-only and VPN connections as status only.
+  be set up. Control Center shows the proxy read-only and VPN connections
+  as status only. A password that an administrator sets for another user
+  is stored as SHA-512 crypt, not with Debian's default scheme.
 - **Screen sharing** *(native desktop)*: the portal for it is installed
   and has not been tested; it shares the first monitor.
 - **Input methods** *(native desktop)*: the compositor supports one, none

@@ -193,6 +193,14 @@ reads JSON Lines, shows progress, offers Cancel only while the last `start` /
 `progress` line says `cancellable`, and reports success only on a `result`
 line with `ok: true`.
 
+Its settings sections (ADR-0041) use two interfaces of section 4 and
+nothing else of the desktop: the service bridge, started by its fixed
+path without arguments, one per window; and the compositor's user
+configuration, which it writes through its one file writer
+(`userfiles.write_config`) before sending `reload-config` to the public
+control socket, with `outputs` for the monitors. It never writes
+`[policy]`, `[shell]`, `[input_method]` or `[lock] command`.
+
 ## 4. Boswas Desktop: configuration, control socket, service bridge, tokens
 
 ### Compositor configuration (TOML)

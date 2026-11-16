@@ -322,6 +322,7 @@ the page list finds a setting and jumps to it.
 | Lock timeout | Control Center > Security. It ends at the limit the organisation set, which the page shows |
 | Date and time, time zone, region and language | Control Center > System |
 | Default applications, start-up applications | Control Center > Applications |
+| Your account (picture, name, password), other users, adding and removing users | Control Center > Users. Changes to other accounts ask for an administrator's password |
 | Software, updates, security, Windows and Android applications | Control Center |
 
 Display, input, appearance and the timeouts are the compositor's
@@ -358,9 +359,8 @@ What it cannot keep (comments, a key the compositor does not know) is not
 dropped silently: the previous file is saved as `compositor.toml.bak`
 first, and Control Center says so.
 
-Not in Settings yet: user accounts (the Users page is not built), editing
-a proxy, managing VPN connections, drawing tablets, an automatic suspend
-time.
+Not in Settings yet: editing a proxy, managing VPN connections, drawing
+tablets, an automatic suspend time.
 
 ## Known gaps
 
@@ -380,7 +380,8 @@ The native desktop does not have, or has not shown yet:
 - **Bluetooth devices that need a PIN or passkey,** and **enterprise
   Wi-Fi (802.1X):** neither can be set up from quick settings or from
   Control Center.
-- **User accounts in Settings,** an office suite and a mail client.
+- **An office suite, a mail client and a print service** (Print saves a
+  PDF file).
 - **What the system applications leave out** next to the KDE applications
   they replace, for example syntax highlighting, PDF annotations and
   split terminal panes (ADR-0040 has the list).
