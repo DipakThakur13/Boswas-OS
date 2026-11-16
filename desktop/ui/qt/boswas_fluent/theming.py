@@ -184,7 +184,9 @@ class ThemeManager(QObject):
         from . import icons
         icons.clear_cache()
         for widget in app.allWidgets():
-            widget.update()
+            # QWidget.update explicitly: on item views PySide6 6.8 resolves
+            # widget.update() to QAbstractItemView.update(QModelIndex).
+            QWidget.update(widget)
 
     def _rewatch(self) -> None:
         if self._watcher is None:
@@ -294,4 +296,4 @@ def repolish(widget: QWidget) -> None:
     style = widget.style()
     style.unpolish(widget)
     style.polish(widget)
-    widget.update()
+    QWidget.update(widget)          # not widget.update(): item views shadow it (see _restyle)

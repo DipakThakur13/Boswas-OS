@@ -490,6 +490,11 @@ class TrackTable(QTableView):
         else:
             self.songs.unsorted()
         self.setAccessibleName("Songs")
+        # Qt's corner button (select all) has no name of its own. It never shows (the vertical header
+        # is hidden), but accessibility tools still list it.
+        corner = self.findChild(QAbstractButton, "", Qt.FindChildOption.FindDirectChildrenOnly)
+        if corner is not None:
+            corner.setAccessibleName("Select all songs")
 
     def selected_songs(self) -> list[Song]:
         rows = sorted({index.row() for index in self.selectionModel().selectedRows()})

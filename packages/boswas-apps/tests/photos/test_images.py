@@ -683,7 +683,11 @@ class SaveTest(ImageCase):
 
     def test_transparency(self):
         source = quadrants(alpha=True)
-        source.setPixelColor(0, 0, QColor(0, 0, 0, 0))
+        # A block, not one pixel: JPEG shares colour between neighbouring pixels (chroma
+        # subsampling), so a single white pixel beside red comes back pink.
+        for x in range(8):
+            for y in range(8):
+                source.setPixelColor(x, y, QColor(0, 0, 0, 0))
         report = imageio.save(source, str(self.pics / "t.jpg"), quality=100)
         self.assertIn("transparency (now white)", report.lost)
         self.assertTrue(near(rgb(decode.load(report.path).image, 0, 0), WHITE, 30))
