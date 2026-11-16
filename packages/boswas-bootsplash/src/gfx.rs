@@ -2,9 +2,9 @@
 //!
 //! Small and self-contained on purpose: solid fills, premultiplied image and
 //! coverage-mask blits, area-averaging image scaling, and shapes drawn from
-//! signed distance functions (anti-aliased rounded rectangles, discs and the
-//! progress arc). Every operation takes a clip rectangle, which is how the
-//! scene redraws only the part of the screen that changed.
+//! signed distance functions (anti-aliased rounded rectangles and discs).
+//! Every operation takes a clip rectangle, which is how the scene redraws
+//! only the part of the screen that changed.
 
 /// An opaque sRGB colour.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -149,8 +149,8 @@ pub struct Mask {
 
 /// Resample interleaved 8-bit channels with an area-averaging (box) filter.
 ///
-/// Used once per display size for the mark, the wordmark and each glyph, so
-/// clarity matters more than speed. Returns `dw * dh * channels` bytes.
+/// Used once per display size for the mark, so clarity matters more than
+/// speed. Returns `dw * dh * channels` bytes.
 pub fn resample(src: &[u8], sw: usize, sh: usize, channels: usize, dw: usize, dh: usize) -> Vec<u8> {
     if sw == 0 || sh == 0 || dw == 0 || dh == 0 || src.len() < sw * sh * channels {
         return vec![0; dw * dh * channels];
@@ -378,10 +378,16 @@ impl Canvas {
 
     /// Anti-aliased filled disc.
     pub fn fill_circle(&mut self, cx: f32, cy: f32, radius: f32, colour: Rgb, clip: &Rect) {
+        self.fill_circle_faded(cx, cy, radius, colour, 1.0, clip);
+    }
+
+    /// Anti-aliased filled disc at `opacity` (0..=1) over what is there.
+    pub fn fill_circle_faded(&mut self, cx: f32, cy: f32, radius: f32, colour: Rgb, opacity: f32, clip: &Rect) {
+        let opacity = opacity.clamp(0.0, 1.0);
         let area = bounding_rect(cx - radius, cy - radius, radius * 2.0, radius * 2.0, 1.0);
         self.shade(&area, clip, |px, py| {
             let d = ((px - cx).powi(2) + (py - cy).powi(2)).sqrt() - radius;
-            Some((colour, 0.5 - d))
+            Some((colour, (0.5 - d).clamp(0.0, 1.0) * opacity))
         });
     }
 }
@@ -499,6 +505,19 @@ mod tests {
         d.fill_round_rect(4.0, 4.0, 32.0, 12.0, 6.0, white, &Rect::new(0, 0, 10, 20));
         assert_eq!(d.pixel(20, 10), Rgb::new(0, 0, 0));
         assert_eq!(d.pixel(8, 10), white);
+    }
+
+    #[test]
+    fn a_faded_disc_is_a_mix_with_what_is_beneath() {
+        let mut c = Canvas::new(20, 20);
+        c.fill_rect(&c.bounds(), Rgb::new(20, 20, 20));
+        c.fill_circle_faded(10.0, 10.0, 4.0, Rgb::new(220, 220, 220), 0.5, &c.bounds());
+        assert_eq!(c.pixel(10, 10), Rgb::new(120, 120, 120));
+        assert_eq!(c.pixel(2, 2), Rgb::new(20, 20, 20));
+        c.fill_circle_faded(10.0, 10.0, 4.0, Rgb::new(220, 220, 220), 0.0, &c.bounds());
+        assert_eq!(c.pixel(10, 10), Rgb::new(120, 120, 120), "a transparent disc changes nothing");
+        c.fill_circle(10.0, 10.0, 4.0, Rgb::new(220, 220, 220), &c.bounds());
+        assert_eq!(c.pixel(10, 10), Rgb::new(220, 220, 220));
     }
 
     #[test]

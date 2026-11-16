@@ -9,17 +9,25 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use boswas_bootsplash::assets;
+use boswas_bootsplash::gfx::Rect;
 use boswas_bootsplash::proto::{self, Request, Response};
 use boswas_bootsplash::scene::Mode;
 use common::*;
 
 fn prompt_shown(frame: &Frame) -> bool {
-    frame.count(&frame.layout().field, assets::FIELD_FILL) > 500
+    frame.prompt_shown()
 }
 
-fn arc_shown(frame: &Frame) -> bool {
-    frame.count(&frame.layout().arc, assets::TRACK) > 20
+fn ring_shown(frame: &Frame) -> bool {
+    frame.ring_shown()
 }
+
+/// The boot screen without a prompt: the ring, and no text box.
+fn ring_alone(frame: &Frame) -> bool {
+    frame.ring_shown() && !frame.prompt_shown()
+}
+
+const REJECTED: &str = "cryptsetup: ERROR: sda3_crypt: cryptsetup failed, bad password or options?";
 
 #[test]
 fn control_requests_change_the_picture() {
@@ -27,30 +35,45 @@ fn control_requests_change_the_picture() {
     splash.ok(Request::Ping);
     let frame = splash.snapshot();
     let l = frame.layout();
+    let screen = Rect::new(0, 0, 1280, 720);
     assert_eq!((frame.width, frame.height), (1280, 720));
     assert_eq!(frame.pixel(3, 3), assets::BACKGROUND);
-    assert!(frame.count(&l.wordmark, assets::TEXT) > 300, "the wordmark is drawn");
-    assert!(arc_shown(&frame));
-    assert_eq!(frame.count(&l.boot_message, assets::BACKGROUND), l.boot_message.area() as usize);
+    // The boot screen: the mark, the ring, and nothing else.
+    assert!(frame.ink(&l.mark) > (l.mark.area() / 6) as usize, "the mark is drawn");
+    assert!(ring_shown(&frame));
+    assert_eq!(frame.ink(&screen), frame.ink(&l.mark) + frame.ink(&l.spinner), "no wordmark, no text");
 
+    // A message is one line under the ring, and goes away again.
     splash.ok(Request::Message { text: "cryptsetup: sda3_crypt: set up successfully".into() });
     let frame = splash.snapshot();
-    assert!(frame.count(&l.boot_message, assets::TEXT_MUTED) > 50, "an informational message is muted");
-    splash.ok(Request::Message {
-        text: "cryptsetup: ERROR: sda3_crypt: cryptsetup failed, bad password or options?".into(),
-    });
+    let message = frame.ink(&l.boot_message);
+    assert!(message > 300, "an informational message is shown");
+    assert_eq!(frame.tinted(&l.boot_message, assets::DANGER), 0);
+    splash.ok(Request::Message { text: "cryptsetup: ERROR: sda3_crypt: maximum number of tries exceeded".into() });
     let frame = splash.snapshot();
-    assert!(frame.count(&l.boot_message, assets::DANGER) > 50, "an error message is in the danger colour");
+    assert!(frame.tinted(&l.boot_message, assets::DANGER) > 200, "an error message is in the danger colour");
     splash.ok(Request::Message { text: String::new() });
-    let frame = splash.snapshot();
-    assert_eq!(frame.count(&l.boot_message, assets::BACKGROUND), l.boot_message.area() as usize);
+    assert_eq!(splash.snapshot().ink(&l.boot_message), 0);
 
+    // Progress is a percentage on the same line.
     splash.ok(Request::Progress(60));
-    assert!(splash.snapshot().count(&l.arc, assets::ACCENT_DEEP) > 20);
+    let percentage = splash.snapshot().ink(&l.boot_message);
+    assert!(percentage > 30 && percentage < message / 3, "three characters, \"60%\": {percentage}");
+
+    // Shutdown: the ring and its line in the middle of the screen, no mark.
     splash.ok(Request::Mode(Mode::Shutdown));
-    assert!(splash.snapshot().count(&l.status, assets::TEXT_SECONDARY) > 50, "shutdown shows its status line");
+    let frame = splash.snapshot();
+    assert!(frame.ink(&l.status) > 200, "shutdown shows its status line");
+    assert!(frame.count(&l.busy_spinner, assets::TEXT) >= 6, "and the ring above it");
+    let drawn = frame.ink(&l.busy_spinner) + frame.ink(&l.status) + frame.ink(&l.busy_message);
+    assert_eq!(frame.ink(&screen), drawn, "and nothing else");
+    assert!(frame.ink(&l.busy_spinner) < 200, "five dots, not the mark");
+    splash.ok(Request::Mode(Mode::Reboot));
+    assert_ne!(splash.snapshot().ink(&l.status), frame.ink(&l.status), "restart says something else");
     splash.ok(Request::Mode(Mode::Boot));
-    assert_eq!(splash.snapshot().count(&l.status, assets::TEXT_SECONDARY), 0);
+    let frame = splash.snapshot();
+    assert_eq!(frame.ink(&l.status), 0);
+    assert!(frame.ink(&l.mark) > (l.mark.area() / 6) as usize && ring_shown(&frame));
 
     splash.ok(Request::Quit { retain: None });
     let status = splash.wait_exit(Duration::from_secs(5)).expect("the daemon exits when told to quit");
@@ -60,23 +83,26 @@ fn control_requests_change_the_picture() {
 }
 
 #[test]
-fn the_animation_advances_and_stays_inside_the_arc() {
+fn the_animation_advances_and_stays_inside_the_ring() {
     let mut splash = Splash::start("animate", "1024x768", &[]);
-    let first = splash.snapshot();
-    std::thread::sleep(Duration::from_millis(250));
-    let second = splash.snapshot();
-    let arc = first.layout().arc;
-    let mut changed_inside = 0;
-    for y in 0..first.height as i32 {
-        for x in 0..first.width as i32 {
-            if first.pixel(x, y) != second.pixel(x, y) {
-                let inside = x >= arc.x && x < arc.right() && y >= arc.y && y < arc.bottom();
-                assert!(inside, "pixel {x},{y} changed outside the arc");
-                changed_inside += 1;
-            }
-        }
+    let ring = splash.snapshot().layout().spinner;
+    assert!(ring.area() < 48 * 48, "the ring is small: {ring:?}");
+    // A second and a half of the ring: whatever changes between two frames
+    // is inside its rectangle, and it does change.
+    let mut last = splash.snapshot();
+    let mut moved = 0;
+    for _ in 0..15 {
+        std::thread::sleep(Duration::from_millis(100));
+        let frame = splash.snapshot();
+        let changed = frame.changed(&last);
+        assert!(ring.contains(&changed), "pixels changed outside the ring: {changed:?}");
+        moved += usize::from(!changed.is_empty());
+        last = frame;
     }
-    assert!(changed_inside > 20, "the comet moved");
+    assert!(moved >= 10, "the dots moved in {moved} of 15 frames");
+    // Nothing but the mark and the dots is on screen.
+    let l = last.layout();
+    assert_eq!(last.ink(&Rect::new(0, 0, 1024, 768)), last.ink(&l.mark) + last.ink(&ring));
 }
 
 #[test]
@@ -132,19 +158,25 @@ fn passphrase_through_the_plymouth_compatible_client() {
         .unwrap();
     let frame = splash.wait_for("the prompt", prompt_shown);
     let l = frame.layout();
-    assert!(frame.count(&l.prompt, assets::TEXT) > 100, "the prompt text is shown");
-    assert!(frame.count(&l.field, assets::ACCENT) > 100, "the field has its focus ring");
-    assert!(!arc_shown(&frame), "the arc gives way to the prompt");
-    let empty = frame.count(&l.field, assets::TEXT);
+    assert!(frame.ink(&l.title) > 300, "the title is shown");
+    assert!(frame.ink(&l.detail) > 100, "the name of the disk is shown");
+    assert!(frame.count(&l.text_box, assets::ACCENT) > 600, "the text box has the accent line of a focused control");
+    assert!(frame.ink(&l.prompt_line) > 100, "the hint is shown");
+    assert!(frame.ink(&l.mark) > (l.mark.area() / 6) as usize, "the mark stays");
+    assert_eq!(frame.ink(&l.spinner), 0, "the ring gives way to the prompt");
+    assert!(matches!(frame.typed(), Some((0, _))), "an empty box: {:?}", frame.typed());
 
     // Typing shows dots, never characters; editing keys work.
+    let dots = |n: usize| move |f: &Frame| matches!(f.typed(), Some((typed, _)) if typed == n);
     splash.pty.type_keys(b"wrong");
-    let frame = splash.wait_for("five dots", |f| f.count(&f.layout().field, assets::TEXT) > empty + 60);
-    let five = frame.count(&l.field, assets::TEXT);
+    splash.wait_for("five dots", dots(5));
     splash.pty.type_keys(b"\x7f\x7f");
-    splash.wait_for("three dots", |f| f.count(&f.layout().field, assets::TEXT) < five);
+    splash.wait_for("three dots", dots(3));
     splash.pty.type_keys(b"\x15");
-    splash.wait_for("an empty field", |f| f.count(&f.layout().field, assets::TEXT) == empty);
+    splash.wait_for("an empty box", dots(0));
+    // The caret blinks: both halves of the blink are seen.
+    splash.wait_for("the caret", |f| f.typed() == Some((0, true)));
+    splash.wait_for("the caret to go out", |f| f.typed() == Some((0, false)));
     // Arrow keys and other sequences are not part of the passphrase.
     splash.pty.type_keys(b"\x1b[A");
     splash.pty.type_keys("correct h\u{f6}rse \u{20ac}".as_bytes());
@@ -153,7 +185,7 @@ fn passphrase_through_the_plymouth_compatible_client() {
     let (code, stdout) = wait_child(ask, Duration::from_secs(5));
     assert_eq!(code, Some(0));
     assert_eq!(stdout, "correct h\u{f6}rse \u{20ac}".as_bytes(), "exactly the passphrase, no newline");
-    splash.wait_for("the arc again", arc_shown);
+    splash.wait_for("the ring again", ring_alone);
 
     // Messages and the other commands scripts use.
     assert!(splash
@@ -162,7 +194,7 @@ fn passphrase_through_the_plymouth_compatible_client() {
         .status()
         .unwrap()
         .success());
-    splash.wait_for("the message", |f| f.count(&f.layout().boot_message, assets::TEXT_MUTED) > 50);
+    splash.wait_for("the message", |f| f.ink(&f.layout().boot_message) > 300);
     assert!(splash.plymouth().args(["display-message", "--text="]).status().unwrap().success());
     assert!(splash.plymouth().args(["update", "--status=x"]).status().unwrap().success());
     assert!(!splash.plymouth().arg("frobnicate").stderr(Stdio::null()).status().unwrap().success());
@@ -176,6 +208,75 @@ fn passphrase_through_the_plymouth_compatible_client() {
 }
 
 #[test]
+fn a_rejected_passphrase_is_reported_and_the_picture_never_shows_what_was_typed() {
+    // Without animation every frame is the same for the same state, so
+    // frames can be compared pixel for pixel.
+    let mut splash = Splash::start("rejected", "1366x768", &["--static"]);
+    let ask = |splash: &Splash| {
+        splash
+            .plymouth()
+            .args(["ask-for-password", "--prompt", "Please unlock disk sda3_crypt"])
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap()
+    };
+    let first = ask(&splash);
+    let empty = splash.wait_for("the prompt", prompt_shown);
+    let l = empty.layout();
+    assert_eq!(empty.typed(), Some((0, true)));
+    assert_eq!(empty.ink(&l.prompt_second_line), 0, "one line under the box: the hint");
+
+    // Five characters are five dots, whatever the characters are: the
+    // frame for one passphrase is the frame for any other of that length.
+    splash.pty.type_keys(b"wrong");
+    let wrong = splash.wait_for("five dots", |f| f.typed() == Some((5, true)));
+    assert!(l.text_box.contains(&wrong.changed(&empty)), "typing changes nothing outside the box");
+    splash.pty.type_keys(b"\x15");
+    splash.wait_for("an empty box", |f| f.typed() == Some((0, true)));
+    let other = "MW@\u{e9}\u{20ac}";
+    splash.pty.type_keys(other.as_bytes());
+    let frame = splash.wait_for("five dots again", |f| f.typed() == Some((5, true)));
+    assert!(frame.rgb == wrong.rgb, "the picture depends only on the number of characters");
+    // A long passphrase shows 24 dots and no more.
+    splash.pty.type_keys(&[b'x'; 40]);
+    let long = splash.wait_for("the most dots", |f| f.typed() == Some((24, true)));
+    splash.pty.type_keys(&[b'y'; 40]);
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(splash.snapshot().rgb == long.rgb);
+    splash.pty.type_keys(b"\r");
+    let (code, stdout) = wait_child(first, Duration::from_secs(5));
+    assert_eq!((code, stdout.len()), (Some(0), other.len() + 80), "all of it reaches the client");
+    splash.wait_for("the ring again", ring_alone);
+
+    // cryptsetup rejects it: the initramfs script reports that and asks again.
+    assert!(splash.plymouth().args(["message", &format!("--text={REJECTED}")]).status().unwrap().success());
+    let frame =
+        splash.wait_for("the error under the ring", |f| f.tinted(&f.layout().boot_message, assets::DANGER) > 100);
+    assert!(ring_shown(&frame));
+    let second = ask(&splash);
+    let frame = splash.wait_for("the prompt again", prompt_shown);
+    assert_eq!(frame.typed(), Some((0, true)), "what was typed before is gone");
+    assert!(frame.tinted(&l.prompt_line, assets::DANGER) > 150, "the error is under the box, in the danger colour");
+    assert_eq!(frame.tinted(&l.prompt_second_line, assets::DANGER), 0);
+    assert!(frame.ink(&l.prompt_second_line) > 100, "and the hint is under the error");
+    // A short line: no wider than the box, where the script's own message
+    // would run far beyond it.
+    if assets::TYPEFACE == "Inter" {
+        let beside = Rect::new(l.prompt_line.x, l.prompt_line.y, l.text_box.x - l.prompt_line.x, l.prompt_line.h);
+        assert!(beside.w > 100 && frame.ink(&beside) == 0);
+    }
+    // The box is where it was (no animation: it does not shake).
+    assert!(l.prompt_line.union(&l.prompt_second_line).contains(&frame.changed(&empty)));
+
+    // The next attempt: Enter takes the error away with the prompt.
+    splash.pty.type_keys(b"right\r");
+    let (code, stdout) = wait_child(second, Duration::from_secs(5));
+    assert_eq!((code, stdout), (Some(0), b"right".to_vec()));
+    let frame = splash.wait_for("the ring again", ring_alone);
+    assert_eq!(frame.ink(&l.boot_message), 0, "the error does not outlive the attempt it was about");
+}
+
+#[test]
 fn a_prompt_ends_when_its_client_goes_away() {
     let mut splash = Splash::start("cancel", "1024x768", &["--static"]);
     let mut ask = splash.client().args(["ask-password", "--prompt", "First"]).stdout(Stdio::piped()).spawn().unwrap();
@@ -184,7 +285,7 @@ fn a_prompt_ends_when_its_client_goes_away() {
     // askpass kills the client with SIGKILL when another method wins.
     ask.kill().unwrap();
     ask.wait().unwrap();
-    splash.wait_for("the arc again", arc_shown);
+    splash.wait_for("the ring again", ring_alone);
 
     // Two prompts queue up and each gets its own answer.
     let first = splash.client().args(["ask-password", "--prompt", "One"]).stdout(Stdio::piped()).spawn().unwrap();
@@ -245,7 +346,7 @@ fn escape_hides_the_screen_and_the_console_takes_over() {
     );
     // Escape again brings the boot screen back, up to date.
     splash.pty.type_keys(b"\x1b");
-    splash.wait_for("the message on screen", |f| f.count(&f.layout().boot_message, assets::TEXT_MUTED) > 50);
+    splash.wait_for("the message on screen", |f| f.ink(&f.layout().boot_message) > 300);
     // The client commands do the same.
     assert!(splash.client().arg("hide").status().unwrap().success());
     assert!(splash.client().arg("show").status().unwrap().success());
@@ -420,7 +521,7 @@ fn systemd_password_requests_are_answered_on_the_boot_screen() {
         .unwrap();
     splash.wait_for("the second prompt", prompt_shown);
     std::fs::remove_file(ask_dir.join("ask.3c4d")).unwrap();
-    splash.wait_for("the arc again", arc_shown);
+    splash.wait_for("the ring again", ring_alone);
 
     // The agent leaves when the boot screen does.
     splash.ok(Request::Quit { retain: None });

@@ -21,14 +21,15 @@ use crate::output::headless::HeadlessOutput;
 use crate::output::{open_display, Output};
 use crate::proto::{self, FrameReader, Request, Response};
 use crate::sandbox;
-use crate::scene::{Mode, PromptView, Scene, Tone, View};
+use crate::scene::{self, Mode, PromptView, Scene, Tone, View};
 use crate::sys;
 use crate::tty::{Console, DEFAULT_TTY};
 
-/// Seconds for one turn of the progress arc.
-const TURN_SECS: f32 = 1.6;
 /// Time between animation frames (30 frames a second at most).
 const FRAME: Duration = Duration::from_millis(33);
+/// How often the loop looks at slow things while nothing moves: the Caps
+/// Lock state during a prompt, a display that went away.
+const POLL: Duration = Duration::from_millis(250);
 /// How long an informational message stays on screen.
 const INFO_TTL: Duration = Duration::from_secs(6);
 /// How long an error message stays on screen.
@@ -43,7 +44,8 @@ const MAX_ASKS: usize = 8;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Options {
     pub mode: Mode,
-    /// Animate the progress arc.
+    /// Animate: the ring turns, the caret blinks, a rejected passphrase
+    /// shakes the text box.
     pub animate: bool,
     /// Start even if the kernel command line does not ask for a splash.
     pub force: bool,
@@ -233,6 +235,11 @@ pub struct Daemon {
     lost_since: Option<Instant>,
     started: Instant,
     last_frame: Instant,
+    /// When the caret last started a blink: the prompt appeared or a key
+    /// was pressed.
+    caret_from: Instant,
+    /// When the text box started shaking, while it does.
+    shake_from: Option<Instant>,
     next_probe: Instant,
     quit: Option<Option<u16>>,
 }
@@ -363,6 +370,8 @@ impl Daemon {
             lost_since: None,
             started: now,
             last_frame: now,
+            caret_from: now,
+            shake_from: None,
             next_probe: now,
             quit: None,
         };
@@ -377,32 +386,46 @@ impl Daemon {
         };
     }
 
-    fn view(&self) -> View {
-        let phase = if self.opts.animate { (self.started.elapsed().as_secs_f32() / TURN_SECS).fract() } else { 0.0 };
-        View {
-            mode: self.mode,
-            prompt: self.asks.front().map(|ask| PromptView {
-                text: ask.prompt.clone(),
-                dots: self.passphrase.chars(),
-                caps_lock: self.caps_lock,
-            }),
-            message: self.message.as_ref().map(|m| (m.text.clone(), m.tone)),
-            progress: self.progress,
-            phase,
-        }
-    }
-
     /// Draw what changed and send it to the display.
     fn render(&mut self) {
         if self.hidden {
             return;
         }
-        let view = self.view();
+        let now = Instant::now();
+        // Without animation the ring rests, the caret stays and nothing shakes.
+        let animate = self.opts.animate;
+        let phase = if animate {
+            (now.duration_since(self.started).as_secs_f32() / scene::SPINNER_SECS).fract()
+        } else {
+            scene::REST_PHASE
+        };
+        let caret = !animate || scene::caret_visible(now.duration_since(self.caret_from));
+        let shake = match self.shake_from {
+            Some(since) if animate => scene::shake_offset(now.duration_since(since)),
+            _ => 0.0,
+        };
+        // The view borrows the prompt and the message; nothing is copied for a frame.
+        let (passphrase, caps_lock) = (&self.passphrase, self.caps_lock);
+        let view = View {
+            mode: self.mode,
+            prompt: self.asks.front().map(|ask| PromptView {
+                text: &ask.prompt,
+                dots: passphrase.chars(),
+                caps_lock,
+                caret,
+                shake,
+            }),
+            message: self.message.as_ref().map(|m| (m.text.as_str(), m.tone)),
+            progress: self.progress,
+            phase,
+        };
         let Some(output) = self.output.as_mut() else { return };
         let mut lost = false;
         for (index, scene) in self.scenes.iter_mut().enumerate() {
-            let damage = scene.render(&view);
-            if !damage.is_empty() && output.present(index, scene.canvas(), &damage).is_err() {
+            if scene.render(&view).is_empty() {
+                continue;
+            }
+            if output.present(index, scene.canvas(), scene.damage()).is_err() {
                 lost = true;
                 break;
             }
@@ -449,11 +472,25 @@ impl Daemon {
         !self.asks.is_empty()
     }
 
+    /// How long the loop may sleep: until the next frame of whatever moves.
     fn timeout(&self) -> Duration {
-        if self.output.is_none() || self.prompting() {
-            return Duration::from_millis(250);
+        if self.output.is_none() {
+            return POLL;
         }
-        if self.hidden || !self.opts.animate {
+        let moving = self.opts.animate && !self.hidden;
+        if self.prompting() {
+            if !moving {
+                return POLL;
+            }
+            if self.shake_from.is_some() {
+                return FRAME.saturating_sub(self.last_frame.elapsed());
+            }
+            // The caret changes every CARET_BLINK; nothing else moves.
+            let blink = scene::CARET_BLINK.as_nanos();
+            let into = self.caret_from.elapsed().as_nanos() % blink;
+            return Duration::from_nanos((blink - into) as u64).min(POLL);
+        }
+        if !moving {
             return Duration::from_millis(500);
         }
         FRAME.saturating_sub(self.last_frame.elapsed())
@@ -522,6 +559,9 @@ impl Daemon {
         }
         if self.prompting() {
             self.caps_lock = self.console.as_ref().is_some_and(Console::caps_lock);
+        }
+        if self.shake_from.is_some_and(|since| now.duration_since(since) >= scene::SHAKE) {
+            self.shake_from = None;
         }
         if let Some(output) = self.output.as_mut() {
             if !output.alive() {
@@ -622,10 +662,18 @@ impl Daemon {
 
     fn begin_prompt(&mut self) {
         self.passphrase.clear();
+        self.shake_from = None;
         if self.asks.is_empty() {
             return;
         }
         self.caps_lock = self.console.as_ref().is_some_and(Console::caps_lock);
+        let now = Instant::now();
+        self.caret_from = now;
+        // The disk-unlock scripts report a rejected passphrase with a
+        // message and then ask again: the new prompt opens with a shake.
+        if self.message.as_ref().is_some_and(|m| m.tone == Tone::Error && now < m.expires) {
+            self.shake_from = Some(now);
+        }
         if self.hidden {
             self.begin_prompt_line();
         }
@@ -659,7 +707,11 @@ impl Daemon {
                             console.print(&line);
                         }
                     }
-                    self.message = Some(Message { text, tone, expires: Instant::now() + ttl });
+                    let now = Instant::now();
+                    if tone == Tone::Error && self.prompting() {
+                        self.shake_from = Some(now);
+                    }
+                    self.message = Some(Message { text, tone, expires: now + ttl });
                 }
                 Some(Response::Ok)
             }
@@ -727,6 +779,8 @@ impl Daemon {
                 Key::Enter if self.prompting() => self.finish_prompt(),
                 key if self.prompting() => {
                     self.passphrase.apply(key);
+                    // The caret is solid while typing, as in any text box.
+                    self.caret_from = Instant::now();
                 }
                 _ => {} // nothing is asking: typed characters are dropped
             }
@@ -927,6 +981,8 @@ mod tests {
         taken_over: bool,
         display_available: bool,
         presents: usize,
+        /// The rectangles of the last frame presented.
+        damage: Vec<crate::gfx::Rect>,
     }
 
     struct Mock(Arc<Mutex<Shared>>);
@@ -942,13 +998,14 @@ mod tests {
             &mut self,
             _index: usize,
             _canvas: &crate::gfx::Canvas,
-            _damage: &[crate::gfx::Rect],
+            damage: &[crate::gfx::Rect],
         ) -> io::Result<()> {
             let mut shared = self.0.lock().unwrap();
             if shared.fail_present {
                 return Err(io::Error::from_raw_os_error(libc::ENODEV));
             }
             shared.presents += 1;
+            shared.damage = damage.to_vec();
             Ok(())
         }
         fn alive(&mut self) -> bool {
@@ -982,10 +1039,14 @@ mod tests {
 
     /// A daemon on a mock display, with a pseudo-terminal as its console.
     fn rig(name: &str) -> Rig {
+        rig_with(name, false)
+    }
+
+    fn rig_with(name: &str, animate: bool) -> Rig {
         use rustix::pty::{grantpt, openpt, ptsname, unlockpt, OpenptFlags};
         let dir = crate::socket_test_dir().join(format!("bbs-unit-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        let opts = Options { socket: dir.join("socket"), animate: false, ..Options::default() };
+        let opts = Options { socket: dir.join("socket"), animate, ..Options::default() };
         let listener = bind(&opts.socket).unwrap();
         std::fs::write(pid_path(&opts.socket), "1\n").unwrap();
         let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY).unwrap();
@@ -1129,6 +1190,130 @@ mod tests {
         daemon.finish(Some(5));
         assert!(begun.elapsed() < Duration::from_secs(1));
         assert_eq!(shared.lock().unwrap().log, vec!["hide"]);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    const REJECTED: &str = "cryptsetup: ERROR: sda3_crypt: cryptsetup failed, bad password or options?";
+
+    fn ask(daemon: &mut Daemon, client: u64) {
+        assert!(daemon.handle(client, Request::Ask { prompt: "Please unlock disk sda3_crypt".into() }).is_none());
+    }
+
+    /// Type on the console and let the daemon read it. The terminal hands
+    /// the bytes over a moment after they are written, so wait for them.
+    fn type_keys(daemon: &mut Daemon, master: &mut std::fs::File, keys: &[u8]) {
+        master.write_all(keys).unwrap();
+        let spec = Timespec { tv_sec: 5, tv_nsec: 0 };
+        let ready = {
+            let mut fds = [PollFd::new(daemon.console.as_ref().unwrap(), PollFlags::IN)];
+            poll(&mut fds, Some(&spec)).unwrap_or(0)
+        };
+        assert_eq!(ready, 1, "the keys reach the console");
+        daemon.read_keys();
+    }
+
+    #[test]
+    fn an_animation_frame_presents_only_the_ring() {
+        let Rig { mut daemon, shared, dir, .. } = rig_with("ring", true);
+        let layout = crate::scene::Layout::new(640, 480);
+        daemon.render();
+        assert_eq!(shared.lock().unwrap().damage, [crate::gfx::Rect::new(0, 0, 640, 480)]);
+        assert!(daemon.timeout() <= FRAME, "the next frame is due within a thirtieth of a second");
+        std::thread::sleep(Duration::from_millis(40));
+        daemon.render();
+        assert_eq!(shared.lock().unwrap().damage, [layout.spinner]);
+        assert_eq!(shared.lock().unwrap().presents, 2);
+        drop(daemon);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_still_screen_presents_nothing_and_sleeps() {
+        let Rig { mut daemon, shared, dir, .. } = rig("still");
+        daemon.render();
+        std::thread::sleep(Duration::from_millis(40));
+        daemon.render();
+        assert_eq!(shared.lock().unwrap().presents, 1, "without animation the ring rests");
+        assert_eq!(daemon.timeout(), Duration::from_millis(500));
+        // A prompt: the caret stays, a rejected passphrase does not shake the box.
+        daemon.message =
+            Some(Message { text: REJECTED.into(), tone: Tone::Error, expires: Instant::now() + ERROR_TTL });
+        ask(&mut daemon, 7);
+        daemon.render();
+        daemon.caret_from -= scene::CARET_BLINK;
+        std::thread::sleep(Duration::from_millis(40));
+        daemon.render();
+        assert_eq!(shared.lock().unwrap().presents, 2, "one frame for the prompt, none after it");
+        assert_eq!(daemon.timeout(), POLL);
+        drop(daemon);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_caret_blinks_and_typing_restarts_it() {
+        let Rig { mut daemon, shared, dir, mut master } = rig_with("caret", true);
+        let layout = crate::scene::Layout::new(640, 480);
+        daemon.render();
+        ask(&mut daemon, 7);
+        assert!(daemon.shake_from.is_none(), "a first prompt opens at rest");
+        daemon.render();
+        let frames = shared.lock().unwrap().presents;
+        // Nothing moves until the caret is due to change; the loop wakes for that.
+        daemon.render();
+        assert_eq!(shared.lock().unwrap().presents, frames);
+        assert!(daemon.timeout() <= POLL.min(scene::CARET_BLINK));
+        daemon.caret_from -= scene::CARET_BLINK;
+        daemon.render();
+        assert_eq!(shared.lock().unwrap().damage, [layout.caret_rect(0, 0)], "the caret goes out: only it is redrawn");
+        daemon.caret_from = Instant::now() - (scene::CARET_BLINK - Duration::from_millis(100));
+        let wake = daemon.timeout();
+        assert!(wake > Duration::from_millis(20) && wake <= Duration::from_millis(100), "{wake:?}");
+        // A key puts the caret back at once.
+        type_keys(&mut daemon, &mut master, b"a");
+        assert!(daemon.caret_from.elapsed() < Duration::from_millis(200));
+        daemon.render();
+        assert_eq!(shared.lock().unwrap().damage, [layout.field]);
+        assert_eq!(daemon.passphrase.chars(), 1);
+        drop(daemon);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_rejected_passphrase_shakes_the_next_prompt() {
+        let Rig { mut daemon, shared, dir, mut master } = rig_with("shake", true);
+        let layout = crate::scene::Layout::new(640, 480);
+        daemon.render();
+        ask(&mut daemon, 7);
+        type_keys(&mut daemon, &mut master, b"wrong\r");
+        assert!(!daemon.prompting(), "Enter answers the prompt");
+        // What cryptsetup's initramfs script does next: a message, then a new prompt.
+        assert_eq!(daemon.handle(8, Request::Message { text: REJECTED.into() }), Some(Response::Ok));
+        assert!(daemon.shake_from.is_none(), "nothing shakes while no prompt is open");
+        ask(&mut daemon, 9);
+        assert!(daemon.shake_from.is_some(), "the prompt that follows a rejection opens with a shake");
+        assert!(daemon.timeout() <= FRAME);
+        daemon.render();
+        // Mid-swing the box is redrawn, and nothing but the box.
+        daemon.shake_from = Some(Instant::now() - scene::SHAKE / 12);
+        daemon.render();
+        assert_eq!(shared.lock().unwrap().damage, [layout.field]);
+        // It ends by itself, at rest.
+        daemon.shake_from = Some(Instant::now() - scene::SHAKE);
+        daemon.tick();
+        assert!(daemon.shake_from.is_none());
+        daemon.render();
+        assert_eq!(shared.lock().unwrap().damage, [layout.field], "back at rest");
+        // An error that arrives while the prompt is open shakes it too...
+        assert_eq!(daemon.handle(8, Request::Message { text: REJECTED.into() }), Some(Response::Ok));
+        assert!(daemon.shake_from.is_some());
+        // ...an ordinary message does not, and Enter takes the error away.
+        daemon.shake_from = None;
+        assert_eq!(daemon.handle(8, Request::Message { text: "Second volume".into() }), Some(Response::Ok));
+        assert!(daemon.shake_from.is_none());
+        assert_eq!(daemon.handle(8, Request::Message { text: REJECTED.into() }), Some(Response::Ok));
+        type_keys(&mut daemon, &mut master, b"\r");
+        assert!(daemon.message.is_none() && daemon.shake_from.is_none());
+        drop(daemon);
         let _ = std::fs::remove_dir_all(dir);
     }
 

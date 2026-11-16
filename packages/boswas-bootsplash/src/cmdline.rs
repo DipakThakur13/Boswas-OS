@@ -9,7 +9,8 @@
 pub struct BootParams {
     /// Show the boot screen at all.
     pub splash: bool,
-    /// Animate the progress arc.
+    /// Animate: the ring turns, the caret blinks, a rejected passphrase
+    /// shakes the text box.
     pub animate: bool,
 }
 

@@ -10,6 +10,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
+use boswas_bootsplash::assets;
 use boswas_bootsplash::client;
 use boswas_bootsplash::gfx::{Rect, Rgb};
 use boswas_bootsplash::proto::{self, Request, Response};
@@ -129,8 +130,73 @@ impl Frame {
         n
     }
 
+    /// Number of pixels inside `rect` that are not background. Text is
+    /// counted this way: its thin strokes rarely cover a whole pixel, so
+    /// few of its pixels have exactly the text colour.
+    pub fn ink(&self, rect: &Rect) -> usize {
+        rect.area() as usize - self.count(rect, assets::BACKGROUND)
+    }
+
+    /// Number of pixels inside `rect` drawn in `colour` over the background
+    /// at a third of full coverage or more (every channel is the same mix
+    /// of the two): tells a hue from white or grey text.
+    pub fn tinted(&self, rect: &Rect, colour: Rgb) -> usize {
+        let bg = assets::BACKGROUND;
+        let share = |p: u8, bg: u8, c: u8| (p as f32 - bg as f32) / (c as f32 - bg as f32);
+        let mut n = 0;
+        for y in rect.y..rect.bottom() {
+            for x in rect.x..rect.right() {
+                let p = self.pixel(x, y);
+                let shares = [share(p.r, bg.r, colour.r), share(p.g, bg.g, colour.g), share(p.b, bg.b, colour.b)];
+                let low = shares.iter().copied().fold(1.0, f32::min);
+                let high = shares.iter().copied().fold(0.0, f32::max);
+                n += usize::from(low >= 0.33 && high <= 1.02 && high - low <= 0.06);
+            }
+        }
+        n
+    }
+
+    /// The bounding rectangle of the pixels that differ from `other`.
+    pub fn changed(&self, other: &Frame) -> Rect {
+        let mut area = Rect::default();
+        for y in 0..self.height as i32 {
+            for x in 0..self.width as i32 {
+                if self.pixel(x, y) != other.pixel(x, y) {
+                    area = area.union(&Rect::new(x, y, 1, 1));
+                }
+            }
+        }
+        area
+    }
+
     pub fn layout(&self) -> Layout {
         Layout::new(self.width, self.height)
+    }
+
+    /// Whether the unlock screen is shown: the fill of its text box.
+    pub fn prompt_shown(&self) -> bool {
+        self.count(&self.layout().text_box, assets::FIELD_FILL) > 500
+    }
+
+    /// Whether the ring of the boot screen is shown: at least one of its
+    /// dots, fully faded in. (While it turns there are moments without one.)
+    pub fn ring_shown(&self) -> bool {
+        self.count(&self.layout().spinner, assets::TEXT) >= 6
+    }
+
+    /// How many dots the text box shows, and whether its caret is visible.
+    /// `None` if the box holds anything else in the text colour. For
+    /// displays where a logical pixel is one pixel: a dot then has 16
+    /// pixels of exactly the text colour, and the caret is 1 by 18.
+    pub fn typed(&self) -> Option<(usize, bool)> {
+        let layout = self.layout();
+        assert_eq!((layout.unit, layout.caret), (1.0, (1, 18)));
+        let white = self.count(&layout.text_box, assets::TEXT);
+        match white % 16 {
+            0 => Some((white / 16, false)),
+            2 if white >= 18 => Some(((white - 18) / 16, true)),
+            _ => None,
+        }
     }
 }
 

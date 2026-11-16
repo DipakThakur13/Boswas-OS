@@ -6,9 +6,12 @@ boswas-bootsplashd \- the Boswas OS boot, disk-unlock and shutdown screen
 .RI [ OPTION ...]
 .SH DESCRIPTION
 .B boswas-bootsplashd
-shows the Boswas OS boot screen: the Boswas OS mark and name with a progress
-arc while the system starts, the passphrase prompt for an encrypted disk, and
-the shutdown and restart screens. It is started from the initramfs and by
+shows the Boswas OS boot screen. While the system starts: the Boswas OS mark
+on a dark screen and, lower down, a ring of five dots that chase each other
+round. To unlock an encrypted disk: the mark, the words "Unlock your disk",
+the name of the disk and a text box that shows one dot for each character
+typed. While the system shuts down or restarts: the ring and one line,
+"Shutting down" or "Restarting". It is started from the initramfs and by
 systemd units, not by hand.
 .PP
 It draws directly on the display through kernel mode setting (or a legacy
@@ -24,7 +27,9 @@ The boot screen is shown only when the kernel command line contains
 .BR boswas.splash=off )
 turns it off;
 .B boswas.splash=static
-keeps the screen but stops the animation. When the boot screen does not run,
+keeps the screen but stops the animation: the ring stands still, the caret
+of the text box does not blink, and the box does not shake when a passphrase
+is rejected. When the boot screen does not run,
 or cannot start, the disk passphrase is asked for on the text console as
 usual.
 .PP
@@ -36,7 +41,9 @@ The screen to show (default:
 .BR boot ).
 .TP
 .B \-\-static
-Do not animate.
+Do not animate (see
+.B boswas.splash=static
+above).
 .TP
 .B \-\-force
 Start even if the kernel command line does not ask for the boot screen.

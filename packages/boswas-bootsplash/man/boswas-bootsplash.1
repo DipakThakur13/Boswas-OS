@@ -23,14 +23,27 @@ Succeed if the boot screen is running.
 Show a passphrase prompt on the boot screen, wait until the user presses
 Enter, and write the passphrase to standard output without a trailing
 newline. The characters typed are never shown; one dot per character is
-drawn, up to 24.
+drawn, up to 24. A prompt of the form
+.RI \(dqPlease\ unlock\ disk\  NAME \(dq
+(what the disk-unlock scripts ask) is shown as the title \(dqUnlock your
+disk\(dq with
+.I NAME
+under it; any other text is shown as it is, under the title \(dqEnter your
+passphrase\(dq.
 .TP
 .BR message " [\fITEXT\fR]"
-Show a line of text under the boot screen. A message that reports a failure
-is shown in the warning colour. Without text, the line is cleared.
+Show one line of text under the ring of the boot screen (under the text box
+while a prompt is open). It goes away after six seconds. A message that
+reports a failure is shown in the danger colour and stays for thirty seconds,
+or until the next passphrase is entered; one that reports a rejected
+passphrase is shown as the sentence \(dqThat passphrase did not work. Try
+again.\(dq, and if a prompt is open, or the next one opens while the message
+is still shown, its text box shakes briefly. Without text, the line is
+cleared.
 .TP
 .BI progress " PERCENT"
-Report boot progress, 0 to 100.
+Report boot progress, 0 to 100. It is shown as a percentage on the message
+line under the ring.
 .TP
 .BR mode " " boot | shutdown | reboot
 Switch between the boot, shutdown and restart screens.

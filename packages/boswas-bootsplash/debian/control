@@ -2,7 +2,7 @@ Source: boswas-bootsplash
 Section: admin
 Priority: optional
 Maintainer: Boswas OS Platform Team <os-platform@boswas.invalid>
-Build-Depends: debhelper-compat (= 13), cargo, rustc (>= 1.85)
+Build-Depends: debhelper-compat (= 13), cargo, fonts-inter, rustc (>= 1.85)
 Standards-Version: 4.7.2
 Rules-Requires-Root: no
 
@@ -14,15 +14,16 @@ Depends: initramfs-tools,
 Conflicts: plymouth
 Description: Boswas OS boot, disk-unlock and shutdown screen
  The whole Boswas OS boot screen as one small program written in Rust: the
- Boswas OS mark and name with a progress arc while the system starts, the
- passphrase prompt for an encrypted disk, and the shutdown and restart
- screens. It takes the place of Plymouth.
+ Boswas OS mark and a ring of dots on a dark screen while the system starts,
+ the passphrase prompt for an encrypted disk, and the shutdown and restart
+ screens, in the Fluent design language of the Boswas desktop. It takes the
+ place of Plymouth.
  .
   * boswas-bootsplashd draws directly on the display (kernel mode setting
     with dumb buffers, or a legacy frame buffer) and redraws only what
     changed; an animation frame touches a few thousand pixels
-  * the artwork, the typeface and the colours are built into the program:
-    nothing is parsed or loaded at boot
+  * the artwork, the glyphs of the typeface (Inter) and the colours are built
+    into the program: nothing is parsed or loaded at boot
   * the passphrase is read from the console keyboard with the console's
     keymap, kept in one buffer that is wiped after use, and never logged
   * once running, the daemon gives up its privileges: no_new_privs, a

@@ -9,7 +9,9 @@
 # archive). Its home and the build products stay inside build/.
 #
 # The artwork is read at build time from the repository's desktop/
-# directory, two levels up (build.rs).
+# directory, two levels up (build.rs), and the Inter fonts from the package
+# fonts-inter (a build dependency): bitmaps of their glyphs are built into
+# the daemon. A package must never be built with the fallback typeface.
 
 PKG       := debian/boswas-bootsplash
 UNITS     := $(PKG)/usr/lib/systemd/system
@@ -20,6 +22,7 @@ FLAGS     := --release --locked
 
 export CARGO_HOME := $(CURDIR)/build/cargo-home
 export CARGO_TARGET_DIR := $(CURDIR)/build/target
+export BOSWAS_BOOTSPLASH_REQUIRE_INTER := 1
 # Keep build paths out of the programs (reproducible builds).
 export RUSTFLAGS := --remap-path-prefix=$(CURDIR)=/usr/src/boswas-bootsplash --remap-path-prefix=$(CARGO_HOME)=/usr/share/cargo
 

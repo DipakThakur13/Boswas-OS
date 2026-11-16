@@ -1,9 +1,11 @@
 # boswas-bootsplash
 
-The Boswas OS boot screen: the mark and name with a progress arc while the
-system starts, the passphrase prompt for an encrypted disk, and the shutdown
-and restart screens. Two small Rust programs take the place of Plymouth and
-of the Plymouth theme in `desktop/branding/plymouth/`.
+The Boswas OS boot screen: the mark and a ring of dots on a dark, almost
+empty screen while the system starts, the passphrase prompt for an encrypted
+disk, and the shutdown and restart screens. It follows Boswas UI, the Fluent
+design language of the desktop (`desktop/ui/tokens.json`). Two small Rust
+programs take the place of Plymouth and of the Plymouth theme in
+`desktop/branding/plymouth/`.
 
 | Program | Installed as | What it is |
 |---------|--------------|------------|
@@ -21,23 +23,48 @@ sides.
 
 | Screen | Content |
 |--------|---------|
-| Boot | The official mark (gold and silver, unchanged), the BOSWAS OS wordmark, a progress arc: a comet from `iris.400` to `azure.400` on an `ink.700` track. Messages from the boot scripts appear as one muted line |
-| Disk unlock | The same lockup; the arc gives way to the prompt text, a pill field (`ink.800`, border `ink.600`, focus ring `iris.400`) with one dot per character typed (24 at most, so a long passphrase does not show its length), a Caps Lock hint (`sun.400`) and the last error (`coral.400`) |
-| Shutdown, restart | The lockup, the arc, and "Shutting down" or "Restarting" |
+| Boot | The official mark (gold and silver, unchanged) and nothing written: no name. The mark is centred a little above the middle, 12 % of the display's shorter side high (never more than 160 logical pixels). Lower down, 28 % of the height below the middle, a ring 40 pixels across: five white dots that chase each other round it. They bunch up over the top, sweep round, spread out and fade. A message from the boot scripts, when one is sent, is one line under the ring (body text, `text-secondary`; an error in `danger`) and goes away after six seconds (an error after thirty, or with the next passphrase); a reported progress is a percentage on that line |
+| Disk unlock | The mark stays where it is. Under it: "Unlock your disk" (subtitle), the name of the disk (body, `text-secondary`), and a text box: 320 by 36, corners rounded by 4, the subtle fill and one-pixel outline of a control, and the two-pixel accent line (`iris.400`) of a focused one along its bottom edge. One dot per character typed, from the left with 12 pixels of padding (24 at most, so a long passphrase does not show its length), then a caret that blinks. Under the box a hint (caption, `text-muted`): "Press Enter to unlock", or "Caps Lock is on" in `warning` |
+| Rejected passphrase | The prompt returns with "That passphrase did not work. Try again." in `danger` under the box (the hint moves down a line), and the box shakes sideways for 0.4 seconds |
+| Shutdown, restart | The ring in the middle of the screen and one line under it (body-large): "Shutting down" or "Restarting". No mark |
 
-Background `ink.950`. Sizes follow the display height (the mark is 18 % of
-it, between 96 and 448 pixels), so the layout is the same from 800x600 to
-4K. The lockup never moves; everything that changes is in a band below it.
-Colours come from `desktop/ui/tokens.json` at build time.
+The background is one solid colour, `neutral.950`; the text is white
+(`text` of the dark theme) in Inter, the Boswas UI typeface. Colours, the
+type ramp (caption 12, body 14, body-large 16, subtitle 20 semibold) and the
+control radius come from `desktop/ui/tokens.json` at build time.
+
+Sizes are logical pixels. A logical pixel is one display pixel up to 1080
+lines and grows with the height above that (1.33 at 2560x1440, 1.48 at
+2560x1600, 2 at 3840x2160, at most 3.2), so the text box is 320 by 36 real
+pixels at 1024x768, 1366x768 and 1920x1080, and 640 by 72 at 4K. A display
+with fewer than 600 lines, or narrower than 480 pixels, gets a smaller unit
+so that the layout fits. Outlines, the caret and the distance between dots
+are whole pixels at every scale.
+
+What the unlock screen says comes from the prompt of the program that asks.
+The prompts of cryptsetup's initramfs scripts (`Please unlock disk NAME`),
+of systemd (`Please enter passphrase for disk NAME:`) and of cryptsetup
+itself (`Enter passphrase for NAME:`) become the title "Unlock your disk"
+and the name; any other prompt is shown as it came, under "Enter your
+passphrase". A message that reports a rejected passphrase (it contains
+`bad password`, `bad passphrase`, `incorrect pass`, `wrong pass` or `no key
+available`; cryptsetup's scripts send `cryptsetup failed, bad password or
+options?`) is shown as the one short sentence above; any other error is
+shown as it came, shortened to its line. The scripts send that message
+after Enter and then ask again, so between the two the prompt is closed and
+the boot screen with its ring shows while the passphrase is checked.
 
 Keys while a prompt is open: characters, Backspace, Ctrl-U (clear), Enter.
 Escape switches between the boot screen and the text console at any time.
 
 Kernel command line: the boot screen runs only with `splash`. `nosplash`
 (or `boswas.splash=off`, or `plymouth.enable=0`) turns it off;
-`boswas.splash=static` keeps the screen without animation.
+`boswas.splash=static` keeps the screen without animation: the dots of the
+ring stand still, the caret does not blink and the box does not shake.
 
-Review frames:
+Review frames (boot, boot-message, prompt-empty, prompt, prompt-wrong,
+prompt-shake, shutdown, reboot, and three consecutive frames of the ring,
+as PNG files for each size):
 
 ```sh
 cargo run --release --example frames -- /tmp/frames 1920x1080 1366x768
@@ -45,29 +72,71 @@ cargo run --release --example frames -- /tmp/frames 1920x1080 1366x768
 
 ## How it renders
 
-`src/scene.rs` keeps the picture as eight items in fixed slots (mark,
-wordmark, arc, status line, message, prompt text, field, hint). A frame
-compares the new items with the ones on screen and repaints only the
+`src/scene.rs` keeps the picture as nine items in fixed slots (mark, ring,
+status line, message, title, name of the disk, text box, caret, hint). A
+frame compares the new items with the ones on screen and repaints only the
 rectangles of items that changed, into an XRGB8888 canvas; the output copies
-those rectangles to the display and tells the driver which ones changed.
+those rectangles to the display and tells the driver which ones changed. An
+animation frame is the ring's rectangle (the background colour and up to
+five small discs); a blink of the caret is the caret's own pixels; a
+keystroke or a frame of the shake is the text box. Nothing else is touched,
+and a frame that changes nothing is not sent to the display at all.
 
 | At 1920x1080 (release build, this machine) | Cost |
 |---|---|
-| First frame (scale the artwork, paint everything) | 6.6 ms |
-| Animation frame | 66 µs: 3,364 pixels, 0.16 % of the screen |
-| Keystroke in the passphrase field | 0.5 ms |
+| First frame (scale the mark, paint everything) | 4.5 ms |
+| Animation frame | 3 µs: 1,764 pixels (42 by 42), 0.085 % of the screen |
+| Blink of the caret | 1 µs: 18 pixels |
+| Keystroke in the text box, or a frame of its shake | 0.17 ms: 12,844 pixels, 0.62 % |
 
-At 3840x2160 an animation frame is 0.24 ms. `tests/perf.rs` prints these
-(`cargo test --release --test perf -- --nocapture`) and fails if a frame
-touches 1 % of the screen or more. The animation runs at 30 frames a second
-at most, driven by the clock, so a busy system makes it slower to update but
-not faster or uneven.
+At 3840x2160 an animation frame is 8 µs (6,724 pixels) and a keystroke
+0.65 ms. `tests/perf.rs` prints these (`cargo test --release --test perf --
+--nocapture`) and fails if an animation frame redraws anything but the ring,
+a blink anything but the caret, or the ring is a quarter of a percent of the
+screen or more. Rendering a frame allocates no memory (the picture borrows
+the prompt and the message; the list of changed rectangles is reused). The
+animation runs at 30 frames a second at most, driven by the clock, so a busy
+system makes it slower to update but not faster or uneven; while a prompt is
+open the loop wakes only when the caret is due to change, four times a
+second for Caps Lock, and for the frames of a shake.
+
+The ring is arithmetic, not artwork (`dot_at` in `src/scene.rs`): each dot
+goes round twice in three seconds, entering and leaving at the bottom; a
+slow steady drift carries it over the top, and three eased runs (out, in and
+out, in) take it up the side, once round, and away. The dots follow each
+other 0.2 seconds apart, so they are close together where the path is slow
+and far apart where it is fast. A cycle is 4.2 seconds.
 
 Nothing is parsed at boot. `build.rs` rasterises
-`desktop/branding/boswas-os-mark.svg`, `wordmark-boswas-os.svg` and the
-printable ASCII glyphs of Orbitron Medium, and embeds them as plain bytes;
-text is scaled from that atlas with sub-pixel placement. Characters outside
-ASCII are drawn as `?`.
+`desktop/branding/boswas-os-mark.svg` (360 pixels high) and the printable
+ASCII glyphs of Inter Regular (at 52 pixels) and Inter SemiBold (at 64),
+and embeds them as plain bytes; text is scaled down from those atlases with
+sub-pixel placement and without kerning. Characters outside ASCII are drawn
+as `?`.
+
+Inter is not in the repository. `build.rs` reads `Inter-Regular.otf` and
+`Inter-SemiBold.otf` from `/usr/share/fonts/opentype/inter`, where the
+Debian package `fonts-inter` installs them; it is a build dependency of the
+Debian package, whose build fails without it
+(`BOSWAS_BOOTSPLASH_REQUIRE_INTER=1` in `debian/rules`). A plain `cargo
+build` on a machine without Inter prints a warning and makes the atlases
+from the repository's brand typeface instead (Orbitron Medium and SemiBold),
+so the crate still builds and its tests pass; `assets::TYPEFACE` says which
+one a build has. `BOSWAS_BOOTSPLASH_INTER_DIR` names another directory to
+take the two Inter files from. Only glyph bitmaps are embedded (Inter is
+under the SIL Open Font License 1.1; `debian/copyright` carries its notice
+and the licence); no font file is installed or copied into the initramfs.
+
+| Embedded in the daemon | Bytes | gzip -6 |
+|---|---|---|
+| The mark, 290x360 premultiplied RGBA | 417,600 | 17,191 |
+| Inter Regular, 95 glyphs at 52 pixels | 80,109 | 21,662 |
+| Inter SemiBold, 95 glyphs at 64 pixels | 130,068 | 26,980 |
+
+As packaged (stripped), the two programs together are 1.76 MB in the
+initramfs before compression (the daemon 1.31 MB, the client 0.45 MB) and
+0.61 MB after `gzip -6`. The two font files themselves would add 1.23 MB
+(0.48 MB compressed), which is why the glyphs are built in instead.
 
 ## Outputs
 
@@ -220,7 +289,8 @@ cargo build --release --locked      # needs Rust 1.85 (Debian 13) or newer
 The crates in `Cargo.lock` are downloaded from crates.io, so the build needs
 network access to it; this also applies to the Debian package build
 (`debian/rules`). `fontdue` is pinned to 0.9.3 because later versions need a
-newer compiler than Debian 13 has.
+newer compiler than Debian 13 has. The Inter fonts come from the Debian
+package `fonts-inter` on the build machine (see [How it renders](#how-it-renders)).
 
 Run-time dependencies: `drm`, `rustix`, `libc`, `landlock`, `zeroize`.
 Build-time only: `resvg`, `fontdue`, `serde_json`.
@@ -233,10 +303,10 @@ cargo test --locked
 
 | Where | What |
 |-------|------|
-| Unit tests (`src/`) | Drawing and scaling, layout on eight display sizes, damage (an animation frame only changes the arc; typing only the field), the passphrase editor and key decoder, the protocol with malformed and random input, both command line dialects, the kernel command line, the frame buffer formats, the password agent's parser, and the daemon on a mock display: loss of the display, fallback to the console, recovery, and the hand-over on `quit --retain` |
-| `tests/daemon.rs` | The real programs, headless, with a pseudo-terminal as the console: requests change the picture; the animation stays inside the arc; hostile input; passphrase entry through the client called `plymouth`; prompts queue and are withdrawn when a client dies; Escape; launcher, supervisor and worker (a killed worker leaves a restored console and no socket); the sandbox; the systemd password agent |
+| Unit tests (`src/`) | Drawing and scaling; the layout on eleven display sizes (everything on the display, in order, on one axis; the mark, the ring and the text box at their sizes); what each screen is made of, with the styles and colours of the token file; the path of a dot and the spacing of the dots; damage (an animation frame only changes the ring, a blink only the caret, typing and the shake only the text box) and that a frame leaves nothing of earlier frames behind; dots, not characters, capped at 24; the rejected-passphrase line and the shake; Caps Lock; hostile text; the passphrase editor and key decoder; the protocol with malformed and random input; both command line dialects; the kernel command line; the frame buffer formats; the password agent's parser; and the daemon on a mock display: what it presents for an animation frame, a blink and a shake, when its loop wakes, loss of the display, fallback to the console, recovery, and the hand-over on `quit --retain` |
+| `tests/daemon.rs` | The real programs, headless, with a pseudo-terminal as the console: requests change the picture (message, error, progress, shutdown, restart); the animation stays inside the ring; hostile input; passphrase entry through the client called `plymouth`, with the caret blinking; a rejected passphrase is reported on the unlock screen, and the picture is the same for any passphrase of a length; prompts queue and are withdrawn when a client dies; Escape; launcher, supervisor and worker (a killed worker leaves a restored console and no socket); the sandbox; the systemd password agent |
 | `tests/askpass.rs` | Debian's real, unmodified `askpass` against the daemon, in a scratch root directory laid out like the initramfs (needs root and the helper; skipped otherwise): passphrase from the boot screen, FIFO next to it, daemon death, console fallback |
-| `tests/perf.rs` | Frame cost and damage size |
+| `tests/perf.rs` | Frame cost and damage size: the ring, the caret, a keystroke, the shake |
 
 The askpass helper is not in this repository. To run that test:
 
@@ -254,9 +324,10 @@ device never contain such an entry.
 
 ## What is verified and what is not
 
-Verified here (107 tests, Rust 1.85 and current stable):
+Verified here (124 tests, Rust 1.85 and current stable):
 
-* rendering, layout and damage, on review frames and in tests;
+* rendering, layout and damage, on review frames (looked at, at 1024x768,
+  1366x768, 1920x1080, 2560x1600 and 3840x2160) and in tests;
 * the control protocol, both client dialects, passphrase entry and editing
   through a terminal;
 * the unmodified Debian `askpass` (cryptsetup 2.7.5) obtaining the
@@ -278,6 +349,10 @@ Not verified (no graphics device, no boot, in this environment):
 
 * the DRM/KMS output on any driver, the frame buffer output, the switch
   from the firmware frame buffer to the real driver, multiple displays;
+* how the animation looks in motion on a real display: frames were reviewed
+  as still pictures and the path of the dots is tested as numbers, but
+  nothing here has watched the ring turn, the caret blink or the box shake
+  at 30 frames a second on a panel;
 * console graphics mode, Caps Lock detection and key input on a real
   virtual console (the tests use a pseudo-terminal);
 * the same with Debian 13's initramfs-tools, and the scripts running in a

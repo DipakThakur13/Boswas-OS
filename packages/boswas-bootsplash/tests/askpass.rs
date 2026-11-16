@@ -61,11 +61,12 @@ fn install(root: &Path, program: &Path, target: &str) {
 }
 
 fn prompt_shown(frame: &Frame) -> bool {
-    frame.count(&frame.layout().field, assets::FIELD_FILL) > 500
+    frame.prompt_shown()
 }
 
-fn arc_shown(frame: &Frame) -> bool {
-    frame.count(&frame.layout().arc, assets::TRACK) > 20
+/// The boot screen without a prompt: the ring, and no text box.
+fn ring_alone(frame: &Frame) -> bool {
+    frame.ring_shown() && !frame.prompt_shown()
 }
 
 const PROMPT: &str = "Please unlock disk sda3_crypt: ";
@@ -112,14 +113,16 @@ fn the_real_askpass_gets_the_passphrase_from_the_boot_screen() {
     let mut splash = Splash::start_at(dir.clone(), socket, "1920x1080", &[]);
     let mut child = run(Stdio::null());
     let frame = splash.wait_for("the prompt", prompt_shown);
-    assert!(frame.count(&frame.layout().prompt, assets::TEXT) > 200, "the unlock prompt is on screen");
+    let l = frame.layout();
+    assert!(frame.ink(&l.title) > 300 && frame.ink(&l.detail) > 100, "the unlock prompt is on screen");
+    assert!(frame.count(&l.text_box, assets::ACCENT) > 600, "with its text box");
     splash.pty.type_keys(b"boswas-disk-passphrase\r");
     let console = stderr_of(&mut child);
     let (code, stdout) = wait_child(child, Duration::from_secs(5));
     assert_eq!(code, Some(0));
     assert_eq!(stdout, b"boswas-disk-passphrase");
     assert!(console.is_empty(), "askpass did not also prompt on the console: {console:?}");
-    splash.wait_for("the arc again", arc_shown);
+    splash.wait_for("the ring again", ring_alone);
 
     // 2. The FIFO stays usable next to the boot screen (cryptroot-unlock,
     //    remote unlocking): its passphrase wins, askpass kills the client,
@@ -131,7 +134,7 @@ fn the_real_askpass_gets_the_passphrase_from_the_boot_screen() {
     let _ = stderr_of(&mut child);
     let (code, stdout) = wait_child(child, Duration::from_secs(5));
     assert_eq!((code, stdout), (Some(0), b"from the fifo".to_vec()));
-    splash.wait_for("the prompt to go away", arc_shown);
+    splash.wait_for("the prompt to go away", ring_alone);
 
     // 3. The boot screen dies while the prompt is open: askpass returns at
     //    once (with an empty passphrase, which cryptsetup rejects, so the

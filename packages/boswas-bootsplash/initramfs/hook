@@ -29,6 +29,9 @@ esac
 # shellcheck source=/dev/null
 . /usr/share/initramfs-tools/hook-functions
 
+# The two programs are all the boot screen needs: its artwork, the glyphs of
+# its typeface (Inter) and its colours are built into the daemon, so no font,
+# image or theme file is copied here.
 copy_exec /usr/libexec/boswas/boswas-bootsplashd
 copy_exec /usr/bin/boswas-bootsplash
 
