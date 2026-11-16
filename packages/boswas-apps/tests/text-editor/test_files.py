@@ -29,8 +29,8 @@ class Temp(unittest.TestCase):
 class DetectTest(unittest.TestCase):
     def test_signatures(self):
         self.assertIs(codec.detect(b"\xef\xbb\xbfhello"), codec.UTF8_BOM)
-        self.assertIs(codec.detect("﻿hi".encode("utf-16-le")), codec.UTF16_LE)
-        self.assertIs(codec.detect("﻿hi".encode("utf-16-be")), codec.UTF16_BE)
+        self.assertIs(codec.detect("\ufeffhi".encode("utf-16-le")), codec.UTF16_LE)
+        self.assertIs(codec.detect("\ufeffhi".encode("utf-16-be")), codec.UTF16_BE)
         self.assertIs(codec.detect(b""), codec.UTF8)
         self.assertIs(codec.detect(b"plain ascii\n"), codec.UTF8)
         self.assertIs(codec.detect("grüße 日本 \U0001f600".encode("utf-8")), codec.UTF8)
@@ -120,7 +120,7 @@ class LineEndingTest(unittest.TestCase):
         self.assertEqual(codec.trim_trailing_whitespace("a  \n\tb\t \n\n c"), "a\n\tb\n\n c")
         self.assertEqual(codec.trim_trailing_whitespace("end \t"), "end")
         self.assertEqual(codec.trim_trailing_whitespace("clean\ntext"), "clean\ntext")
-        self.assertEqual(codec.trim_trailing_whitespace("nbsp \n"), "nbsp \n")
+        self.assertEqual(codec.trim_trailing_whitespace("nbsp\u00a0\n"), "nbsp\u00a0\n")
 
 
 class LoadTest(Temp):
@@ -128,13 +128,13 @@ class LoadTest(Temp):
         cases = {
             "utf8.txt": "héllo\nwörld\n".encode("utf-8"),
             "bom.txt": b"\xef\xbb\xbfa\r\nb\r\n",
-            "utf16le.txt": "﻿hi\r\nthere".encode("utf-16-le"),
-            "utf16be.txt": "﻿hi\nthere\n".encode("utf-16-be"),
+            "utf16le.txt": "\ufeffhi\r\nthere".encode("utf-16-le"),
+            "utf16be.txt": "\ufeffhi\nthere\n".encode("utf-16-be"),
             "ansi.txt": b"caf\xe9 \x93q\x94\r\n",
             "latin.txt": b"x\x81y\rz\r",
             "mac.txt": b"one\rtwo\rthree",
             "empty.txt": b"",
-            "nbsp.txt": "a b c\n".encode("utf-8"),
+            "nbsp.txt": "a\u00a0b\u2028c\n".encode("utf-8"),
         }
         for name, data in cases.items():
             with self.subTest(name=name):
@@ -344,7 +344,7 @@ class SettingsTest(Temp):
 class SessionTest(Temp):
     def test_round_trip(self):
         tabs = [session.TabState(path="/home/u/a.txt", cursor=12, encoding="utf-8-bom", line_ending="crlf"),
-                session.TabState(text="unsaved   words\n\U0001f600", title="Untitled 2", cursor=3),
+                session.TabState(text="unsaved \u00a0 words\n\U0001f600", title="Untitled 2", cursor=3),
                 session.TabState(path="/home/u/b.txt", text="changed", encoding="windows-1252")]
         self.assertTrue(session.save(self.tmp, tabs, 2))
         self.assertEqual(session.load(self.tmp), (tabs, 2))

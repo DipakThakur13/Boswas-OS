@@ -282,8 +282,8 @@ class OpenSaveTest(EditorTestCase):
         self.assertEqual(sorted(os.listdir(self.docs)), ["win.txt"])
 
     def test_every_encoding_is_written_back_as_it_was(self):
-        cases = {"u16.txt": "﻿grüße\r\n".encode("utf-16-le"), "be.txt": "﻿a\nb".encode("utf-16-be"),
-                 "ansi.txt": b"caf\xe9\r\n", "mac.txt": b"a\rb\r", "nbsp.txt": "a b\n".encode("utf-8")}
+        cases = {"u16.txt": "\ufeffgrüße\r\n".encode("utf-16-le"), "be.txt": "\ufeffa\nb".encode("utf-16-be"),
+                 "ansi.txt": b"caf\xe9\r\n", "mac.txt": b"a\rb\r", "nbsp.txt": "a\u00a0b\n".encode("utf-8")}
         for name, data in cases.items():
             with self.subTest(name=name):
                 path = self.file(name, data)
@@ -344,7 +344,7 @@ class OpenSaveTest(EditorTestCase):
                          ("UTF-16 LE", "Windows (CRLF)"))
         self.trigger("save")
         self.wait()
-        self.assertEqual(Path(path).read_bytes(), "﻿café\r\nbar\r\n".encode("utf-16-le"))
+        self.assertEqual(Path(path).read_bytes(), "\ufeffcafé\r\nbar\r\n".encode("utf-16-le"))
 
     def test_reopen_with_another_encoding(self):
         path = self.file("k.txt", "été".encode("windows-1252"))
@@ -567,7 +567,7 @@ class SessionTest(EditorTestCase):
         self.open(saved, edited)
         self.type("new ")
         self.trigger("new_tab")
-        self.type("never saved   \U0001f600")
+        self.type("never saved \u00a0 \U0001f600")
         self.window.tab_bar.setCurrentIndex(1)
         self.window.close()                                        # no question: the session keeps it all
         testing.process(10)
@@ -580,7 +580,7 @@ class SessionTest(EditorTestCase):
         try:
             self.assertEqual(self.names(window), ["saved.txt", "edited.txt", "Untitled"])
             tabs = window.all_tabs()
-            self.assertEqual([tab.text() for tab in tabs], ["on disk\n", "new old\n", "never saved   \U0001f600"])
+            self.assertEqual([tab.text() for tab in tabs], ["on disk\n", "new old\n", "never saved \u00a0 \U0001f600"])
             self.assertEqual([tab.is_modified() for tab in tabs], [False, True, True])
             self.assertEqual(window.tab_bar.currentIndex(), 1)
             self.assertEqual(tabs[1].line_ending, "crlf")
@@ -694,9 +694,9 @@ class EditingTest(EditorTestCase):
         self.assertEqual(self.text, "one")
 
     def test_pasted_text_keeps_its_characters_and_gets_plain_line_ends(self):
-        QGuiApplication.clipboard().setText("a\r\nb\rc d")
+        QGuiApplication.clipboard().setText("a\r\nb\rc\u00a0d")
         self.trigger("paste")
-        self.assertEqual(self.text, "a\nb\nc d")
+        self.assertEqual(self.text, "a\nb\nc\u00a0d")
 
     def test_time_and_date(self):
         self.trigger("time_date")
@@ -1089,25 +1089,24 @@ class ApplicationTest(EditorTestCase):
         options, _rest = parse_arguments(["notes.txt", "--new-window", "file:///tmp/a%20b.txt", "/abs/x.txt"])
         sent = forwarded(options)
         self.assertEqual(sent, ["--new-window", os.path.abspath("notes.txt"), "/tmp/a b.txt", "/abs/x.txt"])
+        # The running editor listens; a second start is played by a plain socket client in a thread
+        # (the real one is another process).
         first = fluent.SingleInstance(APP_ID, directory=self.tmp / "run")
+        self._instance = first                                      # kept until the test case is gone
         received: list[list] = []
         first.message_received.connect(received.append)
         self.assertTrue(first.start([]))
-        second = fluent.SingleInstance(APP_ID, directory=self.tmp / "run")
-        done: list[bool] = []
-        timer = QTimer()
-        timer.setSingleShot(True)
-        timer.timeout.connect(lambda: done.append(second.start(sent)))
-        # The second start waits for the answer of the first: both live in this one event loop here.
         import threading
         result: list[bool] = []
         thread = threading.Thread(target=lambda: result.append(_send_from_another_thread(self.tmp / "run", sent)))
         thread.start()
         testing.wait_until(lambda: bool(received), 5)
         thread.join(5)
+        testing.process(50)
         first.close()
+        testing.process(20)
         self.assertEqual(received, [sent])
-        self.assertEqual(result, [False])                           # the second start hands over and ends
+        self.assertEqual(result, [True])                            # the first instance answered "ok"
 
     def test_exit_closes_every_window(self):
         other = self.new_window()
@@ -1124,7 +1123,7 @@ class ApplicationTest(EditorTestCase):
 
 
 def _send_from_another_thread(directory, arguments) -> bool:
-    """What a second process does: connect to the first instance and hand the arguments over."""
+    """What a second process does: connect to the first instance and hand the arguments over; True when taken."""
     import json
     import socket
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -1132,7 +1131,7 @@ def _send_from_another_thread(directory, arguments) -> bool:
     try:
         client.connect(str(Path(directory) / f"{APP_ID}.sock"))
         client.sendall(json.dumps({"v": 1, "args": arguments, "token": ""}).encode("ascii") + b"\n")
-        return not client.recv(16).startswith(b"ok")
+        return client.recv(16).startswith(b"ok")
     finally:
         client.close()
 

@@ -1,0 +1,19 @@
+[Desktop Entry]
+Type=Application
+Version=1.5
+Name=Text Editor
+GenericName=Text Editor
+Comment=Edit plain text files in tabs
+Exec=boswas-text-editor %F
+Icon=accessories-text-editor
+Terminal=false
+Categories=Utility;TextEditor;Qt;
+Keywords=text;editor;notepad;notes;plain;txt;log;write;tabs;
+MimeType=text/plain;text/x-log;text/markdown;application/x-shellscript;text/x-python;text/csv;application/json;application/xml;text/x-ini;
+StartupNotify=true
+StartupWMClass=com.boswas.TextEditor
+Actions=NewWindow;
+
+[Desktop Action NewWindow]
+Name=New Window
+Exec=boswas-text-editor --new-window

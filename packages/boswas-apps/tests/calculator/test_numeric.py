@@ -63,7 +63,7 @@ class FormatTest(unittest.TestCase):
 
     def test_locale_marks(self):
         self.assertEqual(fmt("1234567.5", decimal_point=",", group_separator="."), "1.234.567,5")
-        self.assertEqual(fmt("1234567.5", decimal_point=",", group_separator=" "), "1 234 567,5")
+        self.assertEqual(fmt("1234567.5", decimal_point=",", group_separator="\u00a0"), "1\u00a0234\u00a0567,5")
         self.assertEqual(fmt("1234567.5", group_separator=""), "1234567.5")
         self.assertEqual(fmt(F(1, 3000), 16, decimal_point=","), "3,333333333333333e-4")
 
@@ -94,7 +94,7 @@ class ParseTest(unittest.TestCase):
 
     def test_other_locale(self):
         self.assertEqual(n.parse_number("1.234,5", decimal_point=",", group_separator="."), F(2469, 2))
-        self.assertEqual(n.parse_number("1 234,5", decimal_point=",", group_separator=" "), F(2469, 2))
+        self.assertEqual(n.parse_number("1 234,5", decimal_point=",", group_separator="\u00a0"), F(2469, 2))
         self.assertIsNone(n.parse_number("1.5", decimal_point=",", group_separator=""))
 
     def test_refused(self):
