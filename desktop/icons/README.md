@@ -115,8 +115,8 @@ PDF), Orchid (audio, fonts), Iris (software packages, JSON), Sky (Windows).
 
 ### Icons
 
-254 designs, written as 441 files: 302 in `Boswas-Prism/` (95 applications,
-19 places, 17 devices, 32 mimetypes, 48 status, 91 actions) and the 139
+264 designs, written as 461 files: 312 in `Boswas-Prism/` (95 applications,
+19 places, 17 devices, 32 mimetypes, 48 status, 101 actions) and the 149
 symbolic icons again in `Boswas-Prism-Light/`. Aliases are separate files
 with the same drawing and their own id prefix. This table is printed by
 `tools/build_prism.py --table`; the tests check that it matches.
@@ -378,6 +378,16 @@ with the same drawing and their own id prefix. This table is printed by
 | actions | Display | symbolic | Monitor on a stand. | `video-display-symbolic` |
 | actions | Drive | symbolic | Drive with an activity light. | `drive-harddisk-symbolic` |
 | actions | Removable Drive | symbolic | USB stick. | `drive-removable-media-symbolic` |
+| actions | Recent | symbolic | Clock hands inside an arrow turning back. | `document-open-recent-symbolic` |
+| actions | Rotate Right | symbolic | Sheet with an arrow turning clockwise. | `object-rotate-right-symbolic` |
+| actions | Rotate Left | symbolic | Sheet with an arrow turning anticlockwise. | `object-rotate-left-symbolic` |
+| actions | Flip Horizontally | symbolic | Two triangles mirrored at an upright line. | `object-flip-horizontal-symbolic` |
+| actions | Flip Vertically | symbolic | Two triangles mirrored at a level line. | `object-flip-vertical-symbolic` |
+| actions | Zoom to Fit | symbolic | Picture inside four corners. | `zoom-fit-best-symbolic` |
+| actions | Actual Size | symbolic | The figures 1:1. | `zoom-original-symbolic` |
+| actions | Save As | symbolic | Floppy disk with a pencil. | `document-save-as-symbolic` |
+| actions | Select All | symbolic | Square inside four corners. | `edit-select-all-symbolic` |
+| actions | Touchpad | symbolic | Touchpad with its two buttons. | `input-touchpad-symbolic` |
 <!-- END PRISM ICON TABLE -->
 
 Notes on names:

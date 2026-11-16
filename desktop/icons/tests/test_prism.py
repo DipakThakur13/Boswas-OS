@@ -126,6 +126,9 @@ camera-photo-symbolic camera-video-symbolic image-x-generic-symbolic
 preferences-system-time-symbolic x-office-calendar-symbolic
 preferences-desktop-accessibility-symbolic input-keyboard-symbolic input-mouse-symbolic
 video-display-symbolic drive-harddisk-symbolic drive-removable-media-symbolic
+document-open-recent-symbolic object-rotate-right-symbolic object-rotate-left-symbolic
+object-flip-horizontal-symbolic object-flip-vertical-symbolic zoom-fit-best-symbolic
+zoom-original-symbolic document-save-as-symbolic edit-select-all-symbolic input-touchpad-symbolic
 """.split(),
 }
 

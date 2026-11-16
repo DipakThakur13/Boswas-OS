@@ -169,7 +169,7 @@ class TouchpadSection(_Pointing):
         self.absent = self.add(fluent.InfoBar("info", parent=self, closable=False))
         self.absent.hide()
         self.tap = self.toggle("Tap to click", "Tap the touchpad with one finger instead of pressing it",
-                               "input-mouse-symbolic", "touchpad", "tap_to_click")
+                               "input-touchpad-symbolic", "touchpad", "tap_to_click")
         self.scroll = combo((("Content follows your fingers", True), ("Content moves the other way", False)))
         self.card("Scroll direction", "Which way the content moves when you slide two fingers", "view-list-symbolic",
                   self.scroll)

@@ -495,7 +495,7 @@ class MonitorsSection(ConfigSection):
         self.scale_box.activated.connect(self._scale_changed)
         self.orientation_box = combo(ORIENTATIONS)
         self.orientation_card = self.card("Orientation", "Turn the picture for a monitor that stands upright",
-                                          "media-playlist-repeat-symbolic", self.orientation_box)
+                                          "object-rotate-right-symbolic", self.orientation_box)
         self.orientation_box.activated.connect(self._orientation_changed)
         self.detail_cards = (self.resolution_card, self.rate_card, self.scale_card, self.orientation_card)
         for widget in (self.canvas_card, self.monitor_card, self.use_card, *self.detail_cards):

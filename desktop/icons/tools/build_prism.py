@@ -1509,6 +1509,67 @@ def s_user_ok():
     return [y_s(circle(128, 128, 96), 20), y_s(line((84, 132), (116, 164), (176, 96)), 22)]
 
 
+def a_history():
+    """Clock hands inside an arrow turning back."""
+    c, r = (128, 128), 92
+    tx, ty = arc_tangent(300)
+    return [y_s(arc(*c, r, 300, 240) + arrowhead(polar(*c, r, 300), (-tx, -ty), 40, 44), 20),
+            y_s(line((128, 76), (128, 128), (164, 150)), 20)]
+
+
+def a_rotate(right: bool):
+    def build():
+        if right:
+            turn = "M76 84A80 80 0 0 1 204 132" + arrowhead((204, 146), (0.2, 1), 38, 44)
+            box = rr(52, 124, 104, 100, 12)
+        else:
+            turn = "M180 84A80 80 0 0 0 52 132" + arrowhead((52, 146), (-0.2, 1), 38, 44)
+            box = rr(100, 124, 104, 100, 12)
+        return [y_s(turn, 20), y_s(box, 20)]
+    build.__doc__ = f"Sheet with an arrow turning {'clockwise' if right else 'anticlockwise'}."
+    return build
+
+
+def a_flip(horizontal: bool):
+    def build():
+        if horizontal:
+            return [y_s(poly((104, 60), (104, 200), (36, 200)), 18), y_fs(poly((152, 60), (152, 200), (220, 200)), 18),
+                    y_s(line((128, 32), (128, 224)), 14)]
+        return [y_s(poly((60, 104), (200, 104), (200, 36)), 18), y_fs(poly((60, 152), (200, 152), (200, 220)), 18),
+                y_s(line((32, 128), (224, 128)), 14)]
+    build.__doc__ = ("Two triangles mirrored at an upright line." if horizontal
+                     else "Two triangles mirrored at a level line.")
+    return build
+
+
+def a_zoom_fit():
+    """Picture inside four corners."""
+    return [y_s(corners(False)), y_f(rr(88, 96, 80, 64, 10))]
+
+
+def a_zoom_original():
+    """The figures 1:1."""
+    return [y_s(line((60, 84), (88, 60), (88, 196)) + line((160, 84), (188, 60), (188, 196)), 20),
+            y_f(circle(128, 104, 13) + circle(128, 160, 13))]
+
+
+def a_save_as():
+    """Floppy disk with a pencil."""
+    return [y_s("M48 28H140L176 64V160Q176 176 160 176H48Q32 176 32 160V44Q32 28 48 28Z", 18),
+            y_s("M68 32V68H124V32", 16),
+            y_s(poly((136, 232), (144, 200), (200, 144), (228, 172), (172, 228)), 18)]
+
+
+def a_select_all():
+    """Square inside four corners."""
+    return [y_s(corners(False)), y_f(rr(84, 84, 88, 88, 12))]
+
+
+def a_touchpad():
+    """Touchpad with its two buttons."""
+    return [y_s(rr(32, 48, 192, 160, 18), 20), y_s(line((32, 152), (224, 152)) + line((128, 152), (128, 208)), 18)]
+
+
 MORE_STATUS_ICONS = [
     ("network-wireless-symbolic", "Wireless Network", s_wifi_generic),
     ("network-vpn-symbolic", "VPN", s_vpn),
@@ -1589,6 +1650,16 @@ MORE_ACTION_ICONS = [
     ("video-display-symbolic", "Display", a_display),
     ("drive-harddisk-symbolic", "Drive", a_drive),
     ("drive-removable-media-symbolic", "Removable Drive", a_usb),
+    ("document-open-recent-symbolic", "Recent", a_history),
+    ("object-rotate-right-symbolic", "Rotate Right", a_rotate(True)),
+    ("object-rotate-left-symbolic", "Rotate Left", a_rotate(False)),
+    ("object-flip-horizontal-symbolic", "Flip Horizontally", a_flip(True)),
+    ("object-flip-vertical-symbolic", "Flip Vertically", a_flip(False)),
+    ("zoom-fit-best-symbolic", "Zoom to Fit", a_zoom_fit),
+    ("zoom-original-symbolic", "Actual Size", a_zoom_original),
+    ("document-save-as-symbolic", "Save As", a_save_as),
+    ("edit-select-all-symbolic", "Select All", a_select_all),
+    ("input-touchpad-symbolic", "Touchpad", a_touchpad),
 ]
 
 
