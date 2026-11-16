@@ -1,16 +1,14 @@
 {
-    "schema": 1,
+    "schema": 2,
     "default": "horizon",
     "presets": [
         {
             "id": "horizon",
             "label": "Horizon",
             "name": "Boswas Horizon",
-            "description": "The Boswas flagship: deep navy with the logo's gold as the accent and silver detail. Modern and premium; the default for new users.",
+            "description": "The Boswas flagship: deep navy with the logo's gold as the accent and silver detail. Modern and premium.",
             "variant": "dark",
-            "icon_theme": "Boswas",
-            "plasma_style": "default",
-            "panel": {"style": "floating", "task_manager": "org.kde.plasma.icontasks"},
+            "preview": {"panel": "floating"},
             "palette": {
                 "window": "#111A2B", "window_alt": "#0D1524",
                 "view": "#0D1524", "view_alt": "#121C2E",
@@ -24,11 +22,6 @@
                 "text": "#E8EEF6", "muted": "#A8B3C7",
                 "link": "#6CB6FF", "visited": "#B99AF2",
                 "positive": "#46D392", "neutral": "#F09646", "negative": "#F27076"
-            },
-            "terminal": {
-                "background": "#0D1524", "foreground": "#E8EEF6",
-                "colors": ["#1B2538", "#E86F74", "#5BCB8F", "#E0B970", "#5AA6F2", "#B394F0", "#5FB6E0", "#C8D1DF",
-                           "#46536B", "#FF8E92", "#84E0AE", "#FBD693", "#8CC2FF", "#CFB5FF", "#8DCDF0", "#F4F7FB"]
             },
             "wallpaper": {
                 "motif": "horizon",
@@ -60,9 +53,7 @@
             "name": "Boswas Midnight",
             "description": "Near-black surfaces, softened text and a muted gold accent. Low glare for long development sessions and dim rooms.",
             "variant": "dark",
-            "icon_theme": "Boswas",
-            "plasma_style": "default",
-            "panel": {"style": "floating", "task_manager": "org.kde.plasma.icontasks"},
+            "preview": {"panel": "floating"},
             "palette": {
                 "window": "#0B0E14", "window_alt": "#080A0F",
                 "view": "#07090D", "view_alt": "#0C0F15",
@@ -76,11 +67,6 @@
                 "text": "#D3DAE4", "muted": "#8E98AA",
                 "link": "#6FA6E0", "visited": "#A994DA",
                 "positive": "#5DBB86", "neutral": "#D98E4E", "negative": "#DB6B70"
-            },
-            "terminal": {
-                "background": "#07090D", "foreground": "#C9D1DC",
-                "colors": ["#151A23", "#D46A6F", "#6DBA8A", "#C7A66A", "#6B9BD6", "#A58BD8", "#6AA8CC", "#AEB7C4",
-                           "#3D4656", "#E88A8E", "#8CCFA5", "#DDBE86", "#8DB5E6", "#BFA8E6", "#8CBFDD", "#DCE2EA"]
             },
             "wallpaper": {
                 "motif": "midnight",
@@ -112,9 +98,7 @@
             "name": "Boswas Aurora",
             "description": "Boswas navy lit by flowing aurora light and a luminous ice-blue accent. Futuristic, with the gold kept in the mark.",
             "variant": "dark",
-            "icon_theme": "Boswas",
-            "plasma_style": "default",
-            "panel": {"style": "floating", "task_manager": "org.kde.plasma.icontasks"},
+            "preview": {"panel": "floating"},
             "palette": {
                 "window": "#0F1830", "window_alt": "#0C1428",
                 "view": "#0B1226", "view_alt": "#101A33",
@@ -128,11 +112,6 @@
                 "text": "#E6EEFA", "muted": "#A3B2CC",
                 "link": "#9CB4FF", "visited": "#C7A8FF",
                 "positive": "#4CD495", "neutral": "#F2A04A", "negative": "#F46E7E"
-            },
-            "terminal": {
-                "background": "#0A1124", "foreground": "#E6EEFA",
-                "colors": ["#18223D", "#F0727E", "#52D394", "#F0C674", "#6FAEFF", "#B69CFF", "#6CC0F0", "#C6D2E6",
-                           "#43517A", "#FF959E", "#82E8B5", "#FFDC99", "#9CC8FF", "#D3C1FF", "#A0D8F8", "#F3F7FD"]
             },
             "wallpaper": {
                 "motif": "aurora",
@@ -164,9 +143,7 @@
             "name": "Boswas Slate",
             "description": "Calm slate grey-blue with a silver accent. Minimal and businesslike, for enterprise desktops.",
             "variant": "dark",
-            "icon_theme": "Boswas",
-            "plasma_style": "default",
-            "panel": {"style": "floating", "task_manager": "org.kde.plasma.icontasks"},
+            "preview": {"panel": "floating"},
             "palette": {
                 "window": "#1E2530", "window_alt": "#1A2029",
                 "view": "#181E27", "view_alt": "#1D242E",
@@ -180,11 +157,6 @@
                 "text": "#E9EDF3", "muted": "#A9B3C2",
                 "link": "#7FB3F0", "visited": "#BBA2EE",
                 "positive": "#55C98F", "neutral": "#EE9A4C", "negative": "#F07478"
-            },
-            "terminal": {
-                "background": "#181E27", "foreground": "#E9EDF3",
-                "colors": ["#232B37", "#E07A7E", "#6CC596", "#D9B776", "#78A9E6", "#B49BE0", "#74B4D6", "#C3CBD7",
-                           "#4D5869", "#F09A9D", "#93D9B3", "#EBCF98", "#9DC2F0", "#CCB8EC", "#9BCBE6", "#F3F5F8"]
             },
             "wallpaper": {
                 "motif": "slate",
@@ -216,9 +188,7 @@
             "name": "Boswas Carbon",
             "description": "Black surfaces, white text and a bright gold focus colour. High contrast (7:1 text) for engineering and security work.",
             "variant": "dark",
-            "icon_theme": "Boswas",
-            "plasma_style": "default",
-            "panel": {"style": "floating", "task_manager": "org.kde.plasma.icontasks"},
+            "preview": {"panel": "floating"},
             "palette": {
                 "window": "#0C0D10", "window_alt": "#131519",
                 "view": "#000000", "view_alt": "#0B0C0E",
@@ -232,11 +202,6 @@
                 "text": "#FFFFFF", "muted": "#C9CFD8",
                 "link": "#74BEFF", "visited": "#D1AEFF",
                 "positive": "#45E296", "neutral": "#FF9548", "negative": "#FF7A84"
-            },
-            "terminal": {
-                "background": "#000000", "foreground": "#FFFFFF",
-                "colors": ["#1A1A1A", "#FF6670", "#3EE08F", "#FFC844", "#5AAEFF", "#D08CFF", "#4FCCF5", "#E0E0E0",
-                           "#7A7A7A", "#FF8A92", "#7CF5B6", "#FFDD85", "#8FC8FF", "#E2B3FF", "#8AE0FA", "#FFFFFF"]
             },
             "wallpaper": {
                 "motif": "carbon",
@@ -268,9 +233,7 @@
             "name": "Boswas Pearl",
             "description": "A clean light interface in ivory and pearl, with gold highlights and navy text.",
             "variant": "light",
-            "icon_theme": "Boswas-Light",
-            "plasma_style": "default",
-            "panel": {"style": "floating", "task_manager": "org.kde.plasma.icontasks"},
+            "preview": {"panel": "floating"},
             "palette": {
                 "window": "#F4F1EA", "window_alt": "#EBE6DB",
                 "view": "#FFFDF8", "view_alt": "#F8F5EE",
@@ -284,11 +247,6 @@
                 "text": "#141C2B", "muted": "#59606E",
                 "link": "#1F5DB5", "visited": "#6B3FAE",
                 "positive": "#14693B", "neutral": "#9E4D00", "negative": "#B32B38"
-            },
-            "terminal": {
-                "background": "#FFFDF8", "foreground": "#1B2333",
-                "colors": ["#1B2333", "#B4232F", "#1C7A45", "#8A6A2F", "#1F5FB8", "#7A3FB0", "#1B6A94", "#59616F",
-                           "#4A5466", "#C92F3C", "#228A52", "#9C7836", "#2F6FC8", "#8A4FC0", "#227AA6", "#2E3646"]
             },
             "wallpaper": {
                 "motif": "pearl",
@@ -320,9 +278,7 @@
             "name": "Boswas Ocean",
             "description": "Calm deep blues with an ocean-blue accent, for focused everyday productivity.",
             "variant": "dark",
-            "icon_theme": "Boswas",
-            "plasma_style": "default",
-            "panel": {"style": "floating", "task_manager": "org.kde.plasma.icontasks"},
+            "preview": {"panel": "floating"},
             "palette": {
                 "window": "#0E1D33", "window_alt": "#0B182B",
                 "view": "#0A1628", "view_alt": "#0F1E35",
@@ -336,11 +292,6 @@
                 "text": "#E5EEF8", "muted": "#A0B4CC",
                 "link": "#8FCBFF", "visited": "#BBA6F2",
                 "positive": "#52CC86", "neutral": "#F0A04B", "negative": "#F2707A"
-            },
-            "terminal": {
-                "background": "#0A1628", "foreground": "#E5EEF8",
-                "colors": ["#142640", "#EE7078", "#56CC8A", "#E6C077", "#4FA3E8", "#A996EE", "#5CB8E6", "#C4D2E3",
-                           "#3E5675", "#FF9198", "#86E0AE", "#F5D699", "#84C2F5", "#C8B8F7", "#8DD0F2", "#F2F7FC"]
             },
             "wallpaper": {
                 "motif": "ocean",
@@ -372,9 +323,7 @@
             "name": "Boswas Ember",
             "description": "Warm dark surfaces with a strong copper accent. A creative workstation look.",
             "variant": "dark",
-            "icon_theme": "Boswas",
-            "plasma_style": "default",
-            "panel": {"style": "floating", "task_manager": "org.kde.plasma.icontasks"},
+            "preview": {"panel": "floating"},
             "palette": {
                 "window": "#1A1719", "window_alt": "#151214",
                 "view": "#141113", "view_alt": "#1A1618",
@@ -388,11 +337,6 @@
                 "text": "#F2EAE4", "muted": "#B9ACA5",
                 "link": "#82B6EE", "visited": "#C9A6F0",
                 "positive": "#62CB8E", "neutral": "#E8C34E", "negative": "#F4646E"
-            },
-            "terminal": {
-                "background": "#141113", "foreground": "#F2EAE4",
-                "colors": ["#2A2326", "#F0656E", "#7CC88E", "#E9C24A", "#7EB0EC", "#D196D8", "#72B8E0", "#D2C6BF",
-                           "#574A4E", "#FF8A90", "#A0DDAE", "#F5D57A", "#A3C8F4", "#E3B5E8", "#9CCDEC", "#FBF6F2"]
             },
             "wallpaper": {
                 "motif": "ember",
@@ -424,9 +368,7 @@
             "name": "Boswas Nebula",
             "description": "Deep indigo and violet with a luminous lavender accent. Futuristic, for research and AI work.",
             "variant": "dark",
-            "icon_theme": "Boswas",
-            "plasma_style": "default",
-            "panel": {"style": "floating", "task_manager": "org.kde.plasma.icontasks"},
+            "preview": {"panel": "floating"},
             "palette": {
                 "window": "#16142E", "window_alt": "#121027",
                 "view": "#100E24", "view_alt": "#17152F",
@@ -440,11 +382,6 @@
                 "text": "#ECEAFA", "muted": "#AAA5CC",
                 "link": "#82B8FF", "visited": "#E2A6F2",
                 "positive": "#55D093", "neutral": "#F2A04E", "negative": "#F46C88"
-            },
-            "terminal": {
-                "background": "#100E24", "foreground": "#ECEAFA",
-                "colors": ["#1F1C3D", "#F26B86", "#5ACF94", "#EBC273", "#7FA8FF", "#A58BFF", "#6CBDEC", "#C9C5E3",
-                           "#4B4675", "#FF92A8", "#8AE3B5", "#F7D79B", "#A6C2FF", "#C6B5FF", "#9AD2F4", "#F6F5FD"]
             },
             "wallpaper": {
                 "motif": "nebula",
@@ -476,9 +413,7 @@
             "name": "Boswas Classic",
             "description": "A familiar, conservative desktop: light neutral windows, a full-width panel with labelled taskbar buttons and a plain wallpaper. Lightweight.",
             "variant": "light",
-            "icon_theme": "Boswas-Light",
-            "plasma_style": "default",
-            "panel": {"style": "full-width", "task_manager": "org.kde.plasma.taskmanager"},
+            "preview": {"panel": "full-width"},
             "palette": {
                 "window": "#EEF0F3", "window_alt": "#E3E7EC",
                 "view": "#FFFFFF", "view_alt": "#F5F7F9",
@@ -492,11 +427,6 @@
                 "text": "#1D2533", "muted": "#586374",
                 "link": "#1F5DAE", "visited": "#6A42AE",
                 "positive": "#166A39", "neutral": "#984A00", "negative": "#BC2E3A"
-            },
-            "terminal": {
-                "background": "#1D2330", "foreground": "#E6EAF0",
-                "colors": ["#232A38", "#E5646B", "#5BC27E", "#E3B866", "#4D94DE", "#A47FD9", "#4FA8D6", "#C9CFD8",
-                           "#5A6475", "#F08A8F", "#86D9A1", "#F0CE8C", "#7EB3EC", "#C2A6EA", "#84C4E6", "#F5F7FA"]
             },
             "wallpaper": {
                 "motif": "classic",

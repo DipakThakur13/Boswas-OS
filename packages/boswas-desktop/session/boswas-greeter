@@ -7,7 +7,7 @@
 # to sign in.
 export XDG_CURRENT_DESKTOP=Boswas
 export XDG_SESSION_TYPE=wayland
-export XCURSOR_THEME="${XCURSOR_THEME:-breeze_cursors}"
+export XCURSOR_THEME="${XCURSOR_THEME:-Boswas-Cursors}"
 
 started=$(date +%s)
 /usr/bin/boswas-compositor --config /usr/share/boswas/compositor/greeter.toml

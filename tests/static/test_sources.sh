@@ -153,9 +153,12 @@ pysrc=(packages/boswas-compat/boswas_compat packages/boswas-device-agent/boswas_
 	packages/boswas-android/boswas_android)
 check_not "no shell execution primitives in the Boswas Python components (shell=True, os.system, os.popen, eval, exec)" \
 	grep -rqE 'shell=True|os\.system\(|os\.popen\(|[^_.a-z]eval\(|[^_.a-z]exec\(' "${pysrc[@]}"
+# (The toolkit's dialog has a method named exec(), as Qt's dialogs do: its
+# definition and the mention in its documentation are not Python's exec.)
 check_not "no shell execution primitives in the system applications and the Qt toolkit" \
-	grep -rqE --include='*.py' 'shell=True|os\.system\(|os\.popen\(|[^_.a-z]eval\(|[^_.a-z]exec\(' \
-		packages/boswas-apps/boswas_apps desktop/ui/qt/boswas_fluent
+	bash -c "grep -rnE --include='*.py' 'shell=True|os\\.system\\(|os\\.popen\\(|[^_.a-z]eval\\(|[^_.a-z]exec\\(' \
+		packages/boswas-apps/boswas_apps desktop/ui/qt/boswas_fluent |
+		grep -vE 'widgets/dialogs\\.py:[0-9]+:.*(def exec\\(self\\)|\`\`exec\\(\\)\`\`)' | grep -q ."
 check_not "no shell-like remote command type" \
 	grep -qE '^[[:space:]]+[A-Z_]*(SHELL|EXEC|SCRIPT|RUN_COMMAND|TERMINAL)[A-Z_]* = ' packages/boswas-device-agent/boswas_agent/commands.py
 check "the only identity provider is NoIdentityProvider (Boswas ID not implemented)" \

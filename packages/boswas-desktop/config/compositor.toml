@@ -16,7 +16,7 @@ natural_scroll = false
 accel_speed = 0.0
 accel_profile = "adaptive"
 left_handed = false
-cursor_theme = "breeze_cursors"
+cursor_theme = "Boswas-Cursors"
 cursor_size = 24
 
 [touchpad]

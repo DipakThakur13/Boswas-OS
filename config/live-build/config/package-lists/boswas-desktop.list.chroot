@@ -29,10 +29,10 @@ upower
 power-profiles-daemon
 accountsservice
 
-# Toolkits on Wayland, cursors, fallback icons and the widget style of the
-# KDE applications
+# Toolkits on Wayland, fallback icons and the widget style of the KDE
+# applications. The pointer cursors are Boswas's own theme, Boswas-Cursors,
+# in boswas-branding.
 qt6-wayland
-breeze-cursor-theme
 breeze-icon-theme
 kde-style-breeze
 

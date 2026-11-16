@@ -4,7 +4,7 @@
 # boswas-greeter. The only program on this compositor is the greeter.
 
 [pointer]
-cursor_theme = "breeze_cursors"
+cursor_theme = "Boswas-Cursors"
 
 [lock]
 # Nobody is logged in: there is no session to lock.

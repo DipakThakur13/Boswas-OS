@@ -30,7 +30,6 @@ Depends: dbus-user-session,
          ${shlibs:Depends}
 Recommends: bluez,
             boswas-branding,
-            breeze-cursor-theme,
             fonts-inter,
             network-manager,
             pipewire-bin,

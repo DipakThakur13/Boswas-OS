@@ -1424,23 +1424,22 @@ attempted.
 - **X11 has no isolation between its clients.** Applications connected to
   the X server can see each other's windows and input. They cannot see
   Wayland applications. The known limit of ADR-0012 applies again.
-- **Windows applications.** The WinCompat sandbox binds the X11 socket
-  whenever `DISPLAY` names a local socket (`boswas_compat/sandbox.py`,
-  unchanged since the Plasma releases), next to the Wayland socket. A
-  Windows application started from Start or the taskbar inherits
-  `DISPLAY` from the shell, and Wine then prefers its X11 driver
-  (`docs/compatibility/README.md`). Such an application is an X11 client
-  and can observe other X11 clients, though not Wayland ones. An
-  application started by the session agent (the Compatibility Manager,
-  remote commands) gets `DISPLAY` only if the systemd user manager has
-  it, which the session does not arrange. ADR-0026's statement that the
-  X11 limit no longer applies is withdrawn. None of this has been run on
-  the desktop: which driver Wine uses in each case is not verified.
+- **Windows applications stay Wayland clients.** The session now has an
+  X server and `DISPLAY` is set for what the shell starts, but the
+  WinCompat sandbox does not bind the X11 socket when it can give the
+  compositor's Wayland socket (`boswas_compat/sandbox.py`; it binds X11
+  only in a session that has no Wayland socket). Clients of one X server
+  can watch each other, and a sandboxed application must not be able to
+  watch other windows, so ADR-0026's statement holds for Windows
+  applications: Wine draws through its Wayland driver. Not verified:
+  Wine's Wayland driver on Debian 13. Letting chosen Windows
+  applications onto Xwayland would be a policy decision of its own.
 - **Scaling.** X11 windows are drawn at scale 1 and enlarged on a scaled
   monitor, so they look soft there.
-- **Not a policy.** `[xwayland] enabled` is an ordinary setting: a user's
-  file can turn it back on after an administrator turned it off. A device
-  that must not run X11 applications leaves the package out.
+- **The administrator can turn it off.** When a system file sets
+  `[xwayland] enabled = false`, a user's file does not turn the X server
+  back on; a user can turn it off for their own session. A device that
+  must never run X11 applications can also leave the package out.
 - **Not verified yet:** Xwayland on real graphics hardware; the clipboard
   between X11 and Wayland applications, which has no automated test; Wine
   through Xwayland. Verified: one end-to-end test starts a real X11
@@ -1663,9 +1662,12 @@ configuration are missing. The feature list is in
 
 **Consequences.**
 
-- **A configured input method is trusted like the shell.** There are
-  three trust levels (ADR-0026) and it gets the highest: every privileged
-  protocol and a trusted control connection, not only the two it needs.
+- **A configured input method gets a trust level of its own.** It is
+  offered the input-method and virtual-keyboard protocols (it sees what
+  is typed and types itself) and no other privileged protocol, and its
+  control connection offers what the public socket offers. An end-to-end
+  test checks both. Which program it is stays the administrator's
+  decision (system files only).
 - **Night light needs a driver with gamma tables.** On a display
   controller without them nothing is tinted (a debug message says so).
   The nested and headless back ends have no colour pipeline: night light
@@ -1694,8 +1696,7 @@ configuration are missing. The feature list is in
 
 **Revisit when** hardware shows a driver on which the clip shader or the
 gamma ramp fails, when translucent surfaces must show the windows behind
-them, when an input method needs less than full trust (a fourth trust
-level), or when an application needs an output-configuration protocol.
+them, or when an application needs an output-configuration protocol.
 
 ## ADR-0037 Screen capture for other programs, behind the user's consent
 
@@ -1769,11 +1770,12 @@ to the user and not by client trust.
 
 **Consequences.**
 
-- **It does not prove which program asks.** The name shown is the
-  kernel's name for the process: at most 15 characters, and a process
-  can set its own. The question says that some program wants the screen
-  now; whether it is the one the user just started is the user's
-  judgement.
+- **It does not prove which program asks.** The name shown is the file
+  name of the program's executable (not the kernel's short process name,
+  which is cut to fifteen characters and which a process can set
+  itself). It is still only a name: a program can be installed under any
+  name. The question says that some program wants the screen now;
+  whether it is the one the user just started is the user's judgement.
 - **It is all or nothing.** An allowed program can take pictures of
   everything on every monitor, other applications included, until it
   stops. There is no choice of one window or one monitor, and no
@@ -2198,11 +2200,13 @@ Replaces ADR-0026's "native settings pages are planned work".
   `compositor.toml.bak` first and the user is told.
 - **Passwords set for others bypass PAM.** They are SHA-512 crypt (5000
   rounds), not the yescrypt that Debian 13 uses by default, because the
-  hash is made in Control Center; and the `pam_pwquality` rule of the
-  security baseline (12 characters, two classes) does not see them.
-  Control Center's own check asks for 8 characters and refuses the user
-  name. A person's own password goes through `passwd` and PAM and gets
-  the system's scheme and rules.
+  hash is made in Control Center. Because PAM does not see them, the
+  dialog reads the device's `pwquality` settings and applies their
+  minimum length and number of character classes itself (12 characters
+  and two classes with the security baseline) and refuses the user name;
+  the other `pam_pwquality` checks are not made on this path. A person's
+  own password goes through `passwd` and PAM and gets the system's
+  scheme and rules.
 - **Left out:** editing a proxy (shown read-only), managing VPN
   connections (status only), a test sound, an automatic suspend time (the
   compositor has no key for it), identifying monitors, a pointer theme,

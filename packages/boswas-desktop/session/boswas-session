@@ -28,7 +28,7 @@ export MOZ_ENABLE_WAYLAND=1
 export SDL_VIDEODRIVER=wayland
 export CLUTTER_BACKEND=wayland
 export _JAVA_AWT_WM_NONREPARENTING=1
-export XCURSOR_THEME="${XCURSOR_THEME:-breeze_cursors}"
+export XCURSOR_THEME="${XCURSOR_THEME:-Boswas-Cursors}"
 export XCURSOR_SIZE="${XCURSOR_SIZE:-24}"
 
 # Boswas defaults for KDE applications (colour scheme, icon theme). The
