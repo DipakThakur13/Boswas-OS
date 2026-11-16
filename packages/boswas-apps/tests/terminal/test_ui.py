@@ -17,7 +17,7 @@ import boswas_fluent as fluent
 from boswas_apps.terminal import APP_ID, cli, session
 from boswas_apps.terminal import app as app_module
 from boswas_apps.terminal import settings as settings_module
-from boswas_apps.terminal.pane import HIGH_WATER, TerminalPane, start_session
+from boswas_apps.terminal.pane import HIGH_WATER, start_session
 from boswas_apps.terminal.session import PtySession
 from boswas_apps.terminal.settings_page import SettingsPage
 

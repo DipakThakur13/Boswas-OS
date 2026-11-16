@@ -316,7 +316,8 @@ def search(entries: Iterable[tuple], pattern: re.Pattern, first: int = 0) -> Ite
         if wrapped and len(rows) < 2 * MAX_LOGICAL_ROWS:
             continue
         if len(rows) == 1 and type(cells) is str:
-            yield [[(start, match.start(), match.end())] for match in pattern.finditer(cells) if match.end() > match.start()]
+            yield [[(start, match.start(), match.end())] for match in pattern.finditer(cells)
+                   if match.end() > match.start()]
         else:
             logical = LogicalLine(start, rows)
             yield [logical.spans(match.start(), match.end()) for match in pattern.finditer(logical.text)

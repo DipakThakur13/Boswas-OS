@@ -361,8 +361,8 @@ class TabStrip(QWidget):
             index = self.tab_at(event.pos())
             if index >= 0:
                 on_close = self._shows_close(index) and self.close_rect(index).contains(event.pos())
-                QToolTip.showText(event.globalPos(), "Close tab (Ctrl+Shift+W)" if on_close else self._tabs[index].title,
-                                  self)
+                text = "Close tab (Ctrl+Shift+W)" if on_close else self._tabs[index].title
+                QToolTip.showText(event.globalPos(), text, self)
             else:
                 QToolTip.hideText()
             return True

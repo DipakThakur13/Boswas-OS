@@ -14,7 +14,7 @@ from PySide6.QtGui import QColor, QGuiApplication, QInputMethodEvent
 
 import boswas_fluent as fluent
 
-from boswas_apps.terminal import grid, schemes
+from boswas_apps.terminal import schemes
 from boswas_apps.terminal import settings as settings_module
 from boswas_apps.terminal.view import TerminalView
 
