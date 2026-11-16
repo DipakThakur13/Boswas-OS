@@ -45,6 +45,11 @@ RUN apt-get update \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
 
+# The X11 socket directory that systemd-tmpfiles (x11.conf) creates on every
+# booted system. Without it XWayland finds no free display socket, and the
+# compositor's X11 test (boswas-desktop, run at package build) times out.
+RUN install -d -m 1777 /tmp/.X11-unix
+
 LABEL org.opencontainers.image.title="boswas-os-builder" \
       org.opencontainers.image.description="Debian 13 trixie build environment for Boswas OS" \
       org.opencontainers.image.vendor="Boswas Group"
