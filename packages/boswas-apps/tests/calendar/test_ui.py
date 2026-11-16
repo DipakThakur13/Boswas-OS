@@ -208,6 +208,91 @@ class NavigationTest(CalendarCase):
         self.assertIn("boswas-reminders", window.status.message())
 
 
+class NarrowWindowTest(CalendarCase):
+    """The window snapped to half a screen, and at its smallest: nothing overlaps, everything stays reachable."""
+
+    def bar_widgets(self, window):
+        return [widget for widget in (window.pane_button, window.today_button, window.previous_button,
+                                      window.next_button, window.title_label, window.search, window.switch,
+                                      window.new_compact_button, window.more_button) if widget.isVisible()]
+
+    def assert_nothing_squeezed_or_overlapping(self, window):
+        widgets = self.bar_widgets(window)
+        for widget in widgets:
+            # (A widget of fixed size, as the icon buttons are, needs that size and no more.)
+            needed = min(widget.minimumWidth() or widget.minimumSizeHint().width(), widget.maximumWidth())
+            self.assertGreaterEqual(widget.width(), needed, widget.toolTip() or type(widget))
+            self.assertGreaterEqual(widget.x(), 0)
+            self.assertLessEqual(widget.geometry().right(), window.main.width(), type(widget))
+        for index, first in enumerate(widgets):
+            for second in widgets[index + 1:]:
+                self.assertFalse(first.geometry().intersects(second.geometry()),
+                                 f"{type(first).__name__} overlaps {type(second).__name__}")
+
+    def resized(self, window, width, height=800):
+        window.resize(width, height)
+        testing.process(30)
+        return window
+
+    def test_a_wide_window_has_the_pane_and_one_row(self):
+        window = self.open()
+        self.assertTrue(window.pane.isVisible() and window.main.isVisible())
+        self.assertFalse(window.pane_button.isVisible() or window.new_compact_button.isVisible())
+        self.assertEqual(window.search.y(), window.today_button.y() + (window.today_button.height()
+                                                                         - window.search.height()) // 2)
+        self.assert_nothing_squeezed_or_overlapping(window)
+
+    def test_half_a_screen_folds_the_pane_away_and_keeps_every_control_whole(self):
+        for width in (800, 683, 640):
+            with self.subTest(width=width):
+                window = self.resized(self.open(), width)
+                self.assertFalse(window.pane.isVisible())
+                self.assertTrue(window.main.isVisible())
+                self.assertTrue(window.pane_button.isVisible() and window.new_compact_button.isVisible())
+                self.assert_nothing_squeezed_or_overlapping(window)
+                self.assertEqual(window.title_label.text(), "November 2026")
+                window.close()
+
+    def test_the_view_switch_and_the_search_box_take_a_second_row_when_one_cannot_hold_them(self):
+        window = self.resized(self.open(), 640)
+        self.assertGreater(window.switch.y(), window.today_button.geometry().bottom())
+        self.assertGreater(window.search.y(), window.today_button.geometry().bottom())
+        self.resized(window, 1280)
+        self.assertLess(window.switch.y(), window.today_button.geometry().bottom())
+        self.assert_nothing_squeezed_or_overlapping(window)
+
+    def test_the_folded_pane_opens_in_the_calendar_s_place_and_a_date_goes_back(self):
+        window = self.resized(self.open(), 800)
+        testing.click(window.pane_button)
+        self.assertTrue(window.pane.isVisible())
+        self.assertFalse(window.main.isVisible())
+        self.assertTrue(window.pane_close_button.isVisible() and window.new_button.isVisible())
+        window.mini.date_selected.emit(dt.date(2026, 12, 3))
+        testing.process()
+        self.assertFalse(window.pane.isVisible())
+        self.assertTrue(window.main.isVisible())
+        self.assertEqual(window.title_label.text(), "December 2026")
+        testing.click(window.pane_button)
+        testing.click(window.pane_close_button)
+        self.assertTrue(window.main.isVisible())
+        self.assertFalse(window.pane.isVisible())
+
+    def test_a_new_event_is_one_click_away_while_the_pane_is_folded(self):
+        window = self.resized(self.open(), 800)
+        seen = []
+        self.answers.append(lambda dialog: (seen.append(dialog.title_label.text()), NONE)[1])
+        testing.click(window.new_compact_button)
+        self.assertEqual(len(seen), 1)
+
+    def test_widening_again_restores_the_pane_beside_the_calendar(self):
+        window = self.resized(self.open(), 800)
+        testing.click(window.pane_button)
+        self.resized(window, 1280)
+        self.assertTrue(window.pane.isVisible() and window.main.isVisible())
+        self.assertEqual(window.pane.width(), 288)
+        self.assertFalse(window.pane_button.isVisible() or window.pane_close_button.isVisible())
+
+
 class EventsTest(CalendarCase):
     def test_ctrl_n_makes_an_event_with_the_defaults(self):
         window = self.open()

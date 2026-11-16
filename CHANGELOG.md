@@ -38,6 +38,18 @@ Verification status of the native desktop
   resolution of the new image manifest on Debian trixie.
 
 ### Fixed
+- **Calendar in a narrow window** *(native desktop)*: snapped to half of
+  the screen, the toolbar was drawn over itself (the month cut off, the
+  search box on top of the view switch). Below 900 pixels the pane with
+  the month and the calendars now folds away behind a button, a "new
+  event" button takes its place in the toolbar, and the view switch and
+  the search box take a second row when one row cannot hold them. Found
+  by looking at every application at half-screen width in a run from the
+  built packages.
+- **Settings' copy of the compositor's defaults** *(native desktop)* named
+  Konsole and Dolphin as terminal and file manager; it names Boswas
+  Terminal and Boswas Files, and a test compares it with the file the
+  compositor ships.
 - **Installer firmware (`rtl_nic/rtl8125b-2.fw` prompt):** the ISO had no
   firmware pool for the installer (`--firmware-binary false`), which runs its
   own kernel and initrd. The medium now carries every Debian firmware package

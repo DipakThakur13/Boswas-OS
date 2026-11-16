@@ -24,6 +24,10 @@ from .common import Context, color_dot
 from .dialogs import (CalendarDialog, EventDialog, ImportDialog, ScopeDialog, reminder_label)
 from .views import AgendaView, MiniMonth, MonthView, WeekView
 
+PANE_WIDTH = 288        # the pane with the month and the calendars
+COMPACT_BELOW = 900     # window width under which the pane folds away (half of a 1600 px screen is 800)
+TITLE_MIN_WIDTH = 150   # room the bar keeps for "November 2026"
+
 VERSION = "1.0"
 VIEWS = settings_module.VIEWS
 PRIMARY = fluent.ContentDialog.Result.PRIMARY
@@ -152,9 +156,15 @@ class CalendarWindow(fluent.FluentWindow):
         columns = QHBoxLayout(root)
         columns.setContentsMargins(0, 0, 0, 0)
         columns.setSpacing(0)
-        columns.addWidget(self._build_pane())
-        columns.addWidget(self._build_main(), 1)
+        self._compact = False       # the window is too narrow for the pane beside the calendar
+        self._pane_open = False     # compact only: the pane is shown in the calendar's place
+        self._two_rows = False      # the view switch and the search box are on a row of their own
+        self.pane = self._build_pane()
+        self.main = self._build_main()
+        columns.addWidget(self.pane)
+        columns.addWidget(self.main, 1)
         self.set_content(root)
+        self._reflow()
         self.quick = QuickCreate(self)
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
@@ -192,10 +202,14 @@ class CalendarWindow(fluent.FluentWindow):
     def _build_pane(self) -> QWidget:
         pane = QWidget(self)
         pane.setObjectName("fluentNavigationPane")
-        pane.setFixedWidth(288)
+        pane.setFixedWidth(PANE_WIDTH)
         layout = QVBoxLayout(pane)
         layout.setContentsMargins(16, 16, 16, 12)
         layout.setSpacing(12)
+        self.pane_close_button = fluent.IconButton("open-menu-symbolic", "Back to the calendar", pane)
+        self.pane_close_button.clicked.connect(lambda: self.set_pane_open(False))
+        self.pane_close_button.hide()
+        layout.addWidget(self.pane_close_button, 0, Qt.AlignmentFlag.AlignLeft)
         self.new_button = fluent.Button("New event", pane, icon=fluent.icon("list-add-symbolic", color="on-accent"),
                                         accent=True)
         self.new_button.setToolTip("New event (Ctrl+N)")
@@ -236,6 +250,11 @@ class CalendarWindow(fluent.FluentWindow):
         layout.setSpacing(8)
         bar = QHBoxLayout()
         bar.setSpacing(6)
+        self.bar = bar
+        self.pane_button = fluent.IconButton("open-menu-symbolic", "Calendars and the month", main)
+        self.pane_button.clicked.connect(lambda: self.set_pane_open(True))
+        self.pane_button.hide()
+        bar.addWidget(self.pane_button)
         self.today_button = fluent.Button("Today", main)
         self.today_button.setToolTip("Go to today (Ctrl+T)")
         self.today_button.clicked.connect(self.go_today)
@@ -257,14 +276,24 @@ class CalendarWindow(fluent.FluentWindow):
         self.switch.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.more_button = fluent.IconButton("view-more-horizontal-symbolic", "More", main)
         self.more_button.clicked.connect(self._more_menu)
+        self.new_compact_button = fluent.IconButton("list-add-symbolic", "New event (Ctrl+N)", main)
+        self.new_compact_button.clicked.connect(lambda: self.new_event())
+        self.new_compact_button.hide()
         for widget in (self.today_button, self.previous_button, self.next_button):
             bar.addWidget(widget)
         bar.addSpacing(6)
+        self.title_label.setMinimumWidth(TITLE_MIN_WIDTH)
         bar.addWidget(self.title_label, 1)
         bar.addWidget(self.search)
         bar.addWidget(self.switch)
+        bar.addWidget(self.new_compact_button)
         bar.addWidget(self.more_button)
         layout.addLayout(bar)
+        # Where the view switch and the search box go when one row cannot hold everything.
+        self.tools = QHBoxLayout()
+        self.tools.setSpacing(6)
+        self.tools.addStretch(1)
+        layout.addLayout(self.tools)
         self.status = fluent.InfoBar("info", parent=main)
         self.status.hide()
         self.status.action_triggered.connect(self._banner_action)
@@ -291,6 +320,69 @@ class CalendarWindow(fluent.FluentWindow):
         self.stack.addWidget(self.settings_page)
         layout.addWidget(self.stack, 1)
         return main
+
+    # --- the arrangement follows the window's width ---
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._reflow()
+
+    def set_pane_open(self, shown: bool) -> None:
+        """Compact arrangement only: show the pane (the month and the calendars) in the calendar's place,
+        or go back to the calendar."""
+        shown = bool(shown) and self._compact
+        if shown != self._pane_open:
+            self._pane_open = shown
+            self._reflow()
+            (self.pane_close_button if shown else self.pane_button).setFocus()
+
+    def _reflow(self) -> None:
+        if getattr(self, "main", None) is None:     # a resize before the window is built
+            return
+        compact = self.width() < COMPACT_BELOW
+        if compact != self._compact:
+            self._compact = compact
+            self._pane_open = False
+        pane_shown = not compact or self._pane_open
+        if compact:
+            self.pane.setMinimumWidth(PANE_WIDTH)
+            self.pane.setMaximumWidth(16777215)
+        else:
+            self.pane.setFixedWidth(PANE_WIDTH)
+        self.pane.setVisible(pane_shown)
+        self.main.setVisible(not compact or not self._pane_open)
+        self.pane_close_button.setVisible(compact)
+        self.pane_button.setVisible(compact)
+        self.new_compact_button.setVisible(compact)
+        self._arrange_bar(self._one_row_width() > self._main_width())
+
+    def _main_width(self) -> int:
+        """The width the bar has: the window's, less the pane beside it and the margins."""
+        margins = self.main.layout().contentsMargins()
+        return self.width() - (0 if self._compact else PANE_WIDTH) - margins.left() - margins.right()
+
+    def _one_row_width(self) -> int:
+        """What the bar needs to hold every control on one row."""
+        widgets = [self.today_button, self.previous_button, self.next_button, self.switch, self.more_button]
+        if self._compact:
+            widgets += [self.pane_button, self.new_compact_button]
+        spacing = self.bar.spacing()
+        return (sum(widget.sizeHint().width() + spacing for widget in widgets) + 6 + TITLE_MIN_WIDTH + spacing
+                + self.search.minimumWidth())
+
+    def _arrange_bar(self, two_rows: bool) -> None:
+        if two_rows == self._two_rows:
+            return
+        self._two_rows = two_rows
+        for widget in (self.search, self.switch):
+            self.bar.removeWidget(widget)
+            self.tools.removeWidget(widget)
+        if two_rows:
+            self.tools.insertWidget(0, self.switch)
+            self.tools.addWidget(self.search)
+        else:
+            index = self.bar.indexOf(self.new_compact_button)
+            self.bar.insertWidget(index, self.search)
+            self.bar.insertWidget(index + 1, self.switch)
 
     # --- hooks the tests replace ---
     def run_dialog(self, dialog: fluent.ContentDialog) -> fluent.ContentDialog.Result:
@@ -381,6 +473,7 @@ class CalendarWindow(fluent.FluentWindow):
         self._sync_title()
 
     def go_to(self, day: dt.date) -> None:
+        self.set_pane_open(False)
         if self._view == "settings":
             self.set_view(self.store.settings.first_view)
         if self.agenda.query is not None:
@@ -397,6 +490,7 @@ class CalendarWindow(fluent.FluentWindow):
         self.go_to(day)
 
     def show_settings(self) -> None:
+        self.set_pane_open(False)
         self._view = "settings"
         self.stack.setCurrentWidget(self.settings_page)
         self._sync_title()
