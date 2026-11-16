@@ -4,7 +4,8 @@ Control Center is the user's entry point to the system's settings. It shows
 the state of the device (security posture, updates, Windows compatibility,
 device management, storage, power) and holds the settings themselves as
 native sections: network and Bluetooth, sound, power, display, input,
-personalization, date and time, region, default and start-up applications.
+personalization, users, date and time, region, default and start-up
+applications.
 
 It runs as the desktop user and never as root. It reads:
 

@@ -20,8 +20,8 @@ Group responsible for maintaining thousands of packages.
 **Decision.** Everything Boswas adds to a device lives in native Debian
 packages built from `packages/` (seven in 1.0~alpha3; added since:
 `boswas-control-center`, `boswas-sysops` (ADR-0024), `boswas-android`
-(ADR-0025), `boswas-desktop` (ADR-0026) and `boswas-bootsplash`
-(ADR-0029)):
+(ADR-0025), `boswas-desktop` (ADR-0026), `boswas-bootsplash`
+(ADR-0029) and `boswas-apps` (ADR-0040)):
 
 - `boswas-os`: release identity and `/etc/boswas`; depends on the others.
 - `boswas-cli`: `boswas`, `boswas-info`, `boswas-status`.
@@ -750,6 +750,8 @@ weakening Secure Boot, and an honest position on Google Play.
 > - The public control socket now also answers `outputs` and `capture`
 >   (ADR-0036, ADR-0037).
 > - `loginctl lock-session`: handled through the shell (ADR-0035).
+> - "KDE's applications therefore stay" as the system applications:
+>   ADR-0040. Settings pages: ADR-0041.
 
 **Decision.**
 
@@ -764,6 +766,8 @@ weakening Secure Boot, and an honest position on Google Play.
   protocol would mean that no existing application runs. KDE's
   applications (Dolphin, Konsole, KWrite, Ark, Okular, Gwenview, KCalc)
   therefore stay: they are ordinary Wayland clients of the new compositor.
+  *(They still run, but since ADR-0040 the image installs Boswas's own
+  applications in their place.)*
 - **The compositor.** `boswas-compositor` (package `boswas-desktop`),
   written in Rust on the Smithay library (0.7). It is the display server,
   the window manager and the effects engine in one process, and it runs as
@@ -856,8 +860,8 @@ A compositor without a library would repeat years of protocol work.
   devices, region, notifications and others) are unavailable, because the
   modules are no longer installed. Its own pages (updates, security,
   software, storage, hardware, compatibility, Android, about) do not
-  depend on Plasma. Native settings pages are planned work. *(The native
-  settings pages are the subject of ADR-0041, reserved.)*
+  depend on Plasma. Native settings pages are planned work. *(Superseded
+  by ADR-0041: the pages hold native settings sections.)*
 - **`loginctl lock-session`** is not handled; locking goes through the
   compositor (ADR-0028). *(Superseded by ADR-0035: the shell passes
   logind's lock request on to the compositor.)*
@@ -1189,7 +1193,7 @@ list), or if greetd leaves Debian.
     schemes `BoswasPrism` and `BoswasPrismLight`, so KDE applications
     match;
   - `desktop/icons/tools/build_prism.py` generates the icon themes
-    `Boswas-Prism` (default) and `Boswas-Prism-Light`: 254 designs, 441
+    `Boswas-Prism` (default) and `Boswas-Prism-Light`: 264 designs, 461
     SVG files;
   - `boswas-branding` installs the file as
     `/usr/share/boswas/ui/tokens.json` for other tools.
@@ -1669,8 +1673,9 @@ configuration are missing. The feature list is in
 - **No blur of windows:** a flyout over a window shows the wallpaper's
   colours, not the window's. Qt applications get the material tints as
   opaque fills (ADR-0039).
-- **Display arrangement is text for now.** Until the settings pages
-  exist (ADR-0041) monitors are arranged in `compositor.toml`.
+- **No protocol means a file.** A program that changes the monitors
+  writes `compositor.toml` and asks for a reload. Control Center's
+  Display page does exactly that (ADR-0041).
 - **Still missing:** outputs on a second GPU, HDR, variable refresh rate,
   the NVIDIA proprietary driver, a screen reader interface for what the
   compositor draws.
@@ -1928,8 +1933,9 @@ glyphs in the atlas, or a font in the initramfs after all).
   the action buttons of a notification sent through `fluent.notify`. The
   README lists the rest.
 - KDE applications (Dolphin, Konsole and the others) do not use it. They
-  keep the Breeze style with the Prism colour scheme, so two looks are on
-  the desktop.
+  keep the Breeze style with the Prism colour scheme, so two looks were on
+  the desktop until the system applications moved to the toolkit as well
+  (ADR-0040).
 - Window frames are the compositor's; the toolkit draws none.
 - **Not verified yet:** on a real session. The 128 tests run on Qt's
   offscreen platform; the widget tests skip themselves where PySide6 is
@@ -1939,10 +1945,254 @@ glyphs in the atlas, or a font in the initramfs after all).
 **Revisit when** a Boswas application needs a toolkit other than Qt
 Widgets, or when the compositor can give a client a blurred backdrop.
 
-## ADR-0040 System applications (boswas-apps)
+## ADR-0040 The system applications are Boswas programs on boswas_fluent, in one package (boswas-apps)
 
-*Reserved. To be written when the work lands.*
+Replaces the part of ADR-0026 that kept KDE's applications as the
+system applications.
 
-## ADR-0041 Native settings in Control Center
+**Decision.**
 
-*Reserved. To be written when the work lands.*
+- **Boswas writes the system applications itself.** They are PySide6
+  programs on the toolkit `boswas_fluent` (ADR-0039), in the package
+  `boswas-apps`. The image installs them in place of the KDE
+  applications, which leave the package list; KDE applications still run
+  if someone installs them.
+
+  | Application | Program | Takes the place of |
+  |-------------|---------|--------------------|
+  | Files | `boswas-files` | Dolphin |
+  | Terminal | `boswas-terminal` | Konsole |
+  | Text Editor | `boswas-text-editor` | KWrite |
+  | Calculator | `boswas-calculator` | KCalc |
+  | Photos | `boswas-photos` | Gwenview |
+  | Document Viewer | `boswas-document-viewer` | Okular, for PDF |
+  | Archive Manager | `boswas-archive-manager` | Ark |
+  | Media Player | `boswas-media-player` | nothing: the image had no player |
+  | Camera | `boswas-camera` | nothing: the image had no camera application |
+  | Clock | `boswas-clock` | nothing |
+  | Calendar | `boswas-calendar` | nothing (the KDE PIM suite was never in the image) |
+  | Reminders | `boswas-reminders` | a session service without a window: it shows alarms, timers and calendar reminders as notifications while Clock and Calendar are closed |
+
+  Task Manager (`boswas-task-manager`) is part of the same package and
+  was still being finished when this record was written; it is not
+  described here.
+- **One package, one module directory.** Each application is a
+  sub-package of `boswas_apps` in the private module directory
+  `/usr/lib/boswas/python` (ADR-0010), with a launcher
+  `/usr/bin/boswas-<name>` that runs Python isolated (`python3 -IB`), a
+  desktop entry `com.boswas.<Name>.desktop` whose name is also the
+  window's application ID, a manual page and its own test suite. At run
+  time the applications share nothing but the toolkit.
+- **The same rules for all of them:**
+  - **As the user.** Every application refuses to start as root.
+  - **No shell.** Other programs are started with an argument list. The
+    terminal starts the login shell, or the command after `-e`, directly
+    on a pseudo-terminal.
+  - **What comes from outside is hostile.** File names, file contents and
+    what a program prints are parsed by bounds-checked code with size
+    caps, and nothing is evaluated or unpickled. Photos reads EXIF and
+    the Media Player reads tags with parsers of their own. The Text
+    Editor refuses files that are not text, asks above 32 MB and refuses
+    above 512 MB. Photos shows pictures above 48 megapixels from a
+    reduced copy.
+  - **Opening is not running.** Files starts a program, an executable
+    script or a desktop entry only after a question. The Document Viewer
+    shows the address of a web link and opens it only on request.
+  - **Extraction cannot leave its folder.** The Archive Manager walks
+    paths from a descriptor of the destination without following
+    symbolic links, refuses `..`, makes absolute paths relative, creates
+    symbolic links last, skips devices, drops set-user-ID bits, and stops
+    at a size, ratio and count that would mean a decompression bomb.
+  - **Deleting goes to the Trash.** Files and Photos move files to the
+    freedesktop.org Trash and can undo that. Deleting for good is a
+    separate key and asks first.
+  - **Saving replaces atomically:** a temporary file in the same folder,
+    then a rename (Text Editor, Photos, Archive Manager).
+  - **Nothing blocks the window.** Long work runs on worker threads with
+    progress and a way to cancel.
+  - **No network of their own,** except where it is the function: the
+    Media Player plays http and https addresses the user gives it. The
+    Calculator has no currency converter for that reason.
+  - **Python's standard library and PySide6 only.** The terminal's
+    emulator, the EXIF reader and the tag readers are part of the
+    applications. For 7z and RAR archives the Archive Manager runs `7z`
+    where it is installed.
+- **Desktop defaults.** Ctrl+Alt+T, Super+E and Ctrl+Shift+Esc start the
+  Boswas terminal, file manager and task manager; the taskbar and Start
+  of a new user pin the Boswas applications; a desktop entry that asks
+  for a terminal runs in `boswas-terminal`. Files answers
+  `org.freedesktop.FileManager1`, so other programs can show a file in
+  it.
+
+**Why.**
+
+- **One look and one behaviour.** KDE's applications keep the Breeze
+  widgets with the Prism colours (ADR-0039): next to the shell they are
+  a second design. The Boswas applications take the Fluent layout,
+  light and dark, and reduced motion from the toolkit, and follow their
+  Windows 11 counterparts in layout and shortcuts, which is the target
+  of ADR-0033.
+- **Rules that can be read and tested.** "Never as root, never through a
+  shell, never trust a file" is a property of code Boswas owns and tests,
+  application by application.
+- **One stack.** Control Center and the Compatibility Manager are PySide6
+  programs already (ADR-0021); the applications add no second toolkit and
+  no new language.
+- **One package** keeps the applications on one version of the toolkit
+  and one release step.
+
+**Alternatives.** Keeping KDE's applications, as the first version of
+the native desktop did. They are mature and more complete, and Debian's
+security team covers them. That was given up for the single look and the
+single set of rules.
+
+**Consequences.**
+
+- **Boswas maintains them.** A terminal emulator, a file manager, an
+  archive reader and parsers for EXIF and media tags are now Boswas
+  code. Debian's security support covers Qt, PySide6 and FFmpeg beneath
+  them, not this code.
+- **They do less than what they replace.** Left out on purpose, by
+  application:
+  - Terminal: split panes, sixel graphics, the kitty keyboard protocol,
+    an audible bell, screen-reader access to the text, shaping across
+    cells (Indic clusters are drawn cell by cell).
+  - Files: thumbnails for videos and PDFs, password-protected ZIP
+    archives, view settings per folder (layout and sort order are the
+    same everywhere).
+  - Text Editor: syntax highlighting, spell checking. Saving by rename
+    leaves other hard links to a file with the old content.
+  - Calculator: graphing, currency conversion; memory and history do not
+    outlive the window.
+  - Photos: XMP and IPTC data are lost when a picture is saved (the
+    window says so); an edited picture above 48 megapixels is saved
+    reduced; AVIF, HEIF and JPEG XL need `kimageformat6-plugins`.
+  - Document Viewer: PDF only; no annotations (Qt PDF cannot write); no
+    selection across pages.
+  - Archive Manager: no encrypted archives are created, nothing is
+    renamed inside an archive; 7z and RAR need the `7zip` package.
+  - Media Player: no tags for Matroska, AVI, WMA and AIFF files; the mini
+    player does not stay on top.
+  - Calendar: a calendar kept on this computer only, with iCalendar
+    import and export; no accounts and no synchronisation; no printing.
+    Events of a hidden calendar do not remind.
+  - Clock: no choice of alarm sound.
+- **What can be played or shown follows Qt:** media through Qt
+  Multimedia's FFmpeg back end, PDF through Qt PDF, pictures through Qt's
+  image plugins.
+- **Not verified yet:** none of them has run on the Boswas desktop. The
+  build environment runs as root, which the applications refuse, so they
+  were exercised through their tests on Qt's offscreen platform and not
+  through their launchers. The Camera has run against a stand-in camera
+  only. No real printer, no real removable drive with udisks and polkit,
+  no PDF from outside the tests, no audible sound. `verification.md` has
+  the list per application.
+
+**Revisit when** an application needs more than Qt Widgets can give, when
+maintaining one of them costs more than it returns (then: the Debian
+application again, with the two looks), or when a format the business
+needs is beyond Qt (office documents, for example, which no application
+here opens).
+
+## ADR-0041 Settings are native sections of Control Center, on two backends
+
+Replaces ADR-0026's "native settings pages are planned work".
+
+**Decision.**
+
+- **Sections instead of KDE modules.** The pages of Control Center no
+  longer show tiles that start Plasma's settings modules. Each area holds
+  its settings in the window itself, as sections with rows that apply at
+  once. No page depends on a program of another desktop: every KDE helper
+  is gone from the code (a safety test fails if one is named), and
+  applications are started with `gio launch`.
+- **The section contract.** A section is a `QWidget` subclass with four
+  class attributes (`page`, `title`, `order`, `keywords`) and two methods:
+  `activate()` when its page becomes visible and `deactivate()` when it
+  is hidden. Building it does no input or output. The registry
+  (`ui/settings/__init__.py`) imports a fixed list of modules; a module
+  that fails to import or a class that breaks the contract is left out
+  with a log line, a section that fails becomes a message on its page,
+  and a page with nothing on it is hidden. The sidebar search finds
+  sections by title and keyword, and `--page` with `--section` opens one
+  directly, which the shell's quick settings use.
+- **Backend one: the service bridge** (ADR-0035), for Wi-Fi and other
+  connections, Bluetooth, sound, battery, power mode and brightness. One
+  `boswas-services-bridge` runs per window, from the first page that
+  needs it until the window closes. Quick settings and Settings therefore
+  show the same state. A switch shows the requested value until the
+  service confirms it and goes back with a message when it does not.
+- **Backend two: the compositor's configuration,** for monitors, night
+  light, mouse, touchpad, keyboard, colour mode, background, motion, the
+  lock timeout and the screen-off timeout. Settings writes the user's
+  layer (`~/.config/boswas/compositor.toml`, and the colour mode and
+  background to `appearance.toml`), then sends `reload-config` to the
+  public control socket and reads the monitors with `outputs`
+  (ADR-0036). A display change that could leave the user without a
+  picture asks "Keep these display settings?" and reverts after fifteen
+  seconds. With no desktop running the settings are saved and apply at
+  the next sign-in.
+- **The rest uses the system's own interfaces:** `timedatectl` and
+  `localectl` in fixed forms for date, time, region and language (for a
+  change that needs administrator rights systemd's services ask polkit,
+  and the shell's agent shows the question); `mimeapps.list` for default
+  applications; `~/.config/autostart` for start-up applications.
+- **One audited file writer.** `userfiles.py` stays the only module of
+  Control Center that writes or deletes files (a safety test enforces
+  it). Its `write_config` accepts a short allow-list of names
+  (`boswas/compositor.toml`, its backup, `boswas/appearance.toml`,
+  `mimeapps.list`, `autostart/<id>.desktop`), replaces the file
+  atomically with mode 0600, and writes nothing through a symbolic link.
+- **What stays the administrator's.** Settings never writes `[policy]`,
+  `[shell]`, `[input_method]` or `[lock] command`; the compositor would
+  ignore them in a user's file anyway (ADR-0028). The lock timeout it
+  offers ends at the policy's maximum, and the page says that the
+  organisation set the limit.
+- **A damaged file is ignored alone.** The compositor now checks each
+  configuration file on its own: a file with an unknown key or a value of
+  the wrong kind is reported and ignored as a whole, and what the other
+  files say stays in use. Before, such a file in the user's directory
+  made the compositor fall back to its built-in settings for everything,
+  which also dropped an administrator's stricter lock policy.
+
+**Why.**
+
+- The Plasma modules left with Plasma (ADR-0026), and their tiles were
+  dead.
+- The shell already had backends for the network, Bluetooth, sound and
+  power (ADR-0035). A second implementation in Python would have had to
+  repeat the handling of secrets and of what the daemons send, and the
+  two could have disagreed about the state.
+- Display and input settings have one home, the compositor's layered
+  file (ADR-0036). Writing the user's layer and asking for a reload
+  needs no new protocol and no new privilege: the reload re-reads files
+  the user controls anyway, and the policy layer is out of reach.
+- One writer keeps the answer to "which files can this program change?"
+  short enough to review.
+
+**Consequences.**
+
+- **Settings rebuilds the user's file.** Every documented key the user
+  had is kept; comments and anything the compositor does not know are
+  not. The previous file is copied to `compositor.toml.bak` first and the
+  user is told.
+- **Left out:** the Users page (not built; the page stays hidden),
+  editing a proxy (shown read-only), managing VPN connections (status
+  only), a test sound, an automatic suspend time (the compositor has no
+  key for it), identifying monitors, a pointer theme, drawing tablets,
+  more than four keyboard layouts (the limit of XKB).
+- `boswas-control-center` no longer depends on `kde-cli-tools` and
+  `libkf6kcmutils-bin`; it depends on `libglib2.0-bin`, `systemd`,
+  `tzdata`, `xkb-data` and the QtNetwork module instead.
+- **Not verified yet:** every section that talks to a system service ran
+  against stand-ins; the real bridge reported "not available" in the
+  build environment, which has no NetworkManager, BlueZ, sound server or
+  polkit. The display and input sections have three opt-in tests against
+  the real compositor on its headless back end, which has one output and
+  ignores a scale change on reload: arranging several monitors is tested
+  against a model only.
+
+**Revisit when** the Users page lands (accounts need AccountsService and
+polkit, a third backend), when an administrator must lock a setting that
+is not policy today, or when settings have to follow a user between
+devices.

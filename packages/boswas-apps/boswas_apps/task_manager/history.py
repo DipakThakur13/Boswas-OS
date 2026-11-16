@@ -246,7 +246,7 @@ class History:
                       ("Swap in use", fmt.size(memory.swap_used) if memory.swap_total else "No swap")]
         item.info = [("Total:", fmt.size(memory.total)), ("Free:", fmt.size(memory.free)),
                      ("Shared:", fmt.size(memory.shared)), ("Kernel:", fmt.size(memory.kernel)),
-                     ("Waiting to be written:", fmt.size(memory.modified))]
+                     ("Modified:", fmt.size(memory.modified))]
         if memory.swap_total:
             item.info.append(("Swap space:", fmt.size(memory.swap_total)))
         item.composition = [("In use", memory.used), ("Modified", memory.modified), ("Standby", memory.standby),
@@ -286,7 +286,7 @@ class History:
         item.summary = [f"S: {fmt.bitrate(net.tx_bps)}", f"R: {fmt.bitrate(net.rx_bps)}"]
         item.stats = [("Send", fmt.bitrate(net.tx_bps)), ("Receive", fmt.bitrate(net.rx_bps))]
         speed = net.info.speed_mbps
-        item.info = [("Adapter name:", net.info.name), ("Connection type:", net.info.kind),
+        item.info = [("Adapter:", net.info.name), ("Type:", net.info.kind),
                      ("State:", net.info.state.capitalize()),
                      ("Link speed:", "—" if not speed else (f"{speed / 1000:g} Gbps" if speed >= 1000
                                                             else f"{speed} Mbps")),

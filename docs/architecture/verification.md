@@ -25,15 +25,18 @@ Python suites, which were run). The numbers move as work lands.
 | `boswas-shell` | 88 | Every surface drawn in both schemes and checked for controls inside the surface and reachable by keyboard; the taskbar's grouping and layout, Start's search, toasts and the notification centre, the dialogs (Run without a shell, the polkit dialog, the choice of administrator), the capture mark, pinned applications, the greetd messages, the PAM conversation, the users the greeter lists |
 | `boswas-bootsplash` | 108 unit, 14 + 1 + 1 | Rendering, layout on eleven display sizes, damage, the protocol, both client dialects, the passphrase editor; the real programs headless with a pseudo-terminal; Debian's unmodified `askpass` in a scratch root (needs root and the helper, skipped otherwise); frame cost |
 | `desktop/ui` (Python) | 11 | The token file and the generated KDE and Konsole colour schemes: references, the fixed values, the Fluent geometry, contrast, staleness |
-| `desktop/ui/qt` (Python) | 128 | The Qt toolkit on Qt's offscreen platform: theme, style sheet, widgets, navigation, contrast, single instance, workers |
+| `desktop/ui/qt` (Python) | 131 | The Qt toolkit on Qt's offscreen platform: theme, style sheet, widgets, navigation, contrast, single instance, workers |
 | `desktop/icons` (Python) | 42 | The icon packs |
 | `desktop/presets` (Python) | 75 (2 skipped here) | The presets and `boswas-preset` |
 | `boswas-compat-manager` (Python) | 107 | The Compatibility Manager on the toolkit |
+| `boswas-control-center` (Python) | 538 (4 skipped) when the settings landed; the Users page is adding more | The settings framework and every section against stand-ins (a fake bridge, a model of the compositor's files), the file writer against symbolic links and read-only directories, the safety rules (only one module writes files, only one starts programs, no KDE program is named), the earlier pages |
+| `boswas-apps` (Python), one suite per application | Terminal 302, Archive Manager 255, Files 229, Photos 204, Calculator 160, Media Player 136, Text Editor 131, Calendar 112, Reminders 103, Document Viewer 90, Clock 58, Camera 39 | Each application's logic (parsers, file operations, the terminal emulator against hostile input, 78 extraction tests with hand-built hostile archives) and its window through real clicks and keys on Qt's offscreen platform, with stand-ins where the real thing would touch the system |
 
 One more `#[test]` in the compositor's end-to-end file is a helper
-program for the others and is not counted. The suites of Control Center
-and of the system applications are not listed: both are being changed
-(ADR-0040, ADR-0041).
+program for the others and is not counted. Task Manager's suite is not
+listed: the application is being finished (ADR-0040). Three of the
+settings tests run against the real compositor on its headless back end
+and are opt-in (`BOSWAS_TEST_COMPOSITOR=1`).
 
 `tests/static/test_sources.sh` checks, for this round: that a public
 control connection gets exactly `version`, `lock`, `reload-config`,
@@ -53,7 +56,16 @@ client trust; and that `unsafe` appears only in the seven audited files.
   (`--test-input`).
 - **Console and display of the boot screen:** a pseudo-terminal and a
   headless output or a mock display.
-- **Qt:** the offscreen platform.
+- **Qt:** the offscreen platform. It cannot drag, has no session to
+  activate a window in and no clipboard of other programs.
+- **Devices and services of the applications:** a fake camera, a fake
+  media back end for sound output and device switching, a private
+  `dbus-daemon` with stand-ins for the notification service and an MPRIS
+  client, a fake services bridge for the settings.
+- **The user:** the build environment runs as root, and the applications
+  refuse to run as root. Their tests patch that check or run the logic
+  below it; the launchers were not started. Files' suite also passed as
+  an unprivileged user.
 
 Three end-to-end tests of the compositor need a program that is not a
 build dependency (`grim`, `Xwayland`, `xclock`) and skip themselves
@@ -94,9 +106,35 @@ Nothing below could be exercised in the build environment.
 | Screen capture | Screen sharing and screenshots through `xdg-desktop-portal-wlr`; capture of a rotated monitor end to end; what the consent dialog names for the portal back end |
 | X11 | Xwayland on hardware; the clipboard between X11 and Wayland applications; Wine through Xwayland, and which display driver Wine chooses when both sockets are in its sandbox (ADR-0034) |
 | Input methods | No input method has been run on the compositor; none is in the image |
-| Applications on the desktop | No run of KDE's applications, Firefox, Wine or Waydroid on the native compositor is recorded |
+| Applications on the desktop | No run of Firefox, Wine or Waydroid on the native compositor is recorded, and none of the Boswas applications or Control Center has been started in a real session (window activation, the primary selection, drag and drop between programs, an input method's window) |
+| Applications and devices | See the next section: a camera, a printer, removable drives, sound, real documents |
+| Settings | Every section that talks to a system service ran against a stand-in: the real bridge reported "not available" here. Arranging several monitors is tested against a model only (the headless back end has one output and ignores a scale change on reload). `timedatectl` and `localectl` changes behind polkit |
 | Performance | Frame times, memory and start-up time of the compositor and the shell. Only the boot screen has measured frame costs, on the build machine |
 | Accessibility and review | No screen reader interface exists for the shell or for what the compositor draws. No external security review and no design review have taken place |
+
+## The system applications and the settings, one by one
+
+From the builders' reports. "Left out" is what the application does not
+do on purpose or not yet; "not verified" is what could not be tried here.
+
+| Application | Left out | Not verified |
+|-------------|----------|--------------|
+| Files | Thumbnails for videos and PDFs; password-protected ZIP archives; view settings per folder; special handling of hard links and sparse files | A real udisks service with its polkit question (mount, unlock, eject); notification of mount changes (a 15 second poll is the fallback); real drag gestures (the drop logic is tested) |
+| Terminal | Split panes; screen-reader access to the text; the kitty keyboard protocol; sixel; an audible bell; blinking text; shaping across cells (Indic clusters are drawn cell by cell). The question before closing a busy tab does not appear for a program started with `-e` | A real Wayland session (activation, primary selection, an input method's window); a run as an ordinary user; automatic scrolling while dragging; the Hack font (rendered in DejaVu Sans Mono here). Tried with real bash, vim, tmux, less and top in the window |
+| Text Editor | Syntax highlighting; spell checking; tear-off tabs; the page set-up is not remembered; saving by rename leaves other hard links with the old content | Started through its launcher (the environment is root) |
+| Calculator | Graphing; currency conversion; a settings page; memory and history are not kept between runs | Its 739 expected results were written from the documented behaviour of the Windows calculator, not compared with a running one |
+| Photos | XMP and IPTC data are lost on save; an edit of a picture above 48 megapixels is saved reduced; crop handles need a pointer; AVIF, HEIF and JPEG XL need `kimageformat6-plugins`; the gallery sorts by file time, not by the date in the picture | A real printer; "Set as desktop background" against the running compositor and "Show in Files" against the running file manager (tested through replaced hooks); animated WebP; a pinch on a touch screen |
+| Document Viewer | PDF only; no annotations (Qt PDF cannot write); no selection across pages; open tabs are not restored | Only PDFs written by the tests were opened: no real-world file with pictures, CJK fonts, AES encryption or forms. Ran on one version of PySide6 (6.12) |
+| Archive Manager | No encrypted archives are created; nothing is renamed inside an archive; entries cannot be dragged out; each start is its own window | 7z through `7z` 23.01 only (Debian 13 has 25.01); RAR with no real file |
+| Media Player | No tags for Matroska, AVI, WMA and AIFF; no MPRIS track list; the mini player does not stay on top | Audible output, switching the output device, network streams and files with several tracks ran against a fake back end only. Real Qt Multimedia decoded mp3, flac, ogg, opus, wav, m4a, mp4, mkv, webm, mov and avi without a sound device. Video at 4K was not measured |
+| Camera | Flash, exposure, focus and zoom appear only when the camera reports them | Everything: there is no camera here. Capture, recording, pause, unplugging and the error texts ran against a fake camera |
+| Clock | No choice of alarm sound | The chime (Qt Multimedia crashes in this environment); logind's wake-up signal |
+| Calendar | No accounts and no synchronisation; no printing; resizing by dragging only in the week and day views; it does not notice when another program changes its file; events of a hidden calendar do not remind | Reminders against the real notification service of the shell (tested against a stand-in on a private bus) |
+| Control Center, settings | The Users page; editing a proxy; managing VPN connections; a test sound; an automatic suspend time; identifying monitors; a pointer theme; drawing tablets; more than four keyboard layouts | See the table above |
+
+Icons: the applications ask for some symbolic icons the Boswas Prism pack
+does not draw (the reports name them). Ten were added; the others fall
+back to a similar icon or to a text button.
 
 ## Known not to work, or left out
 
@@ -117,3 +155,6 @@ ADR.
   proprietary driver are not supported (ADR-0036).
 - The boot screen's text is ASCII and English (ADR-0038).
 - The shortcuts are fixed; there is no shortcut editor.
+- There is no office suite and no mail client in the image, and the
+  Document Viewer reads PDF only (ADR-0040).
+- Control Center cannot manage user accounts yet (ADR-0041).

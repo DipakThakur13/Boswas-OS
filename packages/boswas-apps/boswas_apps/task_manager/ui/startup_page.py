@@ -24,7 +24,7 @@ class StartupPage(Page):
             Column("status", "Status", lambda row: "Enabled" if row.data.enabled else "Disabled", width=100),
             Column("source", "Installed for", lambda row: "Everyone" if row.data.source == "System" else "You",
                    width=110),
-            Column("command", "Command", lambda row: row.data.command, width=420, tooltip=True),
+            Column("command", "Command", lambda row: row.data.command, width=240, tooltip=True),
         ]
         self.model = TreeModel(columns, self)
         self.view = TableView(self.model, self, tree=False)

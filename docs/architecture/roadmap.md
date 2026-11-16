@@ -39,8 +39,9 @@ Beta (Phase 4). This tree takes the step at once, as requested: the image
 manifest installs `boswas-desktop` and `boswas-bootsplash` and pins out the
 Plasma shell, KWin, SDDM, System Settings and Plymouth (ADR-0026 to
 ADR-0032). A second round turned that first version into a desktop in
-the Fluent design language with the functions a user expects of one
-(ADR-0033 to ADR-0039). The plan's exit criteria are **not** met yet.
+the Fluent design language with the functions a user expects of one,
+its own system applications and native settings (ADR-0033 to ADR-0041).
+The plan's exit criteria are **not** met yet.
 
 **What "done" means below.** *Implemented* = the code exists and passes
 its tests in the development environment: unit tests, for the compositor
@@ -96,10 +97,10 @@ screenshot tool; the portal path is not tested).
 | Password and permission prompts | **Implemented** (ADR-0035, ADR-0037): the shell is the polkit agent and draws the password dialog, with a choice of administrator; it also asks before a program may capture the screen. File dialogs of sandboxed applications come from the GTK portal. **The polkit dialog has not run against the real polkit** |
 | Boswas UI tokens | **Implemented**: `desktop/ui/tokens.json`, version 3 (ADR-0033): the Fluent design language with the Prism colours. The plan's navy and gold token sets were replaced by the Prism palette, as requested |
 | Boswas UI delivery | In Rust (`boswas-ui`) for the shell and the window frames, not the Qt Quick style and QML module of the plan (ADR-0027), and as the Qt Widgets toolkit `boswas_fluent` for the Boswas applications (ADR-0039). KDE colour schemes are generated. Open: a GTK theme |
-| Icons | **Implemented**: Boswas Prism and Boswas Prism Light, 254 designs (ADR-0031) |
+| Icons | **Implemented**: Boswas Prism and Boswas Prism Light, 264 designs in 461 files (ADR-0031). The applications name some symbolic icons the pack does not draw yet; those fall back to a similar icon or a text button |
 | Boot screen | **Implemented, not boot-tested**: `boswas-bootsplash` (ADR-0029), in the Boswas UI look since ADR-0038 |
-| System applications | Reserved: ADR-0040, to be written when the work lands |
-| Settings pages | Reserved: ADR-0041, to be written when the work lands |
+| System applications | **Implemented, not run on the desktop** (`boswas-apps`, ADR-0040): Files, Terminal, Text Editor, Calculator, Photos, Document Viewer, Archive Manager, Media Player, Camera, Clock, Calendar and a reminders service replace KDE's applications in the image. Task Manager is being finished. Open: what each leaves out (ADR-0040), an office suite, a mail client |
+| Settings | **Implemented against stand-ins** (ADR-0041): native sections in Control Center for network, Bluetooth, sound, power, display, night light, mouse, touchpad, keyboard, personalization, lock and screen timeouts, date and time, region, default and start-up applications. Open: the Users page, proxy and VPN editing, drawing tablets, an automatic suspend time |
 
 ### Done since the first version of the native desktop
 
@@ -119,6 +120,8 @@ booted system.
 | Touch screens, tablets, touchpad gestures; input-method support in the compositor | ADR-0036 |
 | Night light, turning the screens off after a time without input | ADR-0036 |
 | A Qt Widgets look for the Boswas applications | ADR-0039 |
+| Boswas's own system applications in place of KDE's | ADR-0040 |
+| Settings without Plasma: native sections in Control Center, display arrangement included | ADR-0041 |
 
 ### Planned work on the native desktop
 
@@ -130,10 +133,11 @@ In rough order of what a user misses first:
    the service backends against the real daemons, first of all the
    polkit agent: no administrator action from the desktop works without
    it.
-2. **Settings without Plasma**: reserved, ADR-0041 (to be written when
-   the work lands).
-3. **System applications**: reserved, ADR-0040 (to be written when the
-   work lands).
+2. **Settings**: the Users page (accounts through AccountsService and
+   polkit); then what ADR-0041 leaves out.
+3. **System applications**: finish Task Manager; run every application on
+   the desktop and on real devices (a camera, a printer, removable
+   drives, sound); then what ADR-0040 leaves out, by demand.
 4. **Screen sharing through the portal**: test `xdg-desktop-portal-wlr`
    with PipeWire and a browser; a chooser for one monitor or one window.
 5. **Windows applications and X11**: decide whether the WinCompat

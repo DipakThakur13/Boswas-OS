@@ -13,17 +13,20 @@ Depends: python3 (>= 3.11),
          python3-pyside6.qtgui,
          python3-pyside6.qtwidgets,
          python3-pyside6.qtnetwork,
+         python3-pyside6.qtdbus,
          qt6-svg-plugins,
          boswas-branding (>= 1.0~alpha3),
          boswas-cli (>= 1.0~alpha3),
          boswas-device-agent (>= 1.0~alpha3),
          libglib2.0-bin,
          systemd,
+         passwd,
          tzdata,
          xkb-data,
          ${misc:Depends}
 Recommends: boswas-desktop,
             boswas-apps,
+            accountsservice,
             boswas-compat-manager,
             boswas-sysops,
             boswas-android,
@@ -46,6 +49,8 @@ Description: Boswas OS Control Center, Security Center and Software Center
     (the compositor's configuration)
   * Sound and Power: devices and volume, battery, power mode, brightness
   * System: date and time, region and language
+  * Users: the own account (picture, name, password), other users, adding
+    and removing users (AccountsService)
   * Storage: disks, file systems, and freeing space
   * Hardware & Drivers: PCI and USB devices, their drivers, and missing
     firmware with the Debian package that provides it

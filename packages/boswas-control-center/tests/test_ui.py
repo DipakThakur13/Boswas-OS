@@ -44,7 +44,7 @@ if PYSIDE:
     # Devices appear with the compositor sections (ui/settings/display.py, input.py).
     ALWAYS_PAGES = ("personalization", "network", "bluetooth", "sound", "power", "storage", "applications",
                     "windows", "android",
-                    "security", "updates",
+                    "security", "users", "updates",
                     "privacy", "hardware", "system", "about")
 
     APP = QApplication.instance() or QApplication(["test"])

@@ -61,8 +61,21 @@ Date and time and Region and language (page System) use
 and
 .BR localectl (1).
 For changes that need administrator rights systemd's services ask polkit
-themselves, and the shell's agent shows the question. Managing user
-accounts is not part of this version: the Users page appears once it is.
+themselves, and the shell's agent shows the question.
+.PP
+Users shows the account you are signed in with (picture, name, password)
+and the other people's accounts, and adds and removes users, through the
+AccountsService. It is asked with
+.BR busctl (1)
+for everything that is not a secret. Your own password is changed by
+.BR passwd (1)
+on a pseudo\-terminal, so the system's password rules apply; another
+user's password is given to the service as a SHA\-512 crypt hash over
+D\-Bus. No password and no password hash is ever part of a command line.
+The account you are signed in with and the last administrator cannot be
+removed. Without the AccountsService the accounts of
+.I /etc/passwd
+are shown and only your own password can be changed.
 Default applications are written to
 .I ~/.config/mimeapps.list
 and start\-up applications to
@@ -114,7 +127,8 @@ Control Center runs as the desktop user and never as root. It starts only
 the programs it knows (boswas, boswas\-preset, boswas\-android,
 boswas\-files, boswas\-compat\-manager, gio launch, apt\-config, apt\-get
 (simulation only), apt\-cache, flatpak, nmcli and ip (queries only), lsblk,
-timedatectl, localectl, locale \-a, systemctl reboot in a live session, and
+timedatectl, localectl, locale \-a, busctl (calls to the AccountsService
+only), passwd (without arguments), systemctl reboot in a live session, and
 the polkit authorization tool), each with a validated argument list and a
 timeout, and never through a shell; and the services bridge, by its fixed
 path and without arguments. The only files it writes are listed under
@@ -199,6 +213,10 @@ Default applications.
 Start\-up applications the user added, and the files that switch off a
 system\-wide one.
 .TP
+.I ~/.face
+The account picture (a PNG of 256 by 256 pixels), also given to the
+AccountsService.
+.TP
 .I ~/.local/share/recently\-used.xbel
 The shared list of recently used files, emptied by "Clear" on the Privacy
 page.
@@ -214,6 +232,8 @@ over; 2 for a wrong option; 4 when started as root.
 .BR boswas\-compat\-manager (1),
 .BR boswas\-compositor (1),
 .BR boswas\-files (1),
+.BR busctl (1),
 .BR localectl (1),
+.BR passwd (1),
 .BR pkexec (1),
 .BR timedatectl (1)

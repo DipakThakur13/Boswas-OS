@@ -8,8 +8,11 @@ Nothing evaluates code; nothing starts Wine or a KDE program; the device
 agent and session agent are used read-only. Privileged work goes only
 through `pkexec /usr/libexec/boswas/sysops <operation>` with an operation of
 a fixed set and validated arguments; apt-get only ever simulates;
-timedatectl, localectl, ip, locale, gio and nmcli only with their fixed
-argument forms; only userfiles.py writes or deletes files. The desktop entries are valid and there is no
+timedatectl, localectl, ip, locale, gio, nmcli and busctl only with their
+fixed argument forms (busctl: AccountsService calls without any secret);
+passwd only without arguments on a pseudo-terminal, the one new way a
+program is started (commands.CommandRunner.converse); only userfiles.py
+writes or deletes files. The desktop entries are valid and there is no
 Install Boswas OS entry (the image generates it in live sessions only). No
 teal anywhere in the data or code.
 
@@ -48,7 +51,8 @@ EXPECTED_EXECUTABLES = {
     "boswas": "/usr/bin/boswas", "boswas-preset": "/usr/bin/boswas-preset",
     "boswas-compat-manager": "/usr/bin/boswas-compat-manager", "boswas-files": "/usr/bin/boswas-files",
     "gio": "/usr/bin/gio", "ip": "/usr/bin/ip", "timedatectl": "/usr/bin/timedatectl",
-    "localectl": "/usr/bin/localectl", "locale": "/usr/bin/locale",
+    "localectl": "/usr/bin/localectl", "locale": "/usr/bin/locale", "busctl": "/usr/bin/busctl",
+    "passwd": "/usr/bin/passwd",
     "apt-config": "/usr/bin/apt-config", "systemctl": "/usr/bin/systemctl",
     "boswas-android": "/usr/bin/boswas-android", "apt-get": "/usr/bin/apt-get", "apt-cache": "/usr/bin/apt-cache",
     "flatpak": "/usr/bin/flatpak", "nmcli": "/usr/bin/nmcli", "lsblk": "/usr/bin/lsblk", "pkexec": "/usr/bin/pkexec",
@@ -136,7 +140,10 @@ class ProcessTest(unittest.TestCase):
         parsed = ast.parse(source)
         calls = [n for n in ast.walk(parsed) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
                  and isinstance(n.func.value, ast.Name) and n.func.value.id == "subprocess"]
-        self.assertEqual(sorted(c.func.attr for c in calls), ["Popen", "Popen", "run"])
+        # run(), start(), stream() and converse(): the fourth, on a pseudo-terminal, is the one way a program is
+        # started that is not a pipe. It runs exactly /usr/bin/passwd without arguments (the user's own
+        # password), see test_the_pseudo_terminal_is_for_passwd_only.
+        self.assertEqual(sorted(c.func.attr for c in calls), ["Popen", "Popen", "Popen", "run"])
         for call in calls:
             self.assertIsInstance(call.args[0], ast.Name)
             self.assertEqual(call.args[0].id, "command")
@@ -147,9 +154,56 @@ class ProcessTest(unittest.TestCase):
         self.assertIn("timeout", {k.arg for k in run.keywords})
         functions = {n.name: ast.get_source_segment(source, n) for n in ast.walk(parsed)
                      if isinstance(n, ast.FunctionDef)}
-        for name in ("run", "start", "stream"):
+        for name in ("run", "start", "stream", "converse"):
             self.assertIn("_check(command)", functions[name])
         self.assertIn("command[0] not in ALLOWED_PATHS", functions["_check"])
+
+    def test_the_pseudo_terminal_is_for_passwd_only(self):
+        """One place opens a pseudo-terminal: converse() in commands.py, for `/usr/bin/passwd` and nothing else."""
+        for path in ALL:
+            text = path.read_text(encoding="utf-8")
+            if rel(path) != "boswas_control_center/commands.py":
+                for token in ("openpty", "termios", "forkpty", "TIOCSCTTY", "os.read(", "os.write("):
+                    if token in ("os.read(", "os.write(") and rel(path) == FILE_WRITER:
+                        continue                              # userfiles writes its files through descriptors
+                    self.assertNotIn(token, text, f"{rel(path)} uses {token}")
+        source = (PACKAGE / "boswas_control_center" / "commands.py").read_text(encoding="utf-8")
+        self.assertEqual(source.count("os.openpty()"), 1)
+        functions = {n.name: ast.get_source_segment(source, n) for n in ast.walk(ast.parse(source))
+                     if isinstance(n, ast.FunctionDef)}
+        converse = functions["converse"]
+        self.assertIn("os.openpty()", converse)
+        self.assertIn("if command != passwd_argv():", converse)
+        self.assertLess(converse.index("if command != passwd_argv():"), converse.index("os.openpty()"))
+        self.assertIn("~(termios.ECHO | termios.ECHONL)", converse)      # nothing typed is printed back
+        for forbidden in ("print(", "log", "sys.stderr", "sys.stdout"):
+            self.assertNotIn(forbidden, converse, forbidden)             # nothing typed or printed is recorded
+        self.assertEqual(functions["passwd_argv"].count("EXECUTABLES[\"passwd\"]"), 1)
+        self.assertEqual(commands.passwd_argv(), ["/usr/bin/passwd"])
+        for bad in (["/usr/bin/passwd", "root"], ["/usr/bin/passwd", "-d", "bob"], ["/usr/bin/passwd", "--stdin"]):
+            with self.assertRaises(ValueError, msg=bad):
+                commands._check(bad)
+        runner = commands.CommandRunner({})
+        for command in (["/usr/bin/busctl", "tree"], commands.argv("locale", "-a"), ["/bin/sh"]):
+            with self.assertRaises(ValueError, msg=command):
+                runner.converse(command, object(), 5)
+        with self.assertRaises(ValueError):
+            runner.run(commands.passwd_argv() + ["bob"], 5)
+
+    def test_no_secret_reaches_a_command_line(self):
+        """busctl carries names and numbers only: the password methods of AccountsService are not callable."""
+        for method in ("SetPassword", "SetPasswordHint", "SetPasswordMode"):
+            self.assertNotIn(method, commands.ACCOUNTS_METHODS)
+            with self.assertRaises(ValueError):
+                commands.accounts_argv(method, "$6$salt$hash", "", path="/org/freedesktop/Accounts/User1001")
+        source = (PACKAGE / "boswas_control_center" / "accounts.py").read_text(encoding="utf-8")
+        self.assertNotIn("SetPassword\"", source)                        # the Qt-free module never builds that call
+        ui = (PACKAGE / "boswas_control_center" / "ui" / "settings" / "accounts.py").read_text(encoding="utf-8")
+        self.assertEqual(ui.count('"SetPassword"'), 1)                   # one D-Bus call, in dbus_set_password
+        self.assertIn("message.setArguments([hashed, \"\"])", ui)
+        for forbidden in ("print(", "logging", "log.", "sys.stderr"):
+            self.assertNotIn(forbidden, ui, forbidden)
+            self.assertNotIn(forbidden, source, forbidden)
 
     def test_allowlist(self):
         self.assertEqual(commands.EXECUTABLES, EXPECTED_EXECUTABLES)

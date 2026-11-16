@@ -18,12 +18,16 @@ layer**.
   place of Plasma's shell, screen locker and the SDDM login screen). The
   boot screen is `boswas-bootsplash` (in place of Plymouth). KDE Plasma,
   KWin, SDDM and Plymouth are not installed.
-- Applications are unchanged. Dolphin, Konsole, KWrite, Okular, Gwenview,
-  Ark, KCalc, Firefox ESR and the Boswas applications run as ordinary
-  Wayland clients; KDE applications take the Boswas Prism colours and icons
-  from system-wide defaults. Applications that only speak X11 run through
-  Xwayland (ADR-0034). Control Center and the Compatibility Manager take
-  their look from the Boswas Qt toolkit (ADR-0039).
+- The system applications are Boswas's own too (`boswas-apps`,
+  ADR-0040): Files, Terminal, Text Editor, Calculator, Photos, Document
+  Viewer, Archive Manager, Media Player, Camera, Clock and Calendar. They,
+  Control Center and the Compatibility Manager take their look from the
+  Boswas Qt toolkit (ADR-0039). KDE's applications are no longer in the
+  image.
+- Other applications are unchanged. Firefox ESR and any Wayland
+  application run as ordinary clients; a KDE application someone installs
+  takes the Boswas Prism colours and icons from system-wide defaults.
+  Applications that only speak X11 run through Xwayland (ADR-0034).
 - Package management, the kernel, the boot chain (shim, GRUB, Secure Boot)
   and Debian's archive stay unmodified.
 - What could not be changed safely is listed in
@@ -38,9 +42,9 @@ with it are still to be done
 ([what is verified](../architecture/verification.md)).
 [Known gaps](#known-gaps) lists what it does not do.
 
-The system applications and the settings pages are being written and are
-not described here yet: see [Boswas applications](#boswas-applications)
-and [Settings](#settings).
+The system applications and the settings are described under
+[Boswas applications](#boswas-applications) and [Settings](#settings).
+They have their tests and have not run on the desktop yet.
 
 ## Identity
 
@@ -186,7 +190,7 @@ applications get the same frame and behave like every other window.
 | Super+A | Quick settings |
 | Super+N | Notifications and calendar |
 | Super+R | Run |
-| Super+E, Super+I, Ctrl+Alt+T, Ctrl+Shift+Esc | The file manager, the settings application, the terminal and the task manager (the programs named in `[apps]`) |
+| Super+E, Super+I, Ctrl+Alt+T, Ctrl+Shift+Esc | Files, Settings (Control Center), Terminal and Task Manager (the programs named in `[apps]`) |
 | Super+L | Lock the session |
 | Super+1 ... Super+9 | Start or switch to the taskbar application at that place; with Shift, another window of it |
 | Alt+Tab, Alt+Shift+Tab | Pick a window, most recently used first; live previews, Escape cancels |
@@ -300,17 +304,34 @@ path has not been tested yet.
 
 ## Settings
 
-*The native settings pages of Control Center are being written (ADR-0041,
-reserved). This section will describe them when the work lands. What
-follows is what works without them.*
+Settings live in **Boswas Control Center** (Super+I): each page holds its
+settings as sections with switches, lists and sliders that apply at once
+(ADR-0041, [control-center.md](control-center.md)). The search box above
+the page list finds a setting and jumps to it.
 
 | What | Where |
 |------|-------|
-| Wi-Fi (networks, passphrase), Bluetooth devices, airplane mode, night light, power mode, do not disturb, brightness, volume and sound output | Quick settings (Super+A) |
-| Preset (light or dark, wallpaper, application colours, terminal profile) | Control Center > Personalization, or `boswas-preset apply <id>`; recorded in `~/.config/boswas/appearance.toml` |
-| Keyboard layout and repeat, mouse and touchpad, cursor, each monitor (mode, scale, position, rotation, on or off), night light and its schedule, the time until the screens turn off, lock timeout | `~/.config/boswas/compositor.toml`; system-wide in `/etc/boswas/compositor.toml`. `boswas-compositor(1)` lists every key. `boswas-compositor --send reload-config` applies them to the running session, and `--send outputs` lists the monitors with their names and modes |
-| Per-application volumes | `pavucontrol-qt` (PulseAudio Volume Control) |
+| Wi-Fi (networks, passphrase, forget), Ethernet and VPN status, airplane mode, connection details | Control Center > Network; the common switches also in quick settings (Super+A) |
+| Bluetooth devices (add, pair, connect, remove, battery) | Control Center > Bluetooth; quick settings |
+| Sound output and input, volume, mute | Control Center > Sound; quick settings. Per-application volumes: `pavucontrol-qt` |
+| Battery, power mode, brightness, the time until the screens turn off | Control Center > Power; quick settings |
+| Monitors: arrangement by dragging, resolution, refresh rate, scale, orientation, on or off | Control Center > Display. A change that could leave you without a picture asks "Keep these display settings?" and goes back after fifteen seconds |
+| Night light: switch, strength, schedule | Control Center > Display; quick settings |
+| Mouse, touchpad, keyboard layouts and repeat | Control Center > Devices |
+| Dark or light, background, motion | Control Center > Personalization. A preset (ten of them) sets light or dark, the wallpaper, application colours and the terminal profile; `boswas-preset apply <id>` does the same |
+| Lock timeout | Control Center > Security. It ends at the limit the organisation set, which the page shows |
+| Date and time, time zone, region and language | Control Center > System |
+| Default applications, start-up applications | Control Center > Applications |
 | Software, updates, security, Windows and Android applications | Control Center |
+
+Display, input, appearance and the timeouts are the compositor's
+settings: Control Center writes the user's file,
+`~/.config/boswas/compositor.toml` (and the colour mode and background to
+`appearance.toml`), and asks the compositor to load it again. The file can
+also be edited by hand; `boswas-compositor(1)` lists every key,
+`boswas-compositor --send reload-config` applies it and `--send outputs`
+lists the monitors with their names and modes. System-wide values and the
+policy are in `/etc/boswas/compositor.toml`, which Settings never writes.
 
 Example, a user's `~/.config/boswas/compositor.toml`:
 
@@ -331,7 +352,13 @@ idle_seconds = 300
 
 Super+Space goes to the next keyboard layout. A file that does not
 parse, or that contains an unknown key, is reported in the log and
-ignored as a whole; the desktop then starts without it.
+ignored as a whole; the other files stay in use. When Control Center
+changes a setting it rewrites the file: the keys are kept, comments are
+not, and the previous file is kept as `compositor.toml.bak`.
+
+Not in Settings yet: user accounts (the Users page is not built), editing
+a proxy, managing VPN connections, drawing tablets, an automatic suspend
+time.
 
 ## Known gaps
 
@@ -349,7 +376,12 @@ The native desktop does not have, or has not shown yet:
 - **Tested screen sharing.** The portal for it is installed and
   configured, shares the first monitor, and has not been run.
 - **Bluetooth devices that need a PIN or passkey,** and **enterprise
-  Wi-Fi (802.1X):** neither can be set up from quick settings.
+  Wi-Fi (802.1X):** neither can be set up from quick settings or from
+  Control Center.
+- **User accounts in Settings,** an office suite and a mail client.
+- **What the system applications leave out** next to the KDE applications
+  they replace, for example syntax highlighting, PDF annotations and
+  split terminal panes (ADR-0040 has the list).
 - **An input method in the image** (for example for Indic, Chinese,
   Japanese or Korean text entry) and an on-screen keyboard. The
   compositor supports an input method that the administrator configures;
@@ -362,22 +394,45 @@ The native desktop does not have, or has not shown yet:
 
 ## Boswas applications
 
-*The system applications of `boswas-apps` are being written (ADR-0040,
-reserved). This section will describe them when the work lands. The table
-below is unchanged from the first version of the native desktop.*
+The system applications are one package, `boswas-apps` (ADR-0040). Each
+follows its Windows 11 counterpart in layout and shortcuts, in dark and
+light, and each has a manual page (`man boswas-files`, and so on).
 
 | Application | What it is |
 |-------------|------------|
-| **Boswas Control Center** | The settings hub: Personalization, Network, Bluetooth, Display, Sound, Power, Storage, Applications, Windows Compatibility, Security, Users, Updates, Devices, Privacy, System, About Boswas OS (and Install Boswas OS in live sessions). It shows each area's state and offers its actions. The KDE settings modules it opened on the Plasma image are not installed on the native desktop and are shown as such ([control-center.md](control-center.md)) |
+| **Files** | The file manager: tabs, an address bar that turns into a path box (Ctrl+L), a navigation pane with Home, your folders, pinned folders, the volumes of the computer and the Trash; Details, List, Tiles and Icons layouts with picture thumbnails. Copying, moving and deleting run in the background with progress and a cancel button, ask when a name is taken, and can be undone. Delete moves to the Trash. ZIP and TAR archives can be made and extracted. A program or script is never started by opening it without a question |
+| **Terminal** | The command line with tabs and profiles (Ctrl+Shift+T, Ctrl+Tab), scrollback with search (Ctrl+Shift+F), copy and paste (Ctrl+Shift+C and V), links that open with Ctrl+click, and colour schemes that follow the desktop. Editors, pagers and terminal multiplexers work as in an xterm |
+| **Text Editor** | Plain text with tabs: the encoding and the line endings of a file are kept, find and replace with regular expressions, go to line, word wrap, zoom, printing. It restores the last session, unsaved text included |
+| **Calculator** | Standard, scientific and programmer modes, date calculation and twelve unit converters, with memory and history. Arithmetic is exact: 0.1 + 0.2 is 0.3 |
+| **Photos** | A viewer (zoom, filmstrip, rotate, delete with undo, print, set as background), a gallery by month, a slideshow, and an editor: crop, straighten, ten adjustments, looks, pen and highlighter. "Save as copy" is the default |
+| **Document Viewer** | A PDF reader: tabs, thumbnails and outline, search, text selection and copy, continuous or page-wise view, presentation mode, printing |
+| **Archive Manager** | Opens an archive like a folder; extracts, adds, deletes, tests, creates. ZIP and TAR (also compressed); 7z and RAR when the `7zip` package is installed |
+| **Media Player** | Music and video: a library from the tags of your files, a play queue, playlists, a mini player, subtitles and audio tracks, and control from the keyboard's media keys through the shell |
+| **Camera** | Photos and videos from a camera of the computer, with a timer, to Pictures/Camera Roll and Videos/Camera Roll |
+| **Clock** | Alarms, timers, a stopwatch, a world clock and focus sessions |
+| **Calendar** | A calendar kept on this computer: month, week and day views, repeating events, reminders, several calendars, import and export of `.ics` files. It has no accounts and does not synchronise |
+| **Task Manager** | Being finished; not described here yet |
+| **Boswas Control Center** | Settings (see [Settings](#settings)) and the three centres below. It is the application Super+I opens ([control-center.md](control-center.md)) |
 | **Boswas Security Center** | Control Center's Security page: AppArmor, Windows-app sandbox, firewall, Secure Boot, disk encryption, screen lock, automatic security updates, device agent, device policy. Each item is Secure, Warning, Attention, Error or Not available, shown with an icon and text, never colour alone |
 | **Boswas Software Center** | Control Center's Applications page: Boswas, Windows and native applications, searchable. Installing new native software comes with the Boswas Store (M6); there is no unmanaged package installer |
 | **Boswas Update Center** | Control Center's Updates page: automatic security updates (read-only) |
 | **Boswas Compatibility Manager** | Windows applications (64-bit and 32-bit) in isolated sandboxes |
 | **About Boswas OS** | Version, architecture, kernel, CPU, memory, storage, desktop (Boswas Desktop and its version), security, Windows compatibility, device agent, live or installed. Technical details include the package base |
 
+Alarms, timers and calendar reminders are shown as notifications even
+while Clock and Calendar are closed: a small service, `boswas-reminders`,
+starts with the session for that.
+
+All of them run as you and refuse to run as administrator. What they
+leave out next to the KDE applications they replace, and what has not
+been tried yet (none has run on the desktop; the Camera has never seen a
+camera), is in ADR-0040 and in
+[what is verified](../architecture/verification.md).
+
 ## Terminal
 
-The Boswas Konsole profiles start bash with `/usr/share/boswas/terminal/bashrc`.
+Boswas Terminal starts bash with `/usr/share/boswas/terminal/bashrc` (the
+Boswas Konsole profiles do the same where Konsole is installed).
 
 - **Your settings stay:** it runs your `~/.bashrc` first.
 - **Welcome:** `boswas-welcome` shows the version, kernel, architecture,

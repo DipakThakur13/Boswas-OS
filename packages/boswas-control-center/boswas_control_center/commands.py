@@ -27,6 +27,13 @@ read-only JSON queries of IP_QUERIES; timedatectl and localectl only with
 the subcommands and validated values of timedatectl_argv() and
 localectl_argv() (systemd's own services ask polkit for the changes).
 
+busctl only talks to AccountsService, with the methods and validated
+arguments of accounts_argv() (user names, numbers, a full name, a file
+path: never a password or a password hash). passwd is started without
+arguments (the user's own password) on a pseudo-terminal by converse(),
+which types the answers of a conversation object and never keeps or logs
+what was typed or printed.
+
 The services bridge (/usr/libexec/boswas/boswas-services-bridge) is the one
 program not started here: it is a long-lived child that speaks on pipes,
 started without arguments by ui/bridgeclient.py.
@@ -36,8 +43,11 @@ from __future__ import annotations
 
 import os
 import re
+import select
 import subprocess
+import termios
 import threading
+import time
 from dataclasses import dataclass
 
 from .errors import CommandFailed, CommandUnavailable
@@ -54,6 +64,8 @@ EXECUTABLES = {
     "timedatectl": "/usr/bin/timedatectl",                        # systemd: time zone, NTP, clock (polkit)
     "localectl": "/usr/bin/localectl",                            # systemd: system locale (polkit)
     "locale": "/usr/bin/locale",                                  # libc-bin: only `locale -a`
+    "busctl": "/usr/bin/busctl",                                  # systemd: only AccountsService calls
+    "passwd": "/usr/bin/passwd",                                  # passwd: the own password, on a pseudo-terminal
     "apt-config": "/usr/bin/apt-config",                          # only `apt-config shell` (read-only)
     "apt-get": "/usr/bin/apt-get",                                # only `apt-get -s ...` (simulation, read-only)
     "apt-cache": "/usr/bin/apt-cache",                            # only search, show, policy (read-only)
@@ -91,6 +103,15 @@ TIME_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$")
 LOCALE_RE = re.compile(r"^[A-Za-z]{1,8}(_[A-Za-z0-9]{1,8})?(\.[A-Za-z0-9-]{1,16})?(@[A-Za-z0-9]{1,16})?$")
 LOCALE_VARIABLES = ("LANG", "LC_NUMERIC", "LC_TIME", "LC_MONETARY", "LC_PAPER", "LC_MEASUREMENT", "LC_COLLATE",
                     "LC_NAME", "LC_ADDRESS", "LC_TELEPHONE")
+
+# AccountsService (busctl): the service, its object paths, and what a user name looks like.
+ACCOUNTS_SERVICE = "org.freedesktop.Accounts"
+ACCOUNTS_PATH = "/org/freedesktop/Accounts"
+ACCOUNTS_USER_RE = re.compile(r"^/org/freedesktop/Accounts/User[0-9]{1,10}$")
+ACCOUNTS_NAME_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
+ACCOUNTS_METHODS = frozenset({"ListCachedUsers", "CreateUser", "DeleteUser", "GetAll", "SetRealName",
+                              "SetAccountType", "SetIconFile", "SetLocked"})
+CONVERSE_TIMEOUT = 60.0
 
 # boswas-android commands (contract section 2): words after `boswas-android --json`.
 ANDROID_PACKAGE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$")
@@ -141,6 +162,10 @@ def argv(name: str, *args: str) -> list[str]:
         raise ValueError("locale is only used as `locale -a`")
     if name in ("timedatectl", "localectl"):
         raise ValueError(f"{name} is started only through {name}_argv()")
+    if name == "busctl":
+        raise ValueError("busctl is started only through accounts_argv()")
+    if name == "passwd":
+        raise ValueError("passwd is started only through passwd_argv(), on a pseudo-terminal")
     if name == "flatpak":
         if not args or args[0] not in FLATPAK_SUBCOMMANDS:
             raise ValueError(f"flatpak {args[:1]} is not allowed")
@@ -185,6 +210,63 @@ def localectl_argv(*words: str) -> list[str]:
     if not ok:
         raise ValueError(f"localectl {' '.join(map(str, words))!r} is not allowed")
     return [EXECUTABLES["localectl"], *words]
+
+
+def accounts_argv(method: str, *args, path: str | None = None) -> list[str]:
+    """busctl --system --json=short --timeout=N -- call org.freedesktop.Accounts ...: one AccountsService call.
+
+    Without ``path`` a method of the service itself: ListCachedUsers,
+    CreateUser(name, full name, account type 0|1), DeleteUser(uid, remove
+    files). With the object path of a user: GetAll (its properties),
+    SetRealName(text), SetAccountType(0|1), SetIconFile(absolute path),
+    SetLocked(bool). Every argument is validated; none of them is a secret.
+    """
+    def name_ok(value: object) -> bool:
+        return isinstance(value, str) and bool(ACCOUNTS_NAME_RE.fullmatch(value))
+
+    def text_ok(value: object) -> bool:
+        return (_plain(value) and len(value) <= 256 and not value.startswith("-") and ":" not in value
+                and "," not in value and all(ch.isprintable() for ch in value))
+
+    def type_ok(value: object) -> bool:
+        return value in (0, 1) and not isinstance(value, bool)
+
+    timeout = "25"
+    if path is None:
+        target = [ACCOUNTS_PATH, ACCOUNTS_SERVICE]
+        if method == "ListCachedUsers" and not args:
+            words = [method]
+        elif method == "CreateUser" and len(args) == 3 and name_ok(args[0]) and text_ok(args[1]) and type_ok(args[2]):
+            words, timeout = [method, "ssi", args[0], args[1], str(args[2])], "180"
+        elif method == "DeleteUser" and len(args) == 2 and isinstance(args[0], int) and not isinstance(args[0], bool) \
+                and 1000 <= args[0] <= 0xFFFFFFFE and isinstance(args[1], bool):
+            words, timeout = [method, "xb", str(args[0]), "true" if args[1] else "false"], "180"
+        else:
+            raise ValueError(f"AccountsService {method}{args!r} is not allowed")
+    else:
+        if not isinstance(path, str) or not ACCOUNTS_USER_RE.fullmatch(path):
+            raise ValueError("not the object path of a user")
+        target = [path, ACCOUNTS_SERVICE + ".User"]
+        if method == "GetAll" and not args:
+            target, words = [path, "org.freedesktop.DBus.Properties"], [method, "s", ACCOUNTS_SERVICE + ".User"]
+        elif method == "SetRealName" and len(args) == 1 and text_ok(args[0]):
+            words, timeout = [method, "s", args[0]], "180"
+        elif method == "SetAccountType" and len(args) == 1 and type_ok(args[0]):
+            words, timeout = [method, "i", str(args[0])], "180"
+        elif method == "SetIconFile" and len(args) == 1 and _plain(args[0]) and os.path.isabs(args[0]) \
+                and ".." not in args[0].split("/"):
+            words, timeout = [method, "s", args[0]], "180"
+        elif method == "SetLocked" and len(args) == 1 and isinstance(args[0], bool):
+            words, timeout = [method, "b", "true" if args[0] else "false"], "180"
+        else:
+            raise ValueError(f"AccountsService user method {method}{args!r} is not allowed")
+    return [EXECUTABLES["busctl"], "--system", "--json=short", f"--timeout={timeout}", "--", "call",
+            ACCOUNTS_SERVICE, *target, *words]
+
+
+def passwd_argv() -> list[str]:
+    """passwd without arguments: it changes the password of the user who runs it, and asks on its terminal."""
+    return [EXECUTABLES["passwd"]]
 
 
 def valid_package(name: object) -> bool:
@@ -256,6 +338,16 @@ def _check(command: list[str]) -> None:
         _validate_sysops(command[2], tuple(command[3:]))
     if command[0] == EXECUTABLES["apt-get"] and (len(command) < 2 or command[1] != "-s"):
         raise ValueError("apt-get is only ever run as a simulation (-s)")
+    if command[0] == EXECUTABLES["busctl"]:
+        fixed = [command[0], "--system", "--json=short"]
+        if (len(command) < 10 or command[:3] != fixed or not re.fullmatch(r"--timeout=[0-9]{1,3}", command[3])
+                or command[4:7] != ["--", "call", ACCOUNTS_SERVICE] or command[9] not in ACCOUNTS_METHODS
+                or not (command[7] == ACCOUNTS_PATH or ACCOUNTS_USER_RE.fullmatch(command[7]))
+                or command[8] not in (ACCOUNTS_SERVICE, ACCOUNTS_SERVICE + ".User", "org.freedesktop.DBus.Properties")
+                or any(word in ("SetPassword", "SetPasswordHint", "SetPasswordMode") for word in command)):
+            raise ValueError("busctl only calls the account methods of accounts_argv()")
+    if command[0] == EXECUTABLES["passwd"] and len(command) != 1:
+        raise ValueError("passwd is only started without arguments (the own password)")
 
 
 def _tail(text: str, limit: int = 400) -> str:
@@ -354,6 +446,77 @@ class CommandRunner:
         stdout = proc.stdout[:MAX_OUTPUT].decode("utf-8", errors="replace")
         stderr = proc.stderr[:MAX_OUTPUT].decode("utf-8", errors="replace")
         return Completed(proc.returncode, stdout, stderr)
+
+    def converse(self, command: list[str], dialogue, timeout: float = CONVERSE_TIMEOUT) -> int:
+        """Run passwd on a pseudo-terminal and let ``dialogue`` answer it; returns its exit code.
+
+        ``dialogue.feed(text)`` gets what the program printed and returns the
+        lines to type; when ``dialogue.stop`` becomes true the program is
+        ended. The terminal does not echo, so nothing typed comes back as
+        output; nothing typed or printed is kept or logged here. After
+        `timeout` seconds the program is killed and CommandFailed is raised.
+        """
+        _check(command)
+        if command != passwd_argv():
+            raise ValueError("only passwd is run on a pseudo-terminal")
+        if not timeout or timeout <= 0:
+            raise ValueError("every command needs a timeout")
+        name = program_name(command)
+        if not self.available(command[0]):
+            raise CommandUnavailable(name)
+        master, slave = os.openpty()
+        try:
+            attributes = termios.tcgetattr(slave)
+            attributes[3] &= ~(termios.ECHO | termios.ECHONL)      # what is typed is never printed back
+            termios.tcsetattr(slave, termios.TCSANOW, attributes)
+            env = dict(self.environ)
+            env["LC_ALL"] = "C"                                      # the prompts and messages the dialogue knows
+            env["LANGUAGE"] = "C"
+            try:
+                proc = subprocess.Popen(command, stdin=slave, stdout=slave, stderr=slave, env=env, close_fds=True,
+                                        start_new_session=True)
+            except OSError as exc:
+                raise CommandFailed(name, f"{name} could not be started ({exc.strerror or exc}).") from None
+        except BaseException:
+            os.close(master)
+            raise
+        finally:
+            os.close(slave)
+        deadline = time.monotonic() + timeout
+        expired = False
+        try:
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    expired = True
+                    break
+                readable, _w, _x = select.select([master], [], [], min(remaining, 0.2))
+                if not readable:
+                    if proc.poll() is not None:
+                        break
+                    continue
+                try:
+                    data = os.read(master, 4096)
+                except OSError:                                      # the program closed its terminal: it ended
+                    break
+                if not data:
+                    break
+                for answer in dialogue.feed(data.decode("utf-8", errors="replace")):
+                    os.write(master, answer.encode("utf-8") + b"\n")
+                if dialogue.stop:
+                    break
+        finally:
+            if proc.poll() is None and (expired or dialogue.stop):
+                proc.kill()
+            try:
+                code = proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                code = proc.wait()
+            os.close(master)
+        if expired:
+            raise CommandFailed(name, f"{name} did not finish within {int(timeout)} seconds and was stopped.")
+        return code
 
     def start(self, command: list[str], settle: float = START_SETTLE) -> None:
         """Start a desktop program detached from Control Center; raise if it fails at once."""

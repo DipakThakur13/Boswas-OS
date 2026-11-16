@@ -87,8 +87,8 @@ def sha512_crypt(password: str | bytes, salt: str | None = None, rounds: int | N
             raise ValueError("rounds must be a number")
         rounds = int(number)
     salt = salt.split("$")[0][:16]
-    if any(ch not in SALT_CHARACTERS for ch in salt) and not salt.isascii():
-        raise ValueError("the salt must be ASCII")
+    if not salt.isascii() or any(ch in salt for ch in ":\n\0"):
+        raise ValueError("the salt must be plain ASCII")
     explicit = rounds is not None
     count = max(ROUNDS_MIN, min(ROUNDS_MAX, rounds)) if explicit else ROUNDS_DEFAULT
     salt_bytes = salt.encode("ascii")
@@ -419,9 +419,12 @@ _CURRENT_RE = re.compile(r"(current|old|\(current\))[^\n]*password[^\n:]*:\s*$",
 _RETYPE_RE = re.compile(r"(retype|re-enter|reenter|repeat|again|confirm)[^\n]*password[^\n:]*:\s*$", re.IGNORECASE)
 _NEW_RE = re.compile(r"new[^\n]*password[^\n:]*:\s*$", re.IGNORECASE)
 _PROMPT_RE = re.compile(r"[^\n]{1,200}:\s*$")
+# A prompt inside the transcript (the answers are not echoed, so a message may follow it on the same line).
+_ASKED_RE = re.compile(r"(?:\(current\)|current|old|enter|new|retype|re-enter|reenter|repeat|confirm)"
+                       r"[^\n:]{0,60}password[^\n:]{0,20}:[ \t]?", re.IGNORECASE)
+_BAD_RE = re.compile(r"BAD PASSWORD:[ \t]*([^\n]+)")
+# passwd ends every failure with "Authentication token manipulation error"; these say which one it was.
 _MESSAGES = (
-    ("authentication token manipulation error", "The current password is not correct."),
-    ("authentication failure", "The current password is not correct."),
     ("you must choose a longer password", "The new password is too short."),
     ("password unchanged", "The new password must differ from the current one."),
     ("has been already used", "This password was used before. Choose another one."),
@@ -457,23 +460,20 @@ class PasswdDialogue:
         self.transcript = (self.transcript + text)[-8192:]
         self._tail = (self._tail + text)[-2048:]
         tail = self._tail.replace("\r", "")
-        answers: list[str] = []
-        if _RETYPE_RE.search(tail):
-            kind, answer = "retype", self._new
-        elif _CURRENT_RE.search(tail):
-            kind, answer = "current", self._current
-        elif _NEW_RE.search(tail):
-            kind, answer = "new", self._new
-        elif _PROMPT_RE.search(tail) and not tail.rstrip().endswith((".", "!")) and "password" not in \
-                tail.rstrip().splitlines()[-1].lower().replace("password:", ""):
-            line = tail.rstrip().splitlines()[-1]
-            if line.lower().startswith(("changing password", "passwd:")):
-                return []
-            self.stop = True
-            self.problem = "The password program asked a question Control Center cannot answer (“" + \
-                self._clean(line) + "”). Nothing was changed."
+        # A prompt is an unfinished last line that ends with a colon; everything else is information.
+        line = tail.split("\n")[-1]
+        if not line.rstrip().endswith(":") or line.strip().lower() in ("passwd:", ""):
             return []
+        if _RETYPE_RE.search(line):
+            kind, answer = "retype", self._new
+        elif _CURRENT_RE.search(line):
+            kind, answer = "current", self._current
+        elif _NEW_RE.search(line):
+            kind, answer = "new", self._new
         else:
+            self.stop = True
+            self.problem = ("The password program asked a question Control Center cannot answer (“"
+                            + self._clean(line) + "”). The password was not changed.")
             return []
         if self._sent[kind]:
             # Asked again: the answer before was refused (a wrong current password, a rejected new one).
@@ -481,8 +481,7 @@ class PasswdDialogue:
             return []
         self._sent[kind] = True
         self._tail = ""
-        answers.append(answer)
-        return answers
+        return [answer]
 
     def _clean(self, text: str) -> str:
         for secret in (self._current, self._new):
@@ -500,17 +499,20 @@ class PasswdDialogue:
             return ""
         if code == 0 and not self.stop and self._sent["new"] and self._sent["retype"]:
             return ""
-        for line in text.splitlines():
-            if line.strip().upper().startswith("BAD PASSWORD:"):
-                return "The new password was not accepted: " + self._clean(line.strip()[len("BAD PASSWORD:"):])
+        bad = _BAD_RE.search(text)
+        if bad is not None:
+            return "The new password was not accepted: " + self._clean(_ASKED_RE.sub("", bad.group(1)))
+        refused = "authentication token manipulation error" in lowered or "authentication failure" in lowered
+        if self._sent["current"] and not self._sent["new"] and (refused or self.stop):
+            return "The current password is not correct."      # it failed before a new password was asked for
+        # PAM's own messages; passwd's closing lines ("passwd: password unchanged") are not among them.
+        said = "\n".join(line for line in _ASKED_RE.sub("\n", lowered).splitlines()
+                         if not line.strip().startswith("passwd:"))
         for marker, words in _MESSAGES:
-            if marker in lowered:
+            if marker in said:
                 return words
-        if self.stop and self._sent["current"] and not self._sent["new"]:
-            return "The current password is not correct."
-        lines = [self._clean(line) for line in text.splitlines()]
-        lines = [line for line in lines if line and not _PROMPT_RE.fullmatch(line + " ")
-                 and not line.lower().startswith("changing password")]
+        lines = [self._clean(line) for line in _ASKED_RE.sub("\n", text).splitlines()]
+        lines = [line for line in lines if line and not line.lower().startswith("changing password")]
         detail = lines[-1] if lines else ""
         if detail.lower().startswith("passwd: "):
             detail = detail[len("passwd: "):]

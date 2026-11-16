@@ -222,7 +222,7 @@ class ProcessesPage(ProcessTablePage):
                    heat=lambda row: disk_heat(row.data.disk) if row.data.disk is not None else 0.0,
                    descending_first=True),
         ]
-        command = Column("command", "Command line", _command, width=420, tooltip=True)
+        command = Column("command", "Command line", _command, width=260, tooltip=True)
         super().__init__(window, base + ([command] if window.settings.full_command_line else []), tree=True,
                          stretch=None if window.settings.full_command_line else "name")
         self._base_columns, self._command_column = base, command

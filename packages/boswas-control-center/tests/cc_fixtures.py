@@ -339,6 +339,10 @@ class FakeCommands:
             return self.outputs.get(tuple(command), completed())
         return self.outputs.get(tuple(command), completed("", 1, "no canned output"))
 
+    def converse(self, command: list[str], dialogue, timeout: float = 60.0) -> int:
+        self._check(command)
+        raise AssertionError("no test of the whole window changes a password")
+
     def start(self, command: list[str], settle: float = commands.START_SETTLE) -> None:
         self._check(command)
         with self.lock:

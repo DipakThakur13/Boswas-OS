@@ -289,31 +289,36 @@ class TreeModel(QAbstractItemModel):
             reorders.append((parent, wanted))
 
     # --- QAbstractItemModel ---
+    # The view calls these four for every row whenever rows were moved, so each asks the index as
+    # little as it can. An invalid index has the ID 0, which is no node: that is the root.
     def index(self, row: int, column: int, parent: QModelIndex = QModelIndex()) -> QModelIndex:
-        node = self._nodes.get(parent.internalId()) if parent.isValid() else self._root
-        if node is None or not 0 <= row < len(node.children) or not 0 <= column < len(self.columns):
+        node = self._nodes.get(parent.internalId(), self._root)
+        children = node.children
+        if not 0 <= row < len(children) or not 0 <= column < len(self.columns):
             return QModelIndex()
-        return self.createIndex(row, column, node.children[row].id)
+        return self.createIndex(row, column, children[row].id)
 
     def parent(self, index: QModelIndex = QModelIndex()) -> QModelIndex:
-        node = self._nodes.get(index.internalId()) if index.isValid() else None
-        if node is None or node.parent is self._root or node.parent is None:
+        node = self._nodes.get(index.internalId())
+        if node is None:
             return QModelIndex()
-        return self.createIndex(node.parent.position, 0, node.parent.id)
+        parent = node.parent
+        if parent is self._root or parent is None:
+            return QModelIndex()
+        return self.createIndex(parent.position, 0, parent.id)
 
     def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
-        if not parent.isValid():
-            return len(self._root.children)
-        if parent.column() > 0:
+        node = self._nodes.get(parent.internalId(), self._root)
+        if not node.children or (node is not self._root and parent.column() > 0):
             return 0
-        node = self._nodes.get(parent.internalId())
-        return len(node.children) if node is not None else 0
+        return len(node.children)
 
     def columnCount(self, parent: QModelIndex = QModelIndex()) -> int:
         return len(self.columns)
 
     def hasChildren(self, parent: QModelIndex = QModelIndex()) -> bool:
-        return self.rowCount(parent) > 0
+        node = self._nodes.get(parent.internalId(), self._root)
+        return bool(node.children) and (node is self._root or parent.column() == 0)
 
     def flags(self, index: QModelIndex) -> Qt.ItemFlag:
         node = self._nodes.get(index.internalId())
