@@ -50,7 +50,7 @@ check "Compatibility Manager icon installed" test -s "$root/usr/share/icons/hico
 check "Compatibility Manager imports with the image's PySide6" \
 	chroot "$root" python3 -IB -c 'import sys; sys.path.insert(0, "/usr/lib/boswas/python"); import boswas_manager.app'
 out="$(chroot "$root" /usr/bin/boswas-compat-manager --version 2>&1)"
-check "boswas-compat-manager --version ($out)" grep -q "1.0~alpha3" <<<"$out"
+check "boswas-compat-manager --version ($out)" grep -q "3.0~alpha1" <<<"$out"
 check "\"Run with Boswas\" stays the default handler for Windows executables" \
 	grep -qE '^application/x-msdownload=boswas-winapp-install.desktop' "$root/usr/share/applications/mimeinfo.cache"
 finish

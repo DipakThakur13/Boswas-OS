@@ -671,7 +671,7 @@ class PackagingTest(unittest.TestCase):
             self.assertNotIn("PySide6", text, name)
 
     def test_command_line(self):
-        for option, expected in (("--version", "boswas-document-viewer 1."), ("--help", "FILE")):
+        for option, expected in (("--version", "boswas-document-viewer 3."), ("--help", "FILE")):
             output = io.StringIO()
             with self.assertRaises(SystemExit) as caught, contextlib.redirect_stdout(output):
                 cli.main(["boswas-document-viewer", option])

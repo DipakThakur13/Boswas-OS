@@ -80,7 +80,7 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(plan.mode, "browse")
 
     def test_version_and_help_need_no_display(self):
-        for option, expected in (("--version", "boswas-archive-manager 1."), ("--help", "--extract-here")):
+        for option, expected in (("--version", "boswas-archive-manager 3."), ("--help", "--extract-here")):
             output = io.StringIO()
             with self.assertRaises(SystemExit) as caught, contextlib.redirect_stdout(output):
                 cli.main(["boswas-archive-manager", option])

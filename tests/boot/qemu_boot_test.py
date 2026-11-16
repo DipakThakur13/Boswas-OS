@@ -1590,7 +1590,7 @@ def scenario_serial(iso: Path, workdir: Path, outdir: Path, timeout: float, fixt
         rc, out = sh.run("boswas-compositor --version; /usr/libexec/boswas/boswas-shell --version; "
                          "dpkg-query -W -f='${db:Status-Status} ${Package}\\n' plasma-workspace kwin-wayland sddm "
                          "plymouth 2>/dev/null | grep '^installed' || echo no-plasma")
-        check("boswas-compositor 1." in out and "boswas-shell 1." in out and "no-plasma" in out,
+        check("boswas-compositor 3." in out and "boswas-shell 3." in out and "no-plasma" in out,
               f"the Boswas desktop is installed; Plasma, KWin, SDDM and Plymouth are not ({' | '.join(out.split(chr(10))[:4])})")
 
         rc, out = sh.run("ip -4 -o addr show scope global")
