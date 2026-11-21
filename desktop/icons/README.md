@@ -135,7 +135,7 @@ with the same drawing and their own id prefix. This table is printed by
 | apps | Image Viewer | sun | Picture frame with mountains, accent sun. | `gwenview`, `org.kde.gwenview`, `preferences-desktop-wallpaper`, `boswas-photos` |
 | apps | Document Viewer | coral | Open book, accent bookmark ribbon. | `okular`, `org.kde.okular`, `boswas-document-viewer` |
 | apps | Archive Manager | slate | Archive box with lid, accent handle slot. | `utilities-file-archiver`, `ark`, `org.kde.ark` |
-| apps | Screenshot | coral | Viewfinder corners, accent shutter dot. | `spectacle`, `org.kde.spectacle` |
+| apps | Screenshot | coral | Viewfinder corners, accent shutter dot. | `spectacle`, `org.kde.spectacle`, `boswas-snipping-tool` |
 | apps | Help | azure | Ring, accent question mark. | `help-browser`, `org.kde.khelpcenter` |
 | apps | Find Files | azure | Magnifying glass, accent handle. | `kfind` |
 | apps | Wallet | mint | Wallet with a pocket flap, accent clasp. | `kwalletmanager` |
@@ -182,6 +182,7 @@ with the same drawing and their own id prefix. This table is printed by
 | apps | Repair Application | sky | Application window, accent wrench. | `boswas-repair` |
 | apps | Application Sandbox | sky | Shield enclosing an accent application window. | `boswas-sandbox` |
 | apps | Application Policy | sky | Clipboard holding an application window, accent clip. | `boswas-app-policy` |
+| apps | Weather | sky | Cloud with an accent sun above its left shoulder. | `boswas-weather` |
 | apps | Boswas Launcher | iris | Three-by-three grid of application tiles, the centre one in the accent colour. | `boswas-launcher`, `boswas-shell` |
 | apps | Lock Screen | iris | Screen with a padlock, accent lock body. | `boswas-lock` |
 | places | Folder | azure | Folder: darker back with a tab, a sheet of paper, lighter front flap. | `folder` |
@@ -424,6 +425,29 @@ with the same drawing and their own id prefix. This table is printed by
 | actions | Services | symbolic | Three sheets lying on each other. | `view-layers-symbolic` |
 | actions | Game Controller | symbolic | Game controller. | `input-gaming-symbolic` |
 | actions | Tablet | symbolic | Drawing tablet with a pen resting on it. | `input-tablet-symbolic` |
+| actions | Partly Cloudy | symbolic | Sun with rays behind a cloud to its lower right. | `weather-few-clouds-symbolic` |
+| actions | Partly Cloudy at Night | symbolic | Crescent moon behind a cloud to its lower right. | `weather-few-clouds-night-symbolic` |
+| actions | Overcast | symbolic | Filled cloud. | `weather-overcast-symbolic` |
+| actions | Cloudy | symbolic | Cloud outline. | `weather-clouds-symbolic` |
+| actions | Fog | symbolic | Cloud over two lines of mist. | `weather-fog-symbolic` |
+| actions | Drizzle | symbolic | Cloud with three short drops under it. | `weather-showers-scattered-symbolic` |
+| actions | Rain | symbolic | Cloud with three lines of rain under it. | `weather-showers-symbolic` |
+| actions | Snow | symbolic | Cloud with three snowflakes under it. | `weather-snow-symbolic` |
+| actions | Thunderstorm | symbolic | Cloud with a lightning bolt under it. | `weather-storm-symbolic` |
+| actions | Wind | symbolic | Three lines of wind, two ending in a curl. | `weather-windy-symbolic` |
+| actions | Humidity | symbolic | Water drop with a highlight. | `weather-humidity-symbolic` |
+| actions | Pressure | symbolic | Gauge with its needle in the middle. | `weather-pressure-symbolic` |
+| actions | Sunrise | symbolic | Half a sun on the horizon, an arrow up under it. | `daytime-sunrise-symbolic` |
+| actions | Sunset | symbolic | Half a sun on the horizon, an arrow down under it. | `daytime-sunset-symbolic` |
+| actions | Temperature | symbolic | Thermometer with its bulb filled. | `temperature-symbolic` |
+| actions | New Snip | symbolic | Viewfinder corners around a dot. | `screenshot-symbolic` |
+| actions | Pen | symbolic | Pencil, tip to the lower left. | `draw-freehand-symbolic` |
+| actions | Highlighter | symbolic | Highlighter with a chisel tip over a line. | `draw-highlight-symbolic` |
+| actions | Eraser | symbolic | Eraser block on a line. | `draw-eraser-symbolic` |
+| actions | Crop | symbolic | Two crossing right angles. | `transform-crop-symbolic` |
+| actions | Arrow | symbolic | Diagonal arrow pointing up and to the right. | `draw-arrow-symbolic` |
+| actions | Rectangle | symbolic | Rounded rectangle outline. | `draw-rectangle-symbolic` |
+| actions | Text | symbolic | Capital T. | `draw-text-symbolic` |
 <!-- END PRISM ICON TABLE -->
 
 Notes on names:

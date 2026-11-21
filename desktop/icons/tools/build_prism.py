@@ -323,6 +323,39 @@ def g_launcher():
     return out
 
 
+def cloud_path(cx: float, base: float, scale: float = 1.0) -> str:
+    """Outline of a cloud with a flat bottom: three bumps (left, top,
+    right) on a base line, centred on cx. At scale 1 it is 172 wide and
+    124 high (from base - 124 to base)."""
+    bumps = [(-44, -34, 34), (4, -74, 50), (58, -38, 36)]
+    circles = [(cx + dx * scale, base + dy * scale, r * scale) for dx, dy, r in bumps]
+
+    def meet(a, b):
+        # The upper of the two points where circles a and b cross.
+        (x0, y0, r0), (x1, y1, r1) = a, b
+        d = math.hypot(x1 - x0, y1 - y0)
+        along = (r0 * r0 - r1 * r1 + d * d) / (2 * d)
+        h = math.sqrt(max(r0 * r0 - along * along, 0.0))
+        mx, my = x0 + along * (x1 - x0) / d, y0 + along * (y1 - y0) / d
+        p = (mx + h * (y1 - y0) / d, my - h * (x1 - x0) / d)
+        q = (mx - h * (y1 - y0) / d, my + h * (x1 - x0) / d)
+        return p if p[1] < q[1] else q
+
+    (lx, ly, lr), (tx, ty, tr), (rx, ry, rrad) = circles
+    left_bottom = (lx, base)
+    right_bottom = (rx, base)
+    a = meet(circles[0], circles[1])
+    b = meet(circles[1], circles[2])
+    return (f"M{legacy.pt(*left_bottom)}A{legacy.n(lr)} {legacy.n(lr)} 0 0 1 {legacy.pt(*a)}"
+            f"A{legacy.n(tr)} {legacy.n(tr)} 0 0 1 {legacy.pt(*b)}"
+            f"A{legacy.n(rrad)} {legacy.n(rrad)} 0 0 1 {legacy.pt(*right_bottom)}Z")
+
+
+def g_weather():
+    """Cloud with an accent sun above its left shoulder."""
+    return [S(cloud_path(132, 198, 0.8)), FS(circle(80, 88, 20), "$accent", 6)]
+
+
 def g_lock():
     """Screen with a padlock, accent lock body."""
     return [S(rr(56, 64, 144, 128, 20)),
@@ -363,6 +396,7 @@ APP_EXTRA_ALIASES = {
     "utilities-terminal": ("boswas-terminal",),
     "gwenview": ("boswas-photos",),
     "okular": ("boswas-document-viewer",),
+    "spectacle": ("boswas-snipping-tool",),
 }
 
 
@@ -1841,6 +1875,138 @@ def a_success():
     return [y_s(circle(128, 128, 96), 20), y_s(line((84, 132), (114, 162), (172, 100)), 20)]
 
 
+# Weather (Boswas Weather): conditions and details.
+def raised_cloud(dy: float = -38) -> str:
+    """The cloud of a condition with something under it (rain, snow, a bolt)."""
+    return cloud_path(132, 194 + dy)
+
+
+def w_cloud():
+    """Cloud outline."""
+    return [y_s(cloud_path(132, 194), 20)]
+
+
+def w_overcast():
+    """Filled cloud."""
+    return [y_fs(cloud_path(132, 194), 12)]
+
+
+def w_few_clouds(night: bool):
+    def build():
+        sky = (y_fs(crescent(84, 84, 40, 18, -18, 36), 10) if night else
+               y_f(circle(84, 84, 30)))
+        out = [sky, y_s(cloud_path(150, 210, 0.82), 20)]
+        if not night:
+            rays = "".join(line(polar(84, 84, 46, a), polar(84, 84, 64, a)) for a in (0, 45, 90, 225, 270, 315))
+            out.append(y_s(rays, 16))
+        return out
+    build.__doc__ = f"{'Crescent moon' if night else 'Sun with rays'} behind a cloud to its lower right."
+    return build
+
+
+def w_fog():
+    """Cloud over two lines of mist."""
+    return [y_s(raised_cloud(-40), 20), y_s(line((40, 192), (176, 192)) + line((80, 228), (216, 228)), 20)]
+
+
+def w_showers(scattered: bool):
+    def build():
+        if scattered:
+            drops = "".join(line((x, 186), (x - 10, 206)) for x in (96, 140, 184))
+        else:
+            drops = "".join(line((x, 180), (x - 22, 228)) for x in (96, 140, 184))
+        return [y_s(raised_cloud(), 20), y_s(drops, 18)]
+    build.__doc__ = f"Cloud with {'three short drops' if scattered else 'three lines of rain'} under it."
+    return build
+
+
+def w_snow():
+    """Cloud with three snowflakes under it."""
+    return [y_s(raised_cloud(), 20)] + [y_f(circle(x, y, 13)) for x, y in ((92, 196), (136, 222), (180, 196))]
+
+
+def w_storm():
+    """Cloud with a lightning bolt under it."""
+    return [y_s(raised_cloud(), 20), y_fs(poly((140, 150), (100, 200), (128, 200), (112, 244), (164, 184), (134, 184)), 10)]
+
+
+def w_windy():
+    """Three lines of wind, two ending in a curl."""
+    return [y_s("M32 100H156Q188 100 188 72Q188 44 160 44Q136 44 132 68", 20),
+            y_s("M32 144H196Q228 144 228 172Q228 200 200 200Q176 200 172 176", 20),
+            y_s(line((32, 188), (124, 188)), 20)]
+
+
+def w_humidity():
+    """Water drop with a highlight."""
+    return [y_s("M128 28Q204 116 204 160A76 76 0 0 1 52 160Q52 116 128 28Z", 20),
+            y_s(arc(128, 160, 44, 200, 250), 16)]
+
+
+def w_daytime(rising: bool):
+    def build():
+        rays = "".join(line(polar(128, 168, 74, a), polar(128, 168, 96, a)) for a in (300, 330, 0, 30, 60))
+        tip, point = ((128, 196), (0, -1)) if rising else ((128, 244), (0, 1))
+        arrow = line((128, 196), (128, 244)) + legacy.arrowhead(tip, point, 22, 44)
+        return [y_s(arc(128, 168, 50, 270, 90), 20), y_s(rays, 18),
+                y_s(line((24, 168), (232, 168)), 20), y_s(arrow, 16)]
+    build.__doc__ = f"Half a sun on the horizon, an arrow {'up' if rising else 'down'} under it."
+    return build
+
+
+def w_temperature():
+    """Thermometer with its bulb filled."""
+    return [y_s("M104 160V60A24 24 0 0 1 152 60V160A44 44 0 1 1 104 160Z", 18),
+            y_f(circle(128, 192, 20)), y_s(line((128, 188), (128, 96)), 16)]
+
+
+# Drawing (Boswas Snipping Tool): the editor's tools.
+def d_screenshot():
+    """Viewfinder corners around a dot."""
+    corners = ["M40 92V64Q40 40 64 40H92", "M164 40H192Q216 40 216 64V92",
+               "M216 164V192Q216 216 192 216H164", "M92 216H64Q40 216 40 192V164"]
+    return [y_s("".join(corners), 20), y_f(circle(128, 128, 30))]
+
+
+def d_pen():
+    """Pencil, tip to the lower left."""
+    return [y_s("M48 208L60 160L168 52Q180 40 192 52L204 64Q216 76 204 88L96 196Z", 18),
+            y_s(line((148, 72), (184, 108)), 16)]
+
+
+def d_highlighter():
+    """Highlighter with a chisel tip over a line."""
+    return [y_s(poly((100, 144), (172, 72), (212, 112), (140, 184)), 18),
+            y_s(poly((100, 144), (76, 176), (108, 208), (140, 184)), 16),
+            y_s(line((40, 228), (216, 228)), 18, dim=True)]
+
+
+def d_eraser():
+    """Eraser block on a line."""
+    return [y_s(poly((48, 156), (140, 64), (216, 140), (124, 232)), 18),
+            y_s(line((92, 112), (168, 188)), 16), y_s(line((124, 232), (224, 232)), 16)]
+
+
+def d_crop():
+    """Two crossing right angles."""
+    return [y_s("M72 28V184H228", 20), y_s("M28 72H184V228", 20)]
+
+
+def d_arrow():
+    """Diagonal arrow pointing up and to the right."""
+    return [y_s(line((52, 204), (196, 60)) + legacy.arrowhead((196, 60), (1, -1), 60, 40), 20)]
+
+
+def d_rectangle():
+    """Rounded rectangle outline."""
+    return [y_s(rr(36, 60, 184, 136, 18), 20)]
+
+
+def d_text():
+    """Capital T."""
+    return [y_s(line((52, 52), (204, 52)) + line((128, 52), (128, 208)), 22), y_s(line((92, 208), (164, 208)), 20)]
+
+
 APP_ACTION_ICONS = [
     ("dialog-positive-symbolic", "Success", a_success),
     ("archive-extract-symbolic", "Extract", a_extract),
@@ -1879,6 +2045,29 @@ APP_ACTION_ICONS = [
     ("view-layers-symbolic", "Services", a_layers),
     ("input-gaming-symbolic", "Game Controller", a_gamepad),
     ("input-tablet-symbolic", "Tablet", a_tablet),
+    ("weather-few-clouds-symbolic", "Partly Cloudy", w_few_clouds(False)),
+    ("weather-few-clouds-night-symbolic", "Partly Cloudy at Night", w_few_clouds(True)),
+    ("weather-overcast-symbolic", "Overcast", w_overcast),
+    ("weather-clouds-symbolic", "Cloudy", w_cloud),
+    ("weather-fog-symbolic", "Fog", w_fog),
+    ("weather-showers-scattered-symbolic", "Drizzle", w_showers(True)),
+    ("weather-showers-symbolic", "Rain", w_showers(False)),
+    ("weather-snow-symbolic", "Snow", w_snow),
+    ("weather-storm-symbolic", "Thunderstorm", w_storm),
+    ("weather-windy-symbolic", "Wind", w_windy),
+    ("weather-humidity-symbolic", "Humidity", w_humidity),
+    ("weather-pressure-symbolic", "Pressure", doc(lambda: s_gauge(), "Gauge with its needle in the middle.")),
+    ("daytime-sunrise-symbolic", "Sunrise", w_daytime(True)),
+    ("daytime-sunset-symbolic", "Sunset", w_daytime(False)),
+    ("temperature-symbolic", "Temperature", w_temperature),
+    ("screenshot-symbolic", "New Snip", d_screenshot),
+    ("draw-freehand-symbolic", "Pen", d_pen),
+    ("draw-highlight-symbolic", "Highlighter", d_highlighter),
+    ("draw-eraser-symbolic", "Eraser", d_eraser),
+    ("transform-crop-symbolic", "Crop", d_crop),
+    ("draw-arrow-symbolic", "Arrow", d_arrow),
+    ("draw-rectangle-symbolic", "Rectangle", d_rectangle),
+    ("draw-text-symbolic", "Text", d_text),
 ]
 
 
@@ -1894,6 +2083,7 @@ def app_icons() -> list[tuple]:
         rows.append((APPS, name, title, from_legacy(glyph),
                      tuple(aliases) + APP_EXTRA_ALIASES.get(name, ()), APP_HUES[name]))
     rows += [
+        (APPS, "boswas-weather", "Weather", g_weather, (), "sky"),
         (APPS, "boswas-launcher", "Boswas Launcher", g_launcher, ("boswas-shell",), "iris"),
         (APPS, "boswas-lock", "Lock Screen", g_lock, (), "iris"),
     ]
