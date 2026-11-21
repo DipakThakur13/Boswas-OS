@@ -71,8 +71,8 @@ class _TextEditor(QLineEdit):
 
     def focusOutEvent(self, event) -> None:
         super().focusOutEvent(event)
-        if event.reason() != Qt.FocusReason.PopupFocusReason:
-            self._commit()
+        if event.reason() not in (Qt.FocusReason.PopupFocusReason, Qt.FocusReason.ActiveWindowFocusReason):
+            self._commit()                     # not when another window comes to the front for a moment
 
     def _fit(self) -> None:
         metrics = QFontMetricsF(self.font())

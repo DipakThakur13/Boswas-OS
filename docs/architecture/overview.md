@@ -125,7 +125,7 @@ applications the image had.
 | Camera | `boswas-camera` | Photos and videos from a camera of the computer |
 | Clock | `boswas-clock` | Alarms, timers, stopwatch, world clock, focus sessions |
 | Calendar | `boswas-calendar` | A calendar kept on this computer, with repeating events, reminders and iCalendar import and export |
-| Snipping Tool | `boswas-snipping-tool` | Screenshots through the desktop's capture screen (an area or the whole screen, with a delay), marked up with pen, highlighter, shapes and crop; copy, save, open in Photos (ADR-0046) |
+| Snipping Tool | `boswas-snipping-tool` | Screenshots through the desktop's capture screen (an area or the whole screen, with a delay), marked up with pen, highlighter, arrows, rectangles, text and crop; copy, save, open in Photos (ADR-0046) |
 | Weather | `boswas-weather` | Forecasts for the places the user adds, from Open-Meteo: current conditions, 24 hours, details and 10 days; the last forecast offline (ADR-0046) |
 | Reminders | `boswas-reminders` | No window: a session service that shows alarms, timers and calendar reminders as notifications while Clock and Calendar are closed |
 | Task Manager | `boswas-task-manager` | Processes grouped by application, performance graphs (CPU, memory, disks, network, GPU, battery), start-up applications, users, details and services; ends tasks |

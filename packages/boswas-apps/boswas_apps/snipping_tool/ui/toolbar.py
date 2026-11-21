@@ -231,6 +231,8 @@ class EditBar(QWidget):
         self.apply_crop_button.setToolTip("Crop to the frame (Enter)")
         self.cancel_crop_button = fluent.Button("Cancel", self)
         self.cancel_crop_button.setToolTip("Leave the picture as it is (Esc)")
+        for button in (self.apply_crop_button, self.cancel_crop_button):
+            button.setAutoDefault(True)              # Enter on a focused button presses that button
         layout.addWidget(self.crop_hint)
         layout.addWidget(self.apply_crop_button)
         layout.addWidget(self.cancel_crop_button)
@@ -261,7 +263,6 @@ class EditBar(QWidget):
         drawing = not self._cropping
         self.palette.setVisible(drawing and not compact)
         self.colour_button.setVisible(drawing and compact)
-        self.history_separator.setVisible(True)
         for widget in (self.apply_crop_button, self.cancel_crop_button):
             widget.setVisible(self._cropping)
         self.crop_hint.setVisible(self._cropping and not compact)

@@ -11,10 +11,16 @@
    above it that exists) and a poll every ``poll_ms`` look for the new
    screenshot. After ``reshow_ms`` the window comes back
    (``show_requested``), under the desktop's capture view, so that its
-   Cancel button is there when the user cancelled on the desktop (which
-   nobody reports).
-5. ``finished(path)`` with the new file, or ``ended("timeout")`` after
-   ``timeout`` seconds, or ``ended("cancelled")`` after ``cancel()``.
+   Cancel button is there.
+5. Nobody reports that the user cancelled on the desktop, but the window
+   is not active while the capture view is up, and the compositor
+   activates it when the view closes (confirmed or cancelled). So when
+   the window reports that it became active (``activated()``), a grace of
+   ``grace_ms`` starts: a confirmed snip is saved well within it; when
+   none has arrived by then, the snip was cancelled.
+6. ``finished(path)`` with the new file; ``ended("dismissed")`` when the
+   grace ran out without one, ``ended("timeout")`` after ``timeout``
+   seconds (the last resort), ``ended("cancelled")`` after ``cancel()``.
 """
 
 from __future__ import annotations
@@ -36,7 +42,7 @@ class SnipFlow(QObject):
     waiting = Signal()               # the desktop took the request
     finished = Signal(str)           # the path of the new screenshot
     failed = Signal(str, str)        # title, message
-    ended = Signal(str)              # "cancelled" or "timeout"
+    ended = Signal(str)              # "cancelled", "dismissed" or "timeout"
 
     def __init__(self, client, parent: QObject | None = None, *,
                  folder: Callable[[], Path] = capture.find_screenshots_dir) -> None:
@@ -47,6 +53,7 @@ class SnipFlow(QObject):
         self.reshow_ms = 1500
         self.poll_ms = 500
         self.timeout = capture.WAIT_SECONDS
+        self.grace_ms = 2500
         self.worker = fluent.Worker(self, max_threads=1)
         self.phase = "idle"              # idle, countdown, hiding, requesting, waiting
         self.mode = "region"
@@ -66,6 +73,10 @@ class SnipFlow(QObject):
         self._reshow_timer = QTimer(self)
         self._reshow_timer.setSingleShot(True)
         self._reshow_timer.timeout.connect(self._reshow)
+        self._grace = QTimer(self)
+        self._grace.setSingleShot(True)
+        self._grace.timeout.connect(self._grace_over)
+        self._grace_expired = False
 
     def is_active(self) -> bool:
         return self.phase != "idle"
@@ -153,6 +164,15 @@ class SnipFlow(QObject):
         if self.phase == "waiting":
             self.show_requested.emit()
 
+    def activated(self) -> None:
+        """The window became active: while waiting, the desktop's capture view has closed."""
+        if self.phase == "waiting" and not self._grace.isActive() and not self._grace_expired:
+            self._grace.start(self.grace_ms)
+
+    def _grace_over(self) -> None:
+        self._grace_expired = True
+        self.poll()                              # a last look; with nothing new the snip was cancelled
+
     # --- watching the folder ---
     def _watch(self, folder: Path | None) -> None:
         """Watch ``folder``: the Screenshots folder, or the nearest one above it while it does not exist yet."""
@@ -188,6 +208,10 @@ class SnipFlow(QObject):
         if generation != self._generation or self.phase != "waiting":
             return
         if path is None:
+            if self._grace_expired:
+                self._stop()
+                self.ended.emit("dismissed")
+                return
             self._watch(nearest)
             return
         self._stop()
@@ -197,7 +221,8 @@ class SnipFlow(QObject):
         self._generation += 1
         self.phase = "idle"
         self._left = 0
-        for timer in (self._tick, self._hide_timer, self._poll_timer, self._reshow_timer):
+        self._grace_expired = False
+        for timer in (self._tick, self._hide_timer, self._poll_timer, self._reshow_timer, self._grace):
             timer.stop()
         if self._watcher is not None:
             self._watcher.deleteLater()

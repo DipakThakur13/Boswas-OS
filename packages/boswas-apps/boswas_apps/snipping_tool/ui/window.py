@@ -7,7 +7,7 @@ import os
 from dataclasses import replace
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, QTimer
+from PySide6.QtCore import QEvent, QSize, Qt, QTimer
 from PySide6.QtGui import QGuiApplication, QImage, QKeySequence
 from PySide6.QtWidgets import (QComboBox, QFileDialog, QFrame, QHBoxLayout, QScrollArea, QStackedWidget,
                                QVBoxLayout, QWidget)
@@ -25,6 +25,7 @@ from .toolbar import DEFAULT_COLOUR, EditBar, ZoomBar, colour_value
 VERSION = "1.0"
 MODE_CHOICES = (("region", "Rectangle", "draw-rectangle-symbolic"), ("screen", "Full screen", "view-fullscreen-symbolic"))
 AUTO_COPY_MS = 600
+NOTICE_MS = 4000                # how long a passing notice ("Snip cancelled.") stays
 COMPACT_BELOW = 820             # window width below which the mode and delay show only their icons
 OPEN_FILTER = "Pictures (*.png *.jpg *.jpeg *.webp);;All files (*)"
 SAVE_FILTERS = (("png", "PNG picture (*.png)"), ("jpeg", "JPEG picture (*.jpg *.jpeg)"))
@@ -105,6 +106,11 @@ class SnipWindow(fluent.FluentWindow):
         self._auto_copy_timer.setSingleShot(True)
         self._auto_copy_timer.setInterval(AUTO_COPY_MS)
         self._auto_copy_timer.timeout.connect(self._auto_copy)
+        self._notice_timer = QTimer(self)
+        self._notice_timer.setSingleShot(True)
+        self._notice_timer.setInterval(NOTICE_MS)
+        self._notice_timer.timeout.connect(self._dismiss_notice)
+        self._notice = False
         self._build()
         self._wire()
         self._add_shortcuts()
@@ -494,8 +500,22 @@ class SnipWindow(fluent.FluentWindow):
 
     # --- messages ---
     def report(self, severity: str, message: str, title: str = "") -> None:
+        self._notice = False
+        self._notice_timer.stop()
         self.status.set_action(None)
         self.status.show_message(severity, message, title)
+
+    def notice(self, message: str) -> None:
+        """A passing message: it closes by itself after a moment, or with the next action."""
+        self.report("info", message)
+        self._notice = True
+        self._notice_timer.start()
+
+    def _dismiss_notice(self) -> None:
+        if self._notice:
+            self._notice = False
+            self._notice_timer.stop()
+            self.status.hide()
 
     # --- the state of the window ---
     def _editing(self) -> bool:
@@ -508,6 +528,7 @@ class SnipWindow(fluent.FluentWindow):
         editor = page is self.canvas
         self.edit_holder.setVisible(editor)
         self.zoom_holder.setVisible(editor)
+        self._update_title()
 
     def _restore_view(self) -> None:
         self._show_page(self.canvas if self.image is not None else self.empty_page)
@@ -544,7 +565,7 @@ class SnipWindow(fluent.FluentWindow):
         return self.source_stem or "Snip"
 
     def _update_title(self) -> None:
-        if self.image is None:
+        if self.image is None or self.stack.currentWidget() in (self.countdown_page, self.waiting_page):
             self.setWindowTitle(DISPLAY_NAME)
             return
         modified = "*" if self.history.is_modified() else ""
@@ -611,6 +632,8 @@ class SnipWindow(fluent.FluentWindow):
     def set_tool(self, tool: str) -> None:
         if tool == "crop" and self.image is None:
             tool = ""
+        if tool:
+            self._dismiss_notice()
         self.tool = tool
         self.canvas.set_tool(tool)
         self.edit_bar.show_tool(tool)
@@ -638,6 +661,7 @@ class SnipWindow(fluent.FluentWindow):
         self._changed()
 
     def _changed(self) -> None:
+        self._dismiss_notice()
         self.canvas.set_state(self.history.state)
         self._sync()
         if self.settings.auto_copy and self.image is not None:
@@ -719,6 +743,7 @@ class SnipWindow(fluent.FluentWindow):
 
     def _begin_snip(self) -> None:
         self.hide_settings()
+        self._dismiss_notice()
         self.status.hide()
         self.set_tool("")
         self.waiting_text.setText(self._waiting_hint())
@@ -751,6 +776,17 @@ class SnipWindow(fluent.FluentWindow):
     def _flow_waiting(self) -> None:
         self._show_page(self.waiting_page)
 
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.ActivationChange and self.isActiveWindow():
+            self.window_activated()
+
+    def window_activated(self) -> None:
+        """The window became active. While a snip is awaited that means the desktop's capture screen closed:
+        the flow gives the snip a moment to arrive and otherwise takes it as cancelled."""
+        if self.flow.phase == "waiting":
+            self.flow.activated()
+
     def _reveal(self) -> None:
         if self._closing:
             return
@@ -780,7 +816,9 @@ class SnipWindow(fluent.FluentWindow):
     def _flow_ended(self, reason: str) -> None:
         self._reveal()
         self._restore_view()
-        if reason == "timeout":
+        if reason == "dismissed":
+            self.notice("Snip cancelled.")
+        elif reason == "timeout":
             self.report("info", "No new snip arrived in the Screenshots folder. If the desktop could not save it, "
                         "it is on the clipboard: paste it here with Ctrl+V.", "No snip")
 

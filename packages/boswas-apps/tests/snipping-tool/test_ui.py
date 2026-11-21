@@ -404,6 +404,7 @@ class OpenAndDrawTest(SnipCase):
         editor = window.canvas.text_editor()
         self.assertIsNotNone(editor)
         testing.type_text(editor, "Look here")
+        self.grab(window, "text-dark.png")
         testing.key(editor, Qt.Key.Key_Return)
         self.assertIsNone(window.canvas.text_editor())
         text = window.history.state.items[-1]
@@ -535,6 +536,12 @@ class CropTest(SnipCase):
         self.assertFalse(window.history.can_undo())
         self.choose_tool(window, "crop")
         testing.click(window.edit_bar.cancel_crop_button)
+        self.assertEqual(window.canvas.tool, "")
+        self.choose_tool(window, "crop")
+        self.draw_line(window, (0, 0), (300, 300))
+        window.edit_bar.cancel_crop_button.setFocus(Qt.FocusReason.TabFocusReason)
+        testing.key(window.edit_bar.cancel_crop_button, Qt.Key.Key_Return)
+        self.assertIsNone(window.history.state.crop, "Enter on Cancel cancels")
         self.assertEqual(window.canvas.tool, "")
 
 
@@ -747,6 +754,7 @@ class SnipFlowTest(SnipCase):
         self.assertTrue(testing.wait_until(lambda: window.isVisible() and window.flow.phase == "waiting", 5))
         self.assertIs(window.stack.currentWidget(), window.waiting_page)
         self.assertIn("press Esc there to cancel", window.waiting_text.text())
+        self.grab(window, "waiting-dark.png")
         self.assertFalse(window.new_button.isEnabled())
         self.assertFalse(window.edit_holder.isVisible())
         testing.click(window.waiting_cancel)

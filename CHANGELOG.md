@@ -163,6 +163,23 @@ Verification status of the native desktop
   also dropped an administrator's stricter lock policy.
 
 ### Added
+- **Snipping Tool** (`boswas-snipping-tool`, in `boswas-apps`; ADR-0046):
+  screenshots of an area or the whole screen, now or after 3, 5 or 10
+  seconds, taken through the desktop's capture screen (the user drags or
+  confirms there, as with Print). The snip opens in an editor: pen,
+  highlighter, arrows, rectangles, text, an eraser and crop in eight
+  colours and three widths, with undo for every step, zoom and pan; copy,
+  save as PNG or JPEG, open in Photos. Pictures can also be opened or
+  pasted for markup. Pinned to Start for new users.
+- **Weather** (`boswas-weather`, in `boswas-apps`; ADR-0046): forecasts
+  for the places the user adds (it never locates the device), from
+  Open-Meteo: current conditions, the next 24 hours, details (wind,
+  humidity, pressure, UV index, visibility, precipitation, sunrise and
+  sunset, cloud cover) and 10 days, in the units chosen; the last forecast
+  is shown when there is no network. What it sends, and to whom, is in
+  `docs/security/privacy.md`. Pinned to Start for new users.
+- **Icons** for both, for the weather conditions and details, and for the
+  drawing tools, in the Boswas Prism pack.
 - **`boswas-desktop`** *(native desktop)*: a new package with five Rust
   crates and the session files.
   - **`boswas-compositor`**, the Wayland compositor (on Smithay), in place
