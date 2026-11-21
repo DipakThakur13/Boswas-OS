@@ -654,7 +654,9 @@ class PackagingTest(unittest.TestCase):
 
     def test_launcher_and_desktop_entry(self):
         launcher = self.PACKAGE / "bin" / "boswas-weather"
-        self.assertTrue(os.access(launcher, os.X_OK))
+        # Its mode is not checked here: the package build gives every
+        # source file 0644 and installs launchers 0755 (the package stage
+        # checks that).
         clock = (self.PACKAGE / "bin" / "boswas-clock").read_text()
         self.assertEqual(launcher.read_text(), clock.replace("Clock", "Weather").replace("clock", "weather"))
         entry = configparser.ConfigParser(interpolation=None)

@@ -313,7 +313,8 @@ class ScreenshotsFolderTest(Temporary):
         environ["XDG_CONFIG_HOME"] = "config"
         self.assertEqual(capture.find_screenshots_dir(environ), Path("/srv/pics/Screenshots"))
         # a file that is too long or not text is not read
-        (home / ".config" / "user-dirs.dirs").write_bytes(b"XDG_PICTURES_DIR=\"/srv/x\"\n" + b"#" * capture.MAX_USER_DIRS)
+        (home / ".config" / "user-dirs.dirs").write_bytes(b'XDG_PICTURES_DIR="/srv/x"\n'
+                                                          + b"#" * capture.MAX_USER_DIRS)
         self.assertEqual(capture.find_screenshots_dir(environ), home / "Pictures" / "Screenshots")
         (home / ".config" / "user-dirs.dirs").write_bytes(b'XDG_PICTURES_DIR="/srv/\xff"\n')
         self.assertEqual(capture.find_screenshots_dir(environ), home / "Pictures" / "Screenshots")

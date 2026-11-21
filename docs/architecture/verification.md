@@ -35,7 +35,7 @@ Python suites, which were run). The numbers move as work lands.
 | `desktop/presets` (Python) | 72 (1 skipped here) | The presets and `boswas-preset`: it starts no program and names no KDE tool, writes its three files atomically, and refuses symbolic links |
 | `boswas-compat-manager` (Python) | 111 (1 skipped here: `desktop-file-validate` is not installed) | The Compatibility Manager on the toolkit; the installer entry for Boswas Files and which application stays the default |
 | `boswas-control-center` (Python) | 593 (5 skipped) | The settings framework and every section against stand-ins (a fake bridge, a model of the compositor's files), the file writer against symbolic links and read-only directories, the safety rules (only one module writes files, only one starts programs, no KDE program is named), the Users page against a stand-in for AccountsService and a scripted `passwd`, SHA-512 crypt against the specification's vectors, the earlier pages |
-| `boswas-apps` (Python), one suite per application | Terminal 302, Task Manager 261, Archive Manager 255, Files 229, Photos 204, Calculator 160, Media Player 136, Text Editor 131, Calendar 118, Reminders 103, Document Viewer 90, Clock 58, Camera 39 | Each application's logic (parsers, file operations, the terminal emulator against hostile input, 78 extraction tests with hand-built hostile archives) and its window through real clicks and keys on Qt's offscreen platform, with stand-ins where the real thing would touch the system |
+| `boswas-apps` (Python), one suite per application | Terminal 302, Task Manager 261, Archive Manager 255, Files 229, Photos 204, Calculator 160, Media Player 136, Text Editor 131, Calendar 118, Snipping Tool 114, Reminders 103, Weather 93, Document Viewer 90, Clock 58, Camera 39 | Each application's logic (parsers, file operations, the terminal emulator against hostile input, 78 extraction tests with hand-built hostile archives, the compositor's capture request against a stand-in socket, Open-Meteo answers written from its documentation) and its window through real clicks and keys on Qt's offscreen platform, with stand-ins where the real thing would touch the system |
 
 One more `#[test]` in the compositor's end-to-end file is a helper
 program for the others and is not counted. Three of the settings tests
@@ -242,6 +242,21 @@ compositor that takes the display (a stand-in program held the console);
 rescue mode; a desktop shell that keeps failing (tests only); the
 passphrase prompt of an encrypted disk.
 
+## Snipping Tool on the real desktop
+
+On 2026-11-21 (ADR-0046) the Snipping Tool ran against the real
+compositor and shell on the headless back end, as an ordinary user, as a
+Wayland client, with input injected through the control socket: a
+full-screen snip and a rectangle snip (500 x 320, the area that was
+dragged) were saved by the shell and opened in the editor; the tool's
+own window was not in the picture; the capture screen kept the keyboard
+while the window was back underneath; a pen stroke followed the injected
+pointer; Ctrl+N with unsaved marks asked first; a snip confirmed after
+eight seconds opened; a snip cancelled with Escape ended in "Snip
+cancelled" with the previous picture back once the pointer reached the
+window. Not tried there: the delay, Save as with the real file chooser,
+the clipboard, Open in Photos.
+
 ## Frame cost, measured
 
 Measured on 2026-11-21 for ADR-0045 with the compositor's frame
@@ -292,7 +307,7 @@ environment.
 | Screen capture | Screen sharing and screenshots through `xdg-desktop-portal-wlr`; capture of a rotated monitor end to end; what the consent dialog names for the portal back end |
 | X11 | Xwayland on hardware; the clipboard between X11 and Wayland applications; Wine's Wayland driver on Debian 13 (the sandbox gives a Windows application the Wayland socket and no X11 socket, ADR-0034) |
 | Input methods | No input method has been run on the compositor; none is in the image |
-| Applications on the desktop | No run of Firefox, Wine or Waydroid on the native compositor is recorded. The Boswas applications and Control Center have not been started in a real session on hardware (window activation, the primary selection, drag and drop between programs, an input method's window); see "Looked at by hand" for the headless run from the built packages. Applying a preset from Settings in a running session was not tried |
+| Applications on the desktop | No run of Firefox, Wine or Waydroid on the native compositor is recorded. Weather has never reached the real Open-Meteo service (the build environment cannot). The Boswas applications and Control Center have not been started in a real session on hardware (window activation, the primary selection, drag and drop between programs, an input method's window); see "Looked at by hand" for the headless run from the built packages. Applying a preset from Settings in a running session was not tried |
 | Applications and devices | See the next section: a camera, removable drives, sound, real documents. Printing was tried to a PDF file only, and the image has no print service (CUPS is not in the manifest) |
 | Settings | Every section that talks to a system service ran against a stand-in: the real bridge reported "not available" here. Arranging several monitors is tested against a model only (the headless back end has one output and ignores a scale change on reload). `timedatectl` and `localectl` changes behind polkit |
 | Performance | Frame times on a real GPU, memory and start-up time of the compositor and the shell. Frame costs were measured on the build machine without a GPU and in the virtual machine only (ADR-0045, below) |

@@ -2741,7 +2741,14 @@ behind the user's consent).
   learns of the result by watching that folder for a picture that appears
   after its request, and opens it in its editor. Nothing new is offered
   to programs: the user still chooses and confirms every capture, and a
-  cancelled capture leaves no file.
+  cancelled capture leaves no file. Its window comes back under the
+  capture screen while it waits; because the capture screen holds the
+  pointer and the keyboard, the first input that reaches that window
+  means the capture screen has closed, and a snip that has not arrived
+  2.5 seconds later counts as cancelled. (Whether the window is active is
+  no signal: Qt reports it active from the moment it is shown.) A snip
+  that arrives later still opens; after two minutes the tool stops
+  waiting.
 - **Weather data from Open-Meteo,** a public forecast service that needs
   no account or key: its geocoding API for the place search, its forecast
   API for current conditions, 24 hours and 10 days. Values are fetched in
@@ -2770,4 +2777,17 @@ managed.
   the last forecast it saved, marked with its time. Open-Meteo's terms
   ask for attribution, which the app shows; commercial use needs their
   paid plan.
-- VERIFICATION
+- **Verified:** the suites of both applications (Snipping Tool 114
+  tests, Weather 93) on Qt's offscreen platform, the icon tests, and the
+  package build. The Snipping Tool against the real compositor and shell
+  (headless back end, the tool run as an ordinary user over Wayland): a
+  full-screen and a rectangle snip opened in the editor with the right
+  size, the window was not in the picture, the capture screen kept the
+  keyboard while the window was back under it, a pen stroke drawn with
+  injected pointer motion, the question about unsaved changes, a snip
+  confirmed after eight seconds, and a cancelled snip ending in "Snip
+  cancelled" with the previous picture back.
+- **Not verified:** Weather against the live Open-Meteo service (the
+  build environment cannot reach it; the tests use answers written from
+  its documentation); either application on Debian 13's PySide6 6.8 at
+  run time, on a real display or at a fractional scale.

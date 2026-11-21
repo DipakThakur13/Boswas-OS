@@ -7,10 +7,10 @@ import os
 from dataclasses import replace
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QSize, Qt, QTimer
+from PySide6.QtCore import QEvent, QObject, QSize, Qt, QTimer
 from PySide6.QtGui import QGuiApplication, QImage, QKeySequence
-from PySide6.QtWidgets import (QComboBox, QFileDialog, QFrame, QHBoxLayout, QScrollArea, QStackedWidget,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QComboBox, QFileDialog, QFrame, QHBoxLayout, QScrollArea,
+                               QStackedWidget, QVBoxLayout, QWidget)
 
 import boswas_fluent as fluent
 from boswas_fluent.shortcuts import key_sequences
@@ -23,9 +23,11 @@ from .snip import SnipFlow
 from .toolbar import DEFAULT_COLOUR, EditBar, ZoomBar, colour_value
 
 VERSION = "1.0"
-MODE_CHOICES = (("region", "Rectangle", "draw-rectangle-symbolic"), ("screen", "Full screen", "view-fullscreen-symbolic"))
+MODE_CHOICES = (("region", "Rectangle", "draw-rectangle-symbolic"),
+                ("screen", "Full screen", "view-fullscreen-symbolic"))
 AUTO_COPY_MS = 600
 NOTICE_MS = 4000                # how long a passing notice ("Snip cancelled.") stays
+INPUT_GUARD_MS = 250            # after the window comes back, input counts from this moment on
 COMPACT_BELOW = 820             # window width below which the mode and delay show only their icons
 OPEN_FILTER = "Pictures (*.png *.jpg *.jpeg *.webp);;All files (*)"
 SAVE_FILTERS = (("png", "PNG picture (*.png)"), ("jpeg", "JPEG picture (*.jpg *.jpeg)"))
@@ -37,6 +39,44 @@ def delay_text(seconds: int) -> str:
     if seconds <= 0:
         return "No delay"
     return f"{seconds} second" + ("" if seconds == 1 else "s")
+
+
+class InputWatcher(QObject):
+    """Calls ``callback`` once, at the first input (pointer, wheel, key, touch) for a widget of ``window``.
+
+    An application event filter between ``start()`` and ``stop()``; the
+    event itself goes on as usual (a click on Cancel still cancels).
+    """
+
+    KINDS = frozenset((QEvent.Type.Enter, QEvent.Type.MouseMove, QEvent.Type.MouseButtonPress,
+                       QEvent.Type.MouseButtonDblClick, QEvent.Type.Wheel, QEvent.Type.KeyPress,
+                       QEvent.Type.TouchBegin))
+
+    def __init__(self, window: QWidget, callback) -> None:
+        super().__init__(window)
+        self._window = window
+        self._callback = callback
+        self._armed = False
+
+    def is_armed(self) -> bool:
+        return self._armed
+
+    def start(self) -> None:
+        if not self._armed:
+            QApplication.instance().installEventFilter(self)
+            self._armed = True
+
+    def stop(self) -> None:
+        if self._armed:
+            QApplication.instance().removeEventFilter(self)
+            self._armed = False
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        if self._armed and event.type() in self.KINDS and isinstance(watched, QWidget) \
+                and watched.window() is self._window:
+            self.stop()
+            self._callback()
+        return False
 
 
 class ChoiceBox(QComboBox):
@@ -111,6 +151,8 @@ class SnipWindow(fluent.FluentWindow):
         self._notice_timer.setInterval(NOTICE_MS)
         self._notice_timer.timeout.connect(self._dismiss_notice)
         self._notice = False
+        self.input_watcher = InputWatcher(self, lambda: self.overlay_closed())
+        self.input_guard_ms = INPUT_GUARD_MS
         self._build()
         self._wire()
         self._add_shortcuts()
@@ -772,20 +814,23 @@ class SnipWindow(fluent.FluentWindow):
     def _flow_show(self) -> None:
         self._show_page(self.waiting_page)
         self._reveal()
+        # From now on the first input means the capture screen has gone (after a moment, so that nothing
+        # the window system sends while the window is mapped counts as the user).
+        QTimer.singleShot(self.input_guard_ms, self, self._watch_input)
 
     def _flow_waiting(self) -> None:
         self._show_page(self.waiting_page)
 
-    def changeEvent(self, event) -> None:
-        super().changeEvent(event)
-        if event.type() == QEvent.Type.ActivationChange and self.isActiveWindow():
-            self.window_activated()
+    def _watch_input(self) -> None:
+        if self.flow.phase == "waiting" and self.isVisible():
+            self.input_watcher.start()
 
-    def window_activated(self) -> None:
-        """The window became active. While a snip is awaited that means the desktop's capture screen closed:
-        the flow gives the snip a moment to arrive and otherwise takes it as cancelled."""
+    def overlay_closed(self) -> None:
+        """The first input reached the window after it came back while a snip is awaited: the desktop's capture
+        screen, which holds the pointer and the keyboard, has closed. The flow gives the snip a moment to arrive
+        and otherwise takes it as cancelled."""
         if self.flow.phase == "waiting":
-            self.flow.activated()
+            self.flow.overlay_closed()
 
     def _reveal(self) -> None:
         if self._closing:
@@ -796,6 +841,8 @@ class SnipWindow(fluent.FluentWindow):
         self.activateWindow()
 
     def _flow_finished(self, path: str) -> None:
+        self.input_watcher.stop()
+
         def loaded(image: QImage) -> None:
             self._reveal()
             self._set_document(image, path)
@@ -809,11 +856,13 @@ class SnipWindow(fluent.FluentWindow):
         self.worker.submit(picture.load, path, on_done=loaded, on_error=failed)
 
     def _flow_failed(self, title: str, message: str) -> None:
+        self.input_watcher.stop()
         self._reveal()
         self._restore_view()
         self.report("error", message, title)
 
     def _flow_ended(self, reason: str) -> None:
+        self.input_watcher.stop()
         self._reveal()
         self._restore_view()
         if reason == "dismissed":
@@ -955,6 +1004,7 @@ class SnipWindow(fluent.FluentWindow):
         self._closing = True
         super().closeEvent(event)
         if event.isAccepted():
+            self.input_watcher.stop()
             self._auto_copy_timer.stop()
             self.flow.shutdown()
             self.worker.shutdown()

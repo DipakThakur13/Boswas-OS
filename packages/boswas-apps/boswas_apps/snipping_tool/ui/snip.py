@@ -12,12 +12,15 @@
    screenshot. After ``reshow_ms`` the window comes back
    (``show_requested``), under the desktop's capture view, so that its
    Cancel button is there.
-5. Nobody reports that the user cancelled on the desktop, but the window
-   is not active while the capture view is up, and the compositor
-   activates it when the view closes (confirmed or cancelled). So when
-   the window reports that it became active (``activated()``), a grace of
+5. Nobody reports that the user cancelled on the desktop. While the
+   capture view is up it covers the screen and has the pointer and the
+   keyboard, so the window gets no input at all; the first input it gets
+   after coming back means the view has closed (confirmed or cancelled).
+   The window reports that with ``overlay_closed()`` and a grace of
    ``grace_ms`` starts: a confirmed snip is saved well within it; when
-   none has arrived by then, the snip was cancelled.
+   none has arrived by then, the snip was cancelled. (Whether the window
+   is active says nothing: Qt calls it active as soon as it is shown,
+   under the capture view too.)
 6. ``finished(path)`` with the new file; ``ended("dismissed")`` when the
    grace ran out without one, ``ended("timeout")`` after ``timeout``
    seconds (the last resort), ``ended("cancelled")`` after ``cancel()``.
@@ -164,8 +167,8 @@ class SnipFlow(QObject):
         if self.phase == "waiting":
             self.show_requested.emit()
 
-    def activated(self) -> None:
-        """The window became active: while waiting, the desktop's capture view has closed."""
+    def overlay_closed(self) -> None:
+        """The window got input: while waiting, the desktop's capture view has closed."""
         if self.phase == "waiting" and not self._grace.isActive() and not self._grace_expired:
             self._grace.start(self.grace_ms)
 
