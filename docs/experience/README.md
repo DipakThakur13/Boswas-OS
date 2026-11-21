@@ -20,7 +20,8 @@ layer**.
   KWin, SDDM and Plymouth are not installed.
 - The system applications are Boswas's own too (`boswas-apps`,
   ADR-0040): Files, Terminal, Text Editor, Calculator, Photos, Document
-  Viewer, Archive Manager, Media Player, Camera, Clock and Calendar. They,
+  Viewer, Archive Manager, Media Player, Camera, Clock, Calendar, Snipping
+  Tool and Weather (ADR-0046). They,
   Control Center and the Compatibility Manager take their look from the
   Boswas Qt toolkit (ADR-0039). KDE's applications are no longer in the
   image.
@@ -429,6 +430,8 @@ light, and each has a manual page (`man boswas-files`, and so on).
 | **Camera** | Photos and videos from a camera of the computer, with a timer, to Pictures/Camera Roll and Videos/Camera Roll |
 | **Clock** | Alarms, timers, a stopwatch, a world clock and focus sessions |
 | **Calendar** | A calendar kept on this computer: month, week and day views, repeating events, reminders, several calendars, import and export of `.ics` files. It has no accounts and does not synchronise |
+| **Snipping Tool** | Screenshots of an area or the whole screen, now or after a delay, through the desktop's capture screen (the same one Print opens). The picture opens in an editor with a pen, a highlighter, arrows, rectangles, an eraser and crop, with undo; copy it, save it as PNG or JPEG or open it in Photos. It also marks up pictures you open |
+| **Weather** | The places you add (it never uses your location): current conditions, the next 24 hours, details (wind, humidity, pressure, UV index, visibility, precipitation, sunrise and sunset) and 10 days, in the units you choose. It refreshes while open and shows the last forecast when there is no network. Data from Open-Meteo |
 | **Task Manager** | Ctrl+Shift+Esc. What is running, by application, with CPU, memory and disk use, and "End task"; performance graphs for the processor, memory, disks, network, graphics and battery; start-up applications (switch them off or on); the signed-in users; every process in detail; services |
 | **Boswas Control Center** | Settings (see [Settings](#settings)) and the three centres below. It is the application Super+I opens ([control-center.md](control-center.md)) |
 | **Boswas Security Center** | Control Center's Security page: AppArmor, Windows-app sandbox, firewall, Secure Boot, disk encryption, screen lock, automatic security updates, device agent, device policy. Each item is Secure, Warning, Attention, Error or Not available, shown with an icon and text, never colour alone |

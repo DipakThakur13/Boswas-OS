@@ -20,7 +20,7 @@ import stat
 import tempfile
 from pathlib import Path
 
-from PySide6.QtCore import QBuffer, QIODevice, QPointF, QRect, QRectF, Qt
+from PySide6.QtCore import QBuffer, QIODevice, QLoggingCategory, QPointF, QRect, QRectF, Qt
 from PySide6.QtGui import (QBrush, QColor, QFont, QFontMetricsF, QImage, QImageReader, QImageWriter, QPainter,
                            QPainterPath, QPen, QPolygonF)
 
@@ -53,6 +53,8 @@ def configure() -> None:
     global _configured
     if not _configured:
         QImageReader.setAllocationLimit(ALLOCATION_LIMIT_MB)
+        # What a decoder thinks of a damaged file is said in the window, not logged.
+        QLoggingCategory.setFilterRules("qt.gui.imageio*=false")
         _configured = True
 
 

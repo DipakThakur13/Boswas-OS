@@ -1,0 +1,25 @@
+[Desktop Entry]
+Type=Application
+Name=Snipping Tool
+GenericName=Screenshot Tool
+Comment=Snip an area or the whole screen, then mark it up, save it or copy it
+Exec=boswas-snipping-tool %f
+Icon=boswas-snipping-tool
+Terminal=false
+StartupNotify=true
+StartupWMClass=com.boswas.SnippingTool
+Categories=Utility;Graphics;Qt;
+Keywords=screenshot;snip;snipping;screen capture;capture;print screen;annotate;markup;draw;highlight;crop;
+Actions=new;screen;delay;
+
+[Desktop Action new]
+Name=New snip
+Exec=boswas-snipping-tool --new
+
+[Desktop Action screen]
+Name=Snip the whole screen
+Exec=boswas-snipping-tool --new --mode=screen
+
+[Desktop Action delay]
+Name=New snip in 5 seconds
+Exec=boswas-snipping-tool --new --delay=5

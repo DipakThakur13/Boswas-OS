@@ -239,6 +239,18 @@ def find_screenshots_dir(environ: Mapping[str, str] | None = None) -> Path:
     return screenshots_dir(home_dir(environ), read_user_dirs(user_dirs_file(environ)))
 
 
+def nearest_folder(directory: str | os.PathLike) -> Path | None:
+    """``directory`` if it exists, else the nearest folder above it that does (to watch until it is made)."""
+    directory = Path(directory)
+    for candidate in (directory, *directory.parents):
+        try:
+            if candidate.is_dir():
+                return candidate
+        except OSError:
+            continue
+    return None
+
+
 # --- waiting for the snip ----------------------------------------------------------------------------------
 
 @dataclass(frozen=True)
