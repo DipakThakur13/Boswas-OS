@@ -71,6 +71,20 @@ it when it starts.
   it is sent anywhere. The applications use the network only where that
   is the function the user asked for (the Media Player playing an
   address); the Calculator and the Calendar never do.
+- **Weather** (ADR-0046) is the one Boswas application that contacts an
+  outside service by itself, and only once the user has added a place:
+  it asks Open-Meteo (`geocoding-api.open-meteo.com` for the place names
+  the user types into its search, `api.open-meteo.com` for the forecast of
+  the coordinates of the places the user saved), when it opens, when the
+  user refreshes and at the refresh interval the user chose while its
+  window is open. Open-Meteo sees the device's address and those place
+  names or coordinates; no account, key or other identifier is sent. The
+  app does not locate the device: places are only what the user picked.
+  The places and the last forecast stay in the user's home
+  (`~/.config/com.boswas.Weather/`, `~/.cache/com.boswas.Weather/`).
+- **Snipping Tool** captures the screen only through the desktop's
+  capture screen, where the user chooses the area and confirms; the
+  pictures are saved where the user saves them.
 - **Settings** (Control Center) writes only the settings files listed in
   `docs/experience/control-center.md`, all in the user's home.
 

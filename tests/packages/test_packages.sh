@@ -408,7 +408,8 @@ check "apps: every application has its launcher (0755), desktop entry, manual pa
 	bash -c "for a in files:Files:files terminal:Terminal:terminal text-editor:TextEditor:text_editor \
 			calculator:Calculator:calculator task-manager:TaskManager:task_manager photos:Photos:photos \
 			media-player:MediaPlayer:media_player camera:Camera:camera document-viewer:DocumentViewer:document_viewer \
-			archive-manager:ArchiveManager:archive_manager clock:Clock:clock calendar:Calendar:calendar; do
+			archive-manager:ArchiveManager:archive_manager clock:Clock:clock calendar:Calendar:calendar \
+			snipping-tool:SnippingTool:snipping_tool weather:Weather:weather; do
 			IFS=: read -r bin id mod <<<\"\$a\"
 			grep -qE \"^-rwxr-xr-x root/root .* \\./usr/bin/boswas-\$bin\$\" <<<\"\$1\" || { echo \"launcher \$bin\"; exit 1; }
 			grep -qE \"^Exec=boswas-\$bin( |\$)\" '$extract/usr/share/applications/com.boswas.'\$id.desktop || { echo \"entry \$id\"; exit 1; }
