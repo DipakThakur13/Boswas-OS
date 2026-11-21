@@ -52,6 +52,12 @@ def clean_text(value: Any, limit: int) -> str:
     return " ".join(value.split())[:limit].strip()
 
 
+def place_text(value: Any, limit: int) -> str:
+    """A name from the place search: ``clean_text`` without angle brackets, so that no tool tip or other
+    text that Qt might take for rich text ever sees a tag in it."""
+    return clean_text(value.replace("<", "").replace(">", "") if isinstance(value, str) else value, limit)
+
+
 def number(value: Any, low: float, high: float) -> float | None:
     """A finite number within [low, high], or None."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -149,7 +155,7 @@ class Place:
         """A place from a search result or from ``places.json``; None when a required field is bad."""
         if not isinstance(raw, dict):
             return None
-        name = clean_text(raw.get("name"), MAX_NAME)
+        name = place_text(raw.get("name"), MAX_NAME)
         latitude = number(raw.get("latitude"), -90, 90)
         longitude = number(raw.get("longitude"), -180, 180)
         if not name or latitude is None or longitude is None:
@@ -161,8 +167,8 @@ class Place:
         code = code.upper() if isinstance(code, str) and _COUNTRY_CODE.fullmatch(code.upper()) else ""
         zone = raw.get("timezone")
         zone = zone if isinstance(zone, str) and _ZONE.fullmatch(zone) else ""
-        return cls(name, round(latitude, 5), round(longitude, 5), clean_text(raw.get("country"), MAX_REGION), code,
-                   clean_text(raw.get("admin1"), MAX_REGION), zone, identifier)
+        return cls(name, round(latitude, 5), round(longitude, 5), place_text(raw.get("country"), MAX_REGION), code,
+                   place_text(raw.get("admin1"), MAX_REGION), zone, identifier)
 
 
 def parse_places(raw: Any) -> list[Place]:

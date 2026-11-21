@@ -1,0 +1,121 @@
+.TH BOSWAS-WEATHER 1 "November 2026" "boswas-apps 3.0~alpha1" "Boswas OS"
+.SH NAME
+boswas-weather \- the weather and the forecast for the places you choose
+.SH SYNOPSIS
+.B boswas-weather
+.RB [ \-\-place
+.IR name ]
+.br
+.B boswas-weather
+.BR \-\-version " | " \-\-help
+.SH DESCRIPTION
+.B boswas-weather
+is Weather, the weather application of the Boswas desktop. Its navigation
+pane lists the places you added, in your order; below them are two more
+pages.
+.TP
+.B A place
+The conditions now: the condition with its icon (a night icon after
+sunset), the temperature, how warm it feels, today's high and low, and
+when the forecast was fetched. Below come the next 24 hours (time,
+condition, temperature on a curve, chance of rain), cards with the wind
+(speed, the direction it comes from, gusts), humidity with the dew point,
+air pressure, the UV index and its category, visibility, today's
+precipitation, sunrise, sunset and cloud cover, and the next 10 days
+(condition, chance of rain, low and high with a bar on the scale of all
+ten days).
+.TP
+.B Manage places
+Search for a city or town by name and add it to your places; reorder your
+places, remove them (the removal can be taken back) and choose the home
+place, which Weather opens with. The first place you add is home until you
+choose another. At most 50 places are kept.
+.TP
+.B Settings
+The units: temperature in degrees Celsius or Fahrenheit, wind speed in
+kilometers per hour, miles per hour, meters per second or knots,
+precipitation in millimeters or inches, pressure in hectopascals or inches
+of mercury. The time format (as the system is set, 12-hour or 24-hour). How
+often the forecast of the place shown is fetched again while Weather is
+open: every 15, 30 or 60 minutes, or never. On a first start the units
+follow the locale (the units of the United States where it uses them, else
+metric).
+.PP
+A forecast is fetched when Weather opens, when a place is shown whose
+forecast is older than ten minutes, with F5, Ctrl+R or the refresh button,
+and at the chosen interval. Only one request per place is made at a time.
+The last forecast of every place is kept; when the weather service cannot
+be reached, Weather shows it, marked as offline with the time it was
+fetched, and offers to try again.
+.PP
+Only one Weather runs per session; starting it again brings the window
+forward and shows the place asked for.
+.SH OPTIONS
+.TP
+.BI \-\-place " name"
+Open with the forecast of one of your places, found by its name (letter
+case does not matter). Without the option, or for a name that is not one
+of your places, Weather opens with the home place.
+.TP
+.B \-\-version
+Print the version and exit.
+.TP
+.B \-\-help
+Print a summary of the options and exit.
+.SH KEYS
+F5 and Ctrl+R fetch the forecast of the place shown again. Ctrl+F opens
+Manage places with the cursor in the search box. Ctrl+Tab and
+Ctrl+Shift+Tab go through the pages, Ctrl+, opens the settings, Ctrl+W
+and Ctrl+Q close Weather. In the navigation pane, Up and Down go from
+place to place. In the hourly forecast Left and Right, and in the 10-day
+forecast Up and Down, move from hour to hour and from day to day. In
+Manage places, Down goes from the search box to the results; on one of
+your places Alt+Up and Alt+Down move it and Delete removes it.
+.SH FILES
+.TP
+.I $XDG_CONFIG_HOME/com.boswas.Weather/places.json
+Your places, their order and the home place. A file that cannot be read
+is set aside as
+.I places.json.damaged
+and Weather starts without places.
+.TP
+.I $XDG_CONFIG_HOME/com.boswas.Weather/settings.json
+The settings.
+.TP
+.I $XDG_CACHE_HOME/com.boswas.Weather/forecast-*.json
+The last forecast of each place, as the weather service sent it (in metric
+units), with the time it was fetched. The files of places that were
+removed are deleted when Weather starts.
+.TP
+.I $XDG_STATE_HOME/com.boswas.Weather/window.ini
+The size of the window.
+.PP
+Every file is written to a temporary file first and then put in place,
+so an interrupted write never leaves a broken file.
+.SH EXIT STATUS
+0 on success (also when a running Weather was brought forward); 4 when
+started as root, which Weather refuses.
+.SH NOTES
+Weather data by Open-Meteo.com
+.RI ( https://open-meteo.com/ ),
+licensed under the Creative Commons Attribution 4.0 license (CC BY 4.0).
+Weather shows this attribution at the bottom of every forecast and in its
+settings.
+.PP
+Weather never uses your location. It asks Open-Meteo
+.RI ( geocoding-api.open-meteo.com
+and
+.IR api.open-meteo.com ,
+over HTTPS) for two things only: the places whose name matches what you
+type into the search, and the forecast of the coordinates of a place you
+added. Requests carry the User-Agent
+.B boswas-weather/1.0
+and nothing that identifies you: no account, key or cookie. Answers larger
+than 2 MB, redirects and answers that do not have the documented form are
+refused; a request gives up after 15 seconds. Proxies set in the
+environment
+.RB ( https_proxy )
+are used.
+.SH SEE ALSO
+.BR boswas\-clock (1),
+.BR boswas\-calendar (1)
