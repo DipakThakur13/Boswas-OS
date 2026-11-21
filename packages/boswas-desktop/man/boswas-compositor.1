@@ -83,9 +83,17 @@ A desktop session without a usable monitor keeps running and appears when
 one is connected. The login screen instead ends after 5 seconds without an
 output, so that the text login is shown.
 .PP
-On a device without a hardware renderer (a firmware framebuffer, the
-"safe graphics" start entry) frames are drawn in software and completed
-before they are shown.
+Frames are drawn with OpenGL ES where the device has a hardware renderer.
+Where OpenGL ES would only run in software (a virtual machine without 3D
+acceleration, a firmware framebuffer, the "safe graphics" start entry) or
+cannot start at all, they are drawn with pixman into the device's own
+buffers instead, which costs a fraction of software OpenGL for a
+desktop's flat rectangles; windows then have square corners. The log says
+which renderer a device uses ("drawing with"), and
+.B BOSWAS_RENDERER
+overrides the choice. On devices without a vertical blank (most virtual
+graphics adapters, the firmware framebuffer) frames are still shown no
+faster than the display's refresh rate.
 .SH THE SHELL
 The shell is started again at once when it ends. A shell that keeps ending
 right after its start (within 30 seconds) is started again after a pause
@@ -373,7 +381,15 @@ available to the shell only, on the descriptor the compositor hands it.
 .TP
 .B BOSWAS_LOG
 Log filter (for example \fBdebug\fR, \fBboswas_compositor=trace\fR or
-\fBinfo,libseat=debug\fR). Messages go to standard error.
+\fBinfo,libseat=debug\fR). Messages go to standard error. With
+\fBinfo,boswas_compositor::stats=debug\fR each output that draws reports
+once a second how many frames it drew, how long they took and how much of
+the screen they drew again: the first thing to look at when the desktop
+feels slow.
+.TP
+.B BOSWAS_RENDERER
+How the \fBudev\fR backend draws: \fBauto\fR (the default: OpenGL ES on a
+hardware renderer, pixman otherwise), \fBgles\fR or \fBpixman\fR.
 .TP
 .B XCURSOR_THEME
 Cursor theme when \fBpointer.cursor_theme\fR is empty.

@@ -290,7 +290,11 @@ cargo run -p boswas-compositor -- --backend headless --headless-size 1280x800 --
   the socket file trusted. Never set that on a device. The protocol is in
   `docs/architecture/platform-contracts.md`.
 - `BOSWAS_LOG=debug` (or `boswas_compositor=trace`) sets the log filter;
-  messages go to standard error.
+  messages go to standard error. `info,boswas_compositor::stats=debug`
+  adds, once a second per output, the frames drawn, their cost and how
+  much of the screen they drew again (any backend).
+- `BOSWAS_RENDERER=auto|gles|pixman` chooses how the `udev` backend draws
+  (ADR-0045).
 - A debug build of the shell runs without the real system services when
   `BOSWAS_SHELL_FAKE_SERVICES` is set: a stand-in inside the shell reports
   a plausible system, so every flyout can be tried on a development

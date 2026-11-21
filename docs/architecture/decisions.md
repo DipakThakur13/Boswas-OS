@@ -2617,3 +2617,102 @@ login is a poor desktop and a sufficient way in.
 **Revisit when** the image is built and booted on Debian 13, and when
 hardware validation shows a path to a screen without a login that this
 list does not cover.
+
+## ADR-0045 Software rendering with pixman, frames paced to the display, and only what changed
+
+Follows ADR-0026 (the compositor) and ADR-0044. Reported on 2026-11-21:
+the desktop was laggy and not smooth.
+
+**Context.** The compositor now reports, once a second per output, how
+many frames it drew, what they cost and how much of the screen they drew
+again (`BOSWAS_LOG=info,boswas_compositor::stats=debug`). Measured with
+the real shell and a terminal, with input injected through the control
+socket, on the build machine (4 processor cores, no GPU) and in the QEMU
+virtual machine of ADR-0044:
+
+- Without a hardware renderer, OpenGL ES ran in Mesa's software rasterizer
+  (llvmpipe). Dragging a window cost about 17 ms of CPU per frame on the
+  build machine and Task View about 50 ms; in the virtual machine a window
+  drag ran at one or two frames per second. pixman, the 2D compositing
+  library Smithay also renders with, did the same drag for about 1.4 ms
+  per frame and Task View for about 6 ms. About 60% of llvmpipe's time
+  went to shading pixels: the cost grows with every layer of every pixel
+  drawn.
+- Devices without a vertical blank (QEMU's standard VGA, virtio-gpu
+  without 3D, simpledrm) report a page flip as done the moment it is
+  queued. The compositor drew its next frame at once and sent frame
+  callbacks, so a terminal redrawing ran it at 198 frames per second.
+- The shell sent every surface whole on every redraw. Its wallpaper
+  changes its hover state, not its look, when the pointer crosses
+  between a window and the desktop; each crossing repainted and uploaded
+  the full screen. Nothing it drew was declared opaque, so the compositor
+  blended the wallpaper over a cleared background.
+- Each redraw of a panel (every hover change in Start, quick settings and
+  the notification centre) drew its shadow as up to 24 full-size rounded
+  rectangles (73% of the shell's time with Start open) and magnified the
+  blurred wallpaper for its material with bilinear filtering.
+
+**Decision.**
+
+- **pixman where OpenGL ES would run in software.** The `udev` backend
+  asks EGL whether its device is a software one
+  (`EGL_MESA_device_software`). Then, and when OpenGL ES cannot start at
+  all, it draws with pixman into the device's dumb buffers through
+  Smithay's `DrmCompositor`. A trial buffer is created, exported and
+  mapped first; a device whose buffers cannot be mapped gets OpenGL ES
+  after all. The log names the renderer ("drawing with ..."), and
+  `BOSWAS_RENDERER=auto|gles|pixman` overrides the choice. With pixman
+  there is no linux-dmabuf global (clients of a software-only system draw
+  into shared memory) and no cursor plane.
+- **Frames paced to the refresh rate.** A frame is taken as shown no
+  sooner than one refresh after the last one; a page flip reported
+  earlier is held back by a timer until then, and the output counts as
+  busy meanwhile. On a display with a real vertical blank flips are a
+  refresh apart anyway, so nothing changes there.
+- **Only what changed.** The shell compares each drawing with the one it
+  sent last, damages only the changed rectangle and does not commit a
+  drawing that changed nothing. Smithay uploads only damaged rectangles
+  of shared-memory buffers.
+- **Opaque where opaque.** The shell declares a surface opaque when no
+  pixel of it is transparent; title bars and window borders declare their
+  opaque part. The damage tracker then neither draws behind them nor
+  clears there, and OpenGL ES draws them without blending.
+- **Drawn once.** Shadows are drawn once per size into a picture that is
+  kept (48 MB at most) and composed; panels filled with a material are
+  kept per backdrop in the same way. Both are placed on whole pixels with
+  the fraction of a pixel inside the picture, so the result equals
+  drawing directly to within rounding (tests compare them).
+- **Frame statistics** on every backend, at debug level, as above.
+
+**Why.** The lag had two sources that multiply: a renderer that is slow
+for every pixel, and pixels drawn that did not need drawing. pixman is
+what Weston and Smithay's own examples use without a GPU; for a desktop
+of textured rectangles it is an order of magnitude cheaper than emulating
+a GPU. Pacing is what a vertical blank would have done.
+
+**Consequences.**
+
+- With pixman, windows have square corners: the clip of ADR-0036 is an
+  OpenGL ES shader. Shadows, the snap layouts, the window picker, Task
+  View and the animations are drawn as before.
+- Machines with a hardware renderer keep OpenGL ES, rounded corners,
+  direct scan-out and the cursor plane; the shell, opaque-region and
+  pacing changes apply there as well.
+- A virtual machine with 3D acceleration (virgl, VMware or VirtualBox 3D)
+  uses OpenGL ES on the host's GPU.
+- **Verified:** the unit tests of the new code (pacing, renderer choice,
+  statistics, opaque regions, changed rectangles, kept shadows and
+  materials); the measurements above; boots of the virtual machine with
+  the new compositor and shell on QEMU's standard VGA with both renderers
+  (window drag: 57 frames per second at about 11 ms with pixman, one or
+  two per second with OpenGL ES in software). The built package (390 Rust tests, lintian clean, package stage 100
+  checks) booted in the virtual machine on standard VGA and on the
+  firmware frame buffer (`vga=0x318`, simpledrm): the login screen and
+  the session drew with pixman, and a keyboard sign-in opened the
+  desktop.
+- **Not verified:** real GPUs (where nothing but the shell, opaque-region
+  and pacing changes applies), a hypervisor with 3D acceleration,
+  VirtualBox's and VMware's virtual graphics with pixman, Debian 13.
+
+**Revisit when** the clip can be done without OpenGL ES (a pixman mask),
+or hardware validation shows frames that miss the refresh on a GPU.

@@ -224,26 +224,30 @@ impl Canvas {
     /// logical pixels, `offset_y` moves it down, `alpha` is its peak opacity.
     #[allow(clippy::too_many_arguments)]
     pub fn shadow(&mut self, x: f32, y: f32, w: f32, h: f32, radius: f32, blur: f32, offset_y: f32, alpha: f32) {
-        if blur <= 0.0 || alpha <= 0.0 {
+        if blur <= 0.0 || alpha <= 0.0 || w <= 0.0 || h <= 0.0 {
             return;
         }
-        // Stacked, growing rounded rectangles approximate a Gaussian falloff
-        // without a blur pass; shadows are rendered once and cached.
-        let steps = (blur / 1.5).clamp(6.0, 24.0) as u32;
-        let layer = alpha / steps as f32 * 1.6;
-        for i in 0..steps {
-            let t = (i as f32 + 0.5) / steps as f32;
-            let grow = blur * t;
-            let opacity = layer * (1.0 - t) * (1.0 - t) * 1.5;
-            self.fill_rounded_rect(
-                x - grow,
-                y - grow + offset_y,
-                w + 2.0 * grow,
-                h + 2.0 * grow,
-                radius + grow,
-                Rgba::BLACK.alpha(opacity),
-            );
-        }
+        // The shadow is drawn once into a picture of its own, which is kept
+        // and composed here: a panel is drawn again on every hover change,
+        // and the shadow's layers cost more than everything else on it.
+        // The picture is placed on whole pixels; the fraction of a pixel by
+        // which the shadow is off the grid is part of the picture, so the
+        // result is the same as drawing the layers here.
+        let s = self.scale;
+        let left = (x - blur) * s;
+        let top = (y - blur + offset_y) * s;
+        let (px, py) = (left.floor(), top.floor());
+        let key = ShadowKey::new([w * s, h * s, radius * s, blur * s, alpha, left - px, top - py]);
+        let Some(picture) = shadow_picture(key, || render_shadow(w, h, radius, blur, alpha, s, left - px, top - py))
+        else {
+            return;
+        };
+        let paint = PixmapPaint {
+            quality: FilterQuality::Nearest,
+            ..PixmapPaint::default()
+        };
+        self.pixmap
+            .draw_pixmap(px as i32, py as i32, (*picture).as_ref(), &paint, Transform::identity(), None);
     }
 
     /// Draws `source` scaled into the logical rectangle (bilinear filtering).
@@ -334,6 +338,74 @@ pub fn rounded_rect_path(x: f32, y: f32, w: f32, h: f32, radii: Corners) -> Opti
     pb.finish()
 }
 
+/// What a shadow picture is drawn from: sizes in device pixels, the
+/// opacity, and the fraction of a pixel the shadow is off the pixel grid.
+/// The values are rounded so that equal shadows share a picture.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+struct ShadowKey([i32; 7]);
+
+impl ShadowKey {
+    fn new(values: [f32; 7]) -> Self {
+        Self(values.map(|v| (v * 64.0).round() as i32))
+    }
+}
+
+/// Bytes of shadow pictures kept at most; the oldest go first.
+const SHADOW_CACHE_BYTES: usize = 48 * 1024 * 1024;
+
+thread_local! {
+    static SHADOWS: std::cell::RefCell<Vec<(ShadowKey, std::rc::Rc<Pixmap>)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// The shadow picture for `key`, drawn with `render` when there is none yet.
+fn shadow_picture(key: ShadowKey, render: impl FnOnce() -> Option<Pixmap>) -> Option<std::rc::Rc<Pixmap>> {
+    SHADOWS.with(|cell| {
+        let mut cache = cell.borrow_mut();
+        if let Some(index) = cache.iter().position(|(k, _)| *k == key) {
+            // Most recently used last.
+            let entry = cache.remove(index);
+            let picture = entry.1.clone();
+            cache.push(entry);
+            return Some(picture);
+        }
+        let picture = std::rc::Rc::new(render()?);
+        cache.push((key, picture.clone()));
+        let mut total: usize = cache.iter().map(|(_, p)| p.data().len()).sum();
+        while total > SHADOW_CACHE_BYTES && cache.len() > 1 {
+            total -= cache.remove(0).1.data().len();
+        }
+        Some(picture)
+    })
+}
+
+/// Draws a shadow into a picture of its own: stacked, growing rounded
+/// rectangles approximate a Gaussian falloff without a blur pass. The
+/// shadow of a `w` x `h` (logical) rectangle with corner `radius` starts
+/// `fx`, `fy` device pixels into the picture.
+#[allow(clippy::too_many_arguments)]
+fn render_shadow(w: f32, h: f32, radius: f32, blur: f32, alpha: f32, scale: f32, fx: f32, fy: f32) -> Option<Pixmap> {
+    let width = (w + 2.0 * blur) + (fx + 1.0) / scale;
+    let height = (h + 2.0 * blur) + (fy + 1.0) / scale;
+    let mut canvas = Canvas::new(width, height, scale)?;
+    let (ox, oy) = (blur + fx / scale, blur + fy / scale);
+    let steps = (blur / 1.5).clamp(6.0, 24.0) as u32;
+    let layer = alpha / steps as f32 * 1.6;
+    for i in 0..steps {
+        let t = (i as f32 + 0.5) / steps as f32;
+        let grow = blur * t;
+        let opacity = layer * (1.0 - t) * (1.0 - t) * 1.5;
+        canvas.fill_rounded_rect(
+            ox - grow,
+            oy - grow,
+            w + 2.0 * grow,
+            h + 2.0 * grow,
+            radius + grow,
+            Rgba::BLACK.alpha(opacity),
+        );
+    }
+    Some(canvas.into_pixmap())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -387,6 +459,59 @@ mod tests {
         let [r, g, b, a] = pixel(&c, 1, 1);
         assert_eq!((r, g, b, a), (128, 128, 128, 128), "half-covered white, stored premultiplied");
         assert_eq!(pixel(&c, 0, 0)[3], 0);
+    }
+
+    /// The shadow as it was drawn before it was cached: the layers straight
+    /// onto the canvas.
+    fn shadow_drawn_directly(c: &mut Canvas, x: f32, y: f32, w: f32, h: f32, radius: f32, blur: f32, offset_y: f32, alpha: f32) {
+        let steps = (blur / 1.5).clamp(6.0, 24.0) as u32;
+        let layer = alpha / steps as f32 * 1.6;
+        for i in 0..steps {
+            let t = (i as f32 + 0.5) / steps as f32;
+            let grow = blur * t;
+            let opacity = layer * (1.0 - t) * (1.0 - t) * 1.5;
+            c.fill_rounded_rect(x - grow, y - grow + offset_y, w + 2.0 * grow, h + 2.0 * grow, radius + grow, Rgba::BLACK.alpha(opacity));
+        }
+    }
+
+    #[test]
+    fn a_cached_shadow_looks_like_one_drawn_directly() {
+        // On whole and on fractional positions, at scale 1 and 1.5, on an
+        // empty canvas and over something already drawn.
+        for (x, y, scale) in [(40.0, 30.0, 1.0), (40.25, 30.5, 1.0), (40.0, 30.0, 1.5), (13.3, 21.7, 1.25)] {
+            for background in [None, Some(Rgba::WHITE)] {
+                let mut cached = Canvas::new(160.0, 140.0, scale).unwrap();
+                let mut direct = Canvas::new(160.0, 140.0, scale).unwrap();
+                if let Some(colour) = background {
+                    cached.clear(colour);
+                    direct.clear(colour);
+                }
+                cached.shadow(x, y, 70.0, 50.0, 8.0, 28.0, 12.0, 0.4);
+                shadow_drawn_directly(&mut direct, x, y, 70.0, 50.0, 8.0, 28.0, 12.0, 0.4);
+                let worst = cached
+                    .data()
+                    .iter()
+                    .zip(direct.data())
+                    .map(|(a, b)| a.abs_diff(*b))
+                    .max()
+                    .unwrap();
+                assert!(worst <= 2, "at ({x}, {y}) scale {scale}: differs by {worst}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_same_shadow_is_drawn_once() {
+        let key = ShadowKey::new([10.0, 10.0, 2.0, 4.0, 0.5, 0.0, 0.0]);
+        let mut renders = 0;
+        for _ in 0..3 {
+            let picture = shadow_picture(key, || {
+                renders += 1;
+                Pixmap::new(4, 4)
+            });
+            assert!(picture.is_some());
+        }
+        assert_eq!(renders, 1);
     }
 
     #[test]

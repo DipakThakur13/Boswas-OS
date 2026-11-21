@@ -17,6 +17,7 @@ use boswas_ui::{
     text::{TextEngine, TextStyle},
     tokens, Canvas, Rgba, Scheme, Theme,
 };
+use smithay::utils::Buffer as BufferCoords;
 use smithay::{
     backend::{
         allocator::Fourcc,
@@ -422,7 +423,60 @@ fn buffer_from(canvas: &Canvas, scale: i32) -> MemoryRenderBuffer {
     let (pw, ph) = canvas.pixel_size();
     let mut bytes = vec![0u8; (pw * ph * 4) as usize];
     canvas.write_argb8888(&mut bytes);
-    MemoryRenderBuffer::from_slice(&bytes, Fourcc::Argb8888, (pw as i32, ph as i32), scale, Transform::Normal, None)
+    // The opaque parts are declared, so nothing behind a title bar is drawn
+    // and the bar itself is drawn without blending.
+    let opaque = opaque_rects(canvas.data(), pw, ph, 1);
+    MemoryRenderBuffer::from_slice(&bytes, Fourcc::Argb8888, (pw as i32, ph as i32), scale, Transform::Normal, Some(opaque))
+}
+
+/// The opaque part of a picture (premultiplied RGBA, `width` x `height`
+/// pixels) as rectangles of `scale` x `scale` pixel blocks: per row
+/// the run of opaque pixels between its transparent ends, rows with the
+/// same run merged. Pixels on the edge of a logical pixel are left out, so
+/// nothing declared opaque lets anything show through.
+fn opaque_rects(pixels: &[u8], width: u32, height: u32, scale: i32) -> Vec<Rectangle<i32, BufferCoords>> {
+    let row_bytes = width as usize * 4;
+    let mut rects: Vec<Rectangle<i32, BufferCoords>> = Vec::new();
+    // (first, last + 1) of the opaque run of each logical row.
+    let mut previous: Option<(i32, i32, i32)> = None; // (x0, x1, y0)
+    let logical_rows = height as i32 / scale;
+    for ly in 0..logical_rows {
+        // A logical row is opaque where all of its pixel rows are.
+        let mut span: Option<(usize, usize)> = None;
+        for py in (ly * scale) as usize..((ly + 1) * scale) as usize {
+            let row = &pixels[py * row_bytes..(py + 1) * row_bytes];
+            let first = row.chunks_exact(4).position(|p| p[3] == 255);
+            let last = row.chunks_exact(4).rposition(|p| p[3] == 255);
+            let (Some(first), Some(last)) = (first, last) else {
+                span = Some((1, 0));
+                break;
+            };
+            // Only a run without holes counts.
+            let solid = row[first * 4..(last + 1) * 4].chunks_exact(4).all(|p| p[3] == 255);
+            let run = if solid { (first, last + 1) } else { (1, 0) };
+            span = Some(match span {
+                None => run,
+                Some((a, b)) => (a.max(run.0), b.min(run.1)),
+            });
+        }
+        let (a, b) = span.unwrap_or((1, 0));
+        let s = scale as usize;
+        let (x0, x1) = (a.div_ceil(s) as i32, (b / s) as i32);
+        let current = (x1 > x0).then_some((x0, x1));
+        match (previous, current) {
+            (Some((px0, px1, _)), Some((x0, x1))) if (px0, px1) == (x0, x1) => {}
+            _ => {
+                if let Some((px0, px1, py0)) = previous {
+                    rects.push(Rectangle::new(Point::from((px0, py0)), Size::from((px1 - px0, ly - py0))));
+                }
+                previous = current.map(|(x0, x1)| (x0, x1, ly));
+            }
+        }
+    }
+    if let Some((px0, px1, py0)) = previous {
+        rects.push(Rectangle::new(Point::from((px0, py0)), Size::from((px1 - px0, logical_rows - py0))));
+    }
+    rects
 }
 
 fn draw_titlebar(
@@ -535,6 +589,46 @@ fn draw_border(key: BorderKey, theme: &Theme) -> Option<Border> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_opaque_part_of_a_rounded_title_bar_is_declared() {
+        let mut canvas = Canvas::new(120.0, 32.0, 1.0).unwrap();
+        canvas.fill_rounded_rect4(0.0, 0.0, 120.0, 32.0, [8.0, 8.0, 0.0, 0.0], boswas_ui::tokens::Rgba::rgb(30, 30, 30));
+        let rects = opaque_rects(canvas.data(), 120, 32, 1);
+        // Below the corners the whole width; nothing outside the picture.
+        let full = rects.iter().find(|r| r.loc.y <= 8 && r.loc.y + r.size.h == 32).expect("a full-width block");
+        assert_eq!((full.loc.x, full.size.w), (0, 120), "{rects:?}");
+        assert!(rects.iter().all(|r| r.loc.x >= 0 && r.loc.x + r.size.w <= 120 && r.size.w > 0 && r.size.h > 0));
+        // The corner pixel itself is not opaque.
+        assert!(!rects.iter().any(|r| r.contains(Point::from((0, 0)))), "{rects:?}");
+        // Every pixel declared opaque is.
+        for r in &rects {
+            for y in r.loc.y..r.loc.y + r.size.h {
+                for x in r.loc.x..r.loc.x + r.size.w {
+                    assert_eq!(canvas.data()[((y * 120 + x) * 4 + 3) as usize], 255, "({x}, {y})");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_transparent_or_holed_picture_declares_nothing_there() {
+        let canvas = Canvas::new(10.0, 4.0, 1.0).unwrap();
+        assert!(opaque_rects(canvas.data(), 10, 4, 1).is_empty());
+        let mut holed = Canvas::new(10.0, 2.0, 1.0).unwrap();
+        holed.clear(boswas_ui::tokens::Rgba::rgb(1, 2, 3));
+        holed.pixmap_mut().data_mut()[(4 * 4) + 3] = 0;
+        let rects = opaque_rects(holed.data(), 10, 2, 1);
+        assert_eq!(rects, vec![Rectangle::new(Point::from((0, 1)), Size::from((10, 1)))]);
+        // At buffer scale 2 a logical pixel is opaque only where all four are.
+        let mut double = Canvas::new(4.0, 2.0, 2.0).unwrap();
+        double.clear(boswas_ui::tokens::Rgba::rgb(1, 2, 3));
+        double.pixmap_mut().data_mut()[(8 + 7) * 4 + 3] = 0; // row 1, x 7
+        assert_eq!(
+            opaque_rects(double.data(), 8, 4, 2),
+            vec![Rectangle::new(Point::from((0, 0)), Size::from((3, 1))), Rectangle::new(Point::from((0, 1)), Size::from((4, 1)))]
+        );
+    }
 
     #[test]
     fn buttons_are_hit_from_the_right_edge() {

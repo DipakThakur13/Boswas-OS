@@ -14,7 +14,7 @@ blocked. It is simply unsupported until it has been tested.
 | TPM | TPM 2.0 enabled | Reported, not required |
 | Memory | 16 GB recommended, 8 GB minimum | 4 GB boots the live system |
 | Storage | SSD/NVMe, 128 GB+ | 32 GB minimum for installation |
-| Graphics | Intel or AMD integrated/discrete (open drivers): a kernel mode-setting (KMS) driver with GBM and EGL / OpenGL ES 2 through Mesa, which the Boswas compositor needs | NVIDIA with the open `nouveau` driver only (untested with the compositor). Without a GPU driver the desktop is rendered in software (Mesa llvmpipe), as in a VM |
+| Graphics | Intel or AMD integrated/discrete (open drivers): a kernel mode-setting (KMS) driver with GBM and EGL / OpenGL ES 2 through Mesa, which the Boswas compositor needs | NVIDIA with the open `nouveau` driver only (untested with the compositor). Without a GPU driver the desktop is drawn in software with pixman, as in a VM (ADR-0045) |
 | Wi-Fi / Bluetooth | Intel, Realtek, Qualcomm Atheros, MediaTek, Broadcom (brcmfmac) | Firmware included |
 | Audio | Intel SOF / HDA, AMD | Firmware included |
 
@@ -81,11 +81,15 @@ Plymouth:
   with gamma tables. X11 applications run through Xwayland and are drawn
   at scale 1.
 - **Software rendering:** where Mesa has no hardware driver (virtual
-  machines without 3D acceleration, `nomodeset`) it falls back to
-  llvmpipe. That works and is slower: the login screen and the desktop
-  were booted this way in a virtual machine, on QEMU's standard VGA and on
-  the firmware frame buffer (ADR-0044). Under `nomodeset` there is no KMS
-  device at all: the compositor cannot start and the text login is shown.
+  machines without 3D acceleration, the firmware frame buffer) the
+  compositor draws with pixman instead of Mesa's software OpenGL
+  (llvmpipe), which was too slow to move a window smoothly (ADR-0045).
+  Windows then have square corners. `BOSWAS_RENDERER=gles` or `pixman` in
+  the session's environment overrides the choice. Under `nomodeset` there
+  is no KMS device at all: the compositor cannot start and the text login
+  is shown. In a virtual machine, give it 3D acceleration where the
+  hypervisor offers it (virtio-gpu with virgl, VMware/VirtualBox 3D) and
+  the compositor uses OpenGL ES on the host's GPU.
 - **Boot screen (`boswas-bootsplash`):** needs only a KMS device with dumb
   buffers, or a frame buffer (`/dev/fb0`). It follows the switch from the
   firmware frame buffer to the real driver. Without either, boot messages
@@ -126,9 +130,11 @@ real hardware:
    work, from the desktop: Wi-Fi and Bluetooth from quick settings, sound
    and brightness from their keys, the webcam in Camera, an external
    display arranged in Control Center, night light. The desktop renders
-   with the hardware driver, not llvmpipe (the compositor's log names the
-   renderer), window corners are round, and the session is locked when
-   the device resumes.
+   with the hardware driver, not in software (the compositor's log says
+   "drawing with OpenGL ES"), window corners are round, and the session is
+   locked when the device resumes. Moving a window and opening Start are
+   smooth: with `BOSWAS_LOG=info,boswas_compositor::stats=debug` the log
+   shows about one frame per refresh and a few milliseconds each.
 5. **Firmware:** `fwupdmgr get-devices` lists the system firmware where the
    vendor publishes to LVFS.
 6. **Battery:** life is within 20% of the vendor's Linux or Windows figure.

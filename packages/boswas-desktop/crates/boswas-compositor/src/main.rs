@@ -16,6 +16,7 @@ mod ipc;
 mod render;
 mod shell;
 mod state;
+mod stats;
 mod supervise;
 
 use std::{path::PathBuf, time::Duration};

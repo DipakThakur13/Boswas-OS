@@ -43,6 +43,30 @@ Verification status of the native desktop
   resolution of the new image manifest on Debian trixie.
 
 ### Fixed
+- **A laggy desktop** *(native desktop)*: moving windows, opening Start
+  and Task View were slow, worst in virtual machines (ADR-0045).
+  - Without a hardware GPU the compositor drew with Mesa's software OpenGL;
+    in a QEMU virtual machine a window could be dragged at one or two
+    frames per second. It now draws with pixman there (57 frames per
+    second for the same drag), and wherever OpenGL ES cannot start.
+    Windows have square corners in that mode. `BOSWAS_RENDERER` chooses
+    the renderer.
+  - On virtual graphics adapters and the firmware frame buffer, which
+    have no vertical blank, the compositor drew as fast as the processor
+    allowed (up to 198 frames per second). Frames are paced to the
+    display's refresh rate.
+  - The shell sent its surfaces whole on every change: moving the pointer
+    between a window and the desktop redrew the whole screen. It now
+    sends only what changed, nothing when nothing visible changed, and
+    declares its opaque surfaces; title bars declare theirs.
+  - Start, quick settings and the notification centre redrew their
+    shadow as 24 stacked rectangles and their translucent background
+    from the blurred wallpaper on every hover change; both are drawn once
+    and kept. Opening and closing Start costs a third of the CPU time it
+    did.
+  - `BOSWAS_LOG=info,boswas_compositor::stats=debug` makes the compositor
+    report per output, once a second, the frames it drew, what they cost
+    and how much of the screen they drew again.
 - **A boot that stopped at a blinking cursor** *(native desktop)*: the
   live medium did not reach the desktop; the screen stayed black with a
   text cursor and there was no way to sign in. The live session's

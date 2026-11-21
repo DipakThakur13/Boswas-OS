@@ -5,6 +5,12 @@
 //! * displays through DRM/KMS with GBM buffers and an EGL/GLES renderer;
 //!   planes, direct scan-out and damage are handled by Smithay's
 //!   `DrmCompositor`
+//! * where OpenGL ES would only run in software (a virtual machine without
+//!   3D acceleration, the firmware framebuffer, `nomodeset`-like set-ups) or
+//!   does not start at all, frames are drawn with pixman into the device's
+//!   own buffers instead: for a desktop's flat, damaged rectangles that is
+//!   several times cheaper than Mesa's software OpenGL (`BOSWAS_RENDERER`
+//!   chooses: `auto`, `gles` or `pixman`)
 //! * input through libinput
 //!
 //! Outputs of one GPU are driven: the one the firmware booted with, else
@@ -29,9 +35,10 @@ use std::{
 use smithay::{
     backend::{
         allocator::{
-            dmabuf::Dmabuf,
+            dmabuf::{AsDmabuf, Dmabuf},
+            dumb::{DumbAllocator, DumbBuffer},
             gbm::{GbmAllocator, GbmBufferFlags, GbmDevice},
-            Fourcc,
+            Allocator, Fourcc, Modifier,
         },
         drm::{
             compositor::{FrameFlags, PrimaryPlaneElement},
@@ -39,13 +46,14 @@ use smithay::{
             output::{DrmOutput, DrmOutputManager, DrmOutputRenderElements},
             DrmDevice, DrmDeviceFd, DrmEvent, DrmEventMetadata, DrmEventTime, DrmNode, NodeType,
         },
-        egl::{context::ContextPriority, EGLContext, EGLDisplay},
+        egl::{context::ContextPriority, EGLContext, EGLDevice, EGLDisplay},
         input::InputEvent,
         libinput::{LibinputInputBackend, LibinputSessionInterface},
         renderer::{
             element::memory::MemoryRenderBuffer,
             gles::{GlesRenderer, GlesTexture},
-            ImportDma, ImportMemWl,
+            pixman::PixmanRenderer,
+            Bind, ImportDma, ImportMemWl,
         },
         session::{libseat::LibSeatSession, Event as SessionEvent, Session},
         udev::{all_gpus, primary_gpu, UdevBackend, UdevEvent},
@@ -63,11 +71,12 @@ use smithay::{
             control::{connector, crtc, Device as ControlDevice, ModeTypeFlags},
         },
         input::{DeviceCapability, Libinput},
+        pixman::Image,
         rustix::fs::OFlags,
         wayland_protocols::wp::presentation_time::server::wp_presentation_feedback,
         wayland_server::backend::GlobalId,
     },
-    utils::{Clock, DeviceFd, Monotonic},
+    utils::{Clock, DeviceFd, Monotonic, Physical, Point, Rectangle, Size},
     wayland::{dmabuf::DmabufFeedbackBuilder, presentation::Refresh},
 };
 use tracing::{debug, error, info, warn};
@@ -91,18 +100,71 @@ const OUTPUT_WAIT: Duration = Duration::from_secs(5);
 /// A device number (`dev_t`), as udev reports it.
 type DeviceId = u64;
 
-type OutputManager = DrmOutputManager<
-    GbmAllocator<DrmDeviceFd>,
-    GbmFramebufferExporter<DrmDeviceFd>,
-    Option<OutputPresentationFeedback>,
-    DrmDeviceFd,
->;
-type KmsOutput = DrmOutput<
-    GbmAllocator<DrmDeviceFd>,
-    GbmFramebufferExporter<DrmDeviceFd>,
-    Option<OutputPresentationFeedback>,
-    DrmDeviceFd,
->;
+type Feedback = Option<OutputPresentationFeedback>;
+type GlesAllocator = GbmAllocator<DrmDeviceFd>;
+type GlesExporter = GbmFramebufferExporter<DrmDeviceFd>;
+
+/// The parts that draw a device's frames with one renderer: the output
+/// manager, the renderer and the device's outputs (by CRTC).
+struct Stack<A, F, R>
+where
+    A: Allocator,
+    F: smithay::backend::drm::exporter::ExportFramebuffer<A::Buffer>,
+    F::Framebuffer: std::fmt::Debug + 'static,
+{
+    manager: DrmOutputManager<A, F, Feedback, DrmDeviceFd>,
+    renderer: R,
+    outputs: HashMap<crtc::Handle, DrmOutput<A, F, Feedback, DrmDeviceFd>>,
+}
+
+/// Smithay's dumb-buffer allocator, as the output manager needs it (it
+/// clones its allocator; the allocator is only the device descriptor).
+#[derive(Debug, Clone)]
+struct Dumb(DrmDeviceFd);
+
+impl Allocator for Dumb {
+    type Buffer = DumbBuffer;
+    type Error = std::io::Error;
+
+    fn create_buffer(&mut self, width: u32, height: u32, fourcc: Fourcc, modifiers: &[Modifier]) -> Result<DumbBuffer, Self::Error> {
+        DumbAllocator::new(self.0.clone()).create_buffer(width, height, fourcc, modifiers)
+    }
+}
+
+/// How a device's frames are drawn. (There is one device, so the size of
+/// the variants does not matter.)
+#[allow(clippy::large_enum_variant)]
+enum Gpu {
+    /// OpenGL ES on GBM buffers: a hardware renderer, rounded corners,
+    /// direct scan-out and the cursor plane.
+    Gles(Stack<GlesAllocator, GlesExporter, GlesRenderer>),
+    /// pixman on dumb buffers: where OpenGL ES would run in software.
+    Pixman(Stack<Dumb, DrmDeviceFd, PixmanRenderer>),
+}
+
+/// Runs `$body` with `$stack` bound to the device's stack, whichever
+/// renderer it has. The body is compiled once for each.
+macro_rules! with_stack {
+    ($gpu:expr, $stack:ident => $body:expr) => {
+        match $gpu {
+            Gpu::Gles($stack) => $body,
+            Gpu::Pixman($stack) => $body,
+        }
+    };
+}
+
+impl Gpu {
+    fn drm(&self) -> &DrmDevice {
+        with_stack!(self, stack => stack.manager.device())
+    }
+
+    fn name(&self) -> &'static str {
+        match self {
+            Gpu::Gles(_) => "OpenGL ES",
+            Gpu::Pixman(_) => "pixman (software)",
+        }
+    }
+}
 
 /// One display.
 struct Surface {
@@ -111,11 +173,12 @@ struct Surface {
     connector: connector::Handle,
     /// The modes the monitor offers.
     modes: Vec<drm::control::Mode>,
-    drm_output: KmsOutput,
     /// A frame is queued and its vblank has not arrived yet.
     pending: bool,
     /// A timer will send frame callbacks for a frame without damage.
     idle_callback_armed: bool,
+    /// When the last frame was taken as shown (see `frame_finished`).
+    last_shown: Option<Instant>,
 }
 
 /// The GPU that drives the displays.
@@ -123,9 +186,38 @@ struct Device {
     node: DrmNode,
     path: PathBuf,
     token: RegistrationToken,
-    manager: OutputManager,
-    renderer: GlesRenderer,
+    gpu: Gpu,
     surfaces: HashMap<crtc::Handle, Surface>,
+}
+
+impl Device {
+    /// Forgets an output's display side (the monitor went away or was
+    /// turned off).
+    fn remove_surface(&mut self, crtc: crtc::Handle) -> Option<Surface> {
+        with_stack!(&mut self.gpu, stack => {
+            stack.outputs.remove(&crtc);
+        });
+        self.surfaces.remove(&crtc)
+    }
+}
+
+/// Which renderer draws the frames (`BOSWAS_RENDERER`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RendererChoice {
+    /// OpenGL ES on a hardware renderer, pixman otherwise.
+    Auto,
+    Gles,
+    Pixman,
+}
+
+impl RendererChoice {
+    fn from_env(value: Option<&str>) -> Self {
+        match value.map(str::trim).map(str::to_ascii_lowercase).as_deref() {
+            Some("gles" | "gl" | "opengl") => RendererChoice::Gles,
+            Some("pixman" | "software") => RendererChoice::Pixman,
+            _ => RendererChoice::Auto,
+        }
+    }
 }
 
 pub struct Udev {
@@ -440,7 +532,7 @@ impl Udev {
             libinput.suspend();
         }
         if let Some(device) = &mut self.device {
-            device.manager.pause();
+            with_stack!(&mut device.gpu, stack => stack.manager.pause());
             for surface in device.surfaces.values_mut() {
                 surface.pending = false;
             }
@@ -458,12 +550,16 @@ impl Udev {
         }
         match &mut self.device {
             Some(device) => {
-                if let Err(err) = device.manager.activate(false) {
-                    error!("could not reactivate the display device: {err}");
-                }
+                with_stack!(&mut device.gpu, stack => {
+                    if let Err(err) = stack.manager.activate(false) {
+                        error!("could not reactivate the display device: {err}");
+                    }
+                    for output in stack.outputs.values_mut() {
+                        output.reset_buffers();
+                    }
+                });
                 for surface in device.surfaces.values_mut() {
                     surface.pending = false;
-                    surface.drm_output.reset_buffers();
                 }
             }
             // A device that appeared while the seat was away.
@@ -541,9 +637,9 @@ impl Udev {
     }
 
     pub fn import_dmabuf(&mut self, dmabuf: &Dmabuf) -> bool {
-        self.device
-            .as_mut()
-            .is_some_and(|device| device.renderer.import_dmabuf(dmabuf, None).is_ok())
+        self.device.as_mut().is_some_and(|device| {
+            with_stack!(&mut device.gpu, stack => stack.renderer.import_dmabuf(dmabuf, None).is_ok())
+        })
     }
 
     pub fn update_leds(&mut self, leds: LedState) {
@@ -560,7 +656,12 @@ impl Udev {
         window: &crate::shell::element::WindowElement,
     ) -> Option<(MemoryRenderBuffer, smithay::utils::Rectangle<f64, smithay::utils::Logical>)> {
         let device = self.device.as_mut()?;
-        super::snapshot::<_, GlesTexture>(&mut device.renderer, Fourcc::Abgr8888, state, window)
+        match &mut device.gpu {
+            Gpu::Gles(stack) => super::snapshot::<_, GlesTexture>(&mut stack.renderer, Fourcc::Abgr8888, state, window),
+            Gpu::Pixman(stack) => {
+                super::snapshot::<_, Image<'static, 'static>>(&mut stack.renderer, Fourcc::Argb8888, state, window)
+            }
+        }
     }
 
     /// Applies the input settings of a changed configuration to the devices
@@ -579,9 +680,13 @@ impl Udev {
             return;
         }
         if let Some(device) = &mut self.device {
-            for surface in device.surfaces.values_mut() {
+            for (crtc, surface) in device.surfaces.iter_mut() {
                 surface.pending = false;
-                if let Err(err) = surface.drm_output.with_compositor(|compositor| compositor.clear()) {
+                let cleared = with_stack!(&mut device.gpu, stack => stack
+                    .outputs
+                    .get_mut(crtc)
+                    .map(|output| output.with_compositor(|compositor| compositor.clear()).map_err(|err| err.to_string())));
+                if let Some(Err(err)) = cleared {
                     warn!("could not turn {} off: {err}", surface.output.name());
                 }
             }
@@ -596,7 +701,7 @@ impl Udev {
             return;
         };
         for crtc in device.surfaces.keys() {
-            load_gamma(device.manager.device(), *crtc, temperature);
+            load_gamma(device.gpu.drm(), *crtc, temperature);
         }
     }
 
@@ -611,11 +716,28 @@ impl Udev {
         };
         let mut outputs: Vec<Output> = device.surfaces.values().map(|s| s.output.clone()).collect();
         outputs.sort_by_key(Output::name);
-        super::screencopy::<_, GlesTexture>(&mut device.renderer, Fourcc::Abgr8888, state, &outputs);
-        for request in requests {
-            let result =
-                super::capture::<_, GlesTexture>(&mut device.renderer, Fourcc::Abgr8888, state, &outputs, &request);
-            state.ipc_screenshot_done(request, result);
+        match &mut device.gpu {
+            Gpu::Gles(stack) => {
+                super::screencopy::<_, GlesTexture>(&mut stack.renderer, Fourcc::Abgr8888, state, &outputs);
+                for request in requests {
+                    let result =
+                        super::capture::<_, GlesTexture>(&mut stack.renderer, Fourcc::Abgr8888, state, &outputs, &request);
+                    state.ipc_screenshot_done(request, result);
+                }
+            }
+            Gpu::Pixman(stack) => {
+                super::screencopy::<_, Image<'static, 'static>>(&mut stack.renderer, Fourcc::Argb8888, state, &outputs);
+                for request in requests {
+                    let result = super::capture::<_, Image<'static, 'static>>(
+                        &mut stack.renderer,
+                        Fourcc::Argb8888,
+                        state,
+                        &outputs,
+                        &request,
+                    );
+                    state.ipc_screenshot_done(request, result);
+                }
+            }
         }
     }
 
@@ -660,16 +782,29 @@ impl Udev {
         fd: DrmDeviceFd,
     ) -> Result<Device, Box<dyn std::error::Error>> {
         let (drm, notifier) = DrmDevice::new(fd.clone(), true)?;
-        let gbm = GbmDevice::new(fd)?;
-
-        // SAFETY: the GBM device outlives the EGL display (both are owned by
-        // `Device`, and the renderer holding the display is dropped first).
-        let display = unsafe { EGLDisplay::new(gbm.clone())? };
-        let context = EGLContext::new_with_priority(&display, ContextPriority::High)?;
-        // SAFETY: the context was just created for this thread and is used
-        // by this renderer only.
-        let mut renderer = unsafe { GlesRenderer::new(context)? };
-        crate::effects::init_gles(&mut renderer);
+        let choice = RendererChoice::from_env(std::env::var("BOSWAS_RENDERER").ok().as_deref());
+        let gpu = match choice {
+            RendererChoice::Pixman => pixman_stack(state, drm, &fd)?,
+            RendererChoice::Gles => gles_stack(state, node, drm, &fd)?.map_err(|(_, err)| err)?,
+            RendererChoice::Auto => match gles_stack(state, node, drm, &fd)? {
+                Ok(gpu) => gpu,
+                Err((drm, reason)) => match pixman_stack(state, drm, &fd) {
+                    Ok(gpu) => {
+                        info!("{}: {reason}; frames are drawn with pixman", path.display());
+                        gpu
+                    }
+                    Err(err) => {
+                        // pixman cannot draw on this device either: OpenGL
+                        // ES in software is still better than nothing.
+                        warn!("{}: pixman cannot draw on it ({err}); using OpenGL ES after all", path.display());
+                        let (drm, _) = DrmDevice::new(fd.clone(), true)?;
+                        gles_stack(state, node, drm, &fd)?.map_err(|(_, err)| err)?
+                    }
+                },
+            },
+        };
+        info!("{}: drawing with {}", path.display(), gpu.name());
+        state.rounds_corners = matches!(gpu, Gpu::Gles(_));
 
         // The last step that can fail: from here on the device is in use.
         let token = state.loop_handle.insert_source(notifier, move |event, metadata, state| match event {
@@ -681,38 +816,11 @@ impl Udev {
             }
             DrmEvent::Error(err) => error!("display device error: {err}"),
         })?;
-        state.rounds_corners = true;
-
-        state.shm_state.update_formats(renderer.shm_formats());
-        let render_node = node.node_with_type(NodeType::Render).and_then(Result::ok).unwrap_or(node);
-        let dmabuf_formats = renderer.dmabuf_formats();
-        match DmabufFeedbackBuilder::new(render_node.dev_id(), dmabuf_formats).build() {
-            Ok(feedback) => {
-                let global = state
-                    .dmabuf_state
-                    .create_global_with_default_feedback::<Boswas>(&state.display_handle, &feedback);
-                state.dmabuf_global = Some(global);
-            }
-            Err(err) => warn!("no linux-dmabuf: {err}"),
-        }
-
-        let allocator = GbmAllocator::new(gbm.clone(), GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT);
-        let exporter = GbmFramebufferExporter::new(gbm.clone(), Some(render_node));
-        let render_formats = renderer.egl_context().dmabuf_render_formats().clone();
-        let manager = DrmOutputManager::new(
-            drm,
-            allocator,
-            exporter,
-            Some(gbm),
-            COLOR_FORMATS.iter().copied(),
-            render_formats,
-        );
         Ok(Device {
             node,
             path: path.to_owned(),
             token,
-            manager,
-            renderer,
+            gpu,
             surfaces: HashMap::new(),
         })
     }
@@ -724,8 +832,8 @@ impl Udev {
             return;
         };
         info!("graphics device {} went away", device.path.display());
-        let Device { path, token, manager, renderer, surfaces, .. } = device;
-        let fd = manager.device().device_fd().device_fd();
+        let Device { path, token, gpu, surfaces, .. } = device;
+        let fd = gpu.drm().device_fd().device_fd();
         for (_, surface) in surfaces {
             state.space.unmap_output(&surface.output);
             state.display_handle.remove_global::<Boswas>(surface.global);
@@ -734,9 +842,13 @@ impl Udev {
         if let Some(global) = state.dmabuf_global.take() {
             state.dmabuf_state.destroy_global::<Boswas>(&state.display_handle, global);
         }
-        // The renderer goes before the device it draws on.
-        drop(renderer);
-        drop(manager);
+        // The outputs and the renderer go before the device they draw on.
+        with_stack!(gpu, stack => {
+            let Stack { manager, renderer, outputs } = stack;
+            drop(outputs);
+            drop(renderer);
+            drop(manager);
+        });
         self.release(fd, &path);
         self.output_error = None;
         let outputs = state.outputs_json();
@@ -749,7 +861,7 @@ impl Udev {
         let Some(device) = &mut self.device else {
             return;
         };
-        let drm = device.manager.device();
+        let drm = device.gpu.drm();
         let Ok(resources) = drm.resource_handles() else {
             return warn!("could not read the display resources");
         };
@@ -771,8 +883,12 @@ impl Udev {
             .filter(|(_, surface)| !connected.iter().any(|info| info.handle() == surface.connector))
             .map(|(crtc, _)| *crtc)
             .collect();
+        // The display side of removed outputs goes once the device has been
+        // read (below), before new outputs may take their CRTCs.
+        let mut dropped: Vec<crtc::Handle> = Vec::new();
         for crtc in gone {
             if let Some(surface) = device.surfaces.remove(&crtc) {
+                dropped.push(crtc);
                 info!("output {} disconnected", surface.output.name());
                 state.space.unmap_output(&surface.output);
                 state.display_handle.remove_global::<Boswas>(surface.global);
@@ -805,6 +921,7 @@ impl Udev {
             .collect();
         for crtc in turned_off {
             if let Some(surface) = device.surfaces.remove(&crtc) {
+                dropped.push(crtc);
                 info!("output {} turned off", surface.output.name());
                 state.space.unmap_output(&surface.output);
                 state.display_handle.remove_global::<Boswas>(surface.global);
@@ -838,6 +955,9 @@ impl Udev {
                     problem = Some(format!("{} has no free CRTC for {}", device.path.display(), connector_name(&info)));
                 }
             }
+        }
+        for crtc in dropped {
+            device.remove_surface(crtc);
         }
         for (info, crtc) in assignments {
             if let Err(err) = connect(device, state, &info, crtc) {
@@ -873,11 +993,28 @@ impl Udev {
                     .or_else(|| preferred_mode(&surface.modes));
                 if let Some(mode) = wanted {
                     if surface.output.current_mode() != Some(OutputMode::from(mode)) {
-                        let result = surface.drm_output.use_mode::<_, OutputRenderElement<GlesRenderer>>(
-                            mode,
-                            &mut device.renderer,
-                            &DrmOutputRenderElements::default(),
-                        );
+                        let result: Result<(), String> = match &mut device.gpu {
+                            Gpu::Gles(stack) => match stack.outputs.get_mut(&crtc) {
+                                Some(output) => output
+                                    .use_mode::<_, OutputRenderElement<GlesRenderer>>(
+                                        mode,
+                                        &mut stack.renderer,
+                                        &DrmOutputRenderElements::default(),
+                                    )
+                                    .map_err(|err| err.to_string()),
+                                None => Err("the output is not set up".into()),
+                            },
+                            Gpu::Pixman(stack) => match stack.outputs.get_mut(&crtc) {
+                                Some(output) => output
+                                    .use_mode::<_, OutputRenderElement<PixmanRenderer>>(
+                                        mode,
+                                        &mut stack.renderer,
+                                        &DrmOutputRenderElements::default(),
+                                    )
+                                    .map_err(|err| err.to_string()),
+                                None => Err("the output is not set up".into()),
+                            },
+                        };
                         match result {
                             Ok(()) => {
                                 surface.pending = false;
@@ -911,78 +1048,137 @@ impl Udev {
             return;
         }
         let output = surface.output.clone();
+        let started = Instant::now();
         state.prepare_frame();
-        let (elements, clear) = state.output_elements(&mut device.renderer, &output);
-        let result = surface
-            .drm_output
-            .render_frame(&mut device.renderer, &elements, clear, FrameFlags::DEFAULT);
-        let (rendered, states, unfinished) = match result {
-            Ok(frame) => {
-                // Where the kernel cannot wait for the renderer itself (no
-                // fence the driver takes: a software renderer, a firmware
-                // framebuffer), the frame must be complete before it is
-                // handed over. A device that copies the frame to the screen
-                // at that moment (simpledrm) would otherwise show whatever
-                // part was drawn by then, and never the rest of it.
-                let unfinished = match &frame.primary_element {
-                    PrimaryPlaneElement::Swapchain(element) if frame.needs_sync() => Some(element.sync.clone()),
-                    _ => None,
-                };
-                (!frame.is_empty, frame.states, unfinished)
+        let drawn: Drawn = with_stack!(&mut device.gpu, stack => {
+            let (elements, clear) = state.output_elements(&mut stack.renderer, &output);
+            match stack.outputs.get_mut(&crtc) {
+                None => Drawn::Failed("the output is not set up".into()),
+                Some(drm_output) => match drm_output.render_frame(&mut stack.renderer, &elements, clear, FrameFlags::DEFAULT) {
+                    Err(err) => Drawn::Failed(err.to_string()),
+                    Ok(frame) => {
+                        // Where the kernel cannot wait for the renderer
+                        // itself (no fence the driver takes: a software
+                        // renderer, a firmware framebuffer), the frame must
+                        // be complete before it is handed over. A device that
+                        // copies the frame to the screen at that moment
+                        // (simpledrm) would otherwise show whatever part was
+                        // drawn by then, and never the rest of it.
+                        let unfinished = match &frame.primary_element {
+                            PrimaryPlaneElement::Swapchain(element) if frame.needs_sync() => Some(element.sync.clone()),
+                            _ => None,
+                        };
+                        // What the frame drew again on the primary plane, for
+                        // the statistics (`None`: the whole output, or a
+                        // client buffer shown directly).
+                        let damage: Option<Vec<Rectangle<i32, Physical>>> = match &frame.primary_element {
+                            PrimaryPlaneElement::Swapchain(element) if state.frame_stats.enabled() => {
+                                element.damage.raw().next().map(|rects| {
+                                    rects
+                                        .map(|r| Rectangle::new(Point::from((r.loc.x, r.loc.y)), Size::from((r.size.w, r.size.h))))
+                                        .collect()
+                                })
+                            }
+                            _ => None,
+                        };
+                        let rendered = !frame.is_empty;
+                        let states = frame.states;
+                        drop(elements);
+                        if rendered {
+                            if let Some(sync) = unfinished {
+                                if sync.wait().is_err() {
+                                    debug!("waiting for the frame of {} was interrupted", output.name());
+                                }
+                            }
+                            if let Some(mode) = output.current_mode() {
+                                state.frame_stats.frame(&output.name(), mode.size, started.elapsed(), damage.as_deref());
+                            }
+                            let feedback = state.take_presentation_feedback(&output, &states);
+                            let queued = drm_output.queue_frame(Some(feedback)).map_err(|err| err.to_string());
+                            Drawn::Queued(states, queued)
+                        } else {
+                            Drawn::Empty
+                        }
+                    }
+                },
             }
-            Err(err) => {
-                warn!("rendering {} failed: {err}", output.name());
-                return;
-            }
-        };
-        drop(elements);
+        });
 
         let time = state.start_time.elapsed();
-        if rendered {
-            if let Some(sync) = unfinished {
-                if sync.wait().is_err() {
-                    debug!("waiting for the frame of {} was interrupted", output.name());
+        match drawn {
+            Drawn::Failed(err) => warn!("rendering {} failed: {err}", output.name()),
+            Drawn::Queued(states, queued) => {
+                match queued {
+                    Ok(()) => surface.pending = true,
+                    Err(err) => warn!("could not queue a frame for {}: {err}", output.name()),
                 }
+                state.post_repaint(&output, &states, time);
             }
-            let feedback = state.take_presentation_feedback(&output, &states);
-            match surface.drm_output.queue_frame(Some(feedback)) {
-                Ok(()) => surface.pending = true,
-                Err(err) => warn!("could not queue a frame for {}: {err}", output.name()),
-            }
-            state.post_repaint(&output, &states, time);
-        } else if !surface.idle_callback_armed {
-            // Nothing changed on screen. Clients waiting for a frame
-            // callback still get one, at the display's pace, so a client
-            // that commits without damage cannot spin the compositor.
-            surface.idle_callback_armed = true;
-            let refresh = output.current_mode().map_or(60_000, |mode| mode.refresh.max(1));
-            let delay = Duration::from_micros(1_000_000_000 / refresh as u64);
-            let timer = Timer::from_duration(delay);
-            let inserted = state.loop_handle.insert_source(timer, move |_, _, state| {
-                if let Backend::Udev(udev) = &mut state.backend {
-                    if let Some(surface) = udev.device.as_mut().and_then(|d| d.surfaces.get_mut(&crtc)) {
-                        surface.idle_callback_armed = false;
+            Drawn::Empty if !surface.idle_callback_armed => {
+                // Nothing changed on screen. Clients waiting for a frame
+                // callback still get one, at the display's pace, so a client
+                // that commits without damage cannot spin the compositor.
+                surface.idle_callback_armed = true;
+                let refresh = output.current_mode().map_or(60_000, |mode| mode.refresh.max(1));
+                let delay = Duration::from_micros(1_000_000_000 / refresh as u64);
+                let timer = Timer::from_duration(delay);
+                let inserted = state.loop_handle.insert_source(timer, move |_, _, state| {
+                    if let Backend::Udev(udev) = &mut state.backend {
+                        if let Some(surface) = udev.device.as_mut().and_then(|d| d.surfaces.get_mut(&crtc)) {
+                            surface.idle_callback_armed = false;
+                        }
                     }
+                    let empty = smithay::backend::renderer::element::RenderElementStates::default();
+                    let time = state.start_time.elapsed();
+                    state.post_repaint(&output, &empty, time);
+                    TimeoutAction::Drop
+                });
+                if inserted.is_err() {
+                    surface.idle_callback_armed = false;
                 }
-                let empty = smithay::backend::renderer::element::RenderElementStates::default();
-                let time = state.start_time.elapsed();
-                state.post_repaint(&output, &empty, time);
-                TimeoutAction::Drop
-            });
-            if inserted.is_err() {
-                surface.idle_callback_armed = false;
             }
+            Drawn::Empty => {}
         }
     }
 
     fn frame_finished(&mut self, state: &mut Boswas, crtc: crtc::Handle, metadata: &mut Option<DrmEventMetadata>) {
-        let Some(surface) = self.device.as_mut().and_then(|d| d.surfaces.get_mut(&crtc)) else {
+        let Some(device) = self.device.as_mut() else {
             return;
         };
-        surface.pending = false;
+        let Some(surface) = device.surfaces.get_mut(&crtc) else {
+            return;
+        };
         let refresh = surface.output.current_mode().map_or(60_000, |mode| mode.refresh.max(1));
         let frame = Duration::from_micros(1_000_000_000 / refresh as u64);
-        match surface.drm_output.frame_submitted() {
+        // Devices without a vertical blank (the virtual graphics of most
+        // virtual machines, the firmware framebuffer) report a frame as
+        // shown the moment it is queued. Drawing the next one at once would
+        // run the compositor and its clients as fast as the processor
+        // allows, for frames nobody sees. A frame is therefore taken as
+        // shown no sooner than one refresh after the last; on a display
+        // with a real vertical blank they are that far apart anyway.
+        let now = Instant::now();
+        if let Some(due) = early_until(surface.last_shown, now, frame) {
+            let timer = Timer::from_duration(due.saturating_duration_since(now));
+            let inserted = state.loop_handle.insert_source(timer, move |_, _, state| {
+                let _ = with_udev(state, |udev, state| {
+                    udev.frame_finished(state, crtc, &mut None);
+                    Ok(())
+                });
+                TimeoutAction::Drop
+            });
+            if inserted.is_ok() {
+                // Still pending: nothing is drawn for this output until then.
+                return;
+            }
+        }
+        surface.last_shown = Some(now);
+        surface.pending = false;
+        let submitted = with_stack!(&mut device.gpu, stack => stack
+            .outputs
+            .get_mut(&crtc)
+            .map(|output| output.frame_submitted().map_err(|err| err.to_string())));
+        match submitted.unwrap_or(Ok(None)) {
             Ok(Some(Some(mut feedback))) => {
                 let hardware_time = metadata.as_ref().and_then(|m| match m.time {
                     DrmEventTime::Monotonic(time) if !time.is_zero() => Some(time),
@@ -1034,6 +1230,126 @@ fn load_gamma(drm: &DrmDevice, crtc: crtc::Handle, temperature: Option<u32>) {
     }
 }
 
+/// When a frame reported as shown at `now` is early, the moment it is to be
+/// taken as shown: one refresh (`frame`) after the last one, `last`. A
+/// tenth of a refresh is allowed for timing jitter.
+fn early_until(last: Option<Instant>, now: Instant, frame: Duration) -> Option<Instant> {
+    let due = last? + frame;
+    (now + frame / 10 < due).then_some(due)
+}
+
+/// How drawing a frame of an output went.
+enum Drawn {
+    /// A frame was drawn and handed to the display (or not, with why).
+    Queued(smithay::backend::renderer::element::RenderElementStates, Result<(), String>),
+    /// Nothing on the output changed.
+    Empty,
+    Failed(String),
+}
+
+/// OpenGL ES on GBM buffers. `Ok(Err((drm, why)))` when OpenGL ES would only
+/// run in software or cannot start: the device is handed back for pixman.
+#[allow(clippy::type_complexity)]
+fn gles_stack(
+    state: &mut Boswas,
+    node: DrmNode,
+    drm: DrmDevice,
+    fd: &DrmDeviceFd,
+) -> Result<Result<Gpu, (DrmDevice, String)>, Box<dyn std::error::Error>> {
+    let gbm = match GbmDevice::new(fd.clone()) {
+        Ok(gbm) => gbm,
+        Err(err) => return Ok(Err((drm, format!("no GBM ({err})")))),
+    };
+    // SAFETY: the GBM device outlives the EGL display (both are owned by
+    // the stack, and the renderer holding the display is dropped first).
+    let display = match unsafe { EGLDisplay::new(gbm.clone()) } {
+        Ok(display) => display,
+        Err(err) => return Ok(Err((drm, format!("OpenGL ES is not available ({err})")))),
+    };
+    let software = EGLDevice::device_for_display(&display).is_ok_and(|device| device.is_software());
+    if software && RendererChoice::from_env(std::env::var("BOSWAS_RENDERER").ok().as_deref()) == RendererChoice::Auto {
+        return Ok(Err((drm, "OpenGL ES would only run in software".into())));
+    }
+    let context = match EGLContext::new_with_priority(&display, ContextPriority::High) {
+        Ok(context) => context,
+        Err(err) => return Ok(Err((drm, format!("no OpenGL ES context ({err})")))),
+    };
+    // SAFETY: the context was just created for this thread and is used by
+    // this renderer only.
+    let mut renderer = match unsafe { GlesRenderer::new(context) } {
+        Ok(renderer) => renderer,
+        Err(err) => return Ok(Err((drm, format!("OpenGL ES could not be set up ({err})")))),
+    };
+    crate::effects::init_gles(&mut renderer);
+
+    state.shm_state.update_formats(renderer.shm_formats());
+    let render_node = node.node_with_type(NodeType::Render).and_then(Result::ok).unwrap_or(node);
+    let dmabuf_formats = renderer.dmabuf_formats();
+    match DmabufFeedbackBuilder::new(render_node.dev_id(), dmabuf_formats).build() {
+        Ok(feedback) => {
+            let global = state
+                .dmabuf_state
+                .create_global_with_default_feedback::<Boswas>(&state.display_handle, &feedback);
+            state.dmabuf_global = Some(global);
+        }
+        Err(err) => warn!("no linux-dmabuf: {err}"),
+    }
+
+    let allocator = GbmAllocator::new(gbm.clone(), GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT);
+    let exporter = GbmFramebufferExporter::new(gbm.clone(), Some(render_node));
+    let render_formats = renderer.egl_context().dmabuf_render_formats().clone();
+    let manager = DrmOutputManager::new(
+        drm,
+        allocator,
+        exporter,
+        Some(gbm),
+        COLOR_FORMATS.iter().copied(),
+        render_formats,
+    );
+    Ok(Ok(Gpu::Gles(Stack {
+        manager,
+        renderer,
+        outputs: HashMap::new(),
+    })))
+}
+
+/// pixman on dumb buffers, mapped into the compositor. Fails when the
+/// device's buffers cannot be drawn into that way.
+fn pixman_stack(state: &mut Boswas, drm: DrmDevice, fd: &DrmDeviceFd) -> Result<Gpu, Box<dyn std::error::Error>> {
+    let mut renderer = PixmanRenderer::new()?;
+    // A trial buffer: the device must hand its buffers out for mapping.
+    let mut allocator = Dumb(fd.clone());
+    {
+        let buffer = allocator
+            .create_buffer(64, 64, Fourcc::Xrgb8888, &[Modifier::Linear])
+            .map_err(|err| format!("no dumb buffer: {err}"))?;
+        let mut dmabuf = buffer.export().map_err(|err| format!("dumb buffers cannot be exported: {err}"))?;
+        renderer
+            .bind(&mut dmabuf)
+            .map_err(|err| format!("dumb buffers cannot be mapped: {err}"))?;
+    }
+    state.shm_state.update_formats(renderer.shm_formats());
+    // No linux-dmabuf: clients of a software-only system draw into shared
+    // memory, and a device offered for client rendering would be wrong.
+    if let Some(global) = state.dmabuf_global.take() {
+        state.dmabuf_state.destroy_global::<Boswas>(&state.display_handle, global);
+    }
+    let render_formats = Bind::<Dmabuf>::supported_formats(&renderer).unwrap_or_default();
+    let manager = DrmOutputManager::new(
+        drm,
+        allocator,
+        fd.clone(),
+        None::<GbmDevice<DrmDeviceFd>>,
+        COLOR_FORMATS.iter().copied(),
+        render_formats,
+    );
+    Ok(Gpu::Pixman(Stack {
+        manager,
+        renderer,
+        outputs: HashMap::new(),
+    }))
+}
+
 /// Creates the output for a newly connected monitor.
 fn connect(
     device: &mut Device,
@@ -1052,7 +1368,7 @@ fn connect(
         .or_else(|| preferred_mode(&modes))
         .ok_or("the monitor reports no mode")?;
     let (width_mm, height_mm) = info.size().unwrap_or((0, 0));
-    let (make, model) = read_edid(device.manager.device(), info)
+    let (make, model) = read_edid(device.gpu.drm(), info)
         .map(|edid| super::edid::make_and_model(&edid))
         .unwrap_or((None, None));
     let output = Output::new(
@@ -1078,22 +1394,42 @@ fn connect(
         None,
     );
 
-    let planes = device.manager.device().planes(&crtc).ok();
-    let drm_output = device
-        .manager
-        .initialize_output::<GlesRenderer, OutputRenderElement<GlesRenderer>>(
-            crtc,
-            mode,
-            &[info.handle()],
-            &output,
-            planes,
-            &mut device.renderer,
-            &DrmOutputRenderElements::default(),
-        )
-        .map_err(|err| format!("{err}"))?;
+    let planes = device.gpu.drm().planes(&crtc).ok();
+    match &mut device.gpu {
+        Gpu::Gles(stack) => {
+            let drm_output = stack
+                .manager
+                .initialize_output::<GlesRenderer, OutputRenderElement<GlesRenderer>>(
+                    crtc,
+                    mode,
+                    &[info.handle()],
+                    &output,
+                    planes,
+                    &mut stack.renderer,
+                    &DrmOutputRenderElements::default(),
+                )
+                .map_err(|err| format!("{err}"))?;
+            stack.outputs.insert(crtc, drm_output);
+        }
+        Gpu::Pixman(stack) => {
+            let drm_output = stack
+                .manager
+                .initialize_output::<PixmanRenderer, OutputRenderElement<PixmanRenderer>>(
+                    crtc,
+                    mode,
+                    &[info.handle()],
+                    &output,
+                    planes,
+                    &mut stack.renderer,
+                    &DrmOutputRenderElements::default(),
+                )
+                .map_err(|err| format!("{err}"))?;
+            stack.outputs.insert(crtc, drm_output);
+        }
+    }
     let global = output.create_global::<Boswas>(&state.display_handle);
     if state.night_light_applied.is_some() {
-        load_gamma(device.manager.device(), crtc, state.night_light_applied);
+        load_gamma(device.gpu.drm(), crtc, state.night_light_applied);
     }
     info!("output {name}: {}x{} @ {} mHz", output_mode.size.w, output_mode.size.h, output_mode.refresh);
     device.surfaces.insert(
@@ -1103,9 +1439,9 @@ fn connect(
             global,
             connector: info.handle(),
             modes,
-            drm_output,
             pending: false,
             idle_callback_armed: false,
+            last_shown: None,
         },
     );
     Ok(())
@@ -1222,6 +1558,32 @@ fn arrange_outputs(device: &Device, state: &mut Boswas) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn frames_are_not_taken_as_shown_faster_than_the_display_refreshes() {
+        let frame = Duration::from_micros(16_667);
+        let start = Instant::now();
+        // The first frame, and one that arrives a refresh after the last.
+        assert_eq!(early_until(None, start, frame), None);
+        assert_eq!(early_until(Some(start), start + frame, frame), None);
+        // A little early (timing jitter) still counts.
+        assert_eq!(early_until(Some(start), start + frame - Duration::from_millis(1), frame), None);
+        // At once, as a device without a vertical blank reports it: held
+        // back until a refresh has passed.
+        assert_eq!(early_until(Some(start), start + Duration::from_millis(2), frame), Some(start + frame));
+        // After a pause, nothing is held back.
+        assert_eq!(early_until(Some(start), start + Duration::from_secs(5), frame), None);
+    }
+
+    #[test]
+    fn the_renderer_is_chosen_by_name() {
+        assert_eq!(RendererChoice::from_env(None), RendererChoice::Auto);
+        assert_eq!(RendererChoice::from_env(Some("auto")), RendererChoice::Auto);
+        assert_eq!(RendererChoice::from_env(Some("nonsense")), RendererChoice::Auto);
+        assert_eq!(RendererChoice::from_env(Some(" GLES ")), RendererChoice::Gles);
+        assert_eq!(RendererChoice::from_env(Some("pixman")), RendererChoice::Pixman);
+        assert_eq!(RendererChoice::from_env(Some("software")), RendererChoice::Pixman);
+    }
 
     #[test]
     fn a_seat_that_cannot_be_used_explains_itself_in_one_line() {

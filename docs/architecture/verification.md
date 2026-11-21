@@ -242,6 +242,38 @@ compositor that takes the display (a stand-in program held the console);
 rescue mode; a desktop shell that keeps failing (tests only); the
 passphrase prompt of an encrypted disk.
 
+## Frame cost, measured
+
+Measured on 2026-11-21 for ADR-0045 with the compositor's frame
+statistics, the real shell and a terminal (`foot`), input injected
+through the control socket at 120 Hz, three seconds per case, on the
+build machine (4 cores, no GPU). CPU time is that of the compositor
+process, its rendering threads included.
+
+| Case | Before | After |
+|------|--------|-------|
+| Pointer crossing between a window and the desktop (OpenGL ES in software) | 3 full-screen redraws a second, 0.58 s CPU | none, 0.21 s CPU |
+| Window drag, CPU per frame: OpenGL ES in software / pixman | about 19 ms / 1.4 ms | about 17 ms / 1.4 ms (pixman is now used on such machines) |
+| Task View, CPU per frame: OpenGL ES in software / pixman | about 60 ms / 6 ms | about 48 ms / 6 ms |
+| Start opened and closed twice: shell CPU | 0.72-0.81 s | 0.24-0.26 s |
+| Hovering over Start's items: shell CPU | 0.40 s | 0.19 s |
+
+In the virtual machine of ADR-0044 (QEMU without hardware acceleration,
+standard VGA, 1280x800), with the new compositor and shell: a window
+drag ran at one or two frames per second with OpenGL ES in software and
+at 57 frames per second, about 11 ms each, with pixman; pointer motion at
+57 frames per second with either. Before frames were paced, a terminal
+redrawing drove the compositor to 198 frames per second there.
+
+The built `boswas-desktop` package of that change (390 Rust tests,
+lintian clean, the package stage passing 100 checks) was booted there on
+standard VGA and on the firmware frame buffer (`vga=0x318`, simpledrm):
+the log said "drawing with pixman (software)" for the login screen and
+for the session, and a keyboard sign-in opened the desktop.
+
+Not measured: any real GPU, where only the shell, opaque-region and
+pacing changes apply, and a hypervisor with 3D acceleration.
+
 ## Not verified
 
 Apart from the boots above, nothing below could be exercised in the build
@@ -263,7 +295,7 @@ environment.
 | Applications on the desktop | No run of Firefox, Wine or Waydroid on the native compositor is recorded. The Boswas applications and Control Center have not been started in a real session on hardware (window activation, the primary selection, drag and drop between programs, an input method's window); see "Looked at by hand" for the headless run from the built packages. Applying a preset from Settings in a running session was not tried |
 | Applications and devices | See the next section: a camera, removable drives, sound, real documents. Printing was tried to a PDF file only, and the image has no print service (CUPS is not in the manifest) |
 | Settings | Every section that talks to a system service ran against a stand-in: the real bridge reported "not available" here. Arranging several monitors is tested against a model only (the headless back end has one output and ignores a scale change on reload). `timedatectl` and `localectl` changes behind polkit |
-| Performance | Frame times, memory and start-up time of the compositor and the shell. Only the boot screen has measured frame costs, on the build machine |
+| Performance | Frame times on a real GPU, memory and start-up time of the compositor and the shell. Frame costs were measured on the build machine without a GPU and in the virtual machine only (ADR-0045, below) |
 | Accessibility and review | No screen reader interface exists for the shell or for what the compositor draws. No external security review and no design review have taken place |
 
 ## The system applications and the settings, one by one
