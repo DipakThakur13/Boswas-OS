@@ -17,6 +17,14 @@ use crate::{
 const REDUCED_WIDTH: u32 = 240;
 /// Blurred copies kept (one per distinct blur radius).
 const MAX_BLURS: usize = 4;
+/// Bytes of filled surfaces kept at most per backdrop; the oldest go first.
+const MAX_FILLED_BYTES: usize = 48 * 1024 * 1024;
+
+/// What a filled surface is drawn from: its size, corners, place on the
+/// output and the fraction of a pixel it is off the grid (device pixels,
+/// rounded), and the material.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+struct FillKey([i32; 13]);
 
 /// The blurred wallpaper of one output.
 pub struct Backdrop {
@@ -24,6 +32,10 @@ pub struct Backdrop {
     /// Output logical pixels per pixel of `reduced`.
     step: f32,
     blurred: Vec<(u32, Pixmap)>,
+    /// Surfaces filled before, most recently used last: a panel is drawn
+    /// again on every hover change, and magnifying the blurred wallpaper
+    /// costs more than everything else on it.
+    filled: Vec<(FillKey, Pixmap)>,
 }
 
 impl Backdrop {
@@ -39,6 +51,7 @@ impl Backdrop {
             reduced: reduce(wallpaper, rw, rh)?,
             step: width / rw as f32,
             blurred: Vec::new(),
+            filled: Vec::new(),
         })
     }
 
@@ -63,13 +76,91 @@ impl Backdrop {
     /// logical pixels; the rectangle is in canvas coordinates.
     #[allow(clippy::too_many_arguments)]
     pub fn fill(&mut self, canvas: &mut Canvas, x: f32, y: f32, w: f32, h: f32, radii: Corners, origin: (f32, f32), material: Material) {
-        let Some(path) = rounded_rect_path(x, y, w, h, radii) else {
+        if !(w > 0.0 && h > 0.0) {
             return;
-        };
-        let step = self.step;
+        }
+        // The filled shape is drawn once into a picture of its own and kept;
+        // the picture is placed on whole pixels, and the fraction of a pixel
+        // by which the shape is off the grid is part of the picture.
         let scale = canvas.scale();
+        let (left, top) = (x * scale, y * scale);
+        let (px, py) = (left.floor(), top.floor());
+        let (fx, fy) = (left - px, top - py);
+        let tint = material.tint;
+        let key = FillKey(
+            [
+                w * scale,
+                h * scale,
+                radii[0] * scale,
+                radii[1] * scale,
+                radii[2] * scale,
+                radii[3] * scale,
+                (origin.0 + x) * scale,
+                (origin.1 + y) * scale,
+                fx,
+                fy,
+                material.blur,
+                material.tint_opacity,
+                f32::from(tint.r) * 65536.0 + f32::from(tint.g) * 256.0 + f32::from(tint.b) + f32::from(tint.a) / 256.0,
+            ]
+            .map(|v| (v * 64.0).round() as i32),
+        );
+        let index = match self.filled.iter().position(|(k, _)| *k == key) {
+            Some(index) => {
+                let entry = self.filled.remove(index);
+                self.filled.push(entry);
+                self.filled.len() - 1
+            }
+            None => {
+                // Picture logical pixels = canvas logical pixels - the
+                // picture's place on the canvas.
+                let shift = (px / scale, py / scale);
+                let Some(picture) = self.render_fill(
+                    w + (fx + 1.0) / scale,
+                    h + (fy + 1.0) / scale,
+                    scale,
+                    (x - shift.0, y - shift.1, w, h, radii),
+                    (origin.0 + shift.0, origin.1 + shift.1),
+                    material,
+                ) else {
+                    return;
+                };
+                self.filled.push((key, picture));
+                let mut total: usize = self.filled.iter().map(|(_, p)| p.data().len()).sum();
+                while total > MAX_FILLED_BYTES && self.filled.len() > 1 {
+                    total -= self.filled.remove(0).1.data().len();
+                }
+                self.filled.len() - 1
+            }
+        };
+        let paint = tiny_skia::PixmapPaint {
+            quality: FilterQuality::Nearest,
+            ..tiny_skia::PixmapPaint::default()
+        };
+        let picture = self.filled[index].1.as_ref();
+        canvas
+            .pixmap_mut()
+            .draw_pixmap(px as i32, py as i32, picture, &paint, Transform::identity(), None);
+    }
+
+    /// Draws a material-filled rounded rectangle (`shape`: x, y, w, h,
+    /// corners) on a transparent picture of `width` x `height` logical
+    /// pixels whose top-left corner is at `origin` on the output.
+    fn render_fill(
+        &mut self,
+        width: f32,
+        height: f32,
+        scale: f32,
+        shape: (f32, f32, f32, f32, Corners),
+        origin: (f32, f32),
+        material: Material,
+    ) -> Option<Pixmap> {
+        let (x, y, w, h, radii) = shape;
+        let path = rounded_rect_path(x, y, w, h, radii)?;
+        let mut canvas = Canvas::new(width, height, scale)?;
+        let step = self.step;
         let source = self.blurred(material.blur);
-        // Reduced pixels -> output logical pixels -> canvas logical pixels.
+        // Reduced pixels -> output logical pixels -> picture logical pixels.
         let local = Transform::from_scale(step, step).post_translate(-origin.0, -origin.1);
         let paint = Paint {
             shader: Pattern::new(source.as_ref(), SpreadMode::Pad, FilterQuality::Bilinear, 1.0, local),
@@ -80,6 +171,7 @@ impl Backdrop {
             .pixmap_mut()
             .fill_path(&path, &paint, FillRule::Winding, Transform::from_scale(scale, scale), None);
         canvas.fill_path(&path, material.tint.alpha(material.tint_opacity));
+        Some(canvas.into_pixmap())
     }
 }
 
@@ -179,6 +271,53 @@ mod tests {
             px.copy_from_slice(if left { &[255, 0, 0, 255] } else { &[0, 0, 255, 255] });
         }
         p
+    }
+
+    /// The material as it was drawn before filled surfaces were kept:
+    /// straight onto the canvas.
+    #[allow(clippy::too_many_arguments)]
+    fn fill_directly(backdrop: &mut Backdrop, canvas: &mut Canvas, x: f32, y: f32, w: f32, h: f32, radii: Corners, origin: (f32, f32), material: Material) {
+        let path = rounded_rect_path(x, y, w, h, radii).unwrap();
+        let scale = canvas.scale();
+        let step = backdrop.step;
+        let source = backdrop.blurred(material.blur).clone();
+        let local = Transform::from_scale(step, step).post_translate(-origin.0, -origin.1);
+        let paint = Paint {
+            shader: Pattern::new(source.as_ref(), SpreadMode::Pad, FilterQuality::Bilinear, 1.0, local),
+            anti_alias: true,
+            ..Paint::default()
+        };
+        canvas.pixmap_mut().fill_path(&path, &paint, FillRule::Winding, Transform::from_scale(scale, scale), None);
+        canvas.fill_path(&path, material.tint.alpha(material.tint_opacity));
+    }
+
+    #[test]
+    fn a_kept_fill_looks_like_one_drawn_directly() {
+        let mut backdrop = Backdrop::new(&split_wallpaper(), 400.0, 200.0).unwrap();
+        let material = Material { tint: Rgba::rgb(20, 30, 40), tint_opacity: 0.6, blur: 12.0 };
+        for (x, y, scale, origin) in [(10.0, 8.0, 1.0, (150.0, 60.0)), (10.5, 8.25, 1.0, (150.0, 60.0)), (10.0, 8.0, 1.5, (163.0, 41.0)), (7.3, 3.9, 1.25, (90.5, 20.0))] {
+            for under in [None, Some(Rgba::WHITE.alpha(0.5))] {
+                let mut kept = Canvas::new(120.0, 90.0, scale).unwrap();
+                let mut direct = Canvas::new(120.0, 90.0, scale).unwrap();
+                if let Some(colour) = under {
+                    kept.clear(colour);
+                    direct.clear(colour);
+                }
+                // Twice: drawn the first time, taken from the cache the second.
+                for _ in 0..2 {
+                    let mut canvas = Canvas::new(120.0, 90.0, scale).unwrap();
+                    if let Some(colour) = under {
+                        canvas.clear(colour);
+                    }
+                    backdrop.fill(&mut canvas, x, y, 90.0, 60.0, [8.0, 8.0, 0.0, 8.0], origin, material);
+                    kept = canvas;
+                }
+                fill_directly(&mut backdrop, &mut direct, x, y, 90.0, 60.0, [8.0, 8.0, 0.0, 8.0], origin, material);
+                let worst = kept.data().iter().zip(direct.data()).map(|(a, b)| a.abs_diff(*b)).max().unwrap();
+                assert!(worst <= 2, "at ({x}, {y}) scale {scale}: differs by {worst}");
+            }
+        }
+        assert!(backdrop.filled.len() <= 8, "one picture per distinct surface");
     }
 
     #[test]

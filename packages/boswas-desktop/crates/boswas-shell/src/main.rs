@@ -19,6 +19,7 @@ mod calendar;
 mod capture;
 mod config;
 mod control;
+mod damage;
 mod desk;
 mod dialogs;
 mod glyph;
@@ -197,6 +198,12 @@ pub(crate) struct Surface {
     pub anim: Option<Anim>,
     /// The surface's content at full presence, reused while it animates.
     snapshot: Option<Pixmap>,
+    /// The drawing last sent (premultiplied RGBA) and its size and buffer
+    /// scale, to send only what changed.
+    sent: Vec<u8>,
+    sent_key: (u32, u32, i32),
+    /// The surface is declared opaque to the compositor.
+    opaque: bool,
 }
 
 impl Surface {
@@ -647,6 +654,9 @@ impl Shell {
             origin,
             anim: animate.then(|| Anim::opening(Instant::now(), self.res.reduced_motion)),
             snapshot: None,
+            sent: Vec::new(),
+            sent_key: (0, 0, 0),
+            opaque: false,
         });
     }
 
@@ -902,6 +912,28 @@ impl Shell {
         }
 
         let (pw, ph) = canvas.pixel_size();
+        let buffer_scale = if surface.viewport.is_some() { 1 } else { scale.ceil().max(1.0) as i32 };
+        let key = (pw, ph, buffer_scale);
+        // Only what changed since the last drawing is sent; a drawing that
+        // changed nothing (the pointer moved onto a part without a hover
+        // look) is not sent at all.
+        let changed = if surface.sent_key == key && !surface.sent.is_empty() {
+            damage::changed_rect(&surface.sent, canvas.data(), pw, ph)
+        } else {
+            Some((0, 0, pw, ph))
+        };
+        let wl = surface.wl_surface().clone();
+        let Some((dx, dy, dw, dh)) = changed else {
+            if animating {
+                // Still asked for a frame, so the transition goes on at the
+                // display's pace.
+                wl.frame(qh, wl.clone());
+                wl.commit();
+                surface.frame_pending = true;
+            }
+            surface.dirty = animating;
+            return;
+        };
         let bytes = pw as usize * ph as usize * 4;
         if surface.pool.is_none() {
             surface.pool = SlotPool::new(bytes, shm).ok();
@@ -918,13 +950,25 @@ impl Shell {
             }
         };
         canvas.write_argb8888(data);
-        let wl = surface.wl_surface().clone();
         match &surface.viewport {
             Some(viewport) => {
                 wl.set_buffer_scale(1);
                 viewport.set_destination(surface.width as i32, surface.height as i32);
             }
-            None => wl.set_buffer_scale(scale.ceil().max(1.0) as i32),
+            None => wl.set_buffer_scale(buffer_scale),
+        }
+        // A drawing without transparent pixels (the wallpaper, the taskbar)
+        // is opaque: the compositor need not blend it or draw behind it.
+        let opaque = damage::is_opaque(canvas.data());
+        if opaque != surface.opaque {
+            if !opaque {
+                wl.set_opaque_region(None);
+                surface.opaque = false;
+            } else if let Ok(region) = Region::new(&*compositor_state) {
+                region.add(0, 0, surface.width as i32, surface.height as i32);
+                wl.set_opaque_region(Some(region.wl_region()));
+                surface.opaque = true;
+            }
         }
         if matches!(role, Role::Toasts | Role::Preview) {
             // Only what is drawn takes the pointer: clicks in the gaps
@@ -936,7 +980,7 @@ impl Shell {
                 wl.set_input_region(Some(region.wl_region()));
             }
         }
-        wl.damage_buffer(0, 0, pw as i32, ph as i32);
+        wl.damage_buffer(dx as i32, dy as i32, dw as i32, dh as i32);
         wl.frame(qh, wl.clone());
         if buffer.attach_to(&wl).is_err() {
             return;
@@ -944,6 +988,9 @@ impl Shell {
         wl.commit();
         surface.frame_pending = true;
         surface.dirty = animating;
+        surface.sent.clear();
+        surface.sent.extend_from_slice(canvas.data());
+        surface.sent_key = key;
     }
 
     pub fn surface_index(&self, wl: &wl_surface::WlSurface) -> Option<usize> {
