@@ -112,6 +112,7 @@ impl Headless {
     }
 
     fn render(&mut self, state: &mut Boswas) {
+        let started = std::time::Instant::now();
         state.prepare_frame();
         let (elements, clear) = state.output_elements(&mut self.renderer, &self.output);
         let states = {
@@ -122,7 +123,14 @@ impl Headless {
             // The same buffer is drawn into every frame, so its age is 1 and
             // only damaged regions are repainted.
             match self.damage.render_output(&mut self.renderer, &mut framebuffer, 1, &elements, clear) {
-                Ok(result) => result.states,
+                Ok(result) => {
+                    // No damage: nothing was drawn, and nothing is counted.
+                    if let Some(damage) = result.damage {
+                        let size = self.output.current_mode().map_or_else(Size::default, |mode| mode.size);
+                        state.frame_stats.frame(&self.output.name(), size, started.elapsed(), Some(damage));
+                    }
+                    result.states
+                }
                 Err(err) => return warn!("headless: rendering failed: {err}"),
             }
         };

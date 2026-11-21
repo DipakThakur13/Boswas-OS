@@ -131,6 +131,7 @@ impl Winit {
     }
 
     fn render(&mut self, state: &mut Boswas) {
+        let started = std::time::Instant::now();
         state.redraw = false;
         state.prepare_frame();
         let size = self.backend.window_size();
@@ -142,7 +143,12 @@ impl Winit {
             };
             let (elements, clear) = state.output_elements(renderer, &self.output);
             match self.damage.render_output(renderer, &mut framebuffer, age, &elements, clear) {
-                Ok(result) => result.states,
+                Ok(result) => {
+                    if let Some(damage) = result.damage {
+                        state.frame_stats.frame(&self.output.name(), size, started.elapsed(), Some(damage));
+                    }
+                    result.states
+                }
                 Err(err) => return warn!("winit: rendering failed: {err}"),
             }
         };

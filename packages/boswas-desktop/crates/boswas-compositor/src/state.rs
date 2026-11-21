@@ -329,6 +329,8 @@ pub struct Boswas {
     pub touch_pointer: Option<smithay::backend::input::TouchSlot>,
     /// Outputs that need a new frame.
     pub redraw: bool,
+    /// Frame times and redrawn areas, for the log (`stats`).
+    pub frame_stats: crate::stats::FrameStats,
 }
 
 impl Boswas {
@@ -431,6 +433,7 @@ impl Boswas {
 
         Ok(Self {
             start_time: Instant::now(),
+            frame_stats: crate::stats::FrameStats::new(),
             display_handle: dh,
             loop_handle,
             loop_signal,
