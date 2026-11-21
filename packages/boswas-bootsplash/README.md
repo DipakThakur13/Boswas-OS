@@ -333,8 +333,9 @@ After the display, the console and the socket are open (`src/sandbox.rs`):
 * `no_new_privs`;
 * a Landlock domain: file access only below `/dev/dri`, to `/dev/fb0`, to
   the console device it reads keys from (to open it again after a hang-up)
-  and in `/run/boswas-bootsplash`; no TCP; where the kernel supports it, no
-  signals to and no abstract sockets of other processes. The rules name the
+  and in `/run/boswas-bootsplash`; no TCP (Linux 6.7 and later); where the
+  kernel supports it, no signals to and no abstract sockets of other
+  processes. The rules name the
   directory and the device as they were at that moment. Graphics devices
   that appear later under a new `/dev/dri` reach the worker as open
   descriptors from its supervisor (see [Outputs](#outputs)); no rule is
@@ -345,8 +346,10 @@ After the display, the console and the socket are open (`src/sandbox.rs`):
 
 It is best effort: a kernel without Landlock still gets the rest.
 `boswas-bootsplashd --self-test` enters the sandbox and reports what is
-enforced (exit status 0: all of it; 3: the kernel has no Landlock; 1: a
-denial is missing). There is no seccomp filter.
+enforced (exit status 0: all of it; 3: the kernel cannot enforce all of
+it, having no Landlock or a Landlock without network rules (before Linux
+6.7), and the rest holds; 1: a denial is missing). There is no seccomp
+filter.
 
 Other properties: no network code; no environment variable changes the
 daemon's behaviour and it clears the environment of the processes it

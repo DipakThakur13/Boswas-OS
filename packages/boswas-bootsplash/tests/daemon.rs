@@ -666,7 +666,17 @@ fn the_sandbox_denies_what_it_should() {
             assert!(report.contains("creating files outside the sandbox denied: yes"), "{report}");
             assert!(report.contains("TCP connections denied: yes"), "{report}");
         }
-        Some(3) => eprintln!("skipped: this kernel has no Landlock\n{report}"),
+        Some(3) if report.contains("landlock: none") => eprintln!("skipped: this kernel has no Landlock\n{report}"),
+        // A Landlock without network rules (before Linux 6.7, e.g. Docker
+        // Desktop's WSL2 kernel): the file rules must still hold.
+        Some(3) => {
+            assert!(report.contains("no_new_privs: yes"), "{report}");
+            assert!(report.contains("landlock: partial"), "{report}");
+            assert!(report.contains("reading files outside the sandbox denied: yes"), "{report}");
+            assert!(report.contains("creating files outside the sandbox denied: yes"), "{report}");
+            assert!(report.contains("TCP connections denied: no (this kernel's Landlock has no network rules)"), "{report}");
+            eprintln!("TCP not checked: this kernel's Landlock has no network rules\n{report}");
+        }
         other => panic!("sandbox self-test failed ({other:?}):\n{report}"),
     }
 }

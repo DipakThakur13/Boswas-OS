@@ -307,8 +307,10 @@ fn worker(opts: Options) -> i32 {
 
 /// Enter the daemon's sandbox in this process and try things it must deny.
 /// Prints one line per restriction. Exit status: 0 when everything is
-/// enforced, 3 when the kernel has no Landlock (the other restrictions
-/// still apply), 1 when something that should be denied was allowed.
+/// enforced; 3 when the kernel cannot enforce all of it, because it has no
+/// Landlock or a Landlock without network rules (before Linux 6.7), and
+/// everything it can enforce is; 1 when something that should be denied
+/// was allowed.
 pub fn self_test(opts: &Options) -> i32 {
     use std::io::ErrorKind::PermissionDenied;
     let mut allowed = crate::sandbox::Allowed { devices: crate::sandbox::display_devices(), state: Vec::new() };
@@ -336,11 +338,18 @@ pub fn self_test(opts: &Options) -> i32 {
     let tcp_denied = matches!(std::net::TcpStream::connect_timeout(&loopback, Duration::from_millis(300)), Err(e) if e.kind() == PermissionDenied);
     println!("reading files outside the sandbox denied: {}", yes_no(read_denied));
     println!("creating files outside the sandbox denied: {}", yes_no(write_denied));
-    println!("TCP connections denied: {}", yes_no(tcp_denied));
-    if report.no_new_privs && read_denied && write_denied && tcp_denied {
+    let tcp_line = match (tcp_denied, report.landlock_net) {
+        (true, _) => "yes",
+        (false, true) => "no",
+        (false, false) => "no (this kernel's Landlock has no network rules)",
+    };
+    println!("TCP connections denied: {tcp_line}");
+    if !(report.no_new_privs && read_denied && write_denied) || (report.landlock_net && !tcp_denied) {
+        1
+    } else if tcp_denied {
         0
     } else {
-        1
+        3
     }
 }
 

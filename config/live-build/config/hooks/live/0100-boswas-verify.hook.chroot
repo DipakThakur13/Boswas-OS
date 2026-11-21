@@ -140,8 +140,9 @@ for unit in emergency rescue; do
 		"/usr/lib/systemd/system/$unit.service.d/50-boswas-bootsplash.conf" 2>/dev/null \
 		|| fail "$unit mode does not end the boot screen before its shell"
 done
-# The daemon's own check of its sandbox: 0, or 3 where Landlock is not
-# available (a build chroot on an older host kernel).
+# The daemon's own check of its sandbox: 0, or 3 where the host kernel of
+# the build chroot cannot enforce all of it (no Landlock, or a Landlock
+# without network rules before Linux 6.7); what it can enforce must hold.
 status=0
 /usr/libexec/boswas/boswas-bootsplashd --self-test >/dev/null 2>&1 || status=$?
 [ "$status" -eq 0 ] || [ "$status" -eq 3 ] || fail "boswas-bootsplashd --self-test failed (exit $status)"

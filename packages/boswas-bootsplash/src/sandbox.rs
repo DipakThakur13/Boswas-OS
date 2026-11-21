@@ -6,9 +6,10 @@
 //! * `no_new_privs`, so nothing it could ever execute gains privileges;
 //! * a Landlock domain that allows file access only below the graphics
 //!   device directory, the frame buffer device, the console device it
-//!   already has open and its own runtime directory, denies TCP entirely,
-//!   and (where the kernel supports it) blocks signals and abstract-socket
-//!   connections to other processes. The rules belong to the directories
+//!   already has open and its own runtime directory, denies TCP entirely
+//!   (Linux 6.7 and later), and (where the kernel supports it) blocks
+//!   signals and abstract-socket connections to other processes. The rules
+//!   belong to the directories
 //!   and device nodes that exist when the sandbox is entered; graphics
 //!   devices under a device directory made later come from the supervisor
 //!   as open descriptors ([`crate::broker`]);
@@ -35,6 +36,9 @@ pub struct Report {
     pub no_new_privs: bool,
     /// `full`, `partial`, `none` (kernel without Landlock) or `error`.
     pub landlock: &'static str,
+    /// The kernel's Landlock has network rules (ABI 4, Linux 6.7), so TCP is
+    /// denied. An older Landlock enforces the file rules only.
+    pub landlock_net: bool,
     pub capabilities_dropped: bool,
 }
 
@@ -47,7 +51,9 @@ pub struct Allowed {
     pub state: Vec<PathBuf>,
 }
 
-fn landlock(allowed: &Allowed) -> Result<RulesetStatus, Box<dyn std::error::Error>> {
+/// The ruleset's status and the kernel's Landlock ABI. The ABI is only
+/// reported, never used to choose rules: those are the same on every kernel.
+fn landlock(allowed: &Allowed) -> Result<(RulesetStatus, ABI), Box<dyn std::error::Error>> {
     let abi = ABI::V6;
     let device_access = AccessFs::ReadFile | AccessFs::WriteFile | AccessFs::ReadDir | AccessFs::IoctlDev;
     let state_access = AccessFs::ReadFile
@@ -71,7 +77,8 @@ fn landlock(allowed: &Allowed) -> Result<RulesetStatus, Box<dyn std::error::Erro
         let access = if meta.is_dir() { access } else { access & AccessFs::from_file(abi) };
         ruleset = ruleset.add_rule(PathBeneath::new(PathFd::new(path)?, access))?;
     }
-    Ok(ruleset.restrict_self()?.ruleset)
+    let status = ruleset.restrict_self()?;
+    Ok((status.ruleset, ABI::from(status.landlock)))
 }
 
 fn drop_capabilities() -> bool {
@@ -91,16 +98,16 @@ fn drop_capabilities() -> bool {
 
 /// Apply the restrictions to the calling (single-threaded) process.
 pub fn enter(allowed: &Allowed) -> Report {
-    let landlock = match landlock(allowed) {
-        Ok(RulesetStatus::FullyEnforced) => "full",
-        Ok(RulesetStatus::PartiallyEnforced) => "partial",
-        Ok(RulesetStatus::NotEnforced) => "none",
-        Err(_) => "error",
+    let (landlock, landlock_net) = match landlock(allowed) {
+        Ok((RulesetStatus::FullyEnforced, kernel)) => ("full", kernel >= ABI::V4),
+        Ok((RulesetStatus::PartiallyEnforced, kernel)) => ("partial", kernel >= ABI::V4),
+        Ok((RulesetStatus::NotEnforced, _)) => ("none", false),
+        Err(_) => ("error", false),
     };
     // Landlock sets no_new_privs itself; set it regardless for kernels without Landlock.
     let no_new_privs = rustix::thread::set_no_new_privs(true).is_ok();
     let capabilities_dropped = drop_capabilities();
-    Report { no_new_privs, landlock, capabilities_dropped }
+    Report { no_new_privs, landlock, landlock_net, capabilities_dropped }
 }
 
 /// The device paths the display back ends use.

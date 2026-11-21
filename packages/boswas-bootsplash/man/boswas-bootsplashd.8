@@ -96,7 +96,9 @@ Keep all privileges. For debugging only.
 .TP
 .B \-\-self-test
 Enter the daemon's sandbox, report what it enforces, and exit: 0 when
-everything is enforced, 3 when the kernel has no Landlock, 1 otherwise.
+everything is enforced, 3 when the kernel cannot enforce all of it (no
+Landlock, or a Landlock without network rules before Linux 6.7) and the
+rest is enforced, 1 otherwise.
 .TP
 .BR \-\-help ", " \-\-version
 Print a summary of the options, or the version.
