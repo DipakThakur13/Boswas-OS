@@ -27,10 +27,19 @@ frozen picture of the screen: drag over an area (or click, for the whole
 screen) and press Enter, or press Esc to cancel. The desktop saves the
 snip to the
 .I Screenshots
-folder and copies it to the clipboard, and Snipping Tool opens it. The
-window comes back after a moment while you are still choosing, so that it
-can be cancelled there too; after two minutes without a snip it stops
-waiting.
+folder and copies it to the clipboard, and Snipping Tool opens it.
+.PP
+The desktop does not tell Snipping Tool that a snip was cancelled.
+Snipping Tool comes back under the frozen picture after a moment, with a
+.B Cancel
+button, and when the frozen picture closes and its window becomes active
+again, it waits a further 2.5 seconds for the snip: when none arrives,
+the snip was cancelled, and the window shows again what it showed before
+(a short note says so). The picture that was open, with its marks, is
+kept until a new snip replaces it, even after
+.B "Don't save"
+was chosen for it. Without any sign of the user, Snipping Tool stops
+waiting after two minutes.
 .PP
 .B Open
 marks up a PNG, JPEG or WebP picture from a file, and Ctrl+V the picture

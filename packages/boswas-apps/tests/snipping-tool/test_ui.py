@@ -763,6 +763,93 @@ class SnipFlowTest(SnipCase):
         self.assertTrue(window.new_button.isEnabled())
         self.assertFalse(window.status.isVisible())
 
+    def start_waiting(self, window: SnipWindow) -> None:
+        testing.click(window.new_button)
+        self.assertTrue(testing.wait_until(lambda: window.flow.phase == "waiting", 5))
+
+    def test_activation_then_a_snip_within_the_grace_opens_it(self):
+        window = self.open(client=FakeCapture(self.folder, self.png, produce=False))
+        window.flow.grace_ms = 1500
+        self.start_waiting(window)
+        self.assertEqual(window.windowTitle(), "Snipping Tool")
+        window.window_activated()          # the capture screen closed: the compositor activates the window
+        self.assertTrue(window.flow._grace.isActive())
+        self.client._write()               # and the shell saves the snip a moment later
+        self.assertTrue(testing.wait_until(lambda: window.image is not None and window.isVisible(), 5))
+        self.assertEqual(window.file_path, str(self.client.written[0]))
+        self.assertFalse(window.status.isVisible())
+        self.assertEqual(window.windowTitle(), "Screenshot 2026-11-21 101530.png - Snipping Tool")
+
+    def test_activation_without_a_snip_is_a_cancelled_snip_and_nothing_is_lost(self):
+        window = self.open(client=FakeCapture(self.folder, self.png, produce=False))
+        window.flow.grace_ms = 200
+        window.flow.reshow_ms = 50
+        self.load(window)
+        self.choose_tool(window, "pen")
+        self.draw_line(window, (200, 500), (700, 500))
+        marks = window.history.state
+        self.assertEqual(window.windowTitle(), "*screen.png - Snipping Tool")
+        self.answers.append(SECONDARY)                       # "Don't save" ...
+        self.start_waiting(window)
+        self.assertEqual(self.asked, ["Save the changes to this snip?"])
+        self.assertEqual(window.windowTitle(), "Snipping Tool", "no old name while waiting")
+        self.assertTrue(testing.wait_until(window.isVisible, 5))
+        self.assertEqual(window.windowTitle(), "Snipping Tool")
+        started = time.monotonic()
+        window.window_activated()                            # ... then Esc on the capture screen
+        window.window_activated()                            # a second activation does not restart the grace
+        self.assertTrue(testing.wait_until(lambda: not window.flow.is_active(), 5))
+        self.assertGreaterEqual(time.monotonic() - started, 0.2)
+        self.assertTrue(window.isVisible())
+        self.assertIs(window.stack.currentWidget(), window.canvas)
+        self.assertEqual(window.file_path, str(self.picture))
+        self.assertIs(window.history.state, marks, "the picture and its marks are still there")
+        self.assertTrue(window.history.is_modified())
+        self.assertEqual(window.windowTitle(), "*screen.png - Snipping Tool")
+        self.assertEqual((window.status.severity(), window.status.message()), ("info", "Snip cancelled."))
+        self.grab(window, "cancelled-dark.png")
+        self.assertTrue(window.edit_bar.undo_button.isEnabled())
+        self.choose_tool(window, "highlighter")              # the next action puts the note away
+        self.assertFalse(window.status.isVisible())
+        self.assertEqual(self.client.requests, ["region"])
+        # the note also goes by itself
+        window._notice_timer.setInterval(100)
+        self.answers.append(SECONDARY)
+        self.start_waiting(window)
+        window.window_activated()
+        self.assertTrue(testing.wait_until(lambda: not window.flow.is_active(), 5))
+        self.assertTrue(window.status.isVisible())
+        self.assertTrue(testing.wait_until(lambda: not window.status.isVisible(), 5))
+        # the marks were never thrown away: closing still asks
+        self.answers.append(CLOSE)
+        window.close()
+        self.assertTrue(window.isVisible())
+        self.assertEqual(len(self.asked), 3)
+
+    def test_a_snip_before_any_activation_opens_it(self):
+        window = self.open(client=FakeCapture(self.folder, self.png, later=0.3))
+        window.flow.grace_ms = 50
+        self.start_waiting(window)
+        self.assertFalse(window.flow._grace.isActive())
+        self.assertTrue(testing.wait_until(lambda: window.image is not None and window.isVisible(), 10))
+        self.assertFalse(window.status.isVisible())
+
+    def test_activation_counts_only_while_waiting(self):
+        window = self.open(client=FakeCapture(self.folder, self.png, produce=False))
+        window.window_activated()                            # nothing to wait for
+        self.assertFalse(window.flow.is_active())
+        window.set_delay(10)
+        testing.click(window.new_button)
+        window.window_activated()                            # the countdown is not a capture screen
+        self.assertFalse(window.flow._grace.isActive())
+        testing.key(window, Qt.Key.Key_Escape)
+        window.set_delay(0)
+        self.start_waiting(window)
+        QApplication.sendEvent(window, QEvent(QEvent.Type.ActivationChange))
+        self.assertFalse(window.isActiveWindow())
+        self.assertFalse(window.flow._grace.isActive(), "an activation change to inactive starts nothing")
+        window.flow.cancel()
+
     def test_waiting_ends(self):
         window = self.open(client=FakeCapture(self.folder, self.png, produce=False))
         window.flow.timeout = 0.3
