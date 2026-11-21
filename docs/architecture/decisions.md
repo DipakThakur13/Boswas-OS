@@ -2716,3 +2716,78 @@ a GPU. Pacing is what a vertical blank would have done.
 
 **Revisit when** the clip can be done without OpenGL ES (a pixman mask),
 or hardware validation shows frames that miss the refresh on a GPU.
+
+## ADR-0046 Snipping Tool and Weather join the system applications
+
+Follows ADR-0040 (the system applications) and ADR-0037 (screen capture
+behind the user's consent).
+
+**Decision.**
+
+- **Two more programs in `boswas-apps`,** built like the others: a
+  sub-package of `boswas_apps` on `boswas_fluent`, a launcher in
+  `/usr/bin`, a desktop entry, a manual page and a test suite.
+  `boswas-snipping-tool` (`com.boswas.SnippingTool`) and `boswas-weather`
+  (`com.boswas.Weather`). Both are pinned to Start for new users; Start's
+  first page holds them.
+- **The Snipping Tool captures through the desktop, not around it.** A
+  program cannot read the screen on Boswas OS (ADR-0037). The Snipping
+  Tool hides its window, waits for the screen to be redrawn without it,
+  and sends `{"cmd": "capture", "mode": "region"|"screen"}` to the
+  compositor's control socket, which any local program may send: the
+  shell's capture screen appears, the user drags an area or confirms the
+  screen, and the shell saves the picture to `Pictures/Screenshots` and
+  copies it to the clipboard, as with the Print key. The Snipping Tool
+  learns of the result by watching that folder for a picture that appears
+  after its request, and opens it in its editor. Nothing new is offered
+  to programs: the user still chooses and confirms every capture, and a
+  cancelled capture leaves no file. Its window comes back under the
+  capture screen while it waits; because the capture screen holds the
+  pointer and the keyboard, the first input that reaches that window
+  means the capture screen has closed, and a snip that has not arrived
+  2.5 seconds later counts as cancelled. (Whether the window is active is
+  no signal: Qt reports it active from the moment it is shown.) A snip
+  that arrives later still opens; after two minutes the tool stops
+  waiting.
+- **Weather data from Open-Meteo,** a public forecast service that needs
+  no account or key: its geocoding API for the place search, its forecast
+  API for current conditions, 24 hours and 10 days. Values are fetched in
+  metric units and converted in the app, so the cache does not depend on
+  the units chosen. Weather does not locate the device; the user adds
+  places by name. What is sent, and when, is listed in
+  `docs/security/privacy.md`.
+- **Icons** of both, the weather conditions and details, and the drawing
+  tools are drawn in the Prism pack (the Snipping Tool reuses the
+  screenshot design).
+
+**Why.** A screenshot tool with markup and a weather app are part of what
+people expect from the desktop this one follows. The capture screen
+already existed for the Print key; reusing it keeps one place where the
+screen is captured and one consent rule. Open-Meteo is free for
+non-commercial use without a key, so no secret has to be shipped or
+managed.
+
+**Consequences.**
+
+- The Snipping Tool works only on the Boswas desktop (it needs the
+  compositor's control socket); elsewhere it opens pictures for markup
+  and says so. It cannot capture a single window (the capture screen
+  offers an area or the whole screen).
+- Weather contacts an outside service; a device without a network shows
+  the last forecast it saved, marked with its time. Open-Meteo's terms
+  ask for attribution, which the app shows; commercial use needs their
+  paid plan.
+- **Verified:** the suites of both applications (Snipping Tool 114
+  tests, Weather 93) on Qt's offscreen platform, the icon tests, and the
+  package build. The Snipping Tool against the real compositor and shell
+  (headless back end, the tool run as an ordinary user over Wayland): a
+  full-screen and a rectangle snip opened in the editor with the right
+  size, the window was not in the picture, the capture screen kept the
+  keyboard while the window was back under it, a pen stroke drawn with
+  injected pointer motion, the question about unsaved changes, a snip
+  confirmed after eight seconds, and a cancelled snip ending in "Snip
+  cancelled" with the previous picture back.
+- **Not verified:** Weather against the live Open-Meteo service (the
+  build environment cannot reach it; the tests use answers written from
+  its documentation); either application on Debian 13's PySide6 6.8 at
+  run time, on a real display or at a fractional scale.

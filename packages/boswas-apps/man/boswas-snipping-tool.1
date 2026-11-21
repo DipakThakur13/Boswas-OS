@@ -1,0 +1,179 @@
+.TH BOSWAS-SNIPPING-TOOL 1 "November 2026" "boswas-apps 3.0~alpha1" "Boswas OS"
+.SH NAME
+boswas-snipping-tool \- snip the screen, mark the snip up, save or copy it
+.SH SYNOPSIS
+.B boswas-snipping-tool
+.RB [ \-\-new ]
+.RB [ \-\-mode =\c
+.IR mode ]
+.RB [ \-\-delay =\c
+.IR seconds ]
+.RI [ file ]
+.br
+.B boswas-snipping-tool
+.BR \-\-version " | " \-\-help
+.SH DESCRIPTION
+.B boswas-snipping-tool
+is Snipping Tool, the screenshot tool of the Boswas desktop.
+.PP
+.B New
+takes a snip: of an area that you drag on the screen
+.RB ( Rectangle )
+or of the whole screen
+.RB ( "Full screen" ),
+at once or after a delay of 3, 5 or 10 seconds, which is counted down in
+the window. Snipping Tool gets out of the way, and the desktop shows a
+frozen picture of the screen: drag over an area (or click, for the whole
+screen) and press Enter, or press Esc to cancel. The desktop saves the
+snip to the
+.I Screenshots
+folder and copies it to the clipboard, and Snipping Tool opens it.
+.PP
+The desktop does not tell Snipping Tool that a snip was cancelled.
+Snipping Tool comes back under the frozen picture after a moment, with a
+.B Cancel
+button. When you come back to its window (the first move of the pointer
+or key press there after the frozen picture closed), it waits a further
+2.5 seconds for the snip: when none arrives, the snip was cancelled, and
+the window shows again what it showed before (a short note says so). A
+snip that arrives is opened at any time. The picture that was open, with its marks, is
+kept until a new snip replaces it, even after
+.B "Don't save"
+was chosen for it. Without any sign of the user, Snipping Tool stops
+waiting after two minutes.
+.PP
+.B Open
+marks up a PNG, JPEG or WebP picture from a file, and Ctrl+V the picture
+on the clipboard. Pictures of more than 16384 pixels a side or 256 MB are
+refused.
+.PP
+The marks are drawn over the picture and stay separate from it until it
+is saved:
+.TP
+.B Pen
+A freehand line.
+.TP
+.B Highlighter
+A wide line that lets the picture show through.
+.TP
+.B Eraser
+Removes every mark it touches, whole.
+.TP
+.BR Arrow ", " Rectangle
+Dragged from one end or corner to the other; with Shift an arrow keeps to
+steps of 45 degrees and a rectangle is a square.
+.TP
+.B Text
+Click where the text goes, type it and press Enter (Esc drops it).
+.TP
+.B Crop
+A frame with handles on the corners and sides; drag them or the frame, or
+drag a new frame. Enter (or
+.BR Apply )
+crops, Esc leaves the picture as it was.
+.PP
+Marks come in eight colours and three sizes. Every change, the crop
+included, can be undone and redone. The picture can be zoomed (fitted to
+the window, 100\~%, in and out) and moved: drag it when no tool is in use,
+with the middle button, or with Space held down.
+.PP
+.B "Save as"
+writes the picture as edited, at its full resolution, as PNG or JPEG
+(transparent parts become white in JPEG); the
+.I Screenshots
+folder is offered first. Files are replaced in one step, never half
+written.
+.B Copy
+puts the picture as edited on the clipboard, and with
+.B "Copy changes automatically"
+on (the default) every change does so.
+.B "Open in Photos"
+shows it in the program that opens pictures (changes are saved first).
+.PP
+Closing the window, a new snip and opening another picture ask first
+whether to save marks that are not saved yet, unless that question is
+turned off in the settings.
+.PP
+Without the Boswas desktop (no compositor control socket in the session),
+.B New
+is not available; opening and marking up pictures still works.
+.PP
+Only one Snipping Tool runs per session; starting it again brings the
+window forward, with the file or the options given.
+.SH OPTIONS
+.TP
+.B \-\-new
+Start a snip straight away.
+.TP
+.BI \-\-mode= mode
+What the snip takes:
+.B region
+(an area you drag; also
+.BR rectangle )
+or
+.B screen
+(the whole screen; also
+.BR full\-screen ).
+Without the option the mode chosen last is used.
+.TP
+.BI \-\-delay= seconds
+Wait this many seconds, from 0 to 60, before the snip. Without the option
+the delay chosen last is used.
+.TP
+.I file
+A picture to mark up (a file name or a
+.B file:
+address).
+.TP
+.B \-\-version
+Print the version and exit.
+.TP
+.B \-\-help
+Print a summary of the options and exit.
+.PP
+.B \-\-mode
+and
+.B \-\-delay
+apply to this start only; they are not kept.
+.SH KEYS
+Ctrl+N takes a new snip, Ctrl+O opens a picture, Ctrl+V marks up the
+picture on the clipboard, Ctrl+S saves as, Ctrl+C copies. Ctrl+Z undoes,
+Ctrl+Y and Ctrl+Shift+Z redo, Delete removes all marks. Ctrl+plus and
+Ctrl+minus zoom (so does the wheel with Ctrl held), Ctrl+0 fits the
+picture to the window and Ctrl+1 shows it at 100\~%; the arrow keys and
+the wheel move it. Esc puts the tool down, cancels a crop, a countdown or
+the wait for a snip, and leaves the settings. Ctrl+, opens the settings,
+Ctrl+W and Ctrl+Q close Snipping Tool.
+.SH FILES
+.TP
+.I $XDG_CONFIG_HOME/com.boswas.SnippingTool/settings.json
+The settings: snipping mode, delay, copying changes automatically and
+asking to save.
+.TP
+.I $XDG_STATE_HOME/com.boswas.SnippingTool/window.ini
+The size of the window.
+.TP
+.I ~/Pictures/Screenshots
+Where the desktop saves snips: the
+.I Screenshots
+folder in the Pictures folder named by
+.B XDG_PICTURES_DIR
+in
+.IR $XDG_CONFIG_HOME/user\-dirs.dirs .
+.TP
+.I $XDG_RUNTIME_DIR/boswas\-$WAYLAND_DISPLAY.sock
+The compositor's control socket, through which a snip is asked for (or
+the path in
+.BR BOSWAS_COMPOSITOR_SOCKET ).
+.SH EXIT STATUS
+0 on success (also when a running Snipping Tool was brought forward); 2
+for a mistake on the command line; 4 when started as root, which Snipping
+Tool refuses.
+.SH NOTES
+Snipping Tool never reads the screen itself: the snip is taken by the
+desktop, only when you confirm it, and the desktop says so in a
+notification. A snip of a single window, freeform shapes and screen
+recordings are not available.
+.SH SEE ALSO
+.BR boswas\-photos (1),
+.BR boswas\-compositor (1)

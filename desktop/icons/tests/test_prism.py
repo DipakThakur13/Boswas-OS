@@ -60,7 +60,7 @@ boswas-control-center boswas-update-center boswas-software-center boswas-install
 boswas-windows-application boswas-windows-installer wine wine-stable boswas-compat-status
 boswas-repair boswas-sandbox boswas-app-policy
 boswas-launcher boswas-shell boswas-lock boswas-files boswas-terminal
-boswas-photos boswas-document-viewer
+boswas-photos boswas-document-viewer boswas-snipping-tool boswas-weather
 """.split(),
     "places": """
 folder folder-open user-home user-desktop folder-documents folder-download folder-downloads
@@ -140,6 +140,12 @@ flag-symbolic torch-symbolic media-playlist-repeat-song-symbolic playlist-symbol
 audio-x-generic-symbolic video-x-generic-symbolic view-dual-symbolic
 utilities-system-monitor-symbolic view-layers-symbolic input-gaming-symbolic input-tablet-symbolic
 dialog-positive-symbolic
+weather-few-clouds-symbolic weather-few-clouds-night-symbolic weather-overcast-symbolic
+weather-clouds-symbolic weather-fog-symbolic weather-showers-scattered-symbolic weather-showers-symbolic
+weather-snow-symbolic weather-storm-symbolic weather-windy-symbolic weather-humidity-symbolic
+weather-pressure-symbolic daytime-sunrise-symbolic daytime-sunset-symbolic temperature-symbolic
+screenshot-symbolic draw-freehand-symbolic draw-highlight-symbolic draw-eraser-symbolic
+transform-crop-symbolic draw-arrow-symbolic draw-rectangle-symbolic draw-text-symbolic
 """.split(),
 }
 

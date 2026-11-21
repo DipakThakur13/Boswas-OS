@@ -54,6 +54,10 @@ Description: Boswas OS system applications
   * Archive Manager: ZIP and TAR archives (7z and RAR with 7zip)
   * Clock: alarms, timers, stopwatch and world clock
   * Calendar: a local calendar with reminders and iCalendar files
+  * Snipping Tool: screenshots of an area or the whole screen, marked up
+    with a pen, highlighter, arrows, rectangles, text, eraser and crop
+  * Weather: current conditions, hourly and 10-day forecasts for the
+    places the user chooses (from Open-Meteo)
  .
  Each application is one program and runs as the desktop user. None of
  them starts a shell or keeps running in the background, except the small
