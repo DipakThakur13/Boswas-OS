@@ -2,8 +2,10 @@
 //! shutdown, drawn by one small program instead of Plymouth.
 //!
 //! * [`scene`] decides what is on screen and repaints only what changed;
-//!   [`gfx`], [`text`] and [`assets`] are the software renderer and the
-//!   artwork embedded at build time.
+//!   [`motion`] is how it moves. [`mark`], [`backdrop`], [`text`],
+//!   [`raster`] and [`gfx`] are the software renderer, which draws the
+//!   vector artwork and glyph outlines of [`assets`] (embedded at build
+//!   time) at the exact size of the display.
 //! * [`output`] puts frames on a display: DRM/KMS dumb buffers, a legacy
 //!   frame buffer, or files (headless, for tests).
 //! * [`daemon`] is the event loop; [`launch`] starts it safely; [`tty`] and
@@ -21,6 +23,7 @@
 
 pub mod agent;
 pub mod assets;
+pub mod backdrop;
 pub mod broker;
 pub mod cli;
 pub mod client;
@@ -30,9 +33,12 @@ pub mod daemon;
 pub mod editor;
 pub mod gfx;
 pub mod launch;
+pub mod mark;
+pub mod motion;
 pub mod output;
 pub mod png;
 pub mod proto;
+pub mod raster;
 pub mod runtime;
 pub mod sandbox;
 pub mod scene;
@@ -42,16 +48,6 @@ pub mod tty;
 
 /// Version shown by `--version` (the Debian package version).
 pub const VERSION: &str = "3.0~alpha1";
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn the_version_is_the_package_version() {
-        let changelog = include_str!("../debian/changelog");
-        let first = changelog.lines().next().unwrap();
-        assert_eq!(first, format!("boswas-bootsplash ({}) trixie; urgency=medium", super::VERSION));
-    }
-}
 
 /// Where unit tests put Unix sockets. A socket path holds about a hundred
 /// bytes, so a long `TMPDIR` (some build environments have one) cannot be
@@ -63,5 +59,15 @@ pub(crate) fn socket_test_dir() -> std::path::PathBuf {
         dir
     } else {
         std::path::PathBuf::from("/tmp")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_version_is_the_package_version() {
+        let changelog = include_str!("../debian/changelog");
+        let first = changelog.lines().next().unwrap();
+        assert_eq!(first, format!("boswas-bootsplash ({}) trixie; urgency=medium", super::VERSION));
     }
 }

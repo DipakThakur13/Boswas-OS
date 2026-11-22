@@ -1,9 +1,13 @@
 # boswas-bootsplash
 
-The Boswas OS boot screen: the mark and a ring of dots on a dark, almost
-empty screen while the system starts, the passphrase prompt for an encrypted
-disk, and the shutdown and restart screens. It follows Boswas UI, the Fluent
-design language of the desktop (`desktop/ui/tokens.json`). Two small Rust
+The Boswas OS boot screen: the mark, which assembles itself as the screen
+opens, on a dark background lit softly behind it in the brand's blues, with
+a progress ring close under it while the system starts; the passphrase
+prompt for an encrypted disk, which slides in as the mark glides up; and the
+shutdown and restart screens. Everything is drawn at run time from vector
+outlines at the exact size of the display, and moves at its refresh rate.
+It follows Boswas UI, the Fluent design language of the desktop
+(`desktop/ui/tokens.json`). Two small Rust
 programs take the place of Plymouth and of the Plymouth theme in
 `desktop/branding/plymouth/`.
 
@@ -24,23 +28,46 @@ both sides.
 
 | Screen | Content |
 |--------|---------|
-| Boot | The official mark (gold and silver, unchanged) and nothing written: no name. The mark is centred a little above the middle, 12 % of the display's shorter side high (never more than 160 logical pixels). Lower down, 28 % of the height below the middle, a ring 40 pixels across: five white dots that chase each other round it. They bunch up over the top, sweep round, spread out and fade. A message from the boot scripts, when one is sent, is one line under the ring (body text, `text-secondary`; an error in `danger`) and goes away after six seconds (an error after thirty, or with the next passphrase); a reported progress is a percentage on that line |
-| Disk unlock | The mark stays where it is. Under it: "Unlock your disk" (subtitle), the name of the disk (body, `text-secondary`), and a text box: 320 by 36, corners rounded by 4, the subtle fill and one-pixel outline of a control, and the two-pixel accent line (`iris.400`) of a focused one along its bottom edge. One dot per character typed, from the left with 12 pixels of padding (24 at most, so a long passphrase does not show its length), then a caret that blinks. Under the box a hint (caption, `text-muted`): "Press Enter to unlock", or "Caps Lock is on" in `warning` |
+| Boot | The official mark, unchanged in shape and colour, and nothing written: no name. Its ink is 16 % of the display's shorter side high (200 logical pixels at most), its middle at 44 % of the height. Behind it the background is lit by a soft bloom (see below), and a warm glow surrounds the mark's dot. Close under the mark (three tenths of its height below it) a progress ring 34 pixels across: a white arc with round ends, 3.5 pixels wide, that lengthens from a short dash to three quarters of the ring and shortens again while it turns, once round in two seconds. When the boot reports a percentage, the ring shows it instead: an arc from 12 o'clock over that share of the ring, on a faint full ring (white at 16 %), gliding to each new value in a quarter of a second. While the ring turns, the dot's glow rises and falls gently, once every four seconds. A message from the boot scripts, when one is sent, is one line 14 pixels under the ring (body text, `text-secondary`; an error in `danger`) and goes away after six seconds (an error after thirty, or with the next passphrase); a reported progress is also a percentage on that line |
+| Intro | Once, when the boot screen starts (1.6 seconds): the mark fades in and grows from 94 % to its size; its stem rises from a disc at its foot, its bowl sweeps round from the upper cut over the top to the lower cut with a soft leading edge, and its dot pops in with a small overshoot and a warm glow that settles. Then the ring fades in under it. Only the mark's rectangle (and at the end the ring's) is redrawn |
+| Disk unlock | The mark glides up and shrinks to three quarters while the ring fades out, and the prompt fades in and rises the last 12 pixels into place (0.32 seconds; the mark moves first, the prompt comes in once the mark is nearly there). The mark then heads a column centred a little above the middle: "Unlock your disk" (subtitle), the name of the disk (body, `text-secondary`), and a text box: 320 by 36, corners rounded by 4, the translucent white fill and one-pixel outline of a control (`fill.dark.control` and `stroke.dark.control` over the background), and the two-pixel accent line (`iris.400`) of a focused one along its bottom edge. One dot per character typed, from the left with 12 pixels of padding (24 at most, so a long passphrase does not show its length), then a caret that blinks. Under the box a hint (caption, `text-muted`): "Press Enter to unlock", or "Caps Lock is on" in `warning`. When the prompt is answered or withdrawn, the reverse: it fades out with its dots, and the mark glides back down to the ring |
 | Rejected passphrase | The prompt returns with "That passphrase did not work. Try again." in `danger` under the box (the hint moves down a line), and the box shakes sideways for 0.4 seconds |
-| Shutdown, restart | The ring in the middle of the screen and one line under it (body-large): "Shutting down" or "Restarting". No mark |
+| Shutdown, restart | The mark and the ring where they are at boot, and under the ring one line (body-large): "Shutting down" or "Restarting"; a message, when sent, under that. No intro: everything fades in together in a quarter of a second |
+| The end | `quit`: everything fades to the background in a fifth of a second, then the text console returns. `quit --retain` (the hand-over to the login screen): only the ring and the text fade; the mark stays, its glow calm (and complete, should the intro still be running), and that is the frame left for the next program |
 
-The background is one solid colour, `neutral.950`; the text is white
-(`text` of the dark theme) in Inter, the Boswas UI typeface. Colours, the
-type ramp (caption 12, body 14, body-large 16, subtitle 20 semibold) and the
-control radius come from `desktop/ui/tokens.json` at build time.
+The background is `neutral.950` with two soft blooms, as on the boot menu
+(`desktop/branding/boot-splash.svg`): `azure.500` up and to the left of the
+mark, where the light comes from (20 % at its centre), and `iris.500` below
+it to the right (13 %), each fading smoothly to nothing over 3.75 and 3.4
+times the side of the mark's square box. To keep the gentle shading free
+of bands on 8-bit displays it is dithered: noise of just under half a step,
+fixed for each pixel, is added before the colour is rounded, so the average
+of a few pixels follows the exact shade and a flat area stays exactly
+`neutral.950`. The glow round the dot is `sun.400`, at most 2.1 times the
+dot's radius (it fills the counter and stops at the bowl), 20 % at rest and
+30 % at the top of a breath. The text is white (`text` of the dark theme)
+in Inter, the Boswas UI typeface. Colours, the type ramp (caption 12, body
+14, body-large 16, subtitle 20 semibold), the control radius, the control
+fill and outline, and the motion curves and durations come from
+`desktop/ui/tokens.json` at build time; the mark's colours from its SVG.
+
+Motion is eased with the timing curves of the token file: `decelerate` for
+what appears and settles (the mark's fade, its growth, the stem, the glide,
+the prompt, a progress), `accelerate` for what leaves (the fade at the end),
+`standard` for the bowl's sweep and the glow settling, and a small overshoot
+for the dot. Everything that moves is a function of the clock
+(`src/motion.rs`), so a busy machine shows fewer frames, never slower or
+uneven motion.
 
 Sizes are logical pixels. A logical pixel is one display pixel up to 1080
-lines and grows with the height above that (1.33 at 2560x1440, 1.48 at
-2560x1600, 2 at 3840x2160, at most 3.2), so the text box is 320 by 36 real
-pixels at 1024x768, 1366x768 and 1920x1080, and 640 by 72 at 4K. A display
-with fewer than 600 lines, or narrower than 480 pixels, gets a smaller unit
-so that the layout fits. Outlines, the caret and the distance between dots
-are whole pixels at every scale.
+lines on the shorter side and grows with it above that (1.33 at 2560x1440,
+1.48 at 2560x1600, 2 at 3840x2160, at most 3.2), so the text box is 320 by
+36 real pixels at 1024x768, 1366x768, 1920x1080 and on a 1080x1920 portrait
+display, and 640 by 72 at 4K. A display with fewer than 600 lines, or
+narrower than 480 pixels, gets a smaller unit so that the layout fits.
+Outlines, the caret and the distance between dots are whole pixels at every
+scale. (The shorter side, rather than the height, decides since this
+version: portrait displays had units of 1.78 at 1080x1920.)
 
 What the unlock screen says comes from the prompt of the program that asks.
 The prompts of cryptsetup's initramfs scripts (`Please unlock disk NAME`),
@@ -52,108 +79,178 @@ passphrase". A message that reports a rejected passphrase (it contains
 available`; cryptsetup's scripts send `cryptsetup failed, bad password or
 options?`) is shown as the one short sentence above; any other error is
 shown as it came, shortened to its line. The scripts send that message
-after Enter and then ask again, so between the two the prompt is closed and
-the boot screen with its ring shows while the passphrase is checked.
+after Enter and then ask again, so between the two the prompt glides away
+and the boot screen with its ring shows while the passphrase is checked.
 
 Keys while a prompt is open: characters, Backspace, Ctrl-U (clear), Enter.
-Escape switches between the boot screen and the text console at any time.
+They are taken at once, also while the prompt glides in. Escape switches
+between the boot screen and the text console at any time.
 
 Kernel command line: the boot screen runs only with `splash`. `nosplash`
 (or `boswas.splash=off`, or `plymouth.enable=0`) turns it off;
-`boswas.splash=static` keeps the screen without animation: the dots of the
-ring stand still, the caret does not blink and the box does not shake.
+`boswas.splash=static` keeps the screen without animation: the mark is
+whole at once, the ring stands still (a three-quarter arc, or the reported
+share), nothing glides or fades, the glow does not breathe, the caret does
+not blink and the box does not shake.
 
-Review frames (boot, boot-message, prompt-empty, prompt, prompt-wrong,
-prompt-shake, shutdown, reboot, and three consecutive frames of the ring,
-as PNG files for each size):
+Review frames and an animated preview:
 
 ```sh
-cargo run --release --example frames -- /tmp/frames 1920x1080 1366x768
+cargo run --release --example frames -- /tmp/frames 1920x1080 1366x768 3840x2160 1080x1920
 ```
+
+For each size it writes the states as PNG files (boot, boot-static,
+boot-message, boot-progress, twelve frames of the intro, six of the ring's
+cycle and three consecutive ones, three of the glide, the unlock screen
+empty, typed, rejected and shaking, shutdown, its fade-in and restart, two
+frames of the fade at the end and its last one, and the retained frame), a
+contact sheet of the intro, the ring and the glide (`WxH-contact.png`), and,
+where `ffmpeg` is installed, `WxH-motion.gif`: a scripted boot (intro, ring,
+a passphrase typed, rejected and typed again, the hand-over) at 25 frames a
+second, the middle of the screen scaled to 720 pixels across.
 
 ## How it renders
 
-`src/scene.rs` keeps the picture as nine items in fixed slots (mark, ring,
-status line, message, title, name of the disk, text box, caret, hint). A
-frame compares the new items with the ones on screen and repaints only the
-rectangles of items that changed, into an XRGB8888 canvas; the output copies
-those rectangles to the display and tells the driver which ones changed. An
-animation frame is the ring's rectangle (the background colour and up to
-five small discs); a blink of the caret is the caret's own pixels; a
-keystroke or a frame of the shake is the text box. Nothing else is touched,
-and a frame that changes nothing is not sent to the display at all.
+Nothing is parsed at boot, and nothing is a picture scaled to fit: what is
+embedded is vector geometry, drawn at run time at the exact pixel size of
+each display.
 
-| At 1920x1080 (release build, this machine) | Cost |
-|---|---|
-| First frame (scale the mark, paint everything) | 4.5 ms |
-| Animation frame | 3 µs: 1,764 pixels (42 by 42), 0.085 % of the screen |
-| A second of the ring at 240 frames a second | 0.5 ms |
-| Blink of the caret | 1 µs: 18 pixels |
-| Keystroke in the text box, or a frame of its shake | 0.17 ms: 12,844 pixels, 0.62 % |
+* **Assets** (`build.rs`). The mark's SVG is read with usvg: its filled
+  paths, flattened to line segments (no segment strays more than 0.02 of a
+  pixel from the curve at the largest size the mark is ever drawn), with
+  their paints (linear and radial gradients with their stops and
+  opacities, in the mark's 256-unit view box), and the geometry of the
+  three parts the intro moves, worked out from the paths: the stem's
+  straight length, the bowl's centre, radius and the arc between its cuts,
+  the dot's centre and radius. Paths are assigned to parts by the ids of
+  their gradients (`boswas-mark-stem…`, `-bowl…`, `-dot…`; anything else
+  appears with the mark as a whole), so a future change of the mark is
+  followed automatically. The printable ASCII glyphs of Inter Regular and
+  SemiBold are read with ttf-parser: outlines flattened the same way (in em
+  units), advances and the pair kerning of the font's `kern` feature
+  (GPOS). The colours, the type ramp, the control radius and layers and the
+  motion curves come from the token file.
+* **Rasteriser** (`src/raster.rs`). Exact-area coverage, as font
+  rasterisers compute it: every edge adds the signed area it sweeps on each
+  pixel row to an accumulation buffer, and a running sum along each row
+  gives each pixel the exact share of it the shape covers (non-zero
+  winding). No supersampling. Its buffers are kept, so drawing allocates
+  nothing once they have grown.
+* **The mark** (`src/mark.rs`) is filled path by path, back to front, with
+  its gradients evaluated in its own units at every pixel (from a table of
+  256 premultiplied colours per gradient), the shading overlays reusing the
+  coverage of the shape below them. A test compares it with resvg's
+  rendering of the same SVG: on average less than a third of a colour level
+  apart, at most a few levels inside the shapes. During the intro the parts
+  are moved as the geometry allows: the upper half of the stem moves down
+  (the stem rises from a disc, its gradient stretched over its length), a
+  soft-edged sweep round the bowl's centre reveals the bowl, the dot is
+  scaled about its centre. Once drawn for a pose, the mark is kept and only
+  copied until the pose changes.
+* **Text** (`src/text.rs`): each glyph is rasterised from its outline at
+  the exact size (sizes are not rounded to whole pixels) and at four
+  sub-pixel positions the first time it is needed, and kept; pairs are
+  kerned. Characters outside ASCII are drawn as `?`.
+* **Background** (`src/backdrop.rs`): worked out per pixel (two blooms with
+  a smooth fall-off and the dither), only on the rows and columns a bloom
+  reaches, flat elsewhere. The first frame keeps what it painted where
+  things move (the mark in both its places and the ring), and later frames
+  copy it from there.
+* **Ring**: an arc with round ends from its signed distance, anti-aliased,
+  over its track when it shows a percentage.
 
-At 3840x2160 an animation frame is 8 µs (6,724 pixels) and a keystroke
-0.65 ms. `tests/perf.rs` prints these (`cargo test --release --test perf --
---nocapture`) and fails if an animation frame redraws anything but the ring,
-a blink anything but the caret, or the ring is a quarter of a percent of the
-screen or more, or if a second of the ring at 240 frames costs half a
-second of processor time. Rendering a frame allocates no memory (the picture
-borrows the prompt and the message; the list of changed rectangles is
-reused).
+`src/scene.rs` keeps the picture as ten items in fixed slots (the dot's
+glow, the mark, the ring, the status line, the message, title, name of the
+disk, text box, caret, hint), each with its rectangle, its state and its
+opacity in 256 steps. A frame compares the new items with the ones on
+screen and repaints only the rectangles of items that changed, into an
+XRGB8888 canvas; the output copies those rectangles to the display and
+tells the driver which ones changed. A frame of the ring is the ring's
+rectangle (its background and the arc); a step of the glow's breath is the
+glow's square inside the mark's box; a blink of the caret is the caret's
+own pixels; a keystroke or a frame of the shake is the text box; an intro
+frame is the mark's rectangle (and, as it fades in, the ring's). Nothing
+else is touched, and a frame that changes nothing is not sent to the
+display at all.
+
+| Release build, this machine | 1920x1080 | 3840x2160 |
+|---|---|---|
+| First frame (background, mark, everything) | 20 ms | 82 ms |
+| Frame of the ring | 10 µs: 1,296 pixels (36 by 36), 0.062 % of the screen | 34 µs: 4,900 pixels, 0.059 % |
+| A second of the ring at 240 frames a second | 2.4 ms | 8.1 ms |
+| Step of the glow's breath (at most about 30 a second) | 25 µs: 3,481 pixels | 90 µs: 12,996 pixels |
+| Intro frame | 0.35 ms (median): at most 23,824 pixels, 1.15 % | 1.4 ms: at most 93,292 pixels, 1.12 % |
+| The whole intro at 240 frames a second (384 frames) | 0.11 to 0.18 s | 0.43 to 0.45 s (about 0.11 s at 60 Hz) |
+| The glide to the unlock screen at 240 frames a second | 34 ms | 0.13 s |
+| Keystroke in the text box, or a frame of its shake | 0.18 ms: 12,844 pixels, 0.62 % | 0.72 ms: 49,876 pixels, 0.60 % |
+| Blink of the caret | 1.2 µs: 18 pixels | 2.5 µs |
+
+At 1366x768 a frame of the ring is the same 1,296 pixels (0.124 % of the
+screen). `tests/perf.rs` prints these (`cargo test --release --test perf --
+--nocapture`) and fails if a frame of the ring redraws anything but the
+ring, a step of the breath anything but the glow, a blink anything but the
+caret, a keystroke or a shake anything but the text box, an intro frame
+anything but the mark and the ring; if the ring is a quarter of a percent
+of the screen or more, an intro frame five percent, a keystroke two; or if a
+second of the ring at 240 frames costs half a second of processor time. The
+limits are loose enough for an unoptimised build (there, a frame of the
+ring is 64 µs at 1080p and the intro at 4K 3.9 s at 240 frames a second).
+Rendering a frame of the ring allocates no memory (the picture borrows the
+prompt and the message; the list of changed rectangles, the line of text
+being drawn and the rasteriser's buffers are reused).
 
 The animation is paced to the display: one frame per refresh of the mode
 the display shows (as a rule the one the boot screen found on it, see
 below), 240 frames a second at most, and 60 on the legacy frame buffer,
 which does not tell its refresh rate. The rate is worked out from the
-mode's timings. Frames keep a fixed pace and the ring's position comes from
-the clock, so a busy system makes it update less often but not faster or
-uneven. At 240 frames a second the loop uses about 1 % of a processor core.
-While a prompt is open the loop wakes only when the caret is due to change,
-four times a second for Caps Lock, and for the frames of a shake.
+mode's timings. Frames keep a fixed pace and everything that moves comes
+from the clock, so a busy system makes it update less often but not faster
+or uneven. While a settled prompt is open the loop wakes only when the
+caret is due to change, four times a second for Caps Lock, and for the
+frames of a shake; while the glide runs, at the display's pace.
 
-The ring is arithmetic, not artwork (`dot_at` in `src/scene.rs`): each dot
-goes round twice in three seconds, entering and leaving at the bottom; a
-slow steady drift carries it over the top, and three eased runs (out, in and
-out, in) take it up the side, once round, and away. The dots follow each
-other 0.2 seconds apart, so they are close together where the path is slow
-and far apart where it is fast. A cycle is 4.2 seconds.
-
-Nothing is parsed at boot. `build.rs` rasterises
-`desktop/branding/boswas-os-mark.svg` (360 pixels high) and the printable
-ASCII glyphs of Inter Regular (at 52 pixels) and Inter SemiBold (at 64),
-and embeds them as plain bytes; text is scaled down from those atlases with
-sub-pixel placement and without kerning. Characters outside ASCII are drawn
-as `?`.
+The ring is arithmetic (`ring_arc` in `src/scene.rs`): in each two-second
+cycle the arc's head runs 256 degrees ahead while its tail holds (from 14
+to 270 degrees), then the tail catches up, both runs eased; all the while
+the ring turns steadily by the remaining 104 degrees, so the arc goes round
+exactly once per cycle and cycles join without a seam. The cycle begins as
+the ring fades in, with its shortest arc.
 
 Inter is not in the repository. `build.rs` reads `Inter-Regular.otf` and
 `Inter-SemiBold.otf` from `/usr/share/fonts/opentype/inter`, where the
 Debian package `fonts-inter` installs them; it is a build dependency of the
 Debian package, whose build fails without it
 (`BOSWAS_BOOTSPLASH_REQUIRE_INTER=1` in `debian/rules`). A plain `cargo
-build` on a machine without Inter prints a warning and makes the atlases
-from the repository's brand typeface instead (Orbitron Medium and SemiBold),
-so the crate still builds and its tests pass; `assets::TYPEFACE` says which
-one a build has. `BOSWAS_BOOTSPLASH_INTER_DIR` names another directory to
-take the two Inter files from. Only glyph bitmaps are embedded (Inter is
-under the SIL Open Font License 1.1; `debian/copyright` carries its notice
-and the licence); no font file is installed or copied into the initramfs.
+build` on a machine without Inter prints a warning and takes the outlines
+from the repository's brand typeface instead (Orbitron Medium and
+SemiBold), so the crate still builds and its tests pass; `assets::TYPEFACE`
+says which one a build has. `BOSWAS_BOOTSPLASH_INTER_DIR` names another
+directory to take the two Inter files from. Only glyph outlines, advances
+and kerning are embedded (Inter is under the SIL Open Font License 1.1;
+`debian/copyright` carries its notice and the licence); no font file is
+installed or copied into the initramfs.
 
-| Embedded in the daemon | Bytes | gzip -6 |
+| Embedded in the daemon | Points | Bytes (about) |
 |---|---|---|
-| The mark, 290x360 premultiplied RGBA | 417,600 | 17,191 |
-| Inter Regular, 95 glyphs at 52 pixels | 80,109 | 21,662 |
-| Inter SemiBold, 95 glyphs at 64 pixels | 130,068 | 26,980 |
+| The mark: six paths, their gradients, the geometry of its parts | 1,250 | 10 KB |
+| Inter Regular: 95 glyphs, 1,047 kerning pairs | 6,235 | 64 KB |
+| Inter SemiBold: 95 glyphs, 1,232 kerning pairs | 6,711 | 69 KB |
 
-As packaged (stripped), the two programs together are 1.76 MB in the
-initramfs before compression (the daemon 1.31 MB, the client 0.45 MB) and
-0.61 MB after `gzip -6`. The two font files themselves would add 1.23 MB
-(0.48 MB compressed), which is why the glyphs are built in instead.
+As built with Rust 1.85 and stripped, the two programs together are 1.44 MB
+in the initramfs before compression (the daemon 0.96 MB, the client 0.48
+MB) and 0.71 MB after `gzip -6`. (With the bitmap of the mark and the glyph
+atlases of the previous version they were 1.76 MB and 0.61 MB: coordinates
+compress less well than mostly empty bitmaps.) The two font files
+themselves would add 1.23 MB (0.48 MB compressed). For the tests only,
+`build.rs` also renders the mark with resvg; that rendering is not part of
+the programs.
 
 ## Outputs
 
 | Output | When | Notes |
 |--------|------|-------|
-| DRM/KMS dumb buffers (`src/output/drm.rs`) | A `/dev/dri/card*` with a connected display | No GPU acceleration, no libdrm (the `drm` crate issues the ioctls). Every connected display gets its own buffer and layout. The mode already set is kept when possible; the ring turns at that mode's refresh rate (the fastest display's, 240 frames a second at most). A buffer is filled before it is put on its display and again right after: the first mode-set can empty it (seen with `bochs` after it had replaced the firmware frame buffer; only the ring was visible then). What the display showed before (the kernel console) is put back on hide and quit |
-| Frame buffer (`src/output/fbdev.rs`) | No DRM device, `/dev/fb0` exists | 32 bits per pixel with 8-bit channels, or RGB565. Before every frame the device is asked whether it is still the one that was opened; once it is not (a real driver replaced `efifb` or `vesafb`), nothing more is written into the old mapping and the daemon looks for the new device. It cannot keep a frame for the next program, so `quit --retain` is a plain quit here. Its refresh rate is unknown: the ring turns 60 times a second |
+| DRM/KMS dumb buffers (`src/output/drm.rs`) | A `/dev/dri/card*` with a connected display | No GPU acceleration, no libdrm (the `drm` crate issues the ioctls). Every connected display gets its own buffer and layout. The mode already set is kept when possible; the animation runs at that mode's refresh rate (the fastest display's, 240 frames a second at most). A buffer is filled before it is put on its display and again right after: the first mode-set can empty it (seen with `bochs` after it had replaced the firmware frame buffer; only the ring was visible then). What the display showed before (the kernel console) is put back on hide and quit |
+| Frame buffer (`src/output/fbdev.rs`) | No DRM device, `/dev/fb0` exists | 32 bits per pixel with 8-bit channels, or RGB565. Before every frame the device is asked whether it is still the one that was opened; once it is not (a real driver replaced `efifb` or `vesafb`), nothing more is written into the old mapping and the daemon looks for the new device. It cannot keep a frame for the next program, so `quit --retain` is a plain quit here. Its refresh rate is unknown: frames are drawn 60 times a second. In RGB565 the background's gentle shading is truncated to 5 and 6 bits without dithering of its own and may show bands |
 | Headless (`src/output/headless.rs`) | `--headless=WxH --out=DIR` | For tests and review; frames are saved on request |
 
 Graphics devices change during boot: the firmware frame buffer
@@ -222,7 +319,7 @@ frame is a 16-bit big-endian length and at most 4096 bytes:
 | `ASK prompt` | `PASS passphrase`, when Enter is pressed |
 | `MSG text` | `OK` (empty text clears the line) |
 | `PROGRESS 0..100`, `MODE boot\|shutdown\|reboot`, `HIDE`, `SHOW` | `OK` |
-| `QUIT`, `QUIT RETAIN seconds` | `OK` |
+| `QUIT`, `QUIT RETAIN seconds` | `OK`, once the screen has faded (a fifth of a second; at once without animation or while hidden) |
 | `ROOT /path` | `OK` or `ERR reason` |
 | `SNAPSHOT name` | `OK` (headless output only) |
 
@@ -305,9 +402,11 @@ machine with no display at all waits the eight seconds once per boot, with
 `nomodeset` on the kernel command line no driver will load, and the wait is
 the daemon's default of a second and a half.
 
-`quit --retain` gives up the display and the keyboard but leaves the last
-frame on the display until another program puts its own picture there, for
-six seconds at most. What the user sees then depends on that program:
+`quit --retain` first lets the ring and the text fade (a fifth of a
+second, before it answers, so the next unit starts after it), then gives up
+the display and the keyboard but leaves the last frame, the mark on its
+background, on the display until another program puts its own picture
+there, for six seconds at most. What the user sees then depends on that program:
 
 * The login manager greetd clears the text console of its virtual terminal
   and switches the console to text mode before it starts the login screen's
@@ -378,12 +477,11 @@ cargo build --release --locked      # needs Rust 1.85 (Debian 13) or newer
 
 The crates in `Cargo.lock` are downloaded from crates.io, so the build needs
 network access to it; this also applies to the Debian package build
-(`debian/rules`). `fontdue` is pinned to 0.9.3 because later versions need a
-newer compiler than Debian 13 has. The Inter fonts come from the Debian
-package `fonts-inter` on the build machine (see [How it renders](#how-it-renders)).
+(`debian/rules`). The Inter fonts come from the Debian package
+`fonts-inter` on the build machine (see [How it renders](#how-it-renders)).
 
 Run-time dependencies: `drm`, `rustix`, `libc`, `landlock`, `zeroize`.
-Build-time only: `resvg`, `fontdue`, `serde_json`.
+Build-time only: `resvg` (with `usvg`), `ttf-parser`, `serde_json`.
 
 ## Tests
 
@@ -393,11 +491,11 @@ cargo test --locked
 
 | Where | What |
 |-------|------|
-| Unit tests (`src/`) | Drawing and scaling; the layout on eleven display sizes (everything on the display, in order, on one axis; the mark, the ring and the text box at their sizes); what each screen is made of, with the styles and colours of the token file; the path of a dot and the spacing of the dots; damage (an animation frame only changes the ring, a blink only the caret, typing and the shake only the text box) and that a frame leaves nothing of earlier frames behind; dots, not characters, capped at 24; the rejected-passphrase line and the shake; Caps Lock; hostile text; the passphrase editor and key decoder; the protocol with malformed and random input; both command line dialects; the kernel command line; the frame buffer formats, and that nothing is written to a frame buffer that stopped answering; which rectangles go to a DRM buffer that was just put on its display; the password agent's parser; the lock, and removing files through the open runtime directory; passing graphics devices from supervisor to worker (order, a device directory that is made again, late and missing answers, only device nodes); raw mode put back after a reset of the terminal, a hung-up terminal opened again, how a console run by a graphical session is recognised; and the daemon on a mock display: what it presents for an animation frame, a blink and a shake, when its loop wakes, loss of the display, fallback to the console, recovery, the console settings while shown, hidden and prompting, and the hand-over on `quit --retain`, including a display that another program holds when the time is up |
-| `tests/daemon.rs` | The real programs, headless, with a pseudo-terminal as the console: requests change the picture (message, error, progress, shutdown, restart); the animation stays inside the ring; hostile input; passphrase entry through the client called `plymouth`, with the caret blinking; a rejected passphrase is reported on the unlock screen, and the picture is the same for any passphrase of a length; prompts queue and are withdrawn when a client dies; Escape; raw mode returns after the terminal was reset, and a passphrase typed after a reset is not echoed; launcher, supervisor and worker (a killed worker leaves a restored console and no socket, also when the supervisor's paths no longer lead to them); a second start, and a worker in the foreground, leave a stopped boot screen untouched; `quit` ends a stopped boot screen; the sandbox; the systemd password agent |
+| Unit tests (`src/`) | The rasteriser (exact coverage of whole and partial pixels, total coverage equal to a polygon's area, non-zero winding, clipping, reused buffers); the mark drawn by it against resvg's rendering of the same SVG, at any size and position, and each stage of its assembly (the stem from a disc at its foot, the bowl's sweep in order round its centre, the dot growing and overshooting); the geometry of the mark's parts read from its SVG; flattening (the dot's area to 0.3 %); glyph outlines, kerning, and glyphs covering exactly their outline's area at any size and sub-pixel position; text fitting and fading; the background (flat away from the mark, the same however often it is painted, dithered so that its average follows the exact shade where rounding alone would band); the timing curves of the token file, the intro (in order, eased, ending exactly at rest), the fade-in, breathing, the glide there and back, a progress, the farewell with and without the kept frame, nothing moving with `--static`; the layout on eleven display sizes, portrait included (everything on the display, in order, on one axis; the mark, the ring and the text box at their sizes; the ring close under the mark; the unlock column); what each screen is made of, with the styles and colours of the token file; the ring's arc (both ends always moving clockwise, never jumping, once round a cycle) and a progress filling it from the top; damage (a frame of the ring only changes the ring, a breath only the glow, intro frames only the mark and the ring, the glide only the mark, the ring and the prompt, a blink only the caret, typing and the shake only the text box) and that a frame reached through any others is the frame painted from nothing; the prompt never over the mark during the glide; the fade to the background and the kept frame; the translucent text box over the bloom; dots, not characters, capped at 24; the rejected-passphrase line and the shake; Caps Lock; hostile text; the passphrase editor and key decoder; the protocol with malformed and random input; both command line dialects; the kernel command line; the frame buffer formats, and that nothing is written to a frame buffer that stopped answering; which rectangles go to a DRM buffer that was just put on its display; the password agent's parser; the lock, and removing files through the open runtime directory; passing graphics devices from supervisor to worker (order, a device directory that is made again, late and missing answers, only device nodes); raw mode put back after a reset of the terminal, a hung-up terminal opened again, how a console run by a graphical session is recognised; and the daemon on a mock display: what it presents for a frame of the ring, the intro, the glide in and out of a prompt (and that the loop then rests until the caret), a blink and a shake, a progress, the farewell before `quit` is answered, when its loop wakes, loss of the display, fallback to the console, recovery, the console settings while shown, hidden and prompting, and the hand-over on `quit --retain`, including a display that another program holds when the time is up |
+| `tests/daemon.rs` | The real programs, headless, with a pseudo-terminal as the console: requests change the picture (message, error, progress on the line and the ring, shutdown, restart); the intro stays in the mark's and the ring's rectangles, then the ring (and the glow) in theirs; `quit` is answered after the fade, at once without animation; hostile input; passphrase entry through the client called `plymouth`, with the caret blinking, a prompt that arrives during the intro; a rejected passphrase is reported on the unlock screen, and the picture is the same for any passphrase of a length; prompts queue and are withdrawn when a client dies; Escape; raw mode returns after the terminal was reset, and a passphrase typed after a reset is not echoed; launcher, supervisor and worker (a killed worker leaves a restored console and no socket, also when the supervisor's paths no longer lead to them); a second start, and a worker in the foreground, leave a stopped boot screen untouched; `quit` ends a stopped boot screen; the sandbox; the systemd password agent |
 | `tests/packaging.rs` | The unit files, the initramfs hook and scripts and `debian/rules` as text: the start unit's wait, no file condition on the hand-over, the emergency and rescue drop-ins, the hook copying the DRM drivers, no script behind an option Debian never sets |
 | `tests/askpass.rs` | Debian's real, unmodified `askpass` against the daemon, in a scratch root directory laid out like the initramfs (needs root and the helper; skipped otherwise): passphrase from the boot screen, FIFO next to it, daemon death, console fallback |
-| `tests/perf.rs` | Frame cost and damage size: the ring, the caret, a keystroke, the shake |
+| `tests/perf.rs` | Frame cost and damage size: the first frame, the intro, the ring, a breath of the glow, the glide, the caret, a keystroke, the shake |
 
 The askpass helper is not in this repository. To run that test:
 
@@ -415,10 +513,16 @@ device never contain such an entry.
 
 ## What is verified and what is not
 
-Verified by tests (151 tests, Rust 1.85):
+Verified by tests (187 tests, Rust 1.85 and 1.97, release and unoptimised
+builds; clippy clean):
 
-* rendering, layout and damage, on review frames (looked at, at 1024x768,
-  1366x768, 1920x1080, 2560x1600 and 3840x2160) and in tests;
+* rendering, layout and damage, in tests and on review frames, looked at at
+  1366x768, 1920x1080, 3840x2160 and 1080x1920 (portrait): every state, the
+  intro frame by frame, the ring's cycle, the glide, the fades; the bloom
+  checked for bands with its contrast raised; the motion seen as the
+  animated preview's frames and contact sheets;
+* the vector mark against resvg's rendering of the same SVG, and the
+  coverage of glyphs against their outlines' area;
 * the control protocol, both client dialects, passphrase entry and editing
   through a terminal;
 * the unmodified Debian `askpass` (cryptsetup 2.7.5) obtaining the
@@ -471,6 +575,11 @@ read from inside the machine):
 
 Not verified:
 
+* this version of the picture (vector mark, bloom, ring, intro, glides and
+  fades) in a virtual machine or on a display at all: the boots above were
+  made with the previous one (a bitmap of the mark and a ring of dots). The
+  device layers and the start-up did not change; the hand-over now waits a
+  fifth of a second for the fade before `quit --retain` is answered;
 * any real graphics hardware: i915, amdgpu, radeon, nouveau, hybrid
   graphics, multiple displays, and efifb or vesafb as the frame buffer;
 * that the frame buffer output is seen on a display: the test machine's
@@ -488,7 +597,13 @@ Not verified:
   contains every driver's firmware (41 MB of it for `nouveau` alone); what
   Debian's builds with the firmware packages of the Boswas image has not
   been measured. `MODULES=dep` has not been run;
-* how the animation looks in motion on a real display;
+* how the animation looks in motion on a real display (it has been seen as
+  still frames and as a 25-frames-a-second preview made from them, not at a
+  display's refresh rate), and how long the intro takes to draw on a slow
+  machine with a large, fast display (0.45 s of this machine's processor
+  for the 1.6 s intro at 3840x2160 and 240 frames a second);
+* how the background's shading looks on a 16-bit (RGB565) frame buffer,
+  where it is not dithered;
 * Caps Lock detection on a real virtual console;
 * a real LUKS unlock, in QEMU and on hardware; the shutdown and restart
   screens on a booted system.

@@ -18,6 +18,7 @@ use rustix::event::{poll, PollFd, PollFlags, Timespec};
 use crate::broker;
 use crate::client::DEFAULT_SOCKET;
 use crate::editor::{Key, KeyDecoder, Passphrase};
+use crate::motion::{Choreography, Opening};
 use crate::output::headless::HeadlessOutput;
 use crate::output::{open_display, reopen_display, Output};
 use crate::proto::{self, FrameReader, Request, Response};
@@ -53,8 +54,8 @@ const MAX_ASKS: usize = 8;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Options {
     pub mode: Mode,
-    /// Animate: the ring turns, the caret blinks, a rejected passphrase
-    /// shakes the text box.
+    /// Animate: the intro, the ring, the glides and fades, the caret's
+    /// blink, the shake of the text box after a rejected passphrase.
     pub animate: bool,
     /// Start even if the kernel command line does not ask for a splash.
     pub force: bool,
@@ -270,7 +271,15 @@ pub struct Daemon {
     /// key or a request: shown again as soon as a display is back.
     auto_hidden: bool,
     lost_since: Option<Instant>,
+    /// When the daemon started: the origin of the choreography's clock.
     started: Instant,
+    /// How everything moves (see `motion`).
+    choreo: Choreography,
+    /// A prompt that was answered or withdrawn, shown while it fades out:
+    /// what it asked and how many dots its box showed.
+    fading: Option<(String, usize)>,
+    /// The client that asked the boot screen to quit: answered after the
+    /// farewell, once the screen is what it leaves behind.
     /// When the next animation frame is due.
     next_frame: Instant,
     /// When the console's terminal settings are looked at next.
@@ -281,6 +290,7 @@ pub struct Daemon {
     /// When the text box started shaking, while it does.
     shake_from: Option<Instant>,
     next_probe: Instant,
+    quit_from: Option<u64>,
     quit: Option<Option<u16>>,
     /// Held while this process is the boot screen and no supervisor holds
     /// it (a worker in the foreground).
@@ -459,6 +469,10 @@ impl Daemon {
         probe: Probe,
     ) -> Daemon {
         let now = Instant::now();
+        // The boot screen opens with the mark assembling itself; shutdown
+        // and restart with a short fade-in.
+        let opening = if opts.mode == Mode::Boot { Opening::Intro } else { Opening::FadeIn };
+        let choreo = Choreography::new(opening, opts.animate, 0.0);
         let mut daemon = Daemon {
             mode: opts.mode,
             opts,
@@ -481,6 +495,9 @@ impl Daemon {
             auto_hidden: false,
             lost_since: None,
             started: now,
+            choreo,
+            fading: None,
+            quit_from: None,
             next_frame: now,
             next_console_check: now,
             caret_from: now,
@@ -506,13 +523,10 @@ impl Daemon {
             return;
         }
         let now = Instant::now();
-        // Without animation the ring rests, the caret stays and nothing shakes.
+        let clock = self.clock(now);
+        // Without animation nothing moves: the assembled mark, a still
+        // ring, a caret that stays and a box that does not shake.
         let animate = self.opts.animate;
-        let phase = if animate {
-            (now.duration_since(self.started).as_secs_f32() / scene::SPINNER_SECS).fract()
-        } else {
-            scene::REST_PHASE
-        };
         let caret = !animate || scene::caret_visible(now.duration_since(self.caret_from));
         let shake = match self.shake_from {
             Some(since) if animate => scene::shake_offset(now.duration_since(since)),
@@ -520,18 +534,23 @@ impl Daemon {
         };
         // The view borrows the prompt and the message; nothing is copied for a frame.
         let (passphrase, caps_lock) = (&self.passphrase, self.caps_lock);
+        let asked = self.asks.front().map(|ask| PromptView {
+            text: &ask.prompt,
+            dots: passphrase.chars(),
+            caps_lock,
+            caret,
+            shake,
+        });
+        // An answered prompt fades out with its dots, without a caret.
+        let fading =
+            self.fading.as_ref().map(|(text, dots)| PromptView { dots: *dots, caret: false, ..PromptView::new(text) });
         let view = View {
             mode: self.mode,
-            prompt: self.asks.front().map(|ask| PromptView {
-                text: &ask.prompt,
-                dots: passphrase.chars(),
-                caps_lock,
-                caret,
-                shake,
-            }),
+            prompt: asked.or(fading),
             message: self.message.as_ref().map(|m| (m.text.as_str(), m.tone)),
             progress: self.progress,
-            phase,
+            phase: self.choreo.phase(clock),
+            motion: self.choreo.motion(clock),
         };
         let Some(output) = self.output.as_mut() else { return };
         let mut lost = false;
@@ -587,28 +606,32 @@ impl Daemon {
         !self.asks.is_empty()
     }
 
+    /// Seconds on the choreography's clock at `now`.
+    fn clock(&self, now: Instant) -> f64 {
+        now.saturating_duration_since(self.started).as_secs_f64()
+    }
+
     /// How long the loop may sleep: until the next frame of whatever moves.
     fn timeout(&self) -> Duration {
         if self.output.is_none() {
             return POLL;
         }
-        let moving = self.opts.animate && !self.hidden;
+        let now = Instant::now();
+        let animate = self.opts.animate && !self.hidden;
+        if !animate {
+            return if self.prompting() { POLL } else { Duration::from_millis(500) };
+        }
+        // The intro, the ring, a glide, a fade, a shake: a frame per refresh.
+        if self.choreo.moving(self.clock(now)) || self.shake_from.is_some() {
+            return self.next_frame.saturating_duration_since(now);
+        }
         if self.prompting() {
-            if !moving {
-                return POLL;
-            }
-            if self.shake_from.is_some() {
-                return self.next_frame.saturating_duration_since(Instant::now());
-            }
             // The caret changes every CARET_BLINK; nothing else moves.
             let blink = scene::CARET_BLINK.as_nanos();
             let into = self.caret_from.elapsed().as_nanos() % blink;
             return Duration::from_nanos((blink - into) as u64).min(POLL);
         }
-        if !moving {
-            return Duration::from_millis(500);
-        }
-        self.next_frame.saturating_duration_since(Instant::now())
+        Duration::from_millis(500)
     }
 
     /// The time between animation frames on the display in use.
@@ -622,7 +645,44 @@ impl Daemon {
             self.turn();
         }
         let retain = self.quit.flatten();
+        // Asked to quit (not ended by a signal): fade out, then answer, so
+        // that whoever asked carries on once the screen is what it leaves
+        // behind: the background, or with `retain` the mark alone.
+        if let Some(client) = self.quit_from.take() {
+            // Nothing typed is kept for the fade: a prompt fades out empty.
+            self.passphrase.clear();
+            self.farewell(retain.is_some());
+            self.reply(client, &Response::Ok);
+        }
         self.finish(retain);
+    }
+
+    /// The fade at the end: everything to the background, or (`retain`)
+    /// everything but the mark. A frame per refresh for a fifth of a second;
+    /// nothing when the screen does not animate or is not shown. A
+    /// termination signal cuts it short.
+    fn farewell(&mut self, retain: bool) {
+        self.choreo.leave(retain, self.clock(Instant::now()));
+        if !self.opts.animate || self.hidden || self.output.is_none() {
+            return;
+        }
+        loop {
+            self.render();
+            if self.output.is_none() || self.choreo.left(self.clock(Instant::now())) {
+                break;
+            }
+            let wait = self.next_frame.saturating_duration_since(Instant::now());
+            let spec = Timespec { tv_sec: wait.as_secs() as i64, tv_nsec: wait.subsec_nanos() as _ };
+            let signalled = {
+                let mut fds = [PollFd::new(&self.signals, PollFlags::IN)];
+                poll(&mut fds, Some(&spec)).unwrap_or(0) > 0
+            };
+            if signalled && sys::read_signal(self.signals.as_fd()).is_some() {
+                break;
+            }
+        }
+        // The last frame, complete.
+        self.render();
     }
 
     fn turn(&mut self) {
@@ -701,6 +761,10 @@ impl Daemon {
         }
         if self.shake_from.is_some_and(|since| now.duration_since(since) >= scene::SHAKE) {
             self.shake_from = None;
+        }
+        // An answered prompt is gone once the glide back has hidden it.
+        if self.fading.is_some() && self.choreo.motion(self.clock(now)).reveal <= 0.0 {
+            self.fading = None;
         }
         if let Some(output) = self.output.as_mut() {
             if !output.alive() {
@@ -791,26 +855,31 @@ impl Daemon {
 
     fn drop_client(&mut self, id: u64) {
         self.clients.retain(|c| c.id != id);
-        let was_front = self.asks.front().is_some_and(|ask| ask.client == id);
+        let front = self.asks.front().filter(|ask| ask.client == id).map(|ask| ask.prompt.clone());
         self.asks.retain(|ask| ask.client != id);
-        if was_front {
+        if let Some(prompt) = front {
+            self.fading = Some((prompt, self.passphrase.chars()));
             self.passphrase.clear();
             self.begin_prompt();
         }
     }
 
+    /// The prompt at the front of the queue changed: start it, or, when
+    /// none is left, glide back to the boot screen.
     fn begin_prompt(&mut self) {
         self.passphrase.clear();
         self.shake_from = None;
+        let now = Instant::now();
+        self.choreo.prompt(!self.asks.is_empty(), self.clock(now));
         if self.asks.is_empty() {
             return;
         }
+        self.fading = None;
         // Never read a passphrase from a console that echoes.
         if let Some(console) = self.console.as_mut() {
             console.ensure_raw();
         }
         self.caps_lock = self.console.as_ref().is_some_and(Console::caps_lock);
-        let now = Instant::now();
         self.caret_from = now;
         // The disk-unlock scripts report a rejected passphrase with a
         // message and then ask again: the new prompt opens with a shake.
@@ -860,6 +929,7 @@ impl Daemon {
             }
             Request::Progress(percent) => {
                 self.progress = Some(percent);
+                self.choreo.progress(percent, self.clock(Instant::now()));
                 Some(Response::Ok)
             }
             Request::Mode(mode) => {
@@ -875,8 +945,10 @@ impl Daemon {
                 Some(Response::Ok)
             }
             Request::Quit { retain } => {
+                // Answered after the farewell (see `run`).
                 self.quit = Some(retain);
-                Some(Response::Ok)
+                self.quit_from = Some(client);
+                None
             }
             Request::NewRoot { path } => {
                 // Follow the system to its real root so device nodes stay
@@ -932,6 +1004,7 @@ impl Daemon {
 
     fn finish_prompt(&mut self) {
         let Some(ask) = self.asks.pop_front() else { return };
+        let dots = self.passphrase.chars();
         let response = Response::Password(self.passphrase.take());
         if !self.reply(ask.client, &response) {
             self.drop_client(ask.client);
@@ -941,6 +1014,7 @@ impl Daemon {
         if self.message.as_ref().is_some_and(|m| m.tone == Tone::Error) {
             self.message = None;
         }
+        self.fading = Some((ask.prompt, dots));
         self.begin_prompt();
     }
 
@@ -1246,7 +1320,17 @@ mod tests {
         let mut daemon =
             Daemon::assemble(opts, Box::new(Mock(shared.clone())), Some(console), listener, signals, probe);
         daemon.lost_grace = Duration::ZERO;
+        daemon.settle();
         Rig { daemon, shared, dir, master: std::fs::File::from(master) }
+    }
+
+    impl Daemon {
+        /// Finish the intro and any glide now, as if the screen had been up
+        /// for a while.
+        fn settle(&mut self) {
+            let now = self.clock(Instant::now());
+            self.choreo.settle(now);
+        }
     }
 
     fn console_text(master: &mut std::fs::File) -> String {
@@ -1266,6 +1350,7 @@ mod tests {
         daemon.render();
         assert_eq!(shared.lock().unwrap().presents, 1, "the first frame is presented");
         daemon.asks.push_back(Ask { client: 99, prompt: "Please unlock disk sda3_crypt".into() });
+        daemon.begin_prompt();
 
         // The device disappears (firmware frame buffer replaced by the real driver).
         shared.lock().unwrap().fail_present = true;
@@ -1463,8 +1548,115 @@ mod tests {
         assert!(daemon.timeout() <= frame_interval(None), "the next frame is due within a sixtieth of a second");
         std::thread::sleep(Duration::from_millis(40));
         daemon.render();
-        assert_eq!(shared.lock().unwrap().damage, [layout.spinner]);
+        assert_eq!(shared.lock().unwrap().damage, [layout.ring]);
         assert_eq!(shared.lock().unwrap().presents, 2);
+        drop(daemon);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_intro_draws_the_mark_then_the_ring_in_their_boxes() {
+        let Rig { mut daemon, shared, dir, .. } = rig_with("intro", true);
+        daemon.started = Instant::now(); // a boot screen that has just started
+        let layout = crate::scene::Layout::new(640, 480);
+        daemon.choreo = Choreography::new(Opening::Intro, true, daemon.clock(Instant::now()));
+        daemon.render();
+        assert_eq!(shared.lock().unwrap().damage, [crate::gfx::Rect::new(0, 0, 640, 480)]);
+        let mut frames = 0;
+        let begun = Instant::now();
+        while begun.elapsed() < Duration::from_secs_f32(crate::motion::INTRO) {
+            std::thread::sleep(daemon.timeout());
+            daemon.render();
+            let damage = shared.lock().unwrap().damage.clone();
+            let allowed = layout.mark.union(&layout.ring);
+            assert!(damage.iter().all(|d| allowed.contains(d)), "{damage:?}");
+            frames = shared.lock().unwrap().presents;
+        }
+        assert!(frames > 60, "the intro is drawn a frame per refresh: {frames} frames");
+        drop(daemon);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_prompt_glides_in_and_out_and_then_the_loop_rests() {
+        let Rig { mut daemon, shared, dir, mut master } = rig_with("glide", true);
+        let layout = crate::scene::Layout::new(640, 480);
+        daemon.render();
+        ask(&mut daemon, 7);
+        // The glide: a frame per refresh, of the mark and the prompt.
+        assert!(daemon.timeout() <= frame_interval(None));
+        std::thread::sleep(Duration::from_millis(100));
+        daemon.render();
+        let glide = shared.lock().unwrap().damage.clone();
+        assert!(glide.iter().any(|d| d.intersects(&layout.prompt_mark)), "{glide:?}");
+        // Over: the loop sleeps until the caret is due.
+        std::thread::sleep(Duration::from_secs_f32(crate::motion::GLIDE));
+        daemon.render();
+        let wake = daemon.timeout();
+        assert!(wake > frame_interval(None) && wake <= scene::CARET_BLINK, "{wake:?}");
+        // Answered: the box fades out with its dots, the mark glides back.
+        type_keys(&mut daemon, &mut master, b"abc\r");
+        assert_eq!(
+            daemon.fading.as_ref().map(|(text, dots)| (text.as_str(), *dots)),
+            Some(("Please unlock disk sda3_crypt", 3))
+        );
+        assert!(daemon.timeout() <= frame_interval(None));
+        std::thread::sleep(Duration::from_secs_f32(crate::motion::GLIDE) + Duration::from_millis(20));
+        daemon.tick();
+        assert!(daemon.fading.is_none(), "gone once the boot screen is back");
+        daemon.render();
+        assert!(shared.lock().unwrap().damage.iter().any(|d| d.intersects(&layout.ring)));
+        drop(daemon);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn quitting_fades_out_first_unless_the_screen_is_still() {
+        // Animated: a fifth of a second of frames, the last of them the
+        // background alone; with retain, the mark is left.
+        for retain in [false, true] {
+            let Rig { mut daemon, shared, dir, .. } = rig_with("farewell", true);
+            daemon.render();
+            let before = shared.lock().unwrap().presents;
+            let begun = Instant::now();
+            daemon.farewell(retain);
+            let took = begun.elapsed();
+            assert!(took >= Duration::from_secs_f32(crate::motion::OUTRO) && took < Duration::from_secs(1), "{took:?}");
+            let frames = shared.lock().unwrap().presents - before;
+            assert!(frames >= 6, "{frames} frames");
+            let m = daemon.choreo.motion(daemon.clock(Instant::now()));
+            assert_eq!((m.ring_alpha, m.mark_alpha), (0.0, if retain { 1.0 } else { 0.0 }));
+            drop(daemon);
+            let _ = std::fs::remove_dir_all(dir);
+        }
+        // Still, or hidden: nothing is drawn and nothing waits.
+        let Rig { mut daemon, shared, dir, .. } = rig("farewell-still");
+        daemon.render();
+        let begun = Instant::now();
+        daemon.farewell(false);
+        assert!(begun.elapsed() < Duration::from_millis(50));
+        assert_eq!(shared.lock().unwrap().presents, 1);
+        drop(daemon);
+        let _ = std::fs::remove_dir_all(dir);
+        // `quit` is answered only after the farewell (by `run`).
+        let Rig { mut daemon, dir, .. } = rig("quit-later");
+        assert_eq!(daemon.handle(4, Request::Quit { retain: None }), None);
+        assert_eq!((daemon.quit, daemon.quit_from), (Some(None), Some(4)));
+        drop(daemon);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_reported_progress_glides_on_the_ring() {
+        let Rig { mut daemon, dir, .. } = rig_with("progress", true);
+        assert_eq!(daemon.handle(3, Request::Progress(60)), Some(Response::Ok));
+        let now = daemon.clock(Instant::now());
+        let shown = daemon.choreo.motion(now).ring_progress.unwrap();
+        assert!(shown < 0.3, "it starts from where the ring was: {shown}");
+        assert!(daemon.choreo.moving(now));
+        let later = daemon.clock(Instant::now()) + 1.0;
+        assert_eq!(daemon.choreo.motion(later).ring_progress, Some(0.6));
+        assert_eq!(daemon.progress, Some(60), "and the line under the ring says 60%");
         drop(daemon);
         let _ = std::fs::remove_dir_all(dir);
     }
@@ -1545,6 +1737,7 @@ mod tests {
         daemon.render();
         ask(&mut daemon, 7);
         assert!(daemon.shake_from.is_none(), "a first prompt opens at rest");
+        daemon.settle(); // the glide to the unlock screen is over
         daemon.render();
         let frames = shared.lock().unwrap().presents;
         // Nothing moves until the caret is due to change; the loop wakes for that.
@@ -1581,6 +1774,7 @@ mod tests {
         ask(&mut daemon, 9);
         assert!(daemon.shake_from.is_some(), "the prompt that follows a rejection opens with a shake");
         assert!(daemon.timeout() <= frame_interval(None));
+        daemon.settle();
         daemon.render();
         // Mid-swing the box is redrawn, and nothing but the box.
         daemon.shake_from = Some(Instant::now() - scene::SHAKE / 12);

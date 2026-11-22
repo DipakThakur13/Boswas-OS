@@ -6,10 +6,11 @@ mod common;
 
 use std::os::unix::net::UnixDatagram;
 use std::process::{Command, Stdio};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use boswas_bootsplash::assets;
 use boswas_bootsplash::gfx::Rect;
+use boswas_bootsplash::motion;
 use boswas_bootsplash::proto::{self, Request, Response};
 use boswas_bootsplash::scene::Mode;
 use common::*;
@@ -38,10 +39,10 @@ fn control_requests_change_the_picture() {
     let screen = Rect::new(0, 0, 1280, 720);
     assert_eq!((frame.width, frame.height), (1280, 720));
     assert_eq!(frame.pixel(3, 3), assets::BACKGROUND);
-    // The boot screen: the mark, the ring, and nothing else.
-    assert!(frame.ink(&l.mark) > (l.mark.area() / 6) as usize, "the mark is drawn");
+    // The boot screen: the mark, the ring, and nothing else on the bloom.
+    assert!(frame.ink(&l.mark) > (l.mark.area() / 4) as usize, "the mark is drawn");
     assert!(ring_shown(&frame));
-    assert_eq!(frame.ink(&screen), frame.ink(&l.mark) + frame.ink(&l.spinner), "no wordmark, no text");
+    assert_eq!(frame.ink(&screen), frame.ink(&l.mark) + frame.ink(&l.ring), "no wordmark, no text");
 
     // A message is one line under the ring, and goes away again.
     splash.ok(Request::Message { text: "cryptsetup: sda3_crypt: set up successfully".into() });
@@ -55,25 +56,30 @@ fn control_requests_change_the_picture() {
     splash.ok(Request::Message { text: String::new() });
     assert_eq!(splash.snapshot().ink(&l.boot_message), 0);
 
-    // Progress is a percentage on the same line.
+    // Progress is a percentage on the same line, and the ring shows it.
+    let before = splash.snapshot();
     splash.ok(Request::Progress(60));
-    let percentage = splash.snapshot().ink(&l.boot_message);
+    let frame = splash.snapshot();
+    let percentage = frame.ink(&l.boot_message);
     assert!(percentage > 30 && percentage < message / 3, "three characters, \"60%\": {percentage}");
+    assert_eq!(frame.changed_outside(&before, &[l.ring, l.boot_message]), 0);
+    assert!(frame.changed_outside(&before, &[l.boot_message]) > 50, "the ring changed too");
 
-    // Shutdown: the ring and its line in the middle of the screen, no mark.
+    // Shutdown: the mark, the ring and the status line under it.
     splash.ok(Request::Mode(Mode::Shutdown));
     let frame = splash.snapshot();
     assert!(frame.ink(&l.status) > 200, "shutdown shows its status line");
-    assert!(frame.count(&l.busy_spinner, assets::TEXT) >= 6, "and the ring above it");
-    let drawn = frame.ink(&l.busy_spinner) + frame.ink(&l.status) + frame.ink(&l.busy_message);
+    assert!(frame.count(&l.ring, assets::TEXT) >= 6, "and the ring above it");
+    let drawn = frame.ink(&l.mark) + frame.ink(&l.ring) + frame.ink(&l.status) + frame.ink(&l.busy_message);
     assert_eq!(frame.ink(&screen), drawn, "and nothing else");
-    assert!(frame.ink(&l.busy_spinner) < 200, "five dots, not the mark");
     splash.ok(Request::Mode(Mode::Reboot));
     assert_ne!(splash.snapshot().ink(&l.status), frame.ink(&l.status), "restart says something else");
     splash.ok(Request::Mode(Mode::Boot));
     let frame = splash.snapshot();
-    assert_eq!(frame.ink(&l.status), 0);
-    assert!(frame.ink(&l.mark) > (l.mark.area() / 6) as usize && ring_shown(&frame));
+    // Back to the boot screen: under the ring only the percentage again.
+    assert_eq!(frame.ink(&l.boot_message), percentage);
+    assert_eq!(frame.ink(&screen), frame.ink(&l.mark) + frame.ink(&l.ring) + percentage);
+    assert!(frame.ink(&l.mark) > (l.mark.area() / 4) as usize && ring_shown(&frame));
 
     splash.ok(Request::Quit { retain: None });
     let status = splash.wait_exit(Duration::from_secs(5)).expect("the daemon exits when told to quit");
@@ -83,26 +89,42 @@ fn control_requests_change_the_picture() {
 }
 
 #[test]
-fn the_animation_advances_and_stays_inside_the_ring() {
+fn the_intro_and_the_ring_stay_in_their_boxes() {
+    let started = Instant::now();
     let mut splash = Splash::start("animate", "1024x768", &[]);
-    let ring = splash.snapshot().layout().spinner;
-    assert!(ring.area() < 48 * 48, "the ring is small: {ring:?}");
-    // A second and a half of the ring: whatever changes between two frames
-    // is inside its rectangle, and it does change.
+    let mut last = splash.snapshot();
+    let l = last.layout();
+    assert!(l.ring.area() < 40 * 40, "the ring is small: {:?}", l.ring);
+    let (_, _, glow) = l.mark_pose.glow().unwrap();
+    // The intro: the mark assembles in its box, then the ring fades in.
+    let mut assembling = 0;
+    while started.elapsed() < Duration::from_secs_f32(motion::INTRO) {
+        std::thread::sleep(Duration::from_millis(60));
+        let frame = splash.snapshot();
+        assert_eq!(
+            frame.changed_outside(&last, &[l.mark, l.ring]),
+            0,
+            "the intro stays in the mark's box and the ring's"
+        );
+        assembling += usize::from(!frame.changed(&last).is_empty());
+        last = frame;
+    }
+    assert!(assembling >= 8, "the mark changed in {assembling} frames of the intro");
+    // Then the ring turns: whatever changes between two frames is the ring
+    // (or the glow of the dot breathing), and it does change.
+    std::thread::sleep(Duration::from_millis(100));
     let mut last = splash.snapshot();
     let mut moved = 0;
     for _ in 0..15 {
         std::thread::sleep(Duration::from_millis(100));
         let frame = splash.snapshot();
-        let changed = frame.changed(&last);
-        assert!(ring.contains(&changed), "pixels changed outside the ring: {changed:?}");
-        moved += usize::from(!changed.is_empty());
+        assert_eq!(frame.changed_outside(&last, &[l.ring, glow]), 0, "pixels changed outside the ring and the glow");
+        moved += usize::from(!l.ring.intersect(&frame.changed(&last)).is_empty());
         last = frame;
     }
-    assert!(moved >= 10, "the dots moved in {moved} of 15 frames");
-    // Nothing but the mark and the dots is on screen.
-    let l = last.layout();
-    assert_eq!(last.ink(&Rect::new(0, 0, 1024, 768)), last.ink(&l.mark) + last.ink(&ring));
+    assert!(moved >= 12, "the ring moved in {moved} of 15 frames");
+    // Nothing but the mark and the ring is on the background.
+    assert_eq!(last.ink(&Rect::new(0, 0, 1024, 768)), last.ink(&l.mark) + last.ink(&l.ring));
 }
 
 #[test]
@@ -162,8 +184,15 @@ fn passphrase_through_the_plymouth_compatible_client() {
     assert!(frame.ink(&l.detail) > 100, "the name of the disk is shown");
     assert!(frame.count(&l.text_box, assets::ACCENT) > 600, "the text box has the accent line of a focused control");
     assert!(frame.ink(&l.prompt_line) > 100, "the hint is shown");
-    assert!(frame.ink(&l.mark) > (l.mark.area() / 6) as usize, "the mark stays");
-    assert_eq!(frame.ink(&l.spinner), 0, "the ring gives way to the prompt");
+    // The prompt came during the intro, which goes on: once it is over, the
+    // whole mark is above the prompt.
+    std::thread::sleep(Duration::from_secs_f32(motion::INTRO));
+    let later = splash.snapshot();
+    assert!(later.ink(&l.prompt_mark) > (l.prompt_mark.area() / 4) as usize, "the mark, above the prompt");
+    assert_eq!(later.changed_outside(&frame, &[l.prompt_mark, l.field]), 0, "and nothing else moved");
+    // (The text box covers part of where the ring was; with nothing typed
+    // nothing of it is white.)
+    assert_eq!(frame.count(&l.ring, assets::TEXT), 0, "the ring gives way to the prompt");
     assert!(matches!(frame.typed(), Some((0, _))), "an empty box: {:?}", frame.typed());
 
     // Typing shows dots, never characters; editing keys work.
@@ -655,6 +684,22 @@ fn quit_with_retain_falls_back_to_a_normal_quit_without_a_display_to_keep() {
 }
 
 #[test]
+fn quit_is_answered_once_the_screen_has_faded() {
+    // Animated, the screen fades for a fifth of a second before `quit` is
+    // answered (and before a kept frame is handed over); still, at once.
+    for (extra, shortest, longest) in [(&[][..], 0.18, 2.0), (&["--static"][..], 0.0, 0.15)] {
+        let mut splash = Splash::start("farewell", "800x600", extra);
+        std::thread::sleep(Duration::from_secs_f32(motion::INTRO));
+        let begun = Instant::now();
+        splash.ok(Request::Quit { retain: None });
+        let took = begun.elapsed().as_secs_f32();
+        assert!(took >= shortest && took < longest, "{extra:?}: answered after {took} s");
+        assert!(splash.wait_exit(Duration::from_secs(5)).expect("it exits").success());
+        assert!(splash.pty.cooked(), "and the console is back");
+    }
+}
+
+#[test]
 fn the_sandbox_denies_what_it_should() {
     let output = Command::new(DAEMON).arg("--self-test").output().unwrap();
     let report = String::from_utf8_lossy(&output.stdout);
@@ -674,7 +719,10 @@ fn the_sandbox_denies_what_it_should() {
             assert!(report.contains("landlock: partial"), "{report}");
             assert!(report.contains("reading files outside the sandbox denied: yes"), "{report}");
             assert!(report.contains("creating files outside the sandbox denied: yes"), "{report}");
-            assert!(report.contains("TCP connections denied: no (this kernel's Landlock has no network rules)"), "{report}");
+            assert!(
+                report.contains("TCP connections denied: no (this kernel's Landlock has no network rules)"),
+                "{report}"
+            );
             eprintln!("TCP not checked: this kernel's Landlock has no network rules\n{report}");
         }
         other => panic!("sandbox self-test failed ({other:?}):\n{report}"),

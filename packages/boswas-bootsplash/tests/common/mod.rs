@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
 use boswas_bootsplash::assets;
+use boswas_bootsplash::backdrop::Backdrop;
 use boswas_bootsplash::client;
 use boswas_bootsplash::gfx::{Rect, Rgb};
 use boswas_bootsplash::proto::{self, Request, Response};
@@ -91,6 +92,8 @@ pub struct Frame {
     pub width: u32,
     pub height: u32,
     pub rgb: Vec<u8>,
+    /// The background the boot screen paints at this size.
+    pub backdrop: Backdrop,
 }
 
 impl Frame {
@@ -109,7 +112,8 @@ impl Frame {
         let (width, height) = (fields[1].parse().unwrap(), fields[2].parse().unwrap());
         let rgb = data[pos..].to_vec();
         assert_eq!(rgb.len(), (width * height * 3) as usize);
-        Frame { width, height, rgb }
+        let backdrop = Layout::new(width, height).backdrop();
+        Frame { width, height, rgb, backdrop }
     }
 
     pub fn pixel(&self, x: i32, y: i32) -> Rgb {
@@ -130,27 +134,37 @@ impl Frame {
         n
     }
 
-    /// Number of pixels inside `rect` that are not background. Text is
-    /// counted this way: its thin strokes rarely cover a whole pixel, so
-    /// few of its pixels have exactly the text colour.
+    /// Number of pixels inside `rect` that are not the background (the
+    /// boot screen's background is a bloom; the library says what it is at
+    /// each pixel). Text is counted this way: its thin strokes rarely cover
+    /// a whole pixel, so few of its pixels have exactly the text colour.
     pub fn ink(&self, rect: &Rect) -> usize {
-        rect.area() as usize - self.count(rect, assets::BACKGROUND)
+        let mut n = 0;
+        for y in rect.y..rect.bottom() {
+            for x in rect.x..rect.right() {
+                n += usize::from(self.pixel(x, y) != self.backdrop.pixel(x, y));
+            }
+        }
+        n
     }
 
     /// Number of pixels inside `rect` drawn in `colour` over the background
     /// at a third of full coverage or more (every channel is the same mix
-    /// of the two): tells a hue from white or grey text.
+    /// of the two): tells a hue from white or grey text. Channels in which
+    /// the colour and the background are close tell nothing.
     pub fn tinted(&self, rect: &Rect, colour: Rgb) -> usize {
-        let bg = assets::BACKGROUND;
-        let share = |p: u8, bg: u8, c: u8| (p as f32 - bg as f32) / (c as f32 - bg as f32);
         let mut n = 0;
         for y in rect.y..rect.bottom() {
             for x in rect.x..rect.right() {
-                let p = self.pixel(x, y);
-                let shares = [share(p.r, bg.r, colour.r), share(p.g, bg.g, colour.g), share(p.b, bg.b, colour.b)];
+                let (p, bg) = (self.pixel(x, y), self.backdrop.pixel(x, y));
+                let shares: Vec<f32> = [(p.r, bg.r, colour.r), (p.g, bg.g, colour.g), (p.b, bg.b, colour.b)]
+                    .into_iter()
+                    .filter(|&(_, bg, c)| (c as i32 - bg as i32).abs() >= 40)
+                    .map(|(p, bg, c)| (p as f32 - bg as f32) / (c as f32 - bg as f32))
+                    .collect();
                 let low = shares.iter().copied().fold(1.0, f32::min);
                 let high = shares.iter().copied().fold(0.0, f32::max);
-                n += usize::from(low >= 0.33 && high <= 1.02 && high - low <= 0.06);
+                n += usize::from(shares.len() >= 2 && low >= 0.33 && high <= 1.02 && high - low <= 0.06);
             }
         }
         n
@@ -173,15 +187,27 @@ impl Frame {
         Layout::new(self.width, self.height)
     }
 
-    /// Whether the unlock screen is shown: the fill of its text box.
+    /// Whether the unlock screen is shown, the glide to it over: the accent
+    /// line of its text box, in place and fully faded in.
     pub fn prompt_shown(&self) -> bool {
-        self.count(&self.layout().text_box, assets::FIELD_FILL) > 500
+        self.count(&self.layout().text_box, assets::ACCENT) > 300
     }
 
-    /// Whether the ring of the boot screen is shown: at least one of its
-    /// dots, fully faded in. (While it turns there are moments without one.)
+    /// Whether the ring of the boot screen is shown: its arc, fully faded in.
     pub fn ring_shown(&self) -> bool {
-        self.count(&self.layout().spinner, assets::TEXT) >= 6
+        self.count(&self.layout().ring, assets::TEXT) >= 6
+    }
+
+    /// Number of pixels that differ from `other` outside all of `allowed`.
+    pub fn changed_outside(&self, other: &Frame, allowed: &[Rect]) -> usize {
+        let mut n = 0;
+        for y in 0..self.height as i32 {
+            for x in 0..self.width as i32 {
+                let inside = allowed.iter().any(|r| r.contains(&Rect::new(x, y, 1, 1)));
+                n += usize::from(!inside && self.pixel(x, y) != other.pixel(x, y));
+            }
+        }
+        n
     }
 
     /// How many dots the text box shows, and whether its caret is visible.

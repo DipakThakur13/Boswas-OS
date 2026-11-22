@@ -112,17 +112,20 @@ fn main() {
     // whatever lies beneath: a colour and two opacities.
     let layer = |group: &str| {
         let colour = tokens[group]["dark"]["color"].as_str().unwrap_or_else(|| panic!("token {group}.dark.color"));
-        assert!(colour == "white", "{group}.dark.color is {colour}: the dark theme's state layers are white");
         let opacity = tokens[group]["dark"]["control"].as_f64().unwrap_or_else(|| panic!("token {group}.dark.control"));
         assert!((0.0..=1.0).contains(&opacity), "{group}.dark.control: {opacity}");
-        opacity
+        (colour, opacity)
     };
-    let (fill, stroke) = (layer("fill"), layer("stroke"));
+    let ((fill_colour, fill), (stroke_colour, stroke)) = (layer("fill"), layer("stroke"));
+    assert_eq!(fill_colour, stroke_colour, "the fill and the outline of a control are layers of one colour");
+    let (r, g, b) = token_colour(&tokens, fill_colour);
     writeln!(
         code,
-        "/// Boswas UI token `fill.dark.control`: the fill of a control, white at this opacity.\n\
+        "/// Boswas UI token `fill.dark.color` (`{fill_colour}`): the colour of the state layers of controls.\n\
+         pub const CONTROL_LAYER: Rgb = Rgb::new({r}, {g}, {b});\n\
+         /// Boswas UI token `fill.dark.control`: the fill of a control, as an opacity of the layer colour.\n\
          pub const FILL_CONTROL: f32 = {fill};\n\
-         /// Boswas UI token `stroke.dark.control`: the outline of a control, white at this opacity.\n\
+         /// Boswas UI token `stroke.dark.control`: the outline of a control, as an opacity of the layer colour.\n\
          pub const STROKE_CONTROL: f32 = {stroke};"
     )
     .unwrap();
@@ -281,7 +284,8 @@ impl Flattener {
         for i in 1..=n {
             let t = i as f32 / n as f32;
             let u = 1.0 - t;
-            let at = |k: usize| u * u * u * p0[k] + 3.0 * u * u * t * c1[k] + 3.0 * u * t * t * c2[k] + t * t * t * p[k];
+            let at =
+                |k: usize| u * u * u * p0[k] + 3.0 * u * u * t * c1[k] + 3.0 * u * t * t * c2[k] + t * t * t * p[k];
             self.line_to(if i == n { p } else { [at(0), at(1)] });
         }
     }
@@ -352,8 +356,12 @@ fn outline_code(points: &[[f32; 2]], ends: &[usize], decimals: usize) -> String 
         write!(s, "{e},").unwrap();
     }
     let b = bounds(points);
-    write!(s, "], bounds: [{:.*}, {:.*}, {:.*}, {:.*}] }}", decimals, b[0], decimals, b[1], decimals, b[2], decimals, b[3])
-        .unwrap();
+    write!(
+        s,
+        "], bounds: [{:.*}, {:.*}, {:.*}, {:.*}] }}",
+        decimals, b[0], decimals, b[1], decimals, b[2], decimals, b[3]
+    )
+    .unwrap();
     s
 }
 
@@ -408,7 +416,9 @@ fn collect_paths(group: &usvg::Group, shapes: &mut Vec<MarkShape>, tolerance: f3
                 let Some(fill) = path.fill() else { continue };
                 assert!(fill.rule() == usvg::FillRule::NonZero, "the mark's paths use the non-zero fill rule");
                 let (part, paint) = match fill.paint() {
-                    usvg::Paint::Color(c) => ("Other", format!("Paint::Solid(Rgb::new({}, {}, {}))", c.red, c.green, c.blue)),
+                    usvg::Paint::Color(c) => {
+                        ("Other", format!("Paint::Solid(Rgb::new({}, {}, {}))", c.red, c.green, c.blue))
+                    }
                     usvg::Paint::LinearGradient(g) => {
                         assert!(g.transform().is_identity(), "{}: gradients in the mark have no transform", g.id());
                         (
@@ -482,10 +492,10 @@ fn mark(code: &mut String, out: &Path, svg: &Path) {
     assert!(!shapes.is_empty(), "{}: no filled paths", svg.display());
 
     let ink = shapes.iter().map(|s| bounds(&s.points)).reduce(union).unwrap();
-    let part_bounds = |part: &str| {
-        shapes.iter().filter(|s| s.part == part).map(|s| bounds(&s.points)).reduce(union)
-    };
-    let part_points = |part: &str| shapes.iter().filter(|s| s.part == part).flat_map(|s| s.points.iter().copied());
+    let part_bounds =
+        |part: &'static str| shapes.iter().filter(|s| s.part == part).map(|s| bounds(&s.points)).reduce(union);
+    let part_points =
+        |part: &'static str| shapes.iter().filter(move |s| s.part == part).flat_map(|s| s.points.iter().copied());
 
     // The stem rises from its foot: the points of its upper half move down
     // by up to the length of its straight middle, which leaves a disc.
@@ -513,9 +523,15 @@ fn mark(code: &mut String, out: &Path, svg: &Path) {
     });
     let dot = part_bounds("Dot").map(|b| ([(b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0], (b[2] - b[0]) / 2.0));
 
-    writeln!(code, "\n/// The official Boswas OS mark (`desktop/branding/boswas-os-mark.svg`), as vector geometry.").unwrap();
-    writeln!(code, "pub static MARK: Mark = Mark {{\n    view: {:?},\n    ink: {:?},\n    shapes: &[", size.width(), ink)
+    writeln!(code, "\n/// The official Boswas OS mark (`desktop/branding/boswas-os-mark.svg`), as vector geometry.")
         .unwrap();
+    writeln!(
+        code,
+        "pub static MARK: Mark = Mark {{\n    view: {:?},\n    ink: {:?},\n    shapes: &[",
+        size.width(),
+        ink
+    )
+    .unwrap();
     let mut previous: Option<&MarkShape> = None;
     for shape in &shapes {
         let same = previous.is_some_and(|p| p.points == shape.points && p.ends == shape.ends && p.part == shape.part);
@@ -593,16 +609,22 @@ fn kerning(face: &ttf_parser::Face, glyphs: &[(u8, ttf_parser::GlyphId)]) -> Vec
                 for subtable in lookup.subtables.into_iter::<PositioningSubtable>() {
                     let PositioningSubtable::Pair(pair) = subtable else { continue };
                     let Some(covered) = pair.coverage().get(first) else { continue };
+                    // The first subtable that applies to the pair is used:
+                    // a list of pairs applies when it names the second
+                    // glyph, a class table whenever it covers the first.
                     let value = match pair {
                         PairAdjustment::Format1 { sets, .. } => {
-                            sets.get(covered).and_then(|set| set.get(second)).map(|v| v.0.x_advance)
+                            match sets.get(covered).and_then(|set| set.get(second)) {
+                                Some(values) => values.0.x_advance,
+                                None => continue,
+                            }
                         }
                         PairAdjustment::Format2 { classes, matrix, .. } => {
-                            matrix.get((classes.0.get(first), classes.1.get(second))).map(|v| v.0.x_advance)
+                            matrix.get((classes.0.get(first), classes.1.get(second))).map_or(0, |v| v.0.x_advance)
                         }
                     };
-                    adjust += i32::from(value.unwrap_or(0));
-                    break; // the first subtable that covers the glyph applies
+                    adjust += i32::from(value);
+                    break;
                 }
             }
             if adjust != 0 {
@@ -622,7 +644,9 @@ fn face(code: &mut String, name: &str, path: &Path, largest_px: f32) {
     let tolerance = FLATNESS_PX * em / largest_px; // in font units
     let glyphs: Vec<(u8, ttf_parser::GlyphId)> = (FIRST_CHAR..=LAST_CHAR)
         .map(|ch| {
-            let id = face.glyph_index(ch as char).unwrap_or_else(|| panic!("{}: no glyph for {:?}", path.display(), ch as char));
+            let id = face
+                .glyph_index(ch as char)
+                .unwrap_or_else(|| panic!("{}: no glyph for {:?}", path.display(), ch as char));
             (ch, id)
         })
         .collect();
@@ -633,7 +657,8 @@ fn face(code: &mut String, name: &str, path: &Path, largest_px: f32) {
         face.outline_glyph(id, &mut flat);
         let (points, ends) = flat.finish();
         let points: Vec<[f32; 2]> = points.iter().map(|p| [p[0] / em, p[1] / em]).collect();
-        writeln!(table, "        Glyph {{ advance: {advance:.5}, outline: {} }},", outline_code(&points, &ends, 5)).unwrap();
+        writeln!(table, "        Glyph {{ advance: {advance:.5}, outline: {} }},", outline_code(&points, &ends, 5))
+            .unwrap();
     }
     let mut kerns = String::new();
     for (left, right, adjust) in kerning(&face, &glyphs) {

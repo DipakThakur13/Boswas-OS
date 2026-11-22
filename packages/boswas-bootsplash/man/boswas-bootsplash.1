@@ -42,8 +42,8 @@ is still shown, its text box shakes briefly. Without text, the line is
 cleared.
 .TP
 .BI progress " PERCENT"
-Report boot progress, 0 to 100. It is shown as a percentage on the message
-line under the ring.
+Report boot progress, 0 to 100. The ring then fills to it, from the top,
+and the message line under the ring shows the percentage.
 .TP
 .BR mode " " boot | shutdown | reboot
 Switch between the boot, shutdown and restart screens.
@@ -55,11 +55,14 @@ Give the display back to the text console. The Escape key does the same.
 Take the display again.
 .TP
 .BR quit " [" \-\-retain [=\fISECONDS\fR]]
-End the boot screen and restore the text console. With
+End the boot screen and restore the text console. The boot screen fades
+out first, for a fifth of a second, and answers when it has; without
+animation it answers at once. With
 .BR \-\-retain ,
-the boot screen gives up the display and the keyboard at once, but its last
-frame stays on the display until another program puts its own picture
-there, for at most
+only the ring and the text fade, and the boot screen then gives up the
+display and the keyboard, but its last frame (the mark on its background)
+stays on the display until another program puts its own picture there, for
+at most
 .I SECONDS
 (default 6). A login manager that clears the text console before it starts
 the login screen (greetd does) replaces the frame with that empty console;
