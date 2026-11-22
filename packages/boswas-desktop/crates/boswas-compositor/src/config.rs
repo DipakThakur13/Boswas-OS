@@ -109,13 +109,18 @@ pub struct OutputSettings {
     /// `false` turns the output off.
     pub enabled: Option<bool>,
     /// `WIDTHxHEIGHT` or `WIDTHxHEIGHT@HZ`, one of the modes the output
-    /// offers; anything else keeps the preferred mode.
+    /// offers (without a rate, the highest it offers at that size); anything
+    /// else keeps the default: the monitor's native size at its highest
+    /// refresh rate.
     pub mode: Option<String>,
     pub scale: Option<f64>,
     /// Position of the top-left corner on the desktop, in logical pixels.
     pub position: Option<[i32; 2]>,
     /// `normal`, `90`, `180` or `270`.
     pub rotation: Option<String>,
+    /// Variable refresh rate (adaptive sync, FreeSync, G-SYNC Compatible)
+    /// where the monitor and its driver offer it. Off unless `true`.
+    pub adaptive_sync: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -727,6 +732,30 @@ mod tests {
         assert_eq!((external.scale, external.mode.clone(), external.rotation.clone(), external.position), (None, None, None, None));
         assert!(!c.outputs.contains_key("bad name!"));
         assert_eq!(warnings.len(), 5, "{warnings:?}");
+    }
+
+    #[test]
+    fn adaptive_sync_is_off_unless_asked_for_and_layers_like_the_other_output_keys() {
+        assert_eq!(Config::default().outputs.get("DP-1").and_then(|o| o.adaptive_sync), None);
+        let parsed = Config::from_toml("[outputs.DP-1]\nadaptive_sync = true\n").unwrap();
+        assert_eq!(parsed.outputs["DP-1"].adaptive_sync, Some(true));
+        assert_eq!(parsed.outputs["DP-1"].mode, None, "nothing else of the output is set by it");
+
+        let dir = tempfile::tempdir().unwrap();
+        // The administrator turns it on for one monitor; the user's file
+        // changes another key of that monitor and turns it off on a second.
+        let admin = file(dir.path(), "admin.toml", "[outputs.DP-1]\nadaptive_sync = true\n[outputs.DP-2]\nadaptive_sync = true\n");
+        let user = file(dir.path(), "user.toml", "[outputs.DP-1]\nscale = 1.25\n[outputs.DP-2]\nadaptive_sync = false\n");
+        let (c, warnings) = Config::load_from(&[&admin], Some(&user));
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!((c.outputs["DP-1"].adaptive_sync, c.outputs["DP-1"].scale), (Some(true), Some(1.25)));
+        assert_eq!(c.outputs["DP-2"].adaptive_sync, Some(false), "the user's file has the last word");
+
+        // A value that is not true or false rejects the file, as any wrong kind does.
+        let wrong = file(dir.path(), "wrong.toml", "[outputs.DP-1]\nadaptive_sync = \"yes\"\nscale = 2.0\n");
+        let (c, warnings) = Config::load_from(&[&admin], Some(&wrong));
+        assert_eq!((c.outputs["DP-1"].adaptive_sync, c.outputs["DP-1"].scale), (Some(true), None));
+        assert!(warnings.iter().any(|w| w.contains("wrong.toml")), "{warnings:?}");
     }
 
     #[test]

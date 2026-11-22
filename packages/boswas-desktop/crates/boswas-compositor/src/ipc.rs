@@ -331,6 +331,8 @@ impl Boswas {
 
     /// The outputs of the desktop. Outputs that are connected but turned
     /// off are listed too (`enabled: false`), so Settings can turn them on.
+    /// `preferred` marks the mode used without a `mode` setting: the
+    /// monitor's native size at its highest refresh rate.
     pub fn outputs_json(&self) -> Value {
         let mut outputs: Vec<Value> = self
             .space
@@ -365,6 +367,7 @@ impl Boswas {
                     "scale": output.current_scale().fractional_scale(),
                     "rotation": rotation,
                     "mode": current.map(|m| json!({ "width": m.size.w, "height": m.size.h, "refresh": m.refresh })),
+                    "adaptive_sync": adaptive_sync_json(crate::backend::AdaptiveSync::of(output)),
                     "modes": modes.iter().map(|m| json!({
                         "width": m.size.w,
                         "height": m.size.h,
@@ -631,5 +634,29 @@ impl Boswas {
             Err(error) => json!({ "id": request.request_id, "ok": false, "error": error }),
         };
         self.ipc_send(request.connection, &reply);
+    }
+}
+
+/// How the `outputs` command reports an output's variable refresh rate.
+fn adaptive_sync_json(sync: crate::backend::AdaptiveSync) -> Value {
+    json!({ "supported": sync.supported, "enabled": sync.enabled })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backend::AdaptiveSync;
+
+    #[test]
+    fn adaptive_sync_is_reported_as_whether_it_is_offered_and_whether_it_is_on() {
+        assert_eq!(adaptive_sync_json(AdaptiveSync::default()), json!({ "supported": false, "enabled": false }));
+        assert_eq!(
+            adaptive_sync_json(AdaptiveSync { supported: true, enabled: false }),
+            json!({ "supported": true, "enabled": false })
+        );
+        assert_eq!(
+            adaptive_sync_json(AdaptiveSync { supported: true, enabled: true }),
+            json!({ "supported": true, "enabled": true })
+        );
     }
 }

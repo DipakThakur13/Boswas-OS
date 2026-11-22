@@ -14,7 +14,7 @@ pub mod udev;
 #[cfg(feature = "winit")]
 pub mod winit;
 
-use std::{io::BufWriter, path::Path};
+use std::{cell::Cell, io::BufWriter, path::Path, time::Duration};
 
 use smithay::{
     backend::{
@@ -35,6 +35,47 @@ use crate::{
     shell::element::WindowElement,
     state::Boswas,
 };
+
+/// The refresh rate an output is taken to have when it reports none.
+pub const FALLBACK_REFRESH: i32 = 60_000;
+
+/// The time one refresh of a mode takes (`millihertz`; nonsense rates count
+/// as [`FALLBACK_REFRESH`]). Frame pacing, idle frame callbacks and the
+/// presentation feedback all use this, so nothing assumes 60 Hz.
+pub fn refresh_interval(millihertz: i32) -> Duration {
+    let millihertz = if (1_000..=1_000_000).contains(&millihertz) { millihertz } else { FALLBACK_REFRESH };
+    Duration::from_nanos(1_000_000_000_000 / millihertz as u64)
+}
+
+/// The refresh interval of an output's current mode.
+pub fn output_refresh_interval(output: &Output) -> Duration {
+    refresh_interval(output.current_mode().map_or(FALLBACK_REFRESH, |mode| mode.refresh))
+}
+
+/// Variable refresh rate (adaptive sync) of an output, as the `outputs`
+/// command reports it: whether the monitor and its driver offer it, and
+/// whether it is on (`[outputs.NAME] adaptive_sync`). Kept with the output,
+/// so the report does not need the backend.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct AdaptiveSync {
+    pub supported: bool,
+    pub enabled: bool,
+}
+
+impl AdaptiveSync {
+    /// What was recorded for `output` (nothing: not supported).
+    pub fn of(output: &Output) -> Self {
+        output.user_data().get::<Cell<AdaptiveSync>>().map(Cell::get).unwrap_or_default()
+    }
+
+    /// Records what `output` offers and does now.
+    pub fn record(self, output: &Output) {
+        output.user_data().insert_if_missing(|| Cell::new(AdaptiveSync::default()));
+        if let Some(cell) = output.user_data().get::<Cell<AdaptiveSync>>() {
+            cell.set(self);
+        }
+    }
+}
 
 /// The running backend. While a backend renders it is taken out of the
 /// state (leaving `None`), so rendering can borrow the rest of the state.
@@ -324,5 +365,44 @@ where
             write_png(&request.path, size.w as u32, size.h as u32, rgba, false)?;
             Ok(serde_json::json!({ "path": request.path, "width": size.w, "height": size.h }))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_refresh_lasts_as_long_as_the_mode_says() {
+        assert_eq!(refresh_interval(60_000), Duration::from_nanos(16_666_666));
+        assert_eq!(refresh_interval(144_000), Duration::from_nanos(6_944_444));
+        assert_eq!(refresh_interval(239_757), Duration::from_nanos(4_170_889));
+        assert_eq!(refresh_interval(1_000_000), Duration::from_millis(1));
+        // A rate no display has is taken as 60 Hz, never as an endless or
+        // zero-length refresh.
+        for nonsense in [0, -60_000, 999, 1_000_001, i32::MAX] {
+            assert_eq!(refresh_interval(nonsense), refresh_interval(FALLBACK_REFRESH), "{nonsense}");
+        }
+    }
+
+    #[test]
+    fn adaptive_sync_is_kept_with_its_output() {
+        let output = Output::new(
+            "DP-1".into(),
+            smithay::output::PhysicalProperties {
+                size: (0, 0).into(),
+                subpixel: smithay::output::Subpixel::Unknown,
+                make: "Test".into(),
+                model: "Test".into(),
+            },
+        );
+        assert_eq!(AdaptiveSync::of(&output), AdaptiveSync::default(), "nothing recorded: not supported");
+        AdaptiveSync { supported: true, enabled: true }.record(&output);
+        assert_eq!(AdaptiveSync::of(&output), AdaptiveSync { supported: true, enabled: true });
+        AdaptiveSync { supported: true, enabled: false }.record(&output);
+        assert_eq!(AdaptiveSync::of(&output), AdaptiveSync { supported: true, enabled: false });
+        assert_eq!(output_refresh_interval(&output), refresh_interval(FALLBACK_REFRESH), "no mode yet");
+        output.change_current_state(Some(smithay::output::Mode { size: (2560, 1440).into(), refresh: 165_000 }), None, None, None);
+        assert_eq!(output_refresh_interval(&output), Duration::from_nanos(6_060_606));
     }
 }

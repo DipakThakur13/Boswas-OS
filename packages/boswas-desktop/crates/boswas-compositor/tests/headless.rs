@@ -352,6 +352,9 @@ fn the_public_control_socket_is_limited() {
     assert_eq!(outputs[0]["name"], "HEADLESS-1");
     assert_eq!((outputs[0]["width"].as_i64(), outputs[0]["height"].as_i64()), (Some(800), Some(600)));
     assert_eq!(outputs[0]["modes"][0]["preferred"], true);
+    assert_eq!(outputs[0]["mode"]["refresh"], 60_000, "60 Hz without --headless-refresh");
+    // The headless output has no variable refresh rate to offer.
+    assert_eq!(outputs[0]["adaptive_sync"], json!({ "supported": false, "enabled": false }));
     // Starting the capture screen is allowed (the user confirms there);
     // without a shell there is nobody to show it, and nothing is captured.
     control.ok(json!({"cmd": "capture"}));
