@@ -1,12 +1,14 @@
 # Boswas OS boot menu theme (GRUB, live/installer ISO).
 # Background: splash.png, rendered at build time from
 # desktop/branding/boot-splash.svg (800x600; the menu panel spans y 282-532).
-# Only the Unifont font is available on the ISO.
+# Only the Unifont font is available on the ISO. Colours are Boswas UI tokens
+# (desktop/ui/tokens.json), like the boot screen: neutral.950 background,
+# neutral.50 text, neutral.400 for the other entries, azure for the selection.
 desktop-image: "../splash.png"
-desktop-color: "#0B1220"
+desktop-color: "#18171C"
 title-text: ""
 message-font: "Unifont Regular 16"
-message-color: "#E8EEF6"
+message-color: "#F3F3F5"
 terminal-font: "Unifont Regular 16"
 
 + boot_menu {
@@ -15,9 +17,9 @@ terminal-font: "Unifont Regular 16"
 	width = 70%
 	height = 38%
 	item_font = "Unifont Regular 16"
-	item_color = "#8A97B0"
+	item_color = "#9F9EAA"
 	selected_item_font = "Unifont Regular 16"
-	selected_item_color = "#EBC786"
+	selected_item_color = "#8FC2FF"
 	item_height = 20
 	item_padding = 4
 	item_spacing = 6
@@ -34,10 +36,10 @@ terminal-font: "Unifont Regular 16"
 	width = 60%
 	height = 16
 	font = "Unifont Regular 16"
-	text_color = "#E8EEF6"
-	fg_color = "#D9B26E"
-	bg_color = "#14243A"
-	border_color = "#EBC786"
+	text_color = "#F3F3F5"
+	fg_color = "#2F7FF0"
+	bg_color = "#2C2B32"
+	border_color = "#5CA3FF"
 	text = "@TIMEOUT_NOTIFICATION_LONG@"
 }
 
@@ -48,6 +50,6 @@ terminal-font: "Unifont Regular 16"
 	height = 20
 	text = "@KEYMAP_SHORT@"
 	align = "center"
-	color = "#8A97B0"
+	color = "#9F9EAA"
 	font = "Unifont Regular 16"
 }

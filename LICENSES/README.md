@@ -46,7 +46,6 @@ tests and documentation), and the `boswas-*` packages built from it:
 | Lato typeface (Debian `fonts-lato`) | SIL Open Font License 1.1 | Rendered into raster artwork (secondary text); installed as a Debian package |
 | Inter typeface (Debian `fonts-inter`, © 2016 The Inter Project Authors) | SIL Open Font License 1.1 | The Boswas UI typeface, installed as a Debian package. In addition, bitmaps of the printable ASCII glyphs of Inter Regular and Inter SemiBold are built into `boswas-bootsplashd` at build time (`fonts-inter` is a build dependency of `boswas-bootsplash`); no font file is in this repository or in that package. The notice and the licence are in the package's copyright file |
 | live-build, debootstrap, Debian Installer, GRUB, shim | Their Debian licences | Unmodified build tooling and boot components |
-| potrace | GPL-2.0-or-later | One-time tracing tool for the Boswas OS mark (not shipped) |
 | fontTools (Debian `python3-fonttools`) | MIT | One-time tool that outlines the Orbitron wordmarks (not shipped) |
 | Rust crates named in `packages/boswas-desktop/Cargo.lock` and `packages/boswas-bootsplash/Cargo.lock` | Their own licences (from crates.io) | Compiled into the desktop programs and the boot screen at package build time (ADR-0032). The `debian/copyright` files of the two packages name the main crates and their licences; there is no SBOM yet |
 

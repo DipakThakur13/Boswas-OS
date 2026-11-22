@@ -1,25 +1,74 @@
 # Boswas brand assets
 
-The brand: the official Boswas OS mark, the Orbitron lettering and the
-navy, gold and silver brand palette. They are used where the product is
-named: the boot menu, the installer banner, About pages and application
-icons. The mark alone, without lettering, is on the boot screen and is
-the Start button of the taskbar.
+The brand: the Boswas OS mark and the "Boswas OS" wordmark in Inter. They
+are used where the product is named: the boot menu, the installer banner,
+About pages and application icons. The mark alone, without lettering, is on
+the boot screen and is the Start button of the taskbar.
 
-The **interface** of the native Boswas desktop (taskbar, Start, window
-frames, lock and login screens, the boot screen's text, the colours of
-applications) is not drawn in the brand palette. It uses Boswas UI, the
-Fluent design language with the Prism colours, which lives in
-[`../ui/`](../ui/README.md). The mark keeps its gold and silver
-everywhere; they are never used as interface colours.
+The mark and the interface share one palette. The mark's colours are
+palette colours of Boswas UI (azure, sky and iris, with a sun-coloured dot),
+the Fluent design language with the Prism colours, which lives in
+[`../ui/`](../ui/README.md). The interface of the native Boswas desktop
+(taskbar, Start, window frames, lock and login screens, the boot screen's
+text, the colours of applications) keeps its own roles: its accent is
+iris, not the mark's azure.
 
-## Sources of truth
+## The mark
 
-| File | What it is |
-|------|------------|
-| `source/boswas-os-logo.png` | The Boswas OS logo, as supplied by Boswas Group: the "b" mark (gold stem and dot, silver ring and swoosh) on navy |
-| `../fonts/orbitron/` | Orbitron, the brand typeface, as supplied (Google Fonts download: variable and static fonts, `OFL.txt`) |
-| `source/boswas-group-logo.png`, `source/boswas-group-wordmark.png` | The Boswas Group logo and wordmark. No longer used in artwork; kept for reference |
+A lowercase **b** built from three shapes, drawn from first principles by
+`tools/build_mark.py` (no tracing, no artwork in between). It follows the
+Fluent principles of the desktop: rounded geometry, light from the top
+left, and depth through layering and a soft shadow.
+
+* **The stem:** a tall pane with fully rounded ends, in front.
+* **The bowl:** a round band behind the stem, cut clear of it by a gap.
+  The stem casts a soft shadow on the bowl where they meet.
+* **The dot:** a warm point of light in the counter. It is the dot of the
+  first Boswas OS logo (see [History](#history)), now in `sun`.
+
+**Construction.** The view box is 256 by 256, y down.
+
+| Part | Geometry |
+|------|----------|
+| Stem | x 42 to 84, y 10 to 246: 42 wide, ends rounded by 21 |
+| Bowl | centre (128, 160), outer radius 86, band 40 (inner radius 46), cut at x = 94 |
+| Gap | 10 between the stem and the bowl |
+| Dot | centre (134, 160), radius 18: centred in the open counter, between the cut and the band |
+| Ink | x 42 to 214, y 10 to 246: a margin of 10 above and below, centred across |
+
+The bowl's bottom sits on the baseline (y 246). The stem's left edge is
+the bowl's leftmost point, so the stem hides the bowl's left side.
+
+**Colours.** These are `desktop/ui/tokens.json` palette colours, read by
+the generator. No colour is written in the generator itself.
+
+| Part | Full colour | Flat |
+|------|-------------|------|
+| Stem | `sky.400` to `azure.400` to `azure.600`, top to bottom, with a white sheen (30 % to 0) over its top | `azure.400` |
+| Bowl | `azure.400` to `azure.500` to `iris.600`, top left to bottom right, with a white sheen (24 % to 0) over its upper half | `azure.500` |
+| Shadow of the stem on the bowl | `iris.700`, 55 % to 0 across 24 units from the cut | (none) |
+| Dot | radial: `sun.300` (its lit top left) to `sun.400` to `sun.500` | `sun.400` |
+| Mono | every part `#FFFFFF`, recoloured with `data-fill` | |
+
+**Clear space.** Keep free space at least as wide as the stem (42 units at
+256, a sixth of the mark's height) on every side of the ink. Nothing else
+may enter it: no text, no edge and no other mark. The 256 box itself holds
+10 units above and below the ink and 42 left and right of it.
+
+**Minimum size.** The full-colour mark: 24 pixels high (the taskbar). The
+flat mark (`boswas-os-mark-flat.svg`): 16 pixels; at that size the gap is
+still half a pixel and the dot two pixels across. Below 16 pixels, use the
+flat mark on a tile, like the dashboard favicon.
+
+**Backgrounds.** The full-colour and flat marks work on dark and light
+backgrounds alike (the boot screen's `neutral.950`, white). On a
+photograph or a coloured background, use the mono mark in white or in a
+colour of the palette.
+
+**Do not:** rotate or skew the mark; recolour single parts; close the gap
+between the stem and the bowl; put the mark in a circle; or set the mark
+in a 2x2 grid or a tilted window. It must never look like another
+company's logo.
 
 ## Generated assets
 
@@ -28,46 +77,71 @@ that generates them instead.
 
 | Asset | Generated by | Content |
 |-------|--------------|---------|
-| `boswas-os-mark.svg` | `tools/trace_mark.py` | The mark in full colour (gold and silver linear gradients), transparent background |
-| `boswas-os-mark-mono.svg` | `tools/trace_mark.py` | The mark in one colour (white), for recolouring |
-| `boswas-os-mark-flat.svg` | `tools/trace_mark.py` | The mark in flat gold and silver, for small sizes |
-| `../../control-plane/dashboard/favicon.svg` | `tools/trace_mark.py` | The flat mark on a navy tile, with no references (the dashboard's tests forbid `href` and `url()`) |
-| `wordmark-boswas-os.svg` | `tools/build_wordmarks.py` | BOSWAS OS |
-| `wordmark-boswas.svg` | `tools/build_wordmarks.py` | BOSWAS |
+| `boswas-os-mark.svg` | `tools/build_mark.py` | The mark in full colour, transparent background |
+| `boswas-os-mark-mono.svg` | `tools/build_mark.py` | The same three shapes in one colour (white), for recolouring |
+| `boswas-os-mark-flat.svg` | `tools/build_mark.py` | The same three shapes in solid colours, for small sizes |
+| `../../control-plane/dashboard/favicon.svg` | `tools/build_mark.py` | The flat mark on a `neutral.950` tile (64 by 64, corners 14), with no references (the dashboard's tests forbid `href` and `url()`) |
+| `wordmark-boswas-os.svg` | `tools/build_wordmarks.py` | Boswas OS |
+| `wordmark-boswas.svg` | `tools/build_wordmarks.py` | Boswas |
 | `wordmark-os.svg` | `tools/build_wordmarks.py` | OS |
 
-**How the mark is traced.** Only a raster original of the mark exists, so
-`trace_mark.py` vectorises it:
+**Format of `boswas-os-mark.svg`.** This is a contract: the Boswas Prism icon
+generator (`../icons/tools/build_prism.py`) reads the file to draw the
+logo icons, and the tests in `tests/` hold it.
 
-1. It measures each pixel's ink coverage relative to the brightest pixel
-   nearby, so edges in light and dark parts of the gradients trace alike.
-2. It classes the four shapes as gold or silver by colour.
-3. It traces each colour at 4x with potrace.
-4. It fits the gold and the silver shading as linear gradients.
+* `viewBox="0 0 256 256"`, width and height 256.
+* A `<defs>` holding only `<linearGradient>` and `<radialGradient>`
+  elements. Each uses `gradientUnits="userSpaceOnUse"` and explicit
+  coordinates (`x1 y1 x2 y2`, or `cx cy r`). Their ids start with
+  `boswas-mark-`. Their stops have `offset`, `stop-color="#RRGGBB"` and an
+  optional `stop-opacity`.
+* Then only `<path>` elements, back to front: bowl, its shadow, its sheen,
+  stem, its sheen, dot. Their attributes are `d`, and `fill` (`url(#id)`
+  or `#RRGGBB`). The path data is absolute `M`, `L`, `C` and `Z` only.
+* No transforms, styles, strokes, images or text.
 
-**How the wordmarks are set.** In Orbitron SemiBold with 0.12 em tracking,
-converted to outlines, so they need no font at render time.
+The mono and flat files have the same paths without the shading overlays
+(bowl, stem, dot).
+
+**How the wordmarks are set.** They are set in Inter SemiBold, the
+interface's typeface. The source is `Inter-SemiBold.otf` from the Debian
+package `fonts-inter`. The letters are spaced with Inter's own kerning
+(its GPOS `kern` pairs) and -0.01 em of tracking, drawn at 1000 units to
+the em, and converted to outlines, so they need no font at render time.
+They are cropped to the ink: from the cap height to the baseline, with the
+overshoot of round letters.
 
 Wordmarks and the mono mark are white on transparent. Composed artwork
 references them with `<image href=... data-fill="#RRGGBB">`, and the colour
 mark with plain `<image href=...>`. `build/scripts/inline-svg.py` inlines
 (and recolours) them, because Qt (KDE icons, the About page) cannot follow
 external SVG references, and the Boswas shell's icon loader never follows
-them.
+them. Composed artwork shows the mark in a square box (the mark's own
+view box is square).
+
+**The horizontal lockup** (`login-logo.svg`) places the wordmark to the
+right of the mark. The wordmark's ink is 0.42 of the mark's ink height and
+is centred on it vertically. The gap between them is 0.24 of the mark's
+ink height. The lockup is cropped to the ink of both.
 
 ## Composed artwork
 
+Composed artwork is written by hand and references the generated assets.
+Its colours are palette colours of `desktop/ui/tokens.json`; the tests
+check that.
+
 | File | Used for |
 |------|----------|
-| `boswas-mark.svg` | The `boswas-logo` icon in the hicolor theme: the mark on a navy tile with a gold edge. The fallback for the taskbar's Start button, which takes `boswas-logo` from the icon theme first (Boswas Prism draws its own) |
-| `boswas-about-logo.svg` | The mark on a navy tile. It was the logo of the About page of Plasma's System Settings; the file that named it (`kcm-about-distrorc`) is gone (ADR-0042). The picture is still installed as `/usr/share/boswas/branding/boswas-about-logo.svg` and nothing in the tree uses it: Control Center > About Boswas OS draws the mark itself |
-| `boot-splash.svg` | Live/installer ISO boot menu (GRUB, 800x600) |
+| `boswas-mark.svg` | The `boswas-logo` icon in the hicolor theme: the mark alone, without a tile. The fallback for the taskbar's Start button, which takes `boswas-logo` from the icon theme first (Boswas Prism draws its own) |
+| `boswas-about-logo.svg` | The mark on a dark tile (`neutral.800` to `neutral.950`, an `azure.500` glow, a white edge). It was the logo of the About page of Plasma's System Settings; the file that named it (`kcm-about-distrorc`) is gone (ADR-0042). The picture is still installed as `/usr/share/boswas/branding/boswas-about-logo.svg` and nothing in the tree uses it: Control Center > About Boswas OS draws the mark itself (`/usr/share/boswas/branding/boswas-os-mark.svg`, 72 pixels) |
+| `boot-splash.svg` | Live/installer ISO boot menu (GRUB, 800x600): the mark and the wordmark on `neutral.950` with a bloom of azure and iris, the version in Inter, and the panel the menu is drawn in (y 282 to 532) |
 | `boswas-os-mark.svg` | The boot screen: `packages/boswas-bootsplash` rasterises the mark at build time ([README](../../packages/boswas-bootsplash/README.md)). The boot screen shows no wordmark (ADR-0038) |
+| `login-logo.svg` | The horizontal lockup, white wordmark (see [Boot and login](#boot-and-login)) |
 | `../presets/` | The ten presets: wallpapers (light, dark, lock) and colour schemes for KDE applications ([presets README](../presets/README.md)) |
-| `../icons/` | The Boswas Prism icon pack (the default, in the Prism palette) and the earlier Boswas and Boswas Light themes in the brand palette ([icons README](../icons/README.md)) |
-| `../../installer/branding/installer-banner.svg` | Debian Installer banner |
-| `../../config/live-build/config/bootloaders/grub-pc/live-theme/theme.txt` | Boot menu colours |
-| `../../packages/boswas-compat-manager/data/boswas-compat-manager.svg` | Compatibility Manager icon |
+| `../icons/` | The Boswas Prism icon pack (the default, in the Prism palette) and the earlier Boswas and Boswas Light themes ([icons README](../icons/README.md)) |
+| `../../installer/branding/installer-banner.svg` | Debian Installer banner: the mark, the wordmark and "Installer" on a dark band, with an azure-to-iris rule |
+| `../../config/live-build/config/bootloaders/grub-pc/live-theme/theme.txt` | Boot menu colours: `neutral.950`, `neutral.50` text, `neutral.400` entries, the selected entry in `azure.300`, the countdown in `azure.500` |
+| `../../packages/boswas-compat-manager/data/boswas-compat-manager.svg` | Compatibility Manager icon (does not carry the mark; still in the earlier navy and gold) |
 
 The package `boswas-branding` installs the mark as
 `/usr/share/boswas/branding/boswas-os-mark.svg`, for other components.
@@ -77,7 +151,7 @@ The package `boswas-branding` installs the mark as
 | Source | What it becomes |
 |--------|-----------------|
 | `boot-splash.svg` | The live and installation medium's boot menu (GRUB) |
-| `boswas-os-mark.svg` | The Boswas boot screen (boot, disk-unlock prompt; shutdown and restart show no mark), drawn by `boswas-bootsplash`: the mark and a ring of dots, with text in Inter. The glyphs come from Debian's `fonts-inter` at build time and are built into the program; Orbitron is used only when a plain `cargo build` finds no Inter. Its colours are Boswas UI tokens; the mark keeps its gold and silver |
+| `boswas-os-mark.svg` | The Boswas boot screen (boot, disk-unlock prompt; shutdown and restart show no mark), drawn by `boswas-bootsplash`: the mark and a ring of dots, with text in Inter. The glyphs come from Debian's `fonts-inter` at build time and are built into the program; Orbitron is used only when a plain `cargo build` finds no Inter. Its colours are Boswas UI tokens, and the mark keeps its own colours |
 | `login-logo.svg` | The horizontal lockup, inlined to `/usr/share/boswas/branding/boswas-login-logo.svg`. It was the SDDM login screen's logo; the Boswas login screen does not show it yet, so the file is installed but unused |
 
 The Plymouth theme (`plymouth/`), the session start-up splash (`splash/`,
@@ -104,54 +178,78 @@ Plasma.
 
 ## Typography
 
-* **Brand lettering** (BOSWAS OS, BOSWAS, OS) is set in **Orbitron**, from
-  the outlined wordmarks.
-* **The font itself:** `boswas-branding` installs Orbitron's six static
-  weights in `/usr/share/fonts/truetype/orbitron/`, unmodified. Its licence,
-  the SIL Open Font License 1.1, is in the package's copyright file.
-  - Debian does not package Orbitron.
-  - The variable font stays in the repository only, because installing both
-    would list the family twice in font pickers.
-  - "Orbitron" is a Reserved Font Name, so a modified version must not use
-    that name.
-* **Secondary text** in artwork (versions, "Installer") uses Lato.
+* **Brand lettering** (Boswas OS, Boswas, OS) is set in **Inter
+  SemiBold**, from the outlined wordmarks.
+* **Secondary text** in artwork (versions, "Installer") is set in Inter,
+  with Lato as the fallback. The ISO build renders it with `rsvg-convert`
+  in the build container, which has both fonts.
 * **The desktop UI** (taskbar, Start, window titles, lock and login
   screens with their clock, the boot screen, the Boswas applications)
   uses Inter, with Noto Sans, Lato and DejaVu Sans as fallbacks
-  (`type.family` in `../ui/tokens.json`). Orbitron is the face of the
-  lettering only: no screen sets text in it any more, although
-  `type.display-family` still names it.
+  (`type.family` in `../ui/tokens.json`).
+* **Orbitron** (`../fonts/orbitron/`, SIL OFL 1.1) was the lettering of
+  the first wordmarks. No artwork uses it any more. `boswas-branding`
+  still installs its six static weights in
+  `/usr/share/fonts/truetype/orbitron/`, unmodified, with the licence.
+  `type.display-family` still names it, and it is the boot screen's build
+  fallback when Inter is missing. Debian does not package Orbitron.
+  "Orbitron" is a Reserved Font Name, so a modified version must not use
+  that name.
 * **The Control Plane dashboard** uses the system UI font: its
   Content-Security-Policy and tests allow no web fonts.
 
 ## Regenerating
 
 ```sh
-sudo apt-get install potrace netpbm python3-fonttools
-python3 desktop/branding/tools/trace_mark.py
-python3 desktop/branding/tools/build_wordmarks.py
+python3 desktop/branding/tools/build_mark.py          # the mark, its variants and the favicon
+sudo apt-get install python3-fonttools fonts-inter
+python3 desktop/branding/tools/build_wordmarks.py     # the wordmarks
 ```
 
-## Brand palette
+Both tools take `--check`, which fails if a committed file is stale.
+`build_mark.py` uses the Python standard library only, and
+`build_wordmarks.py` also needs fontTools. Both are deterministic. The
+tests run with `python3 -B -m unittest discover -s tests` from this
+directory.
 
-This is the palette of the mark and of the artwork that names the product
-(boot menu, installer banner, the `boswas-logo` tile, the earlier icon
-themes, the presets' wallpapers). The interface palette is Prism:
-[`../ui/README.md`](../ui/README.md).
+## History
+
+The first Boswas OS logo was supplied by Boswas Group as a raster image
+only (`source/boswas-os-logo.png`). It was a "b" with a gold stem and dot
+and a silver ring and swoosh, on navy. Its wordmarks were set in Orbitron.
+Until this mark, `tools/trace_mark.py` vectorised that image with potrace
+into the mark files. The traced mark is retired, and so is its tool. The
+originals stay in `source/` for reference:
+
+| File | What it is |
+|------|------------|
+| `source/boswas-os-logo.png` | The first Boswas OS logo, as supplied by Boswas Group |
+| `source/boswas-group-logo.png`, `source/boswas-group-wordmark.png` | The Boswas Group logo and wordmark. They were used in artwork before the Boswas OS logo |
+
+The new mark keeps that logo's idea (a stem, a round bowl and a dot) and
+draws it again in geometry and in the interface's palette.
+
+## Earlier brand palette
+
+The first logo's navy, gold and silver are no longer the mark's colours.
+They are still used in places this change did not redraw: the earlier
+Boswas and Boswas Light icon themes, the Compatibility Manager icon, the
+Control Plane dashboard's accent and some preset wallpapers. The
+interface palette is Prism: [`../ui/README.md`](../ui/README.md).
 
 | Token | Hex | Use |
 |-------|-----|-----|
 | Navy 950 | `#090F1B` | Deep background |
-| Navy 900 | `#0B1220` | Headers, banner |
-| Navy 800 | `#111A2B` | Window background, favicon tile |
-| Gold 300 | `#FBD693` | Logo highlight, glows |
-| Gold 400 | `#EBC786` | Hover, highlights, selected boot menu entry |
+| Navy 900 | `#0B1220` | Headers |
+| Navy 800 | `#111A2B` | Window background |
+| Gold 300 | `#FBD693` | Highlight, glows |
+| Gold 400 | `#EBC786` | Hover, highlights |
 | Gold 500 | `#D9B26E` | Accent, selection, focus |
-| Gold 600 | `#B5935C` | Logo shade, alternate selection |
+| Gold 600 | `#B5935C` | Shade, alternate selection |
 | Gold (light UI) | `#8A6A2F` | Accent text and borders on white (dashboard light mode, 5:1) |
-| Silver 200 | `#D4DDEC` | Logo highlight, rings |
-| Silver 400 | `#AEB7C7` | Flat mark silver |
-| Silver 800 | `#3C485C` | Logo shade, low glows |
+| Silver 200 | `#D4DDEC` | Highlight, rings |
+| Silver 400 | `#AEB7C7` | Flat silver |
+| Silver 800 | `#3C485C` | Shade, low glows |
 | Text | `#E8EEF6` | Primary text and lettering on dark |
 | Muted | `#A8B3C7` | Secondary text |
 

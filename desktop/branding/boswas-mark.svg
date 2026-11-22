@@ -1,17 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="256" height="256" viewBox="0 0 256 256">
   <title>Boswas OS icon (application launcher, icon theme name: boswas-logo)</title>
-  <!-- Source: inlined into a self-contained SVG by build/scripts/inline-svg.py -->
-  <defs>
-    <linearGradient id="boswas-tile" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#162034"/>
-      <stop offset="1" stop-color="#080C16"/>
-    </linearGradient>
-    <linearGradient id="boswas-tile-edge" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#FBD693" stop-opacity="0.85"/>
-      <stop offset="1" stop-color="#B5935C" stop-opacity="0.45"/>
-    </linearGradient>
-  </defs>
-  <rect x="8" y="8" width="240" height="240" rx="56" ry="56" fill="url(#boswas-tile)"/>
-  <rect x="9.5" y="9.5" width="237" height="237" rx="54.5" ry="54.5" fill="none" stroke="url(#boswas-tile-edge)" stroke-width="3"/>
-  <image x="58" y="40" width="140" height="176" href="boswas-os-mark.svg"/>
+  <!-- Source: inlined into a self-contained SVG by build/scripts/inline-svg.py.
+       The mark alone, without a tile, like the objects of the Boswas Prism icons. -->
+  <image x="0" y="0" width="256" height="256" href="boswas-os-mark.svg"/>
 </svg>

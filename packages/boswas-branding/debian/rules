@@ -37,6 +37,9 @@ ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
 	# The widget tests skip themselves when PySide6 is not installed
 	cd $(DESK)/ui/qt && QT_QPA_PLATFORM=offscreen python3 -B -m unittest discover -s tests
 	cd $(DESK)/presets && python3 -B -m unittest discover -s tests
+	# The mark and wordmarks (the wordmark freshness test skips itself
+	# without fontTools and Inter)
+	cd $(DESK)/branding && python3 -B -m unittest discover -s tests
 	cd $(DESK)/icons && python3 -B -m unittest discover -s tests
 	cd $(DESK)/cursors && python3 -B -m unittest discover -s tests
 endif

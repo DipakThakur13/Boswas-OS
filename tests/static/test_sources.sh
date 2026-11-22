@@ -174,16 +174,20 @@ done
 cp_unit=control-plane/systemd/boswas-control-plane.service
 check "Control Plane service runs unprivileged (User=boswas-cp, no capabilities)" \
 	bash -c "grep -qx 'User=boswas-cp' '$cp_unit' && grep -qx 'CapabilityBoundingSet=' '$cp_unit' && grep -qx 'NoNewPrivileges=yes' '$cp_unit'"
-# Brand: the Boswas OS mark, Orbitron, the logo's gold accent (desktop/branding/README.md).
+# Brand: the Boswas OS mark and its Inter wordmarks, drawn by generators (desktop/branding/README.md).
 brand_src=(desktop installer config/live-build/config/bootloaders control-plane/dashboard
 	packages/boswas-compat-manager/data packages/boswas-compat-manager/boswas_manager)
-check_not "brand sources use the gold accent (no retired teal #17C6C0/#2ED3CD; docs and tests may name it)" \
+check_not "brand sources no longer use the retired teal accent (#17C6C0/#2ED3CD; docs and tests may name it)" \
 	bash -c 'grep -rliE "#17C6C0|#2ED3CD|23,198,192|46,211,205" "$@" | grep -v -e "/README.md$" -e "/tests/" | grep -q .' _ "${brand_src[@]}"
 check_not "brand sources no longer use the Boswas Group gear logo" \
 	grep -rqE 'boswas-symbol\.svg|boswas-group-logo\.svg' "${brand_src[@]}" packages/boswas-branding/debian
-check "brand mark and wordmarks are generated (traced mark, Orbitron outlines)" \
-	bash -c "grep -q 'trace_mark.py' desktop/branding/boswas-os-mark.svg && grep -q 'trace_mark.py' desktop/branding/boswas-os-mark-mono.svg &&
-		for w in boswas-os boswas os; do grep -q 'Orbitron SemiBold' desktop/branding/wordmark-\$w.svg || exit 1; done"
+check "brand mark is drawn by build_mark.py and current (mark, mono, flat, dashboard favicon); the traced mark is retired" \
+	bash -c "python3 -B desktop/branding/tools/build_mark.py --check && test ! -e desktop/branding/tools/trace_mark.py &&
+		for f in boswas-os-mark boswas-os-mark-mono boswas-os-mark-flat; do grep -q 'build_mark.py' desktop/branding/\$f.svg || exit 1; done &&
+		grep -q 'build_mark.py' control-plane/dashboard/favicon.svg"
+check "brand wordmarks are Inter SemiBold outlines (build_wordmarks.py)" \
+	bash -c "for w in boswas-os boswas os; do grep -q 'Inter SemiBold' desktop/branding/wordmark-\$w.svg &&
+		grep -q 'build_wordmarks.py' desktop/branding/wordmark-\$w.svg && ! grep -q '<text' desktop/branding/wordmark-\$w.svg || exit 1; done"
 check "user-facing Boswas sources do not brand the system as Debian (ADR-0005)" python3 -B -c '
 import glob, json, re, sys
 bad = []
