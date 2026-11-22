@@ -193,13 +193,18 @@ reads JSON Lines, shows progress, offers Cancel only while the last `start` /
 `progress` line says `cancellable`, and reports success only on a `result`
 line with `ok: true`.
 
-Its settings sections (ADR-0041) use two interfaces of section 4 and
-nothing else of the desktop: the service bridge, started by its fixed
-path without arguments, one per window; and the compositor's user
+Its settings sections (ADR-0041, ADR-0049) use these interfaces of
+section 4 and nothing else of the desktop: the service bridge, started by
+its fixed path without arguments, one per window; the compositor's user
 configuration, which it writes through its one file writer
 (`userfiles.write_config`) before sending `reload-config` to the public
-control socket, with `outputs` for the monitors. It never writes
-`[policy]`, `[shell]`, `[input_method]` or `[lock] command`.
+control socket; `outputs` for the monitors; `version`, whose
+`color_filters` says whether the colour filters can be offered; and the
+shell's list of notification senders, which it reads and never writes. It
+never writes `[policy]`, `[shell]`, `[input_method]` or `[lock] command`.
+The colour mode and the wallpaper go to `appearance.toml`; every other
+key, the accent colour included, goes to the user's `compositor.toml`,
+because `boswas-preset` replaces `appearance.toml` as a whole.
 
 ## 4. Boswas Desktop: configuration, control socket, service bridge, tokens
 
@@ -212,7 +217,7 @@ Layers, later ones overriding earlier ones key by key:
 | `/usr/share/boswas/compositor/compositor.toml` | boswas-desktop (never edited) | everything, including `[policy]` |
 | `/etc/boswas/compositor.toml` | the administrator (not shipped) | everything, including `[policy]` |
 | `$XDG_CONFIG_HOME/boswas/compositor.toml` | the user (and Settings, which writes it for the user) | everything except `[policy]` and the `command` keys of `[shell]`, `[lock]` and `[input_method]`, which are ignored there with a warning |
-| `$XDG_CONFIG_HOME/boswas/appearance.toml` | `boswas-preset` (rewritten as a whole) | the `[appearance]` table only; anything else makes the file ignored |
+| `$XDG_CONFIG_HOME/boswas/appearance.toml` | `boswas-preset` (rewritten as a whole), and Settings for `scheme` and `wallpaper` | the `[appearance]` table only; anything else makes the file ignored |
 
 A file that does not parse or contains an unknown key is reported and
 ignored as a whole; the session still starts. `--config FILE` replaces all
@@ -220,11 +225,11 @@ layers (the login screen uses `/usr/share/boswas/compositor/greeter.toml`).
 
 | Table | Keys |
 |-------|------|
-| `[keyboard]` | `layout`, `variant`, `model`, `options` (XKB names); `repeat_delay` (ms, 100–2000); `repeat_rate` (per second, 1–100); `numlock` (on when the session starts) |
+| `[keyboard]` | `layout`, `variant`, `model`, `options` (XKB names); `repeat_delay` (ms, 100–2000); `repeat_rate` (per second, 1–100); `numlock` (on when the session starts). Accessibility: `sticky_keys` (Shift, Ctrl, Alt and AltGr pressed alone stay down for the next key; Super keeps its own behaviour), `sticky_keys_lock` (pressed twice, a modifier stays down until pressed again; default `true`), `filter_keys` (turns on the two times that follow), `slow_keys_ms` (0, the default, or 100–5000: a key counts only after it was held this long), `bounce_keys_ms` (0 or 100–5000, default 500: a key pressed again this soon after its release is ignored) |
 | `[pointer]` | mice and trackballs: `natural_scroll`, `accel_speed` (−1.0 to 1.0), `accel_profile` (`"adaptive"` or `"flat"`), `left_handed`, `cursor_theme`, `cursor_size` (16–96) |
 | `[touchpad]` | `tap_to_click`, `natural_scroll`, `accel_speed` (−1.0 to 1.0), `disable_while_typing`, `gestures` (three- and four-finger swipes) |
 | `[output]` | `scale`: 1.0, 1.25, 1.5, 1.75 or 2.0, for every output that has no setting of its own |
-| `[outputs.NAME]` | one monitor, by connector name (`eDP-1`, `HDMI-A-1`): `enabled`, `mode` (`"1920x1080"` or `"1920x1080@60"`, one of the modes the monitor offers), `scale`, `position` (`[x, y]` of its top-left corner in logical pixels), `rotation` (`"normal"`, `"90"`, `"180"`, `"270"`). An invalid value is ignored alone. The last enabled monitor is never turned off |
+| `[outputs.NAME]` | one monitor, by connector name (`eDP-1`, `HDMI-A-1`): `enabled`, `mode` (`"1920x1080"` or `"1920x1080@60"`, one of the modes the monitor offers), `scale`, `position` (`[x, y]` of its top-left corner in logical pixels), `rotation` (`"normal"`, `"90"`, `"180"`, `"270"`), `adaptive_sync` (variable refresh rate where the monitor offers it; default `false`; ADR-0048). An invalid value is ignored alone. The last enabled monitor is never turned off |
 | `[night_light]` | `enabled`; `temperature` (2500–6500 kelvin); `scheduled` with `from` and `to` (`"HH:MM"`, local time) |
 | `[power]` | `screen_off_seconds` (0: never; otherwise 30 to 21600) |
 | `[lock]` | `idle_seconds` (0: never, if the policy allows); `command` (the lock screen program; system files only) |
@@ -232,7 +237,14 @@ layers (the login screen uses `/usr/share/boswas/compositor/greeter.toml`).
 | `[input_method]` | `command` (the input method program, started as a trusted client; empty for none; system files only) |
 | `[xwayland]` | `enabled` (default `true`) |
 | `[apps]` | `terminal`, `files`, `settings`, `task_manager` (argument lists for Ctrl+Alt+T, Super+E, Super+I and Ctrl+Shift+Esc) |
-| `[appearance]` | `scheme` (`"dark"` or `"light"`), `reduced_motion`, `wallpaper` (PNG or JPEG file) |
+| `[appearance]` | `scheme` (`"dark"` or `"light"`), `reduced_motion`, `wallpaper` (PNG or JPEG file), `accent` (a hue of the palette: `"iris"`, the default, `"azure"`, `"sky"`, `"mint"`, `"sun"`, `"coral"`, `"orchid"`, `"slate"`), `transparency` (default `true`; `false` fills the taskbar, the flyouts and Task View's strip with their tint alone) |
+| `[accessibility]` | `text_scale` (percent of the type ramp, 100–225: the shell, the title bars and the Qt applications draw their text larger and nothing else), `always_show_scrollbars` (Qt applications show full scroll bars) |
+| `[color_filter]` | `enabled`; `filter`: `"grayscale"` (default), `"inverted"`, `"grayscale_inverted"`, `"deuteranopia"`, `"protanopia"`, `"tritanopia"`; `shortcut` (Super+Ctrl+C switches the filter; default `false`). Drawn with OpenGL ES only |
+| `[magnifier]` | `enabled`; `zoom` (percent, 100–1600, default 200); `step` (what Super+Plus and Super+Minus change: 25, 50, 100, the default, 150, 200 or 400) |
+| `[taskbar]` | Read by the shell: `alignment` (`"center"`, the default, or `"left"`), `auto_hide`, `task_view` (default `true`), `clock_seconds`, `badges` (default `true`) |
+| `[start]` | Read by the shell: `layout` (`"default"`, `"more_pins"`, `"more_recommendations"`), `recently_added` and `most_used` (default `true`), `folders` (from `"settings"`, `"files"`, `"documents"`, `"downloads"`, `"music"`, `"pictures"`, `"videos"`; default `["settings", "files"]`) |
+| `[multitasking]` | `snap_windows`, `snap_layouts_on_maximize`, `snap_layouts_on_drag` (all default `true`; the last two need the first), `taskbar_windows` and `alt_tab_windows` (`"desktop"`, the default, or `"all"`) |
+| `[notifications]` | Read by the shell: `do_not_disturb`, `do_not_disturb_scheduled` with `do_not_disturb_from` and `do_not_disturb_to` (`"HH:MM"`; defaults 22:00 and 07:00), `banners_off` (names applications send, at most 256), `toast_seconds` (5, the default, 7, 15, 30, 60 or 300) |
 | `[policy]` | `lock_idle_max_seconds` (0: no limit; shipped: 600), `privileged_protocols` (`"shell"`, shipped; `"all"` for development only) |
 
 Shipped policy: the session locks after at most 600 seconds without input,
@@ -242,9 +254,16 @@ to report the lock policy. `boswas-compositor(1)` is the reference for
 every key.
 
 `reload-config` applies the keyboard, pointer and touchpad settings, the
-appearance, the cursor, the monitors, night light and the lock and
-screen-off times to the running session. The shell command, the input
-method command and `privileged_protocols` are fixed for the session.
+appearance, the cursor, the monitors, night light, the lock and
+screen-off times and the tables added for ADR-0049 to the running
+session; the shell gets its part in the `config` event. The shell
+command, the input method command and `privileged_protocols` are fixed
+for the session. `[night_light] enabled`, `[magnifier] enabled`,
+`[color_filter] enabled` and `[notifications] do_not_disturb` are what a
+session starts with and take effect again when they change; in between,
+quick settings, the notification centre and the keys switch them for the
+session. An administrator sets other defaults for these keys in
+`/etc/boswas/compositor.toml`.
 
 `boswas-preset apply` writes `appearance.toml` (scheme and wallpaper),
 merges the preset's colours into the user's `kdeglobals` for KDE
@@ -261,7 +280,7 @@ connections.
 
 ```
 -> {"id": 1, "cmd": "version"}
-<- {"id": 1, "ok": true, "data": {"name": "boswas-compositor", "version": "1.0.0-alpha.3", "trusted": false, "locked": false}}
+<- {"id": 1, "ok": true, "data": {"name": "boswas-compositor", "version": "1.0.0-alpha.3", "trusted": false, "locked": false, "color_filters": true}}
 -> {"id": 2, "cmd": "windows"}
 <- {"id": 2, "ok": false, "error": "\"windows\" is not available on this connection"}
 ```
@@ -278,7 +297,7 @@ Commands of every connection (the static test stage pins this set):
 
 | Command | Arguments | Reply data |
 |---------|-----------|------------|
-| `version` | – | `name`, `version`, `trusted`, `locked` |
+| `version` | – | `name`, `version`, `trusted`, `locked`, `color_filters` (whether the renderer can draw the colour filters: `true` with OpenGL ES, `false` with pixman and on the headless back end) |
 | `lock` | – | `null`; the session is locked when the reply arrives |
 | `reload-config` | – | `{"warnings": [...]}` |
 | `outputs` | – | every monitor: `name`, `description`, `make`, `model`, `physical_width_mm`, `physical_height_mm`, `enabled`, `x`, `y`, `width`, `height`, `scale`, `rotation`, `mode` (`width`, `height`, `refresh` in millihertz), `modes` (the same, with `preferred`), `usable`. A monitor that is connected and turned off is `{name, enabled: false}`. This is what every client already sees as `wl_output`, plus the modes |
@@ -302,7 +321,7 @@ Commands of a trusted connection:
 | `night-light` | optional `enabled` (without it: toggle), optional `temperature` | `{enabled, temperature, active}` |
 | `next-layout` | – | `{layouts, codes, active}` |
 | `thumbnail` | `window`, `path` (absolute; PNG), optional `width` (16 to 1024, default 240) | answered after the next frame |
-| `screenshot` | `path` (absolute; PNG), optional `output` | answered after the next frame |
+| `screenshot` | `path` (absolute; PNG), optional `output`, optional `display` | answered after the next frame. With `"display": true` the picture is what the output shows the person in front of it, magnified and through the colour filter (for tests); without it, as every other capture, the picture without either |
 | `capture-answer` | `request` (the id of a `capture-request` event), `allow` | `null`, or an error when no such question is open |
 | `capture-stop` | – | `null`; every permission to capture ends |
 | `quit` | – | `null`; the session ends |
@@ -316,7 +335,7 @@ Events after `subscribe`, as `{"event": NAME, "data": ...}`:
 | `workspace` | `{active, count}` | desktops changed |
 | `outputs` | as the `outputs` reply | monitors changed |
 | `lock` | `{locked}` | the session was locked or unlocked |
-| `config` | the appearance (`scheme`, `wallpaper`, `reduced_motion`) | after a reload |
+| `config` | `scheme`, `wallpaper`, `reduced_motion`, `accent`, `transparency`, `text_scale`; `taskbar` (`alignment`, `auto_hide`, `task_view`, `clock_seconds`, `badges`, and `windows` from `[multitasking] taskbar_windows`); `start` (`layout`, `recently_added`, `most_used`, `folders`); `notifications` (`do_not_disturb`, `scheduled`, `from`, `to`, `banners_off`, `toast_seconds`). The same object is `appearance` in the reply to `subscribe` | after a reload |
 | `night-light` | `{enabled, temperature, active}` | `active`: the screens are tinted now |
 | `layout` | `{layouts, codes, active}` | the keyboard layouts or the active one changed |
 | `overview`, `show-desktop` | `{active}` | Task View or show desktop was toggled |
