@@ -52,10 +52,10 @@ They have their tests and have not run on the desktop yet.
 | Surface | What users see |
 |---------|----------------|
 | Boot menu (USB/DVD) | Boswas OS mark, Orbitron wordmark, "Boswas OS v3 Alpha - Live session" (default), "Install Boswas OS" |
-| Boot, shutdown, restart, disk unlock | The Boswas boot screen: the mark and a ring of dots on a dark background, with no name written; for encrypted disks "Unlock your disk", the disk's name and a text box with one dot per character, a Caps Lock hint and a line for a rejected passphrase. Shutdown and restart show the ring and one line of text |
+| Boot, shutdown, restart, disk unlock | The Boswas boot screen, drawn from vector outlines at the display's size (ADR-0050): the mark assembles itself on a dark background lit softly in the brand's blues, with no name written, and a progress ring turns close under it. For encrypted disks the mark glides up and the prompt slides in: "Unlock your disk", the disk's name and a text box with one dot per character, a Caps Lock hint and a line for a rejected passphrase. Shutdown and restart show the mark, the ring and one line of text |
 | Login screen | The Boswas login screen: first the clock over the background, then, after a key or a click, the people who can sign in and a password field. Another user name can be typed. A power button offers sleep, restart and shut down (the lock screen has none). If graphics cannot start, a text login takes its place |
 | Desktop | The background (or the preset's wallpaper), the taskbar with the Boswas mark as the Start button, Boswas Prism icons |
-| Lock screen | First the clock, then, after a key or a click, the user's name and a password field; applications are neither shown nor given input, and no notifications appear |
+| Lock screen | First the clock, with the weather of the home place chosen in Weather in the lower left corner (ADR-0051), then, after a key or a click, the user's name and a password field; applications are neither shown nor given input, and no notifications appear |
 | Control Center > System > About, `hostnamectl`, console | "Boswas OS v3 Alpha" (`/etc/os-release`: `NAME="Boswas OS"`, `ID=boswas`, `ID_LIKE=debian`); the desktop is shown as "Boswas Desktop" with its version |
 | Terminal | "Welcome to Boswas OS" summary and the Boswas prompt |
 | Live session | User "Boswas OS Live"; "Live session" in Control Center and the terminal |
@@ -322,6 +322,20 @@ path has not been tested yet.
   holds the idle lock off while it runs. The lock screen shows no
   notifications and offers no way to restart or shut down; the volume and
   brightness keys work.
+  - **Weather** (ADR-0051): under the clock, in the lower left corner, a
+    card with the weather of the home place chosen in Weather (or the
+    first place): the condition and the temperature, today's high and
+    low, how warm it feels and the next four hours. It is on the monitor
+    that shows the clock and the hint, not in the sign-in view, not on the
+    other monitors and not on the login screen. The lock screen itself
+    never uses the network: it reads a summary that Weather keeps in
+    `~/.local/state/boswas/weather.json`, written while Weather is open
+    and every half hour by a user timer while it is closed. A summary
+    more than three hours old is not shown; after an hour the card says
+    when it was fetched. Without a place in Weather there is no card and
+    nothing is fetched. Settings > Privacy & security > Lock screen >
+    "Show weather on the lock screen" turns it off (`[lock]
+    show_weather`).
   - An administrator sets the timeout in `/etc/boswas/compositor.toml`. A
     user may shorten it, not lengthen or disable it.
   - `loginctl lock-session` locks the session while the shell runs;
@@ -342,12 +356,17 @@ path has not been tested yet.
   (`journalctl -b -t boswas-session`; the login screen's are under
   `boswas-greeter`). If greetd itself fails, the ordinary text
   login of the first console is started.
-- **Boot screen.** `boswas-bootsplash` shows the mark and a ring of dots
+- **Boot screen.** `boswas-bootsplash` shows the mark and a progress ring
   from the initramfs to the login screen, the passphrase prompt of an
-  encrypted disk, and the shutdown and restart screens. Escape switches
-  between the boot screen and the text console. `nosplash` on the kernel
-  command line turns it off, `boswas.splash=static` keeps it without
-  motion
+  encrypted disk, and the shutdown and restart screens. Everything is
+  drawn from vector outlines at the display's exact size and moves at its
+  refresh rate (ADR-0050): at the start the mark assembles itself (its
+  stem rises, its bowl sweeps round, its dot lights up), then the ring
+  fades in under it; the ring fills with the boot's progress when the
+  boot reports one; for a passphrase the mark glides up and the prompt
+  slides in; at the end the screen fades. Escape switches between the
+  boot screen and the text console. `nosplash` on the kernel command line
+  turns it off, `boswas.splash=static` keeps it without motion
   ([packages/boswas-bootsplash](../../packages/boswas-bootsplash/README.md)).
 
 ## Settings
@@ -371,7 +390,7 @@ page.
 | Accounts | Your account (picture, name, password), other users, adding and removing users (changes to other accounts ask for an administrator's password); Access work or school |
 | Time & language | Date and time, time zone; system language and regional format |
 | Accessibility | Text size, Visual effects (scroll bars, how long notifications stay, transparency, animations), Mouse pointer (size), Magnifier, Colour filters, Keyboard (sticky keys, filter keys) |
-| Privacy & security | Boswas Security Center, Lock screen (the timeout ends at the limit the organisation set, which the page shows), App permissions of sandboxed applications, Activity history, Diagnostics & feedback |
+| Privacy & security | Boswas Security Center, Lock screen (the timeout ends at the limit the organisation set, which the page shows; the weather on the lock screen), App permissions of sandboxed applications, Activity history, Diagnostics & feedback |
 | Boswas Update | Automatic updates, pending updates, checking and installing; Update history; Advanced options (read-only) |
 
 Wi-Fi, Bluetooth, airplane mode, night light, the power mode, do not
@@ -485,7 +504,7 @@ light, and each has a manual page (`man boswas-files`, and so on).
 | **Clock** | Alarms, timers, a stopwatch, a world clock and focus sessions |
 | **Calendar** | A calendar kept on this computer: month, week and day views, repeating events, reminders, several calendars, import and export of `.ics` files. It has no accounts and does not synchronise |
 | **Snipping Tool** | Screenshots of an area or the whole screen, now or after a delay, through the desktop's capture screen (the same one Print opens). The picture opens in an editor with a pen, a highlighter, arrows, rectangles, text, an eraser and crop, with undo; copy it, save it as PNG or JPEG or open it in Photos. It also marks up pictures you open or paste |
-| **Weather** | The places you add (it never uses your location): current conditions, the next 24 hours, details (wind, humidity, pressure, UV index, visibility, precipitation, sunrise and sunset) and 10 days, in the units you choose. It refreshes while open and shows the last forecast when there is no network. Data from Open-Meteo |
+| **Weather** | The places you add (it never uses your location): current conditions, the next 24 hours, details (wind, humidity, pressure, UV index, visibility, precipitation, sunrise and sunset) and 10 days, in the units you choose. It refreshes while open and shows the last forecast when there is no network. The home place's weather is also on the lock screen, fetched every half hour while Weather is closed (Settings > Privacy & security > Lock screen turns it off). Data from Open-Meteo |
 | **Task Manager** | Ctrl+Shift+Esc. What is running, by application, with CPU, memory and disk use, and "End task"; performance graphs for the processor, memory, disks, network, graphics and battery; start-up applications (switch them off or on); the signed-in users; every process in detail; services |
 | **Boswas Control Center** | Settings, laid out like the Settings of Windows 11: eleven categories from Home to Boswas Update, each page with its settings, the device's state and its actions (see [Settings](#settings)), and the three centres below. It is the application Super+I opens ([control-center.md](control-center.md)) |
 | **Boswas Security Center** | Control Center's Privacy & security > Boswas Security Center: AppArmor, Windows-app sandbox, firewall, Secure Boot, disk encryption, screen lock, automatic security updates, device agent, device policy. Each item is Secure, Warning, Attention, Error or Not available, shown with an icon and text, never colour alone |
@@ -600,8 +619,10 @@ choices that matter:
   about five times a second, however many change signals arrive.
 - **Control Center, the presets tool and the welcome banner run only when
   used;** the welcome reads files only, so terminals open instantly.
-- **Boot screen:** nothing is parsed at boot (artwork and glyphs are
-  embedded at build time), and a frame repaints only the items that
-  changed.
+- **Boot screen:** nothing is parsed at boot (the outlines of the mark
+  and of the glyphs are embedded at build time and drawn at the display's
+  size), and a frame repaints only the items that changed: a frame of the
+  ring is its 36 by 36 pixels at 1080p, about 10 µs on the build machine
+  (ADR-0050).
 - The device agent and session agent are the existing device-management
   services, unchanged.

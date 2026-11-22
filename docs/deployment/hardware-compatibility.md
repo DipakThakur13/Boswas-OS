@@ -100,7 +100,13 @@ Plymouth:
   firmware frame buffer to the real driver. Without either, boot messages
   and the passphrase prompt appear on the text console. A 24-bit legacy
   frame buffer is not drawn on (the DRM device is used where there is
-  one).
+  one). It draws on the processor, from vector outlines at the display's
+  size, one frame per refresh up to 240 a second (ADR-0050); on the build
+  machine the first frame took 20 ms at 1920x1080 and 82 ms at 3840x2160,
+  and the 1.6 second intro 0.45 s of processor time at 3840x2160 and 240
+  frames a second. A slow processor with a large, fast display has not
+  been tried. On a 16-bit (RGB565) frame buffer the background is not
+  dithered and may show bands.
 - **When the desktop cannot start** on a machine (no usable graphics
   device, a driver that fails), the boot ends at a text login, not at an
   empty screen (ADR-0044).
@@ -167,7 +173,7 @@ What has been validated where. "VM" means QEMU under software emulation
 | Wired Ethernet / Wi-Fi / Bluetooth drivers | virtio-net only | Not tested |
 | Intel / AMD / NVIDIA graphics | QEMU standard VGA only (Plasma desktop, 1.0~alpha3) | Not tested |
 | Native desktop on a display (`boswas-compositor`, DRM/KMS, libinput, libseat) | Booted from the built packages on another distribution's base system (Ubuntu 24.04), not from the image: QEMU standard VGA and the firmware frame buffer, software rendering, keyboard only (ADR-0044). **Not tested on Debian 13 or from the ISO** | Not tested |
-| Boot screen and LUKS2 passphrase prompt (`boswas-bootsplash`) | The boot screen: booted as above, from the initramfs to the hand-over, with a driver that loads late or replaces the firmware frame buffer. The passphrase prompt: not on a boot (Debian's unlock helper in a scratch root only) | Not tested |
+| Boot screen and LUKS2 passphrase prompt (`boswas-bootsplash`) | The boot screen: booted as above, from the initramfs to the hand-over, with a driver that loads late or replaces the firmware frame buffer, with the previous picture; the picture drawn from vectors (ADR-0050) has not been booted. The passphrase prompt: not on a boot (Debian's unlock helper in a scratch root only) | Not tested |
 | Login screen (greetd, Boswas greeter), lock on suspend | Login screen, sign-in and the text-login fallbacks: booted as above. Lock on suspend: not tested | Not tested |
 | Quick settings and Settings against the real services (NetworkManager, BlueZ, PipeWire, UPower, polkit) | Not tested (stand-ins only) | Not tested |
 | System applications with devices (camera, removable drives, sound) | Not tested (stand-ins only) | Not tested |

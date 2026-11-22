@@ -30,7 +30,7 @@ and `BOSWAS_LOG=debug` in their environment gives more detail).
 | # | Step | Expected | Pass |
 |---|------|----------|------|
 | 1 | Boot from the USB stick (firmware boot menu) | Boswas OS boot menu (mark, "BOSWAS OS", "Live session" highlighted); Secure Boot accepted | [ ] |
-| 2 | Wait (do nothing) | After the countdown: the Boswas OS boot screen (the mark and a ring of dots that turns; no text); Escape shows the text console and returns | [ ] |
+| 2 | Wait (do nothing) | After the countdown: the Boswas OS boot screen (the mark assembles itself on a dark background lit softly in blue, then a progress ring turns under it; no text; the motion is smooth and the mark sharp at the display's resolution); Escape shows the text console and returns | [ ] |
 | 3 | Keep waiting | The Boswas OS desktop opens directly, signed in as "Boswas OS Live": background, taskbar along the bottom with Start (the Boswas mark) and the pinned applications in the centre, the status icons and the clock at the right | [ ] |
 | 4 | Look at the screen for one minute | No installer, wizard, "Try or Install" dialog or browser page opens | [ ] |
 | 5 | Open Start (tap the Super key) | Search field and the pinned applications; typing "install" finds "Install Boswas OS", which is listed but not opened | [ ] |
@@ -46,10 +46,11 @@ and `BOSWAS_LOG=debug` in their environment gives more detail).
 | 12 | Personalization: apply two presets (e.g. Pearl, then Horizon) | The wallpaper changes, and the shell, the window frames and the Boswas applications turn light or dark with the preset and return | [ ] |
 | 13 | Compatibility Manager | Opens; states "x86_64 (64-bit) and x86 (32-bit) Windows applications" | [ ] |
 | 14 | Lock the screen (Super+L), type a wrong password, then `live` | Boswas lock screen (clock, user, password field); the wrong password is refused and the desktop is never visible; `live` unlocks | [ ] |
+| 14a | With a network, add a place in Weather, wait for its forecast, then lock the screen; unlock, turn off Settings > Privacy & security > Lock screen > "Show weather on the lock screen" and lock again | The first lock shows a weather card in the lower left corner (the place, the temperature, the next hours), not in the password view and not on a second monitor; the password is accepted with the card shown; the second lock shows no card | [ ] |
 | 15 | Second display, if available: connect and disconnect an external monitor; arrange it and change its scale in Control Center > System > Display; switch night light on | The desktop extends to it with its own taskbar; "Keep these display settings?" appears and reverts when not answered; the screens turn warmer; windows come back when the monitor is removed | [ ] |
 | 16 | Close the lid or suspend (`systemctl suspend`), then wake | The lock screen is shown on wake, not the desktop | [ ] |
 | 17 | Open "Install Boswas OS" from Start | It explains installation and offers "Restart to Install…" and nothing else starts | [ ] |
-| 18 | Shut down from Start's power menu (it asks first when windows are open) | Boswas shutdown screen (the ring and "Shutting down"); the computer powers off | [ ] |
+| 18 | Shut down from Start's power menu (it asks first when windows are open) | Boswas shutdown screen (the mark, the ring and "Shutting down", fading in); the computer powers off | [ ] |
 | 19 | Remove the stick and boot normally | The existing OS on the internal disk boots unchanged; partitions and EFI boot entries are as noted | [ ] |
 | 20 | Boot the stick again, choose "Install Boswas OS" in the boot menu | The installer starts (Boswas OS banner) only now; quit without installing (power off) | [ ] |
 
