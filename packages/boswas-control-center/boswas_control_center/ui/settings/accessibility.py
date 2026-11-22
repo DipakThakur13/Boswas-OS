@@ -31,7 +31,7 @@ from __future__ import annotations
 import boswas_fluent as fluent
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
-from PySide6.QtWidgets import QHBoxLayout, QSlider, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QSlider
 
 from ... import compositorconfig as cc
 from .display import ConfigSection, combo, select
@@ -65,19 +65,21 @@ class TextSizeSection(ConfigSection):
 
     def build(self) -> None:
         card = self.add(fluent.Card(self, padding=16, spacing=12))
+        card.add(fluent.Label("Text size", "body-strong", card))
+        card.add(fluent.Label("Text in the taskbar, Start, title bars and applications; nothing else grows", "caption",
+                              card, tone="secondary", wrap=True))
         self.preview = fluent.Label(SAMPLE, "body", card, wrap=True)
         self.preview.setMinimumHeight(72)
         self.preview.setAccessibleName("Text size preview")
         card.add(self.preview)
-        holder = QWidget()
-        row = QHBoxLayout(holder)
+        row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(12)
         self.slider = QSlider(Qt.Orientation.Horizontal)
         self.slider.setRange(*cc.TEXT_SCALE)
         self.slider.setSingleStep(5)
         self.slider.setPageStep(25)
-        self.slider.setMinimumWidth(220)
+        self.slider.setMinimumWidth(160)
         self.slider.setAccessibleName("Text size")
         self.percent = fluent.Label("100 %", "body", tone="secondary")
         self.percent.setMinimumWidth(52)
@@ -86,8 +88,7 @@ class TextSizeSection(ConfigSection):
         row.addWidget(self.slider, 1)
         row.addWidget(self.percent)
         row.addWidget(self.apply_button)
-        self.card("Text size", "Text in the taskbar, Start, title bars and applications; nothing else grows",
-                  "draw-text-symbolic", holder)
+        card.add_layout(row)
         self.slider.valueChanged.connect(self._moved)
         self.apply_button.clicked.connect(self._apply)
         self.current = 100

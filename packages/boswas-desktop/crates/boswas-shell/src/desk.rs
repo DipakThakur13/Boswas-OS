@@ -1025,6 +1025,11 @@ impl Shell {
         items
     }
 
+    /// The menu of the taskbar's background.
+    pub fn taskbar_menu(&self) -> Vec<Item> {
+        vec![Item::new("Taskbar settings", "preferences-system-symbolic", Cmd::Spawn(start::settings_command("taskbar")))]
+    }
+
     pub fn desktop_menu(&self) -> Vec<Item> {
         vec![
             Item::new("Display settings", "preferences-desktop-display", Cmd::Spawn(start::settings_command("display"))),

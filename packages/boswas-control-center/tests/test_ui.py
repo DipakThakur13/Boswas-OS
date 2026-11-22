@@ -158,8 +158,9 @@ class NavigationTest(UiTestCase):
     def test_a_category_lists_its_pages_as_cards(self):
         w = self.window()
         page = self.show(w, "system")
-        self.assertEqual(page.subpages.visible_keys(), ["display", "sound", "power", "storage", "troubleshoot",
-                                                        "recovery", "about"])          # Install: live sessions only
+        self.assertEqual(page.subpages.visible_keys(), ["display", "sound", "notifications", "power", "storage",
+                                                        "multitasking", "troubleshoot", "recovery", "about"])
+        # (Install: live sessions only.)
         card = page.subpages.card("display")
         self.assertEqual(card.title(), "Display")
         self.assertEqual(card.description(), catalog.BY_KEY["display"].card_text)
@@ -230,7 +231,7 @@ class NavigationTest(UiTestCase):
                                     ("network", "other-connections", "ethernet"), ("devices", "keyboard", "keyboard"),
                                     ("devices", "mouse", "mouse"), ("security", "lock-screen", "lock-screen"),
                                     ("personalization", "colour-mode", "colours"),
-                                    ("personalization", "motion", "colours"),
+                                    ("personalization", "motion", "visual-effects"),
                                     ("applications", "default-applications", "default-apps"),
                                     ("applications", "start-up-applications", "startup"),
                                     ("privacy", "recent-files", "recent-files"), ("display", "night-light", "display"),

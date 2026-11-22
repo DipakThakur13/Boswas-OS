@@ -401,6 +401,9 @@ class BreadcrumbBar(QWidget):
         """Replace the path; the last item is the current place."""
         for widget in self._crumbs + self._chevrons:
             self._layout.removeWidget(widget)
+            # Hidden at once: deleteLater only deletes on the next turn of the event loop, and until then the
+            # old crumb would still be painted where it was, under or beside the new path.
+            widget.hide()
             widget.deleteLater()
         self._crumbs, self._chevrons = [], []
         self._texts = [str(item) for item in items]

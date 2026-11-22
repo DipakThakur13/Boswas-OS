@@ -29,7 +29,7 @@ from .display import ConfigSection
 
 NAMES = {"iris": "Iris", "azure": "Azure", "sky": "Sky", "mint": "Mint", "sun": "Sun", "coral": "Coral",
          "orchid": "Orchid", "slate": "Slate"}
-SWATCH = 40
+SWATCH = 28
 
 
 class Swatch(QAbstractButton):
@@ -66,7 +66,7 @@ class Swatch(QAbstractButton):
         inset = 4 if self.isChecked() else (1 if self.underMouse() else 2)
         painter.drawEllipse(box.adjusted(inset, inset, -inset, -inset))
         if self.isChecked():
-            fluent.paint.glyph(painter, box.adjusted(10, 10, -10, -10).toRect(), "check", "on-accent", 16)
+            fluent.paint.glyph(painter, box.adjusted(6, 6, -6, -6).toRect(), "check", "on-accent", 12)
         if self.hasFocus() and self.focusPolicy() != Qt.FocusPolicy.NoFocus:
             painter.setPen(QPen(fluent.qcolor("focus"), 2))
             painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -100,7 +100,7 @@ class AccentSection(ConfigSection):
         self.row = self.add(fluent.SettingsExpander(
             "Accent colour", "The colour of selections, switches, the focused window's details and the taskbar's "
             "marks", "draw-highlight-symbolic", None, self, expanded=True))
-        self.row.add_row("Choose a colour", "", holder)
+        self.row.add_row("Colour", "", holder)
         self.current = fluent.Label("", "caption", self, tone="secondary")
         self.row.header.add_control(self.current)
 

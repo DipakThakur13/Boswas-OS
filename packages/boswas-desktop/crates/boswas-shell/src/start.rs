@@ -71,9 +71,17 @@ pub const SETTINGS: &[(&str, &str, &str, &[&str])] = &[
     ("users", "Accounts", "preferences-system-users", &["user", "password", "sign-in", "login"]),
     ("updates", "Updates", "boswas-update-center", &["upgrade", "patch", "update"]),
     ("devices", "Mouse, keyboard & touchpad", "preferences-desktop-peripherals", &["mouse", "keyboard", "touchpad", "tablet", "pointer", "layout"]),
-    ("privacy", "Privacy", "preferences-system-privacy", &["telemetry", "history", "data"]),
+    ("privacy-security", "Privacy & security", "preferences-system-privacy", &["telemetry", "history", "data", "privacy"]),
     ("hardware", "Hardware & drivers", "hwinfo", &["driver", "firmware", "device", "graphics"]),
-    ("system", "Language, region & time", "preferences-system", &["language", "region", "date", "time", "notifications", "locale"]),
+    ("time-language", "Language, region & time", "preferences-system", &["language", "region", "date", "time", "locale"]),
+    ("notifications", "Notifications", "preferences-desktop-notification-bell", &["do not disturb", "dnd", "banners", "quiet hours"]),
+    ("multitasking", "Multitasking", "preferences-system-windows", &["snap", "split screen", "alt+tab", "desktops"]),
+    ("taskbar", "Taskbar settings", "boswas-shell", &["taskbar", "auto hide", "alignment", "task view"]),
+    ("start", "Start settings", "boswas-logo", &["start menu", "pinned", "recommended", "folders"]),
+    ("text-size", "Text size", "preferences-desktop-font", &["font size", "bigger text", "larger text"]),
+    ("magnifier", "Magnifier", "zoom-in-symbolic", &["zoom", "magnify", "enlarge"]),
+    ("color-filters", "Colour filters", "eye-open-symbolic", &["color filters", "grayscale", "greyscale", "invert", "colour blindness"]),
+    ("accessibility-keyboard", "Sticky keys and filter keys", "input-keyboard", &["sticky keys", "filter keys", "accessibility"]),
     ("about", "About this device", "boswas-logo", &["version", "specification", "system information"]),
 ];
 
@@ -735,7 +743,8 @@ mod tests {
     #[test]
     fn settings_keys_are_unique_and_plain() {
         let mut keys: Vec<&str> = SETTINGS.iter().map(|s| s.0).collect();
-        assert!(keys.iter().all(|k| k.chars().all(|c| c.is_ascii_lowercase())));
+        // Words of lower-case letters joined by hyphens: safe as an argument, and Control Center's own keys.
+        assert!(keys.iter().all(|k| !k.is_empty() && k.split('-').all(|w| !w.is_empty() && w.chars().all(|c| c.is_ascii_lowercase()))));
         keys.sort_unstable();
         keys.dedup();
         assert_eq!(keys.len(), SETTINGS.len());

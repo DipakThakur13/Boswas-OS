@@ -294,6 +294,13 @@ impl Shell {
                 let items = self.desktop_menu();
                 self.open_menu(items, at.0, at.1, false, &output);
             }
+            // The taskbar's own background: its settings.
+            Action::None if self.surfaces[index].role == Role::Taskbar => {
+                self.close_transients();
+                let items = self.taskbar_menu();
+                let top = self.surfaces[index].origin.1 - 4.0;
+                self.open_menu(items, at.0, top, true, &output);
+            }
             _ => {}
         }
     }
@@ -648,7 +655,7 @@ impl Shell {
             Act::NextMonth => self.st.notes.month = (self.st.notes.month + 1).min(1200),
             Act::Today => self.st.notes.month = 0,
             Act::Settings => {
-                self.spawn(&start::settings_command("system"));
+                self.spawn(&start::settings_command("notifications"));
                 return self.close_transients();
             }
         }

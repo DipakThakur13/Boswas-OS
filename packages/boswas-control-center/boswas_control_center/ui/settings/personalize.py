@@ -9,8 +9,8 @@ Category "Personalization":
                 (boswas_control_center.wallpapers), any PNG or JPEG file
                 through "Browse", or the default background: [appearance]
                 wallpaper.
-  Motion        (page colours, and Accessibility > Visual effects) animation
-                effects: [appearance] reduced_motion.
+  Motion        (Accessibility > Visual effects) animation effects:
+                [appearance] reduced_motion.
 Page "lock-screen" (Privacy & security):
   Lock screen   "Lock automatically after": [lock] idle_seconds, limited by
                 the administrator's [policy] lock_idle_max_seconds.
@@ -418,8 +418,7 @@ class BackgroundSection(ConfigSection):
         fluent.run_in_thread(lambda: wallpapers.check_picture(path), on_done=done, on_error=failed)
 
 class MotionSection(ConfigSection):
-    page = "colours"
-    also = ("visual-effects",)
+    page = "visual-effects"
     title = "Motion"
     order = 30
     keywords = ("animation", "animations", "motion", "effects", "reduce motion", "transitions")

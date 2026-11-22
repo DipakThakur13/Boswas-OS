@@ -132,5 +132,33 @@ if shared.HAVE_QT:
             self.assertIn("start.folders", section.notice.message())
 
 
+SHELL = Path(__file__).resolve().parents[2] / "boswas-desktop" / "crates" / "boswas-shell" / "src"
+
+
+@unittest.skipUnless(SHELL.is_dir(), "the shell's sources are not in this tree")
+class ShellLinksTest(unittest.TestCase):
+    """Every place the shell opens Control Center at (Start's search, the notification centre, quick settings,
+    menus) is a page of this Control Center."""
+
+    def test_every_page_the_shell_names_exists(self):
+        import re
+
+        from boswas_control_center import catalog
+        found = set()
+        for source in SHELL.glob("*.rs"):
+            text = source.read_text(encoding="utf-8")
+            found |= set(re.findall(r'settings_command\("([a-z-]+)"\)', text))
+            found |= set(re.findall(r'Act::Settings\("([a-z-]+)"\)', text))
+            found |= set(re.findall(r'page_footer\([^;]*?"([a-z-]+)"\)', text))
+            if source.name == "start.rs":
+                block = text.split("pub const SETTINGS", 1)[1].split("];", 1)[0]
+                found |= set(re.findall(r'\(\s*"([a-z-]+)",', block))
+        self.assertGreater(len(found), 20)
+        for key in ("notifications", "taskbar", "multitasking", "text-size"):
+            self.assertIn(key, found)
+        for key in sorted(found):
+            self.assertIn(key, catalog.PAGE_KEYS, key)
+
+
 if __name__ == "__main__":
     unittest.main()

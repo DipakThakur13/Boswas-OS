@@ -33,7 +33,8 @@ from boswas_control_center import viewmodel as vm  # noqa: E402
 # Every --page the shell, the desktop entries, the live session and the boot test use (grep boswas-desktop).
 SHELL_KEYS = ("personalization", "network", "bluetooth", "display", "sound", "power", "storage", "applications",
               "windows", "android", "security", "users", "updates", "devices", "privacy", "hardware", "system",
-              "about", "install")
+              "about", "install", "time-language", "privacy-security", "notifications", "multitasking", "taskbar",
+              "start", "text-size", "magnifier", "color-filters", "accessibility-keyboard")
 
 
 class CatalogTest(unittest.TestCase):
@@ -51,7 +52,13 @@ class CatalogTest(unittest.TestCase):
         for key in SHELL_KEYS:
             self.assertIn(key, catalog.PAGE_KEYS)
         self.assertEqual([p.key for p in catalog.children("system")],
-                         ["display", "sound", "power", "storage", "troubleshoot", "recovery", "about", "install"])
+                         ["display", "sound", "notifications", "power", "storage", "multitasking", "troubleshoot",
+                          "recovery", "about", "install"])
+        self.assertEqual([p.key for p in catalog.children("personalization")],
+                         ["background", "colours", "themes", "start", "taskbar", "fonts"])
+        self.assertEqual([p.key for p in catalog.children("accessibility")],
+                         ["text-size", "visual-effects", "mouse-pointer", "magnifier", "color-filters",
+                          "accessibility-keyboard"])
         self.assertEqual(catalog.category_of("vpn"), "network")
         self.assertEqual(catalog.category_of("network"), "network")
         self.assertEqual(catalog.path("display"), ("System", "Display"))

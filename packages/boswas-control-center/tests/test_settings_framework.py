@@ -126,7 +126,8 @@ class RegistryTest(unittest.TestCase):
             self.assertIsInstance(reason, str, name)
         self.assertEqual(settings.MODULES, ("connectivity", "sound_power", "accounts", "system", "display", "input",
                                             "personalize", "maintenance", "cleanup", "peripherals", "netadmin",
-                                            "fonts", "apps", "permissions", "updates"))
+                                            "fonts", "apps", "permissions", "updates", "colors", "taskbar",
+                                            "multitasking", "notifications", "accessibility"))
         self.assertEqual(settings.problems(), {})
         # Every page of the catalog that is not a category and has no content of its own has a section.
         from boswas_control_center.ui.main_window import PAGE_CLASSES
@@ -134,9 +135,14 @@ class RegistryTest(unittest.TestCase):
             if not page.is_category and page.key not in PAGE_CLASSES and not page.programs:
                 self.assertTrue(settings.sections_for(page.key), page.key)
         # A section shown on a second page (also) is found on both.
+        transparency = next(cls for cls in found if cls.__name__ == "TransparencySection")
+        self.assertIn(transparency, settings.sections_for("colours"))
+        self.assertIn(transparency, settings.sections_for("visual-effects"))
+        self.assertIn(("Transparency effects", "visual-effects", "transparency-effects", transparency.keywords),
+                      settings.search_entries())
+        # One animation switch, where Windows has it: Accessibility > Visual effects.
         motion = next(cls for cls in found if cls.__name__ == "MotionSection")
-        self.assertIn(motion, settings.sections_for("colours"))
-        self.assertIn(motion, settings.sections_for("visual-effects"))
+        self.assertNotIn(motion, settings.sections_for("colours"))
         self.assertIn(("Motion", "visual-effects", "motion", motion.keywords), settings.search_entries())
         with self.assertRaises(ImportError):
             settings._import("os")
