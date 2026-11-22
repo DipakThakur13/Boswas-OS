@@ -108,6 +108,8 @@ pub struct State {
     pub senders: crate::config::Senders,
     /// When each application was first seen, for "Recently added".
     pub seen: crate::config::SeenApps,
+    /// The lock screen: the weather summary the Weather application keeps.
+    pub weather: crate::weather::Watch,
 }
 
 #[cfg(test)]
@@ -183,6 +185,7 @@ impl State {
             dnd_schedule: None,
             senders: crate::config::Senders::default(),
             seen: crate::config::SeenApps::default(),
+            weather: crate::weather::Watch::default(),
         };
         for event in crate::svc::fake::Fake::default().initial() {
             state.sys.apply(&event);
@@ -443,6 +446,162 @@ mod tests {
         each(|f, _| lock::draw(f, &st, true), 800.0, 600.0, "greeter, other user");
     }
 
+    /// The lock screen's state with a weather summary fetched ten minutes
+    /// ago.
+    fn with_weather(mut st: State) -> State {
+        st.mode = Mode::Lock;
+        st.auth.display_name = "Asha Rao".into();
+        st.auth.hint = "Enter your password to unlock".into();
+        let fetched = chrono::Utc::now().timestamp() - 600;
+        st.weather.summary = Some(crate::weather::parse(&crate::weather::sample(fetched).to_string()).unwrap());
+        st
+    }
+
+    fn picture(st: &State, width: f32, height: f32, interactive: bool) -> Vec<u8> {
+        testing::render(width, height, 1.0, Scheme::Dark, None, None, |f| lock::draw(f, st, interactive)).0.data().to_vec()
+    }
+
+    #[test]
+    fn the_weather_card_draws_on_the_lock_screen() {
+        let mut st = with_weather(State::for_tests());
+        for text in [100, 175, 225] {
+            crate::ui::set_text_scale(text);
+            for (w, h) in [(1920.0, 1080.0), (1366.0, 768.0), (1024.0, 768.0), (800.0, 600.0), (480.0, 360.0)] {
+                each(|f, _| lock::draw(f, &st, true), w, h, "lock clock with the weather");
+            }
+        }
+        crate::ui::set_text_scale(100);
+        // A long place name and condition, every optional line, hours that
+        // ran out, and an hour-old summary that says when it was fetched.
+        let mut long = crate::weather::sample(chrono::Utc::now().timestamp() - 2 * 3600);
+        long["place"] = serde_json::json!("Llanfairpwllgwyngyllgogerychwyrndrobwllllantysiliogogogoch, Isle of Anglesey, Wales");
+        long["condition"] = serde_json::json!("Thunderstorm with heavy hail");
+        long["temperature"] = serde_json::json!("-12°F");
+        st.weather.summary = Some(crate::weather::parse(&long.to_string()).unwrap());
+        for text in [100, 225] {
+            crate::ui::set_text_scale(text);
+            each(|f, _| lock::draw(f, &st, true), 1366.0, 768.0, "lock clock with a long weather card");
+        }
+        crate::ui::set_text_scale(100);
+    }
+
+    #[test]
+    fn the_weather_card_keeps_clear_of_the_clock_the_hint_and_the_status() {
+        use crate::weather::{Room, MARGIN};
+        let st = with_weather(State::for_tests());
+        let summary = st.weather.summary.as_ref().unwrap();
+        let shown = summary.shown(summary.fetched + 60).unwrap();
+        for text in [100, 125, 150, 175, 200, 225] {
+            crate::ui::set_text_scale(text);
+            for (w, h) in [(3840.0_f32, 2160.0_f32), (1920.0, 1080.0), (1366.0, 768.0), (1280.0, 720.0), (1024.0, 768.0), (800.0, 600.0), (480.0, 360.0)] {
+                // As lock::draw has it: the clock and the date above, the
+                // hint at the bottom.
+                let hint_w = 170.0 * text as f32 / 100.0;
+                let size = (h * 0.13).clamp(56.0, 132.0);
+                let top = (h * 0.16).max(24.0) + (size * 1.35).round() + 2.0 + ((size * 0.24).clamp(18.0, 28.0) * 1.35).round();
+                let room = Room { width: w, height: h, top, hint: Rect::new((w - hint_w) / 2.0, h - 72.0, hint_w, 20.0) };
+                let mut card = None;
+                testing::render(w, h, 1.0, Scheme::Dark, None, None, |f| card = crate::weather::draw(f, &shown, room));
+                let name = format!("{w}x{h} at {text} %");
+                if let Some(card) = card {
+                    assert_eq!(card.x, MARGIN, "{name}: at the left edge");
+                    assert!(card.y >= room.top && card.bottom() <= h - MARGIN + 0.5 && card.right() <= w - MARGIN, "{name}: {card:?}");
+                    let beside = card.right() <= room.hint.x;
+                    let above = card.bottom() <= room.hint.y;
+                    assert!(beside || above, "{name}: the card covers the unlock hint: {card:?}");
+                    assert!(card.right() <= w / 2.0 || above, "{name}: it reaches into the status icons");
+                } else {
+                    // Screens of a usual size always have room for it, at
+                    // every text size (the details and then the hours
+                    // give way first).
+                    assert!(h < 720.0, "{name}: no card where there is room for one");
+                }
+            }
+        }
+        crate::ui::set_text_scale(100);
+    }
+
+    #[test]
+    fn the_weather_card_appears_only_where_it_belongs() {
+        let plain = {
+            let mut st = with_weather(State::for_tests());
+            st.weather.summary = None;
+            st
+        };
+        let mut st = with_weather(State::for_tests());
+        let (w, h) = (1366.0, 768.0);
+        let without = picture(&plain, w, h, true);
+        assert_ne!(picture(&st, w, h, true), without, "the card is drawn");
+        // Not on the other outputs, which show the clock and the date only.
+        assert_eq!(picture(&st, w, h, false), picture(&plain, w, h, false));
+        // Not in the sign-in view.
+        st.auth.stage = lock::Stage::SignIn;
+        let mut plain_sign_in = with_weather(State::for_tests());
+        plain_sign_in.weather.summary = None;
+        plain_sign_in.auth.stage = lock::Stage::SignIn;
+        assert_eq!(picture(&st, w, h, true), picture(&plain_sign_in, w, h, true));
+        st.auth.stage = lock::Stage::Clock;
+        // Not when the setting is off, nor before the settings arrived.
+        st.desktop.lock_weather = false;
+        assert_eq!(picture(&st, w, h, true), without);
+        st.desktop.lock_weather = true;
+        st.desktop_known = false;
+        assert_eq!(picture(&st, w, h, true), without);
+        st.desktop_known = true;
+        // Not on the login screen.
+        st.auth.greeter = true;
+        let mut plain_greeter = with_weather(State::for_tests());
+        plain_greeter.weather.summary = None;
+        plain_greeter.auth.greeter = true;
+        assert_eq!(picture(&st, w, h, true), picture(&plain_greeter, w, h, true));
+        st.auth.greeter = false;
+        // Not when the summary is older than three hours.
+        let now = chrono::Utc::now().timestamp();
+        st.weather.summary = Some(crate::weather::parse(&crate::weather::sample(now - 3 * 3600 - 120).to_string()).unwrap());
+        assert_eq!(picture(&st, w, h, true), without);
+        assert!(lock::weather_shown(&st, now).is_none());
+        st.weather.summary = Some(crate::weather::parse(&crate::weather::sample(now - 2 * 3600).to_string()).unwrap());
+        assert_eq!(lock::weather_shown(&st, now).unwrap().updated, Some("Updated at 14:20"));
+    }
+
+    /// Writes pictures of the lock screen with the weather card, for people
+    /// to look at: `BOSWAS_SHELL_PICTURES=DIR` (where they go) and
+    /// `BOSWAS_SHELL_WALLPAPERS=A.png:B.png` (the backgrounds), then
+    /// `cargo test -p boswas-shell -- --ignored lock_screen_pictures`.
+    #[test]
+    #[ignore = "writes pictures for people to look at"]
+    fn lock_screen_pictures() {
+        let Some(out) = std::env::var_os("BOSWAS_SHELL_PICTURES").map(std::path::PathBuf::from) else {
+            return;
+        };
+        let wallpapers = std::env::var("BOSWAS_SHELL_WALLPAPERS").unwrap_or_default();
+        let mut st = with_weather(State::for_tests());
+        st.status.time = "14:30".into();
+        let now = chrono::Utc::now().timestamp();
+        for (index, wallpaper) in std::iter::once("").chain(wallpapers.split(':').filter(|p| !p.is_empty())).enumerate() {
+            let mut background = crate::wallpaper::Background::default();
+            background.load_picture(wallpaper);
+            for (w, h, age) in [(1920.0, 1080.0, 600), (1366.0, 768.0, 600), (1366.0, 768.0, 5400)] {
+                st.weather.summary = Some(crate::weather::parse(&crate::weather::sample(now - age).to_string()).unwrap());
+                for text in [100, 175] {
+                    crate::ui::set_text_scale(text);
+                    for scheme in [Scheme::Dark, Scheme::Light] {
+                        let theme = boswas_ui::Theme::of(scheme);
+                        let mut res = crate::ui::Resources::new(theme);
+                        res.backdrop = background.reduced(theme, w, h).and_then(|reduced| boswas_ui::material::Backdrop::new(&reduced, w, h));
+                        let (canvas, _) = testing::render_with(res, w, h, 1.0, None, None, |f| {
+                            background.paint(f.canvas, theme);
+                            lock::draw(f, &st, true);
+                        });
+                        let name = format!("lock-{index}-{w}x{h}-{text}-{}-{age}s.png", if scheme == Scheme::Dark { "dark" } else { "light" });
+                        std::fs::write(out.join(name), boswas_ui::icons::encode_png(canvas.pixmap()).unwrap()).unwrap();
+                    }
+                }
+            }
+        }
+        crate::ui::set_text_scale(100);
+    }
+
     /// On a machine without a single usable font nothing panics: the lock
     /// screen (which has to stay, or the session could not be unlocked) and
     /// the other surfaces draw their shapes and controls without text.
@@ -468,6 +627,17 @@ mod tests {
                 assert!(canvas.data().chunks_exact(4).any(|p| p[3] > 0), "{name} drew nothing");
                 assert!(testing::hits_are_inside(&hits, 1024.0, 768.0), "{name}");
             }
+            // The weather card, too, at every text size.
+            let mut weather = with_weather(State::for_tests());
+            for text in [100, 225] {
+                crate::ui::set_text_scale(text);
+                let (canvas, hits) = testing::render_with(fontless(scheme), 1024.0, 768.0, 1.0, None, None, |f| lock::draw(f, &weather, true));
+                assert!(canvas.data().chunks_exact(4).any(|p| p[3] > 0), "the weather card drew nothing");
+                assert!(testing::hits_are_inside(&hits, 1024.0, 768.0));
+            }
+            crate::ui::set_text_scale(100);
+            weather.auth.stage = lock::Stage::SignIn;
+            testing::render_with(fontless(scheme), 1024.0, 768.0, 1.0, None, None, |f| lock::draw(f, &weather, true));
             let (canvas, _) = testing::render_with(fontless(scheme), 1366.0, 48.0, 1.0, None, None, |f| taskbar::draw(f, &st));
             assert!(canvas.data().chunks_exact(4).any(|p| p[3] > 0), "taskbar drew nothing");
             let panel = Rect::new(PAD, PAD, 642.0, 726.0);

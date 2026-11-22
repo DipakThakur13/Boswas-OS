@@ -99,6 +99,13 @@ class CatalogTest(unittest.TestCase):
         self.assertNotIn("install", [e.page for e in hidden])
         self.assertEqual(catalog.search("rename", entries)[0].title, "Rename this device")
 
+    def test_weather_on_the_lock_screen_is_found(self):
+        found = catalog.search("weather", catalog.entries())
+        self.assertTrue(found)
+        self.assertEqual((found[0].title, found[0].page, found[0].section),
+                         ("Show weather on the lock screen", "lock-screen", "lock-screen"))
+        self.assertIn("lock-screen", [entry.page for entry in catalog.search("forecast", catalog.entries())])
+
     def test_single_settings_point_at_places_that_exist(self):
         for setting in catalog.SETTINGS:
             self.assertIn(setting.page, catalog.BY_KEY, setting.title)

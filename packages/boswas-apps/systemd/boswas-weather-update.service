@@ -1,0 +1,41 @@
+# Started by boswas-weather-update.timer. Without a place chosen in Weather,
+# or with Settings > Privacy & security > Lock screen > "Show weather on the
+# lock screen" off, it ends at once and sends nothing (boswas-weather(1)).
+[Unit]
+Description=Weather for the lock screen
+Documentation=man:boswas-weather(1)
+PartOf=boswas-session.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/boswas-weather --update-lock-screen
+TimeoutStartSec=90
+Nice=10
+# What it may write: the summary next to the shell's state files, and
+# Weather's forecast cache. Everything else is read-only.
+StateDirectory=boswas
+StateDirectoryMode=0700
+CacheDirectory=com.boswas.Weather
+CacheDirectoryMode=0700
+ProtectSystem=strict
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+UMask=0077
+# HTTPS to the weather service; local sockets for name resolution.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+KeyringMode=private
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+MemoryMax=128M
+TasksMax=16

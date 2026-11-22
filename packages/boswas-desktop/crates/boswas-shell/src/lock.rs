@@ -1,5 +1,6 @@
 //! The lock screen and the login greeter: first the clock over the
-//! wallpaper, then (after any key or a click) the sign-in view.
+//! wallpaper (on the lock screen with the weather card, `weather.rs`), then
+//! (after any key or a click) the sign-in view.
 
 use boswas_ui::{
     text::TextStyle,
@@ -172,8 +173,19 @@ fn status_icons(f: &mut Frame, st: &State, right: f32, y: f32) -> f32 {
     x
 }
 
+/// The weather card of the clock view at `now` (seconds since the epoch),
+/// if any: only on the lock screen (the login screen runs before anyone's
+/// files are known), only once the session's settings arrived and allow
+/// it, and only while the summary is recent.
+pub fn weather_shown(st: &State, now: i64) -> Option<crate::weather::Shown<'_>> {
+    if st.auth.greeter || !st.desktop_known || !st.desktop.lock_weather {
+        return None;
+    }
+    st.weather.summary.as_ref()?.shown(now)
+}
+
 /// Draws the view. `interactive` is false on secondary outputs, which show
-/// the clock only.
+/// the clock and the date only.
 pub fn draw(f: &mut Frame, st: &State, interactive: bool) {
     let view = &st.auth;
     let theme = f.theme();
@@ -206,12 +218,23 @@ pub fn draw(f: &mut Frame, st: &State, interactive: bool) {
         f.text_centered(&st.status.time, Rect::new(0.0, y, w, clock.line_height()), &clock);
         let date = TextStyle::new((size * 0.24).clamp(18.0, 28.0), Rgba::WHITE).weight(500);
         let long_date = chrono::Local::now().format("%A, %-d %B").to_string();
-        f.text_centered(&long_date, Rect::new(0.0, y + clock.line_height() + 2.0, w, date.line_height()), &date);
+        let date_y = y + clock.line_height() + 2.0;
+        f.text_centered(&long_date, Rect::new(0.0, date_y, w, date.line_height()), &date);
         if interactive {
             let hint = ramp("body", Rgba::WHITE.alpha(0.85));
             let text = if view.greeter { "Press any key to sign in" } else { "Press any key to unlock" };
             f.text_centered(text, Rect::new(0.0, h - 72.0, w, hint.line_height()), &hint);
             status_icons(f, st, w - 28.0, h - 48.0);
+            if let Some(shown) = weather_shown(st, chrono::Utc::now().timestamp()) {
+                let hint_w = f.res.text.measure(text, &hint).0.min(w);
+                let room = crate::weather::Room {
+                    width: w,
+                    height: h,
+                    top: date_y + date.line_height(),
+                    hint: Rect::new((w - hint_w) / 2.0, h - 72.0, hint_w, hint.line_height()),
+                };
+                crate::weather::draw(f, &shown, room);
+            }
         }
         return;
     }

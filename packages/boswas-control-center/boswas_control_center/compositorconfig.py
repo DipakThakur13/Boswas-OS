@@ -407,6 +407,8 @@ SCHEMA: dict[str, dict[str, Key]] = {
         "idle_seconds": _integer(600, 1, 7 * 24 * 3600, storage=_U32, what="time in seconds", zero=True,
                                  clamped=False),
         "command": _program(("/usr/libexec/boswas/boswas-shell", "--lock"), user=False),
+        # The weather card of the lock screen: the user's preference, not lock policy.
+        "show_weather": _boolean(True),
     },
     "shell": {"command": _program(("/usr/libexec/boswas/boswas-shell",), user=False)},
     "input_method": {"command": _program((), user=False)},

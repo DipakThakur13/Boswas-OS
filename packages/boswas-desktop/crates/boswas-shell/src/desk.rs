@@ -448,6 +448,10 @@ impl Shell {
     pub fn tick(&mut self) {
         #[cfg(debug_assertions)]
         self.read_feed();
+        // The lock screen looks at the weather summary once a minute.
+        if self.st.weather.poll(chrono::Utc::now().timestamp()) {
+            self.mark(Role::Auth);
+        }
         let clock = chrono::Local::now();
         self.follow_dnd_schedule(chrono::Timelike::hour(&clock) * 60 + chrono::Timelike::minute(&clock));
         let seconds = self.st.mode == Mode::Desktop && self.st.desktop.taskbar.clock_seconds;

@@ -26,13 +26,13 @@
 //! hour says when it was fetched.
 
 use std::{
-    fs::File,
     io::Read,
     os::unix::fs::{MetadataExt, OpenOptionsExt},
     path::{Path, PathBuf},
 };
 
 use boswas_ui::{
+    text::TextStyle,
     tokens::{tokens, Material},
     Rgba, Scheme,
 };
@@ -335,7 +335,6 @@ impl Summary {
 /// keep the same distance from the right edge).
 pub const MARGIN: f32 = 28.0;
 const PAD: f32 = 16.0;
-const HOUR_ICON: f32 = 20.0;
 /// Room left between the card and the unlock hint.
 const GAP: f32 = 24.0;
 
@@ -351,10 +350,33 @@ pub struct Room {
     pub hint: Rect,
 }
 
-/// The size of the large icon for a temperature line: 40 px at the normal
-/// text size, growing with the text up to 64 px.
-fn icon_size(temperature_line: f32) -> f32 {
-    (temperature_line * 0.75).round().clamp(32.0, 64.0).max(40.0_f32.min(temperature_line))
+/// The size of the large icon beside the temperature: as large as the
+/// temperature's letters, 40 px at the normal text size and at most 64 px.
+fn icon_size(temperature: &TextStyle) -> f32 {
+    temperature.size.clamp(40.0, 64.0)
+}
+
+/// The size of an hour's icon: 20 px at the normal text size, growing with
+/// the text up to 32 px (the card is one unit with its text).
+fn hour_icon_size() -> f32 {
+    (20.0 * crate::ui::text_scale()).round().clamp(20.0, 32.0)
+}
+
+fn width_of(f: &mut Frame, text: &str, style: &TextStyle) -> f32 {
+    f.res.text.measure(text, style).0
+}
+
+/// Where the card goes and what it holds.
+struct Plan {
+    card: Rect,
+    /// The condition and the place beside the temperature, not below it.
+    side_by_side: bool,
+    head_h: f32,
+    details_shown: bool,
+    hours: usize,
+    /// What it gives up, to compare places: lines left out, a squeezed
+    /// width.
+    cost: (usize, bool),
 }
 
 /// Draws the card for `shown`. Returns its rectangle (`None` when there is
@@ -371,49 +393,78 @@ pub fn draw(f: &mut Frame, shown: &Shown, room: Room) -> Option<Rect> {
     let updated = ramp("caption", quiet);
     let s = shown.summary;
 
-    let icon = icon_size(temperature.line_height());
-    let measure = |f: &mut Frame, text: &str, style| f.res.text.measure(text, style).0;
-    let temperature_w = measure(f, &s.temperature, &temperature);
-    let column_w = measure(f, &s.condition, &condition).max(measure(f, &s.place, &place));
-    let details_w = shown.details.as_deref().map_or(0.0, |d| measure(f, d, &details));
-    let updated_w = shown.updated.map_or(0.0, |u| measure(f, u, &updated));
-    let hour_w = shown
-        .hours
-        .iter()
-        .map(|h| measure(f, &h.time, &hour_label).max(measure(f, &h.temperature, &hour_temperature)))
-        .fold(HOUR_ICON, f32::max)
-        + 12.0;
+    let icon = icon_size(&temperature);
+    let hour_icon = hour_icon_size();
+    let temperature_w = width_of(f, &s.temperature, &temperature);
+    let column_w = width_of(f, &s.condition, &condition).max(width_of(f, &s.place, &place));
+    let details_w = shown.details.as_deref().map_or(0.0, |d| width_of(f, d, &details));
+    let updated_w = shown.updated.map_or(0.0, |u| width_of(f, u, &updated));
+    let mut hour_w = hour_icon;
+    for hour in &shown.hours {
+        hour_w = hour_w.max(width_of(f, &hour.time, &hour_label)).max(width_of(f, &hour.temperature, &hour_temperature));
+    }
+    let hour_w = hour_w + 12.0;
     let head_w = icon + 12.0 + temperature_w;
     let side_by_side_w = head_w + 16.0 + column_w;
     let natural = side_by_side_w.max(details_w).max(updated_w).max(hour_w * shown.hours.len() as f32) + 2.0 * PAD;
 
-    // Beside the unlock hint when the card fits there, else above it.
-    let beside = room.hint.x - GAP - MARGIN;
-    let (width, bottom) = if natural.min(320.0) <= beside {
-        (natural.min(beside), room.height - MARGIN)
-    } else {
-        (natural.min(room.width - 2.0 * MARGIN), room.hint.y - GAP / 2.0)
-    };
-    let inner = width - 2.0 * PAD;
-    if inner < icon {
-        return None;
-    }
-    let side_by_side = side_by_side_w <= inner;
     let column_h = condition.line_height() + place.line_height();
-    let head_h = if side_by_side {
-        icon.max(temperature.line_height()).max(column_h)
-    } else {
-        icon.max(temperature.line_height()) + 4.0 + column_h
-    };
-    let details_h = shown.details.as_ref().map_or(0.0, |_| 4.0 + details.line_height());
-    let hours = shown.hours.len().min((inner / hour_w).floor() as usize);
-    let hours_h = if hours > 0 { 12.0 + 1.0 + 10.0 + hour_label.line_height() + 4.0 + HOUR_ICON + 4.0 + hour_temperature.line_height() } else { 0.0 };
+    let column_of_hour = hour_label.line_height() + 4.0 + hour_icon + 4.0 + hour_temperature.line_height();
     let updated_h = shown.updated.map_or(0.0, |_| 8.0 + updated.line_height());
-    let height = PAD + head_h + details_h + hours_h + updated_h + PAD;
-    let card = Rect::new(MARGIN, bottom - height, width, height);
-    if card.y < room.top + GAP {
-        return None;
-    }
+    let with_details = shown.details.is_some();
+    // The card in a place: `width` wide at most, its bottom at `bottom`.
+    // Everything, else without the details line, else without the hours,
+    // else neither, whichever first fits between the date and the bottom.
+    let plan = |width: f32, bottom: f32| -> Option<Plan> {
+        let width = natural.min(width);
+        let inner = width - 2.0 * PAD;
+        if inner < icon {
+            return None;
+        }
+        let side_by_side = side_by_side_w <= inner;
+        let head_h = if side_by_side {
+            icon.max(temperature.line_height()).max(column_h)
+        } else {
+            icon.max(temperature.line_height()) + 4.0 + column_h
+        };
+        // As many of the hours as fit side by side.
+        let fitting_hours = shown.hours.len().min((inner / hour_w).floor() as usize);
+        [(with_details, fitting_hours), (false, fitting_hours), (with_details, 0), (false, 0)]
+            .into_iter()
+            .enumerate()
+            .find_map(|(given_up, (details_shown, hours))| {
+                let details_h = if details_shown { 4.0 + details.line_height() } else { 0.0 };
+                let hours_h = if hours > 0 { 12.0 + 1.0 + 10.0 + column_of_hour } else { 0.0 };
+                let height = PAD + head_h + details_h + hours_h + updated_h + PAD;
+                let card = Rect::new(MARGIN, bottom - height, width, height);
+                (card.y >= room.top + GAP).then_some(Plan {
+                    card,
+                    side_by_side,
+                    head_h,
+                    details_shown,
+                    hours,
+                    // What was given up: lines, then room (a narrower card
+                    // than the text wants).
+                    cost: (given_up, width < natural),
+                })
+            })
+    };
+    // In the corner beside the unlock hint, or above the hint across the
+    // screen: whichever keeps more of the card, the corner when both keep
+    // all of it.
+    let corner = plan(room.hint.x - GAP - MARGIN, room.height - MARGIN);
+    let above = plan(room.width - 2.0 * MARGIN, room.hint.y - GAP / 2.0);
+    let Plan { card, side_by_side, head_h, details_shown, hours, .. } = match (corner, above) {
+        (Some(corner), Some(above)) => {
+            if above.cost < corner.cost {
+                above
+            } else {
+                corner
+            }
+        }
+        (corner, above) => corner.or(above)?,
+    };
+    let inner = card.w - 2.0 * PAD;
 
     // The card: the blurred wallpaper under the dark acrylic tint (the text
     // on the lock screen is always white), a soft shadow and an outline.
@@ -450,7 +501,7 @@ pub fn draw(f: &mut Frame, shown: &Shown, room: Room) -> Option<Rect> {
     f.text(&s.condition, cx, cy, Some(cw), &condition);
     f.text(&s.place, cx, cy + condition.line_height(), Some(cw), &place);
     y += head_h;
-    if let Some(line) = &shown.details {
+    if let Some(line) = shown.details.as_ref().filter(|_| details_shown) {
         y += 4.0;
         f.text(line, x, y, Some(inner), &details);
         y += details.line_height();
@@ -460,17 +511,17 @@ pub fn draw(f: &mut Frame, shown: &Shown, room: Room) -> Option<Rect> {
     if hours > 0 {
         y += 12.0;
         f.canvas.fill_rect(x, y, inner, 1.0, t.stroke(Scheme::Dark, "divider"));
-        y += 11.0;
+        y += 1.0 + 10.0;
         let column = inner / hours as f32;
         for (index, hour) in shown.hours.iter().take(hours).enumerate() {
             let cell = Rect::new(x + index as f32 * column, y, column, hour_label.line_height());
             f.text_centered(&hour.time, cell, &hour_label);
             let iy = cell.bottom() + 4.0;
-            f.icon_tinted(&hour.icon, cell.x + (column - HOUR_ICON) / 2.0, iy, HOUR_ICON, white);
-            let below = Rect::new(cell.x, iy + HOUR_ICON + 4.0, column, hour_temperature.line_height());
+            f.icon_tinted(&hour.icon, cell.x + (column - hour_icon) / 2.0, iy, hour_icon, white);
+            let below = Rect::new(cell.x, iy + hour_icon + 4.0, column, hour_temperature.line_height());
             f.text_centered(&hour.temperature, below, &hour_temperature);
         }
-        y += hours_h - 23.0;
+        y += column_of_hour;
     }
     if let Some(text) = shown.updated {
         y += 8.0;
@@ -479,27 +530,52 @@ pub fn draw(f: &mut Frame, shown: &Shown, room: Room) -> Option<Rect> {
     Some(card)
 }
 
+/// A good summary fetched at `fetched`, with twelve hours from the hour it
+/// was fetched in on (for the tests here and of the lock screen).
+#[cfg(test)]
+pub fn sample(fetched: i64) -> Value {
+    use serde_json::json;
+    let hour0 = fetched - fetched.rem_euclid(3600);
+    json!({
+        "version": 1, "place": "Berlin", "fetched": fetched, "unit": "c",
+        "temperature": "8°C", "condition": "Partly cloudy", "icon": "weather-few-clouds-symbolic",
+        "updated": "Updated at 14:20", "feels_like": "Feels like 5°", "high_low": "High 9° · Low 3°",
+        "today_until": fetched + 6 * 3600,
+        "hours": (0..12).map(|n| json!({"at": hour0 + n * 3600, "time": format!("{:02}:00", (14 + n) % 24),
+            "icon": if n % 2 == 0 { "weather-overcast-symbolic" } else { "weather-showers-symbolic" },
+            "temperature": format!("{}°", 8 - n / 3)})).collect::<Vec<_>>(),
+        "something_new": {"ignored": true}
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
 
-    /// A good summary fetched at `fetched`, with twelve hours from then on.
-    pub fn sample(fetched: i64) -> Value {
-        let hour0 = fetched - fetched.rem_euclid(3600);
-        json!({
-            "version": 1, "place": "Berlin", "fetched": fetched, "unit": "c",
-            "temperature": "8°C", "condition": "Partly cloudy", "icon": "weather-few-clouds-symbolic",
-            "updated": "Updated at 14:20", "feels_like": "Feels like 5°", "high_low": "High 9° · Low 3°",
-            "today_until": fetched + 6 * 3600,
-            "hours": (0..12).map(|n| json!({"at": hour0 + n * 3600, "time": format!("{:02}:00", (14 + n) % 24),
-                "icon": if n % 2 == 0 { "weather-overcast-symbolic" } else { "weather-showers-symbolic" },
-                "temperature": format!("{}°", 8 - n / 3)})).collect::<Vec<_>>(),
-            "something_new": {"ignored": true}
-        })
+    const T: i64 = 1_763_731_200; // 2025-11-21 13:20 UTC
+
+    /// A fresh directory of this test, removed when it is dropped.
+    struct Scratch(PathBuf);
+
+    impl Scratch {
+        fn new(name: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!("boswas-shell-weather-{}-{name}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            Self(dir)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
     }
 
-    const T: i64 = 1_763_731_200; // 2025-11-21 13:20 UTC
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
 
     #[test]
     fn a_good_summary_is_read() {
@@ -601,7 +677,7 @@ mod tests {
     #[test]
     fn only_a_regular_file_of_the_user_is_read() {
         use std::os::unix::fs::{symlink, PermissionsExt};
-        let dir = tempfile::tempdir().unwrap();
+        let dir = Scratch::new("read");
         let uid = rustix::process::geteuid().as_raw();
         let path = dir.path().join("weather.json");
         std::fs::write(&path, sample(T).to_string()).unwrap();
@@ -639,7 +715,7 @@ mod tests {
 
     #[test]
     fn the_file_is_followed_and_read_only_when_it_changes() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = Scratch::new("watch");
         let path = dir.path().join("weather.json");
         let mut watch = Watch::new(Some(path.clone()));
         assert!(!watch.check(), "no file, nothing to show");
@@ -681,9 +757,11 @@ mod tests {
     #[test]
     fn the_large_icon_follows_the_temperature() {
         crate::ui::set_text_scale(100);
-        assert_eq!(icon_size(ramp("title-large", Rgba::WHITE).line_height()), 40.0);
+        assert_eq!((icon_size(&ramp("title-large", Rgba::WHITE)), hour_icon_size()), (40.0, 20.0));
+        crate::ui::set_text_scale(125);
+        assert_eq!((icon_size(&ramp("title-large", Rgba::WHITE)), hour_icon_size()), (50.0, 25.0));
         crate::ui::set_text_scale(225);
-        assert_eq!(icon_size(ramp("title-large", Rgba::WHITE).line_height()), 64.0);
+        assert_eq!((icon_size(&ramp("title-large", Rgba::WHITE)), hour_icon_size()), (64.0, 32.0));
         crate::ui::set_text_scale(100);
     }
 }

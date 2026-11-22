@@ -1190,7 +1190,11 @@ fn trusted_helper() {
             };
             let reply = control.call(json!({"cmd": "subscribe"}));
             report(&format!("show_weather={}", reply["data"]["appearance"]["lock"]["show_weather"]));
-            std::thread::sleep(Duration::from_secs(60));
+            // Until the compositor is gone (or ten quiet seconds).
+            let mut line = String::new();
+            while matches!(control.reader.read_line(&mut line), Ok(n) if n > 0) {
+                line.clear();
+            }
         }
         "lock-and-die" | "lock-and-unlock" => {
             let (globals, mut queue) = registry_queue_init::<Client>(&conn).unwrap();

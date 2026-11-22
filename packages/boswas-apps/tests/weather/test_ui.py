@@ -11,8 +11,10 @@ import configparser
 import contextlib
 import importlib.util
 import io
+import json
 import os
 import re
+import stat
 import unittest
 from pathlib import Path
 
@@ -60,8 +62,10 @@ class WeatherCase(BASE):
         places.save(self.config / "places.json", PlaceList([place(name) for name in names],
                                                            place(home).key if home else None))
 
-    def open(self, *arguments: str, width: int = 1100, height: int = 720, settle: bool = True) -> WeatherWindow:
-        window = WeatherWindow(list(arguments), service=self.service, clock=lambda: NOW, imperial=False)
+    def open(self, *arguments: str, width: int = 1100, height: int = 720, settle: bool = True,
+             compositor_files: list[str] | None = None) -> WeatherWindow:
+        window = WeatherWindow(list(arguments), service=self.service, clock=lambda: NOW, imperial=False,
+                               compositor_files=compositor_files)
         window.open_url = lambda url: self.opened.append(url) or True
         self.show(window, width, height)
         window.resize(width, height)                  # not the size a window of an earlier test remembered
@@ -666,6 +670,75 @@ class PackagingTest(unittest.TestCase):
         self.assertEqual((main["Type"], main["Exec"], main["Icon"], main["StartupWMClass"]),
                          ("Application", "boswas-weather", "boswas-weather", APP_ID))
         self.assertTrue(main["Categories"].endswith(";") and main["Keywords"].endswith(";"))
+
+
+class LockScreenTest(WeatherCase):
+    """The summary the lock screen shows follows the window: the home place's forecast, the units, the setting."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.summary = Path(os.environ["XDG_STATE_HOME"], "boswas", "weather.json")
+        self.setting = self.tmp / "compositor.toml"
+
+    def lock_screen(self) -> dict | None:
+        return json.loads(self.summary.read_text(encoding="utf-8")) if self.summary.exists() else None
+
+    def test_the_home_place_goes_to_the_lock_screen(self):
+        self.save_places("sydney", "berlin", home="berlin")
+        window = self.open(compositor_files=[str(self.setting)])
+        summary = self.lock_screen()
+        self.assertEqual((summary["place"], summary["temperature"], summary["fetched"]), ("Berlin", "8°C", int(NOW)))
+        self.assertEqual(summary["hours"][0]["time"], "14:00")
+        self.assertEqual(stat.S_IMODE(self.summary.stat().st_mode), 0o600)
+        # Other units and the 12-hour clock: written again at once.
+        self.choose(window, "temperature", "f")
+        self.choose(window, "time_format", "12")
+        self.settle(window)
+        summary = self.lock_screen()
+        self.assertEqual((summary["temperature"], summary["hours"][0]["time"]), ("46°F", "2 PM"))
+        # Another home whose forecast is not known yet: the old place leaves the lock screen until it is.
+        window.set_home(SYDNEY)
+        self.settle(window)
+        self.assertIsNone(self.lock_screen())
+        window.refresh(place("sydney"))
+        self.settle(window)
+        self.assertEqual(self.lock_screen()["place"], "Sydney")
+        # Without a home, the first place; without places, nothing.
+        window.set_home(None)
+        window.move_place(BERLIN, -1)
+        self.settle(window)
+        self.assertEqual(self.lock_screen()["place"], "Berlin")
+        window.remove_place(BERLIN)
+        window.remove_place(SYDNEY)
+        self.settle(window)
+        self.assertIsNone(self.lock_screen())
+
+    def test_a_newer_forecast_in_the_cache_wins(self):
+        """The timer's update fetched while the window was open: the window does not put back its older one."""
+        self.save_places("berlin")
+        window = self.open(compositor_files=[str(self.setting)])
+        self.assertEqual(self.lock_screen()["fetched"], int(NOW))
+        answer = (Path(__file__).parent / "data" / "forecast-berlin.json").read_bytes()
+        ForecastCache(self.cache_dir).write(place("berlin"), answer, NOW + 900)
+        self.choose(window, "temperature", "f")
+        self.settle(window)
+        self.assertEqual((self.lock_screen()["fetched"], self.lock_screen()["temperature"]), (int(NOW) + 900, "46°F"))
+
+    def test_nothing_for_the_lock_screen_when_it_does_not_show_the_weather(self):
+        self.setting.write_text("[lock]\nshow_weather = false\n", encoding="utf-8")
+        self.summary.parent.mkdir(parents=True)
+        self.summary.write_text("{}", encoding="utf-8")
+        self.save_places("berlin")
+        self.open(compositor_files=[str(self.setting)])
+        self.assertEqual(self.network.count("forecast"), 1, "the window still shows the forecast")
+        self.assertIsNone(self.lock_screen(), "and the lock screen's summary is gone")
+
+    def test_a_summary_that_cannot_be_written_is_no_trouble_for_the_window(self):
+        Path(os.environ["XDG_STATE_HOME"], "boswas").write_text("not a directory", encoding="utf-8")
+        self.save_places("berlin")
+        window = self.open(compositor_files=[str(self.setting)])
+        self.assertFalse(window.status.isVisible(), "no banner about it")
+        self.assertEqual(window.navigation.current(), "place-0")
 
 
 class LifecycleTest(WeatherCase):
