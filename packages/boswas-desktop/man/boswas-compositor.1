@@ -331,6 +331,12 @@ never). Any input turns them on again.
 .B [lock]
 \fBidle_seconds\fR: time without input before the session locks (0: never,
 if the policy allows it). \fBcommand\fR: the lock screen program.
+\fBshow_weather\fR (default: true): the lock screen shows the weather of
+the home place chosen in Weather, from the summary that
+\fBboswas\-weather\fR(1) keeps in
+\fI$XDG_STATE_HOME/boswas/weather.json\fR; it is not lock policy, so a
+user's file may set it. The lock screen itself never contacts the
+network.
 .TP
 .B [shell]
 \fBcommand\fR: the shell program.

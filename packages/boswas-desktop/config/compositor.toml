@@ -42,6 +42,9 @@ scale = 1.0
 # The session locks after ten minutes without input.
 idle_seconds = 600
 command = ["/usr/libexec/boswas/boswas-shell", "--lock"]
+# The lock screen shows the weather of the home place chosen in Weather
+# (Settings > Privacy & security > Lock screen; users may change it).
+show_weather = true
 
 [shell]
 command = ["/usr/libexec/boswas/boswas-shell"]

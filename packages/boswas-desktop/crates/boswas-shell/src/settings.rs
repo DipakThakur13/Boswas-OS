@@ -1,6 +1,6 @@
 //! The desktop's settings as the compositor passes them on: the look, and
-//! the taskbar, Start and notification settings of `compositor.toml`
-//! (boswas-compositor(1), CONFIGURATION). They arrive with the `config`
+//! the taskbar, Start, notification and lock screen settings of
+//! `compositor.toml` (boswas-compositor(1), CONFIGURATION). They arrive with the `config`
 //! event at start and after every `reload-config`. What arrives comes from
 //! files of the user and is read leniently: anything missing or of the
 //! wrong kind keeps its default.
@@ -23,6 +23,8 @@ pub struct Desktop {
     pub taskbar: Taskbar,
     pub start: Start,
     pub notifications: Notifications,
+    /// The lock screen shows the weather (`[lock] show_weather`).
+    pub lock_weather: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -143,6 +145,7 @@ impl Default for Desktop {
             taskbar: Taskbar::default(),
             start: Start::default(),
             notifications: Notifications::default(),
+            lock_weather: true,
         }
     }
 }
@@ -265,6 +268,7 @@ impl Desktop {
                 banners_off,
                 toast_seconds: notes["toast_seconds"].as_u64().map_or(5, |s| s.clamp(1, 300) as u32),
             },
+            lock_weather: flag(&value["lock"]["show_weather"], d.lock_weather),
         })
     }
 }
@@ -304,7 +308,8 @@ mod tests {
             "transparency": false, "text_scale": 150,
             "taskbar": {"alignment": "left", "auto_hide": true, "task_view": false, "clock_seconds": true, "badges": false, "windows": "all"},
             "start": {"layout": "more_pins", "recently_added": false, "most_used": false, "folders": ["music", "settings", "music", "nope"]},
-            "notifications": {"do_not_disturb": true, "scheduled": true, "from": "21:30", "to": "06:00", "banners_off": ["Mail"], "toast_seconds": 30}
+            "notifications": {"do_not_disturb": true, "scheduled": true, "from": "21:30", "to": "06:00", "banners_off": ["Mail"], "toast_seconds": 30},
+            "lock": {"show_weather": false}
         });
         let d = Desktop::parse(&value).unwrap();
         assert!(d.light && d.reduced_motion && !d.transparency);
@@ -316,6 +321,7 @@ mod tests {
         assert!(d.notifications.do_not_disturb && d.notifications.scheduled);
         assert_eq!((d.notifications.from.as_str(), d.notifications.to.as_str(), d.notifications.toast_seconds), ("21:30", "06:00", 30));
         assert!(!d.notifications.banners_for("Mail") && d.notifications.banners_for("Chat"));
+        assert!(!d.lock_weather);
     }
 
     #[test]
@@ -331,6 +337,10 @@ mod tests {
         assert_eq!(d.start.folders, Start::default().folders);
         assert_eq!(d.notifications.from, "22:00");
         assert_eq!(d.notifications.banners_off, ["ok"]);
+        assert!(d.lock_weather, "the weather is shown unless the setting says otherwise");
+        for lock in [json!({"show_weather": "no"}), json!(false), json!({"show_weather": null})] {
+            assert!(Desktop::parse(&json!({"scheme": "dark", "lock": lock})).unwrap().lock_weather, "{lock}");
+        }
         assert!(Desktop::parse(&json!({"wallpaper": "x"})).is_none());
     }
 

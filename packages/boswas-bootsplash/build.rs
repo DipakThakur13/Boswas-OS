@@ -1,9 +1,18 @@
 //! Build-time asset preparation for the Boswas OS boot screen.
 //!
 //! Everything the daemon draws is prepared here, so that at boot it parses no
-//! SVG, font or image file: the official mark and two ASCII glyph atlases
-//! are rasterised once and embedded as plain bytes, and the colours, the
-//! type ramp and the corner radius are read from the Boswas UI token file.
+//! SVG, font or image file. What is embedded is vector geometry, drawn at run
+//! time at the exact size of the display:
+//!
+//! * the official mark: its filled paths, flattened to line segments with
+//!   sub-pixel precision in its 256-unit view box, with their paints (linear
+//!   and radial gradients with their stops, or a plain colour), and the
+//!   geometry of its three parts that the intro animates (stem, bowl, dot);
+//! * the outlines of the printable ASCII glyphs of two weights of the
+//!   typeface, flattened the same way in em units, with their advances and
+//!   the pair kerning of the font's `kern` feature;
+//! * the colours, the type ramp, the corner radius and the motion curves of
+//!   the Boswas UI token file.
 //!
 //! Sources (repository root is two levels up; the staged package build tree
 //! keeps this layout):
@@ -13,13 +22,18 @@
 //! The text is set in Inter, the Boswas UI typeface. Inter is not in the
 //! repository: its Regular and SemiBold fonts are read from the Debian
 //! package `fonts-inter` on the build machine (a build dependency of the
-//! Debian package; SIL OFL 1.1). Only bitmaps of their printable ASCII
-//! glyphs end up in the programs. On a build machine without Inter the atlas
-//! is made from the repository's brand typeface instead, with a warning:
+//! Debian package; SIL OFL 1.1). Only the outlines of its printable ASCII
+//! glyphs end up in the programs. On a build machine without Inter they are
+//! taken from the repository's brand typeface instead, with a warning:
 //!   desktop/fonts/orbitron/static/Orbitron-Medium.ttf, Orbitron-SemiBold.ttf
 //! `BOSWAS_BOOTSPLASH_INTER_DIR` names the directory to look for the Inter
 //! fonts in instead; `BOSWAS_BOOTSPLASH_REQUIRE_INTER=1` (set by
 //! debian/rules) makes a build without them fail.
+//!
+//! For the tests only, the mark is also rendered once with resvg (the
+//! renderer of the rest of the system) and written next to the generated
+//! code: the boot screen's own rasteriser is compared with it. It is not
+//! embedded in the programs.
 
 use std::env;
 use std::fmt::Write as _;
@@ -28,14 +42,21 @@ use std::path::{Path, PathBuf};
 
 use resvg::tiny_skia;
 use resvg::usvg;
+use usvg::tiny_skia_path::PathSegment;
 
-/// Height of the embedded mark; the largest size the layout ever asks for.
-const MARK_HEIGHT: u32 = 360;
 const FIRST_CHAR: u8 = 0x20;
 const LAST_CHAR: u8 = 0x7e;
-/// Largest scale of the layout (`scene::MAX_UNIT`): an atlas is rasterised at
-/// the largest size its type styles are drawn at, and scaled down at run time.
+
+/// Largest size of a logical pixel (`scene::MAX_UNIT`).
 const MAX_UNIT: f32 = 3.2;
+/// Largest height of the mark's ink in logical pixels (`scene::MARK_MAX`).
+const MARK_MAX: f32 = 200.0;
+/// The largest error allowed when a curve is replaced by line segments, in
+/// display pixels at the largest size anything is drawn at.
+const FLATNESS_PX: f32 = 0.02;
+
+/// Size of the reference rendering of the mark the tests compare with.
+const REFERENCE_PX: u32 = 240;
 
 /// Where Debian's `fonts-inter` installs the static fonts.
 const INTER_DIRS: &[&str] = &["/usr/share/fonts/opentype/inter", "/usr/share/fonts/truetype/inter"];
@@ -51,6 +72,11 @@ const COLOURS: &[(&str, &str)] = &[
     ("ACCENT", "@accent"),
     ("DANGER", "@danger"),
     ("WARNING", "@warning"),
+    // The bloom behind the mark, as on the boot menu (boot-splash.svg).
+    ("BLOOM_AZURE", "azure.500"),
+    ("BLOOM_IRIS", "iris.500"),
+    // The light of the mark's dot.
+    ("GLOW", "sun.400"),
 ];
 
 /// Type styles of the ramp the boot screen uses: (Rust constant, ramp entry).
@@ -82,18 +108,24 @@ fn main() {
         let token = token.strip_prefix('@').map(|role| format!("semantic.dark.{role}")).unwrap_or(token.to_string());
         writeln!(code, "/// Boswas UI token `{token}`.\npub const {name}: Rgb = Rgb::new({r}, {g}, {b});").unwrap();
     }
-    // Control fill and outline are opacities of a colour over what lies
-    // beneath. The background is one solid colour, so they can be resolved
-    // here: the fill over the background, the outline over the fill.
-    let background = token_colour(&tokens, "neutral.950");
-    let fill = over(background, &tokens["fill"]["dark"], "control");
-    let stroke = over(fill, &tokens["stroke"]["dark"], "control");
-    for (name, what, (r, g, b)) in [
-        ("FIELD_FILL", "`fill.dark.control` over the background", fill),
-        ("FIELD_STROKE", "`stroke.dark.control` over the control fill", stroke),
-    ] {
-        writeln!(code, "/// Boswas UI token {what}.\npub const {name}: Rgb = Rgb::new({r}, {g}, {b});").unwrap();
-    }
+    // Controls are a translucent fill with a translucent outline over
+    // whatever lies beneath: a colour and two opacities.
+    let layer = |group: &str| {
+        let colour = tokens[group]["dark"]["color"].as_str().unwrap_or_else(|| panic!("token {group}.dark.color"));
+        assert!(colour == "white", "{group}.dark.color is {colour}: the dark theme's state layers are white");
+        let opacity = tokens[group]["dark"]["control"].as_f64().unwrap_or_else(|| panic!("token {group}.dark.control"));
+        assert!((0.0..=1.0).contains(&opacity), "{group}.dark.control: {opacity}");
+        opacity
+    };
+    let (fill, stroke) = (layer("fill"), layer("stroke"));
+    writeln!(
+        code,
+        "/// Boswas UI token `fill.dark.control`: the fill of a control, white at this opacity.\n\
+         pub const FILL_CONTROL: f32 = {fill};\n\
+         /// Boswas UI token `stroke.dark.control`: the outline of a control, white at this opacity.\n\
+         pub const STROKE_CONTROL: f32 = {stroke};"
+    )
+    .unwrap();
 
     // Geometry and type.
     let radius = tokens["radius"]["control"].as_f64().expect("token radius.control");
@@ -118,20 +150,30 @@ fn main() {
         .unwrap();
     }
 
-    // The mark: premultiplied RGBA.
-    let mark = rasterise(&mark_svg, MARK_HEIGHT);
-    fs::write(out.join("mark.rgba"), mark.data()).expect("write mark.rgba");
-    writeln!(
-        code,
-        "\n/// The official Boswas OS mark, premultiplied RGBA8.\n\
-         pub const MARK_WIDTH: u32 = {};\npub const MARK_HEIGHT: u32 = {};\n\
-         pub static MARK_RGBA: &[u8] = include_bytes!(concat!(env!(\"OUT_DIR\"), \"/mark.rgba\"));",
-        mark.width(),
-        mark.height()
-    )
-    .unwrap();
+    // Motion: the durations and timing curves of the token file.
+    let motion = &tokens["motion"];
+    for (name, key) in [("MOTION_FAST", "fast-ms"), ("MOTION_NORMAL", "normal-ms"), ("MOTION_SLOW", "slow-ms")] {
+        let ms = motion[key].as_f64().unwrap_or_else(|| panic!("token motion.{key}"));
+        writeln!(code, "/// Boswas UI token `motion.{key}`, in seconds.\npub const {name}: f32 = {};", ms / 1000.0)
+            .unwrap();
+    }
+    for (name, key) in [("DECELERATE", "decelerate"), ("ACCELERATE", "accelerate"), ("STANDARD", "standard")] {
+        let curve = motion["curves"][key].as_array().unwrap_or_else(|| panic!("token motion.curves.{key}"));
+        let p: Vec<f64> = curve.iter().map(|v| v.as_f64().expect("a number")).collect();
+        assert!(p.len() == 4 && (0.0..=1.0).contains(&p[0]) && (0.0..=1.0).contains(&p[2]), "motion.curves.{key}");
+        writeln!(
+            code,
+            "/// Boswas UI token `motion.curves.{key}`: a cubic Bézier timing curve.\n\
+             pub const {name}: Curve = Curve([{:?}, {:?}, {:?}, {:?}]);",
+            p[0] as f32, p[1] as f32, p[2] as f32, p[3] as f32
+        )
+        .unwrap();
+    }
 
-    // Glyph atlases: printable ASCII in two weights.
+    // The mark.
+    mark(&mut code, &out, &mark_svg);
+
+    // Glyph outlines: printable ASCII in two weights.
     let (family, licence, regular, semibold) = match find_inter() {
         Some((regular, semibold)) => ("Inter", "SIL OFL 1.1, from the Debian package fonts-inter", regular, semibold),
         None => {
@@ -151,12 +193,12 @@ fn main() {
     };
     writeln!(
         code,
-        "\n/// The typeface the glyph atlases were made from ({licence}).\npub const TYPEFACE: &str = \"{family}\";"
+        "\n/// The typeface the glyph outlines were taken from ({licence}).\npub const TYPEFACE: &str = \"{family}\";"
     )
     .unwrap();
     for (name, path, size) in [("REGULAR", &regular, largest[0]), ("SEMIBOLD", &semibold, largest[1])] {
         println!("cargo:rerun-if-changed={}", path.display());
-        atlas(&mut code, &out, name, path, (size * MAX_UNIT).ceil());
+        face(&mut code, name, path, size * MAX_UNIT);
     }
 
     fs::write(out.join("assets.rs"), code).expect("write assets.rs");
@@ -182,41 +224,429 @@ fn find_inter() -> Option<(PathBuf, PathBuf)> {
     None
 }
 
-/// Rasterise the printable ASCII glyphs of one font at `px` and emit them as
-/// the face `name`.
-fn atlas(code: &mut String, out: &Path, name: &str, path: &Path, px: f32) {
-    let bytes = fs::read(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-    let font = fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default())
-        .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-    let line = font.horizontal_line_metrics(px).expect("horizontal line metrics");
-    let mut blob: Vec<u8> = Vec::new();
-    let mut table = String::new();
-    for ch in FIRST_CHAR..=LAST_CHAR {
-        let (metrics, bitmap) = font.rasterize(ch as char, px);
-        assert_eq!(bitmap.len(), metrics.width * metrics.height);
-        writeln!(
-            table,
-            "    Glyph {{ offset: {}, width: {}, height: {}, left: {}, bottom: {}, advance: {:.4} }},",
-            blob.len(),
-            metrics.width,
-            metrics.height,
-            metrics.xmin,
-            metrics.ymin,
-            metrics.advance_width
+/// Curves replaced by line segments. Every contour is closed; its last
+/// point is not repeated.
+struct Flattener {
+    /// Largest distance between a curve and its segments.
+    tolerance: f32,
+    points: Vec<[f32; 2]>,
+    ends: Vec<usize>,
+    start: [f32; 2],
+    current: [f32; 2],
+}
+
+impl Flattener {
+    fn new(tolerance: f32) -> Self {
+        Self { tolerance, points: Vec::new(), ends: Vec::new(), start: [0.0; 2], current: [0.0; 2] }
+    }
+
+    fn move_to(&mut self, p: [f32; 2]) {
+        self.close();
+        self.points.push(p);
+        self.start = p;
+        self.current = p;
+    }
+
+    fn line_to(&mut self, p: [f32; 2]) {
+        if p != self.current {
+            self.points.push(p);
+        }
+        self.current = p;
+    }
+
+    /// Enough segments that none is further than the tolerance from the
+    /// curve: a curve's distance from its chord is at most an eighth of the
+    /// square of the parameter step times its second derivative.
+    fn steps(&self, bend: f32) -> usize {
+        ((bend / self.tolerance).sqrt().ceil() as usize).clamp(1, 512)
+    }
+
+    fn quad_to(&mut self, c: [f32; 2], p: [f32; 2]) {
+        let p0 = self.current;
+        let bend = (p0[0] - 2.0 * c[0] + p[0]).hypot(p0[1] - 2.0 * c[1] + p[1]) / 4.0;
+        let n = self.steps(bend);
+        for i in 1..=n {
+            let t = i as f32 / n as f32;
+            let u = 1.0 - t;
+            let at = |k: usize| u * u * p0[k] + 2.0 * u * t * c[k] + t * t * p[k];
+            self.line_to(if i == n { p } else { [at(0), at(1)] });
+        }
+    }
+
+    fn cubic_to(&mut self, c1: [f32; 2], c2: [f32; 2], p: [f32; 2]) {
+        let p0 = self.current;
+        let dd = |a: [f32; 2], b: [f32; 2], c: [f32; 2]| (a[0] - 2.0 * b[0] + c[0]).hypot(a[1] - 2.0 * b[1] + c[1]);
+        let bend = 0.75 * dd(p0, c1, c2).max(dd(c1, c2, p));
+        let n = self.steps(bend);
+        for i in 1..=n {
+            let t = i as f32 / n as f32;
+            let u = 1.0 - t;
+            let at = |k: usize| u * u * u * p0[k] + 3.0 * u * u * t * c1[k] + 3.0 * u * t * t * c2[k] + t * t * t * p[k];
+            self.line_to(if i == n { p } else { [at(0), at(1)] });
+        }
+    }
+
+    fn close(&mut self) {
+        let begun = self.ends.last().copied().unwrap_or(0);
+        if self.points.len() > begun && self.points.last() == Some(&self.start) && self.points.len() - begun > 1 {
+            self.points.pop();
+        }
+        match self.points.len() - begun {
+            0 => {}
+            1 | 2 => self.points.truncate(begun), // no area
+            _ => self.ends.push(self.points.len()),
+        }
+        self.current = self.start;
+    }
+
+    fn finish(mut self) -> (Vec<[f32; 2]>, Vec<usize>) {
+        self.close();
+        (self.points, self.ends)
+    }
+}
+
+impl ttf_parser::OutlineBuilder for Flattener {
+    fn move_to(&mut self, x: f32, y: f32) {
+        Flattener::move_to(self, [x, y]);
+    }
+    fn line_to(&mut self, x: f32, y: f32) {
+        Flattener::line_to(self, [x, y]);
+    }
+    fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
+        Flattener::quad_to(self, [x1, y1], [x, y]);
+    }
+    fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
+        Flattener::cubic_to(self, [x1, y1], [x2, y2], [x, y]);
+    }
+    fn close(&mut self) {
+        Flattener::close(self);
+    }
+}
+
+/// `[x0, y0, x1, y1]` of a set of points.
+fn bounds(points: &[[f32; 2]]) -> [f32; 4] {
+    let mut b = [f32::MAX, f32::MAX, f32::MIN, f32::MIN];
+    for p in points {
+        b = [b[0].min(p[0]), b[1].min(p[1]), b[2].max(p[0]), b[3].max(p[1])];
+    }
+    if points.is_empty() {
+        [0.0; 4]
+    } else {
+        b
+    }
+}
+
+fn union(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
+    [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])]
+}
+
+/// An outline as Rust source: points, contour ends and bounds, numbers with
+/// `decimals` places.
+fn outline_code(points: &[[f32; 2]], ends: &[usize], decimals: usize) -> String {
+    let mut s = String::from("Outline { points: &[");
+    for p in points {
+        write!(s, "[{:.*}, {:.*}],", decimals, p[0], decimals, p[1]).unwrap();
+    }
+    s.push_str("], ends: &[");
+    for e in ends {
+        write!(s, "{e},").unwrap();
+    }
+    let b = bounds(points);
+    write!(s, "], bounds: [{:.*}, {:.*}, {:.*}, {:.*}] }}", decimals, b[0], decimals, b[1], decimals, b[2], decimals, b[3])
+        .unwrap();
+    s
+}
+
+/// Which part of the mark a path belongs to, from the id of its gradient
+/// (`boswas-mark-bowl`, `boswas-mark-bowl-shadow`, `boswas-mark-stem-sheen`,
+/// ...). A path the intro does not know appears with the mark as a whole.
+fn part_of(id: &str) -> &'static str {
+    match id.strip_prefix("boswas-mark-").and_then(|rest| rest.split('-').next()) {
+        Some("stem") => "Stem",
+        Some("bowl") => "Bowl",
+        Some("dot") => "Dot",
+        _ => "Other",
+    }
+}
+
+fn stops_code(stops: &[usvg::Stop]) -> String {
+    let mut s = String::from("&[");
+    for stop in stops {
+        let c = stop.color();
+        write!(
+            s,
+            "Stop {{ offset: {:?}, colour: Rgb::new({}, {}, {}), opacity: {:?} }},",
+            stop.offset().get(),
+            c.red,
+            c.green,
+            c.blue,
+            stop.opacity().get()
         )
         .unwrap();
-        blob.extend_from_slice(&bitmap);
     }
-    let file = format!("glyphs-{}.a8", name.to_lowercase());
-    fs::write(out.join(&file), &blob).expect("write the glyph atlas");
+    s.push(']');
+    s
+}
+
+struct MarkShape {
+    part: &'static str,
+    paint: String,
+    opacity: f32,
+    points: Vec<[f32; 2]>,
+    ends: Vec<usize>,
+}
+
+fn collect_paths(group: &usvg::Group, shapes: &mut Vec<MarkShape>, tolerance: f32) {
+    for node in group.children() {
+        match node {
+            usvg::Node::Group(group) => {
+                assert!(group.opacity().get() == 1.0, "the mark's groups are opaque (format of the mark)");
+                collect_paths(group, shapes, tolerance);
+            }
+            usvg::Node::Path(path) => {
+                assert!(path.stroke().is_none(), "the mark is filled paths only (no strokes)");
+                let Some(fill) = path.fill() else { continue };
+                assert!(fill.rule() == usvg::FillRule::NonZero, "the mark's paths use the non-zero fill rule");
+                let (part, paint) = match fill.paint() {
+                    usvg::Paint::Color(c) => ("Other", format!("Paint::Solid(Rgb::new({}, {}, {}))", c.red, c.green, c.blue)),
+                    usvg::Paint::LinearGradient(g) => {
+                        assert!(g.transform().is_identity(), "{}: gradients in the mark have no transform", g.id());
+                        (
+                            part_of(g.id()),
+                            format!(
+                                "Paint::Linear {{ from: [{:?}, {:?}], to: [{:?}, {:?}], stops: {} }}",
+                                g.x1(),
+                                g.y1(),
+                                g.x2(),
+                                g.y2(),
+                                stops_code(g.stops())
+                            ),
+                        )
+                    }
+                    usvg::Paint::RadialGradient(g) => {
+                        assert!(g.transform().is_identity(), "{}: gradients in the mark have no transform", g.id());
+                        assert!(g.fx() == g.cx() && g.fy() == g.cy(), "{}: radial gradients are centred", g.id());
+                        (
+                            part_of(g.id()),
+                            format!(
+                                "Paint::Radial {{ centre: [{:?}, {:?}], radius: {:?}, stops: {} }}",
+                                g.cx(),
+                                g.cy(),
+                                g.r().get(),
+                                stops_code(g.stops())
+                            ),
+                        )
+                    }
+                    usvg::Paint::Pattern(_) => panic!("the mark has no patterns"),
+                };
+                let t = path.abs_transform();
+                let map = |p: usvg::tiny_skia_path::Point| {
+                    let mut p = p;
+                    t.map_point(&mut p);
+                    [p.x, p.y]
+                };
+                let mut flat = Flattener::new(tolerance);
+                for segment in path.data().segments() {
+                    match segment {
+                        PathSegment::MoveTo(p) => flat.move_to(map(p)),
+                        PathSegment::LineTo(p) => flat.line_to(map(p)),
+                        PathSegment::QuadTo(c, p) => flat.quad_to(map(c), map(p)),
+                        PathSegment::CubicTo(c1, c2, p) => flat.cubic_to(map(c1), map(c2), map(p)),
+                        PathSegment::Close => flat.close(),
+                    }
+                }
+                let (points, ends) = flat.finish();
+                shapes.push(MarkShape { part, paint, opacity: fill.opacity().get(), points, ends });
+            }
+            usvg::Node::Image(_) | usvg::Node::Text(_) => panic!("the mark is filled paths only (no images, no text)"),
+        }
+    }
+}
+
+/// Angle of a point round a centre, in degrees clockwise from 12 o'clock
+/// (y points down), in 0..360.
+fn clock_angle(p: [f32; 2], centre: [f32; 2]) -> f32 {
+    (p[0] - centre[0]).atan2(centre[1] - p[1]).to_degrees().rem_euclid(360.0)
+}
+
+/// The mark: its paths with their paints, and the geometry of its parts.
+fn mark(code: &mut String, out: &Path, svg: &Path) {
+    let tree = usvg::Tree::from_str(&read_text(svg), &usvg::Options::default())
+        .unwrap_or_else(|e| panic!("{}: {e}", svg.display()));
+    let size = tree.size();
+    assert!(size.width() == size.height(), "the mark's view box is square (format of the mark)");
+    // Fine enough at the largest size the mark is drawn at.
+    let largest_px = MARK_MAX * MAX_UNIT;
+    let mut shapes = Vec::new();
+    collect_paths(tree.root(), &mut shapes, FLATNESS_PX * size.height() / largest_px);
+    assert!(!shapes.is_empty(), "{}: no filled paths", svg.display());
+
+    let ink = shapes.iter().map(|s| bounds(&s.points)).reduce(union).unwrap();
+    let part_bounds = |part: &str| {
+        shapes.iter().filter(|s| s.part == part).map(|s| bounds(&s.points)).reduce(union)
+    };
+    let part_points = |part: &str| shapes.iter().filter(|s| s.part == part).flat_map(|s| s.points.iter().copied());
+
+    // The stem rises from its foot: the points of its upper half move down
+    // by up to the length of its straight middle, which leaves a disc.
+    let stem = part_bounds("Stem").map(|b| {
+        let split = (b[1] + b[3]) / 2.0;
+        let above = part_points("Stem").filter(|p| p[1] < split).map(|p| p[1]).fold(f32::MIN, f32::max);
+        let below = part_points("Stem").filter(|p| p[1] >= split).map(|p| p[1]).fold(f32::MAX, f32::min);
+        (b, split, (below - above).max(0.0))
+    });
+    // The bowl sweeps round its centre from one cut to the other: its
+    // centre and radius from its extent (it is round, its right side
+    // whole), and the arc its points cover (all but the widest gap).
+    let bowl = part_bounds("Bowl").map(|b| {
+        let radius = (b[3] - b[1]) / 2.0;
+        let centre = [b[2] - radius, (b[1] + b[3]) / 2.0];
+        let mut angles: Vec<f32> = part_points("Bowl").map(|p| clock_angle(p, centre)).collect();
+        angles.sort_by(f32::total_cmp);
+        let mut gap = (angles[0] + 360.0 - angles[angles.len() - 1], angles[0]);
+        for pair in angles.windows(2) {
+            if pair[1] - pair[0] > gap.0 {
+                gap = (pair[1] - pair[0], pair[1]);
+            }
+        }
+        (centre, radius, gap.1, 360.0 - gap.0)
+    });
+    let dot = part_bounds("Dot").map(|b| ([(b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0], (b[2] - b[0]) / 2.0));
+
+    writeln!(code, "\n/// The official Boswas OS mark (`desktop/branding/boswas-os-mark.svg`), as vector geometry.").unwrap();
+    writeln!(code, "pub static MARK: Mark = Mark {{\n    view: {:?},\n    ink: {:?},\n    shapes: &[", size.width(), ink)
+        .unwrap();
+    let mut previous: Option<&MarkShape> = None;
+    for shape in &shapes {
+        let same = previous.is_some_and(|p| p.points == shape.points && p.ends == shape.ends && p.part == shape.part);
+        writeln!(
+            code,
+            "        Shape {{ part: Part::{}, paint: {}, opacity: {:?}, same_outline: {same}, outline: {} }},",
+            shape.part,
+            shape.paint,
+            shape.opacity,
+            outline_code(&shape.points, &shape.ends, 3)
+        )
+        .unwrap();
+        previous = Some(shape);
+    }
+    writeln!(code, "    ],").unwrap();
+    match stem {
+        Some((b, split, travel)) => writeln!(
+            code,
+            "    stem: Some(Stem {{ top: {:?}, bottom: {:?}, split: {split:?}, travel: {travel:?} }}),",
+            b[1], b[3]
+        ),
+        None => writeln!(code, "    stem: None,"),
+    }
+    .unwrap();
+    match bowl {
+        Some((centre, radius, start, span)) => writeln!(
+            code,
+            "    bowl: Some(Bowl {{ centre: {centre:?}, radius: {radius:?}, start: {start:?}, span: {span:?} }}),"
+        ),
+        None => writeln!(code, "    bowl: None,"),
+    }
+    .unwrap();
+    match dot {
+        Some((centre, radius)) => writeln!(code, "    dot: Some(Dot {{ centre: {centre:?}, radius: {radius:?} }}),"),
+        None => writeln!(code, "    dot: None,"),
+    }
+    .unwrap();
+    writeln!(code, "}};").unwrap();
+
+    // The reference rendering for the tests: premultiplied RGBA8, the whole
+    // view box at REFERENCE_PX square.
+    let mut pixmap = tiny_skia::Pixmap::new(REFERENCE_PX, REFERENCE_PX).expect("pixmap");
+    let scale = REFERENCE_PX as f32 / size.width();
+    resvg::render(&tree, tiny_skia::Transform::from_scale(scale, scale), &mut pixmap.as_mut());
+    fs::write(out.join("mark-reference.rgba"), pixmap.data()).expect("write mark-reference.rgba");
+    writeln!(
+        code,
+        "\n/// Size of the reference rendering of the mark (tests only).\n#[cfg(test)]\npub const MARK_REFERENCE_PX: u32 = {REFERENCE_PX};"
+    )
+    .unwrap();
+}
+
+/// The pair kerning of a font's `kern` feature for printable ASCII, in font
+/// units: (left, right, adjustment).
+fn kerning(face: &ttf_parser::Face, glyphs: &[(u8, ttf_parser::GlyphId)]) -> Vec<(u8, u8, i32)> {
+    use ttf_parser::gpos::{PairAdjustment, PositioningSubtable};
+    let Some(gpos) = face.tables().gpos else { return Vec::new() };
+    let mut lookups: Vec<u16> = Vec::new();
+    for feature in gpos.features {
+        if &feature.tag.to_bytes() == b"kern" {
+            for index in feature.lookup_indices {
+                if !lookups.contains(&index) {
+                    lookups.push(index);
+                }
+            }
+        }
+    }
+    lookups.sort_unstable();
+    let mut pairs = Vec::new();
+    for &(left, first) in glyphs {
+        for &(right, second) in glyphs {
+            let mut adjust = 0i32;
+            for &index in &lookups {
+                let Some(lookup) = gpos.lookups.get(index) else { continue };
+                for subtable in lookup.subtables.into_iter::<PositioningSubtable>() {
+                    let PositioningSubtable::Pair(pair) = subtable else { continue };
+                    let Some(covered) = pair.coverage().get(first) else { continue };
+                    let value = match pair {
+                        PairAdjustment::Format1 { sets, .. } => {
+                            sets.get(covered).and_then(|set| set.get(second)).map(|v| v.0.x_advance)
+                        }
+                        PairAdjustment::Format2 { classes, matrix, .. } => {
+                            matrix.get((classes.0.get(first), classes.1.get(second))).map(|v| v.0.x_advance)
+                        }
+                    };
+                    adjust += i32::from(value.unwrap_or(0));
+                    break; // the first subtable that covers the glyph applies
+                }
+            }
+            if adjust != 0 {
+                pairs.push((left, right, adjust));
+            }
+        }
+    }
+    pairs
+}
+
+/// The printable ASCII glyphs of one font as outlines in em units (y up),
+/// flattened finely enough for `largest_px`, emitted as the face `name`.
+fn face(code: &mut String, name: &str, path: &Path, largest_px: f32) {
+    let bytes = fs::read(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    let face = ttf_parser::Face::parse(&bytes, 0).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    let em = face.units_per_em() as f32;
+    let tolerance = FLATNESS_PX * em / largest_px; // in font units
+    let glyphs: Vec<(u8, ttf_parser::GlyphId)> = (FIRST_CHAR..=LAST_CHAR)
+        .map(|ch| {
+            let id = face.glyph_index(ch as char).unwrap_or_else(|| panic!("{}: no glyph for {:?}", path.display(), ch as char));
+            (ch, id)
+        })
+        .collect();
+    let mut table = String::new();
+    for &(_, id) in &glyphs {
+        let advance = face.glyph_hor_advance(id).unwrap_or(0) as f32 / em;
+        let mut flat = Flattener::new(tolerance);
+        face.outline_glyph(id, &mut flat);
+        let (points, ends) = flat.finish();
+        let points: Vec<[f32; 2]> = points.iter().map(|p| [p[0] / em, p[1] / em]).collect();
+        writeln!(table, "        Glyph {{ advance: {advance:.5}, outline: {} }},", outline_code(&points, &ends, 5)).unwrap();
+    }
+    let mut kerns = String::new();
+    for (left, right, adjust) in kerning(&face, &glyphs) {
+        write!(kerns, "({left}, {right}, {:.5}),", adjust as f32 / em).unwrap();
+    }
     let source = path.file_name().and_then(|n| n.to_str()).unwrap_or("font");
     writeln!(
         code,
-        "\n/// Glyph atlas: printable ASCII of {source} at {px} px.\n\
-         pub static {name}: Face = Face {{\n    px: {px:.1},\n    ascent: {:.4},\n    descent: {:.4},\n    \
-         first: {FIRST_CHAR},\n    last: {LAST_CHAR},\n    \
-         coverage: include_bytes!(concat!(env!(\"OUT_DIR\"), \"/{file}\")),\n    glyphs: &[\n{table}    ],\n}};",
-        line.ascent, line.descent
+        "\n/// Glyph outlines: printable ASCII of {source}.\n\
+         pub static {name}: Face = Face {{\n    ascent: {:.5},\n    descent: {:.5},\n    first: {FIRST_CHAR},\n    \
+         last: {LAST_CHAR},\n    glyphs: &[\n{table}    ],\n    kerning: &[{kerns}],\n}};",
+        face.ascender() as f32 / em,
+        face.descender() as f32 / em,
     )
     .unwrap();
 }
@@ -247,32 +677,4 @@ fn token_colour(tokens: &serde_json::Value, token: &str) -> Colour {
     };
     let hex = value.as_str().unwrap_or_else(|| panic!("token {token} is missing from desktop/ui/tokens.json"));
     hex_colour(token, hex)
-}
-
-/// A state layer (`fill.dark` or `stroke.dark`) drawn over `base`: its
-/// `color` at the opacity named `layer`.
-fn over(base: Colour, group: &serde_json::Value, layer: &str) -> Colour {
-    let colour = match group["color"].as_str() {
-        Some("white") => (255, 255, 255),
-        Some("black") => (0, 0, 0),
-        other => panic!("state layer colour {other:?} is neither white nor black"),
-    };
-    let opacity = group[layer].as_f64().unwrap_or_else(|| panic!("state layer {layer} has no opacity"));
-    assert!((0.0..=1.0).contains(&opacity), "state layer {layer}: opacity {opacity}");
-    let mix = |b: u8, c: u8| (b as f64 + (c as f64 - b as f64) * opacity).round() as u8;
-    (mix(base.0, colour.0), mix(base.1, colour.1), mix(base.2, colour.2))
-}
-
-/// Render an SVG to a pixmap of the given height (aspect kept).
-fn rasterise(path: &Path, height: u32) -> tiny_skia::Pixmap {
-    let tree = usvg::Tree::from_str(&read_text(path), &usvg::Options::default())
-        .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-    let size = tree.size();
-    let scale = height as f32 / size.height();
-    let w = (size.width() * scale).round().max(1.0) as u32;
-    let h = (size.height() * scale).round().max(1.0) as u32;
-    let mut pixmap = tiny_skia::Pixmap::new(w, h).expect("pixmap");
-    let transform = tiny_skia::Transform::from_scale(w as f32 / size.width(), h as f32 / size.height());
-    resvg::render(&tree, transform, &mut pixmap.as_mut());
-    pixmap
 }

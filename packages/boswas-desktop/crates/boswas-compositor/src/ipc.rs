@@ -311,6 +311,8 @@ impl Boswas {
     /// What the shell needs to match the session's look, and the settings
     /// of its taskbar, Start and notifications (they are kept in the same
     /// layered files as everything else, and reach the shell this way).
+    /// The lock screen is started as a trusted client too and takes from
+    /// it whether to show the weather.
     pub fn appearance_json(&self) -> Value {
         let c = &self.config;
         json!({
@@ -341,6 +343,9 @@ impl Boswas {
                 "to": c.notifications.do_not_disturb_to,
                 "banners_off": c.notifications.banners_off,
                 "toast_seconds": c.notifications.toast_seconds,
+            },
+            "lock": {
+                "show_weather": c.lock.show_weather,
             },
         })
     }
