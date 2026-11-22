@@ -56,7 +56,7 @@ They have their tests and have not run on the desktop yet.
 | Login screen | The Boswas login screen: first the clock over the background, then, after a key or a click, the people who can sign in and a password field. Another user name can be typed. A power button offers sleep, restart and shut down (the lock screen has none). If graphics cannot start, a text login takes its place |
 | Desktop | The background (or the preset's wallpaper), the taskbar with the Boswas mark as the Start button, Boswas Prism icons |
 | Lock screen | First the clock, then, after a key or a click, the user's name and a password field; applications are neither shown nor given input, and no notifications appear |
-| Control Center > About Boswas OS, `hostnamectl`, console | "Boswas OS v3 Alpha" (`/etc/os-release`: `NAME="Boswas OS"`, `ID=boswas`, `ID_LIKE=debian`); the desktop is shown as "Boswas Desktop" with its version |
+| Control Center > System > About, `hostnamectl`, console | "Boswas OS v3 Alpha" (`/etc/os-release`: `NAME="Boswas OS"`, `ID=boswas`, `ID_LIKE=debian`); the desktop is shown as "Boswas Desktop" with its version |
 | Terminal | "Welcome to Boswas OS" summary and the Boswas prompt |
 | Live session | User "Boswas OS Live"; "Live session" in Control Center and the terminal |
 
@@ -82,7 +82,7 @@ Power on -> Boswas boot menu -> Boswas boot splash -> Boswas OS desktop (signed 
   live system is.
 - **Installing is a deliberate choice:**
   - from the desktop: Applications > **Install Boswas OS** (or Control
-    Center > Install Boswas OS) explains the steps and offers
+    Center > System > Install Boswas OS) explains the steps and offers
     **Restart to Install…**;
   - in the boot menu: choose **Install Boswas OS**.
 
@@ -118,15 +118,29 @@ exits; open windows are not affected. `boswas-shell(1)` is the reference.
     calendar).
   - While a program may capture the screen, a red mark sits in front of
     the tray; a click on it stops the capture.
+  - Settings > Personalization > Taskbar (ADR-0049): the group can sit at
+    the left edge instead (Start then opens at the left); the Task View
+    button can go; the clock can show seconds; a button can show how many
+    notifications its application has in the notification centre. An
+    automatically hidden taskbar reserves no room: it leaves a 2 px sliver
+    at the bottom edge, comes back when the pointer reaches it or while a
+    flyout, menu or preview is open, and goes 400 ms after. A right-click
+    on the taskbar's background offers "Taskbar settings".
 - **Start:** opens with the Super key (tap it) or its button.
   - Search finds applications, pages of Boswas Control Center, and runs a
     command. It ranks applications by how often they were started and is
     local: nothing is sent anywhere.
   - Below it: the pinned applications, all applications by letter
     (Windows applications included, as the menu entries `boswas-winapp`
-    creates), and the applications used most.
-  - The user menu and the power menu. Signing out, restarting and
-    shutting down ask first when windows are open.
+    creates), and "Recommended": applications installed in the last two
+    weeks and the applications used most.
+  - The user menu and the power menu, with the folders chosen in Settings
+    next to the power button (Settings and Files by default; also
+    Documents, Downloads, Music, Pictures, Videos). Signing out,
+    restarting and shutting down ask first when windows are open.
+  - Settings > Personalization > Start: three layouts (more pins, the
+    default, more recommendations), whether recently added and most used
+    applications are recommended, and the folders.
 - **Quick settings** (Super+A): Wi-Fi with the list of networks,
   Bluetooth with the list of devices, airplane mode, night light, the
   power mode, do not disturb, media controls, brightness, and volume with
@@ -136,7 +150,14 @@ exits; open windows are not affected. `boswas-shell(1)` is the reference.
   and the notification centre with a calendar. While do not disturb is on
   only critical notifications pop up; nothing pops up while the session
   is locked. Notifications are kept in memory until they are dismissed
-  or the shell restarts; they are not written to disk.
+  or the shell restarts; they are not written to disk. Settings > System
+  > Notifications (the centre's settings button opens it) holds the do
+  not disturb a session starts with, a daily schedule for it, and the
+  applications whose banners are off (their notifications still reach
+  the centre); Accessibility > Visual effects sets how long a
+  notification stays at least. The shell keeps the names of the
+  applications that sent notifications in
+  `~/.local/state/boswas/notification-senders.json` for that list.
 - **The volume and brightness keys** show a small display of the level,
   on the lock screen as well.
 - **Run** (Super+R) starts a program with its arguments. There is no
@@ -159,7 +180,7 @@ exits; open windows are not affected. `boswas-shell(1)` is the reference.
   closes.
 - **Presets:** ten Boswas OS presets
   ([presets](../../desktop/presets/README.md)), chosen in Control Center >
-  Personalization or with `boswas-preset`. A preset sets light or dark
+  Personalization > Themes or with `boswas-preset`. A preset sets light or dark
   for the shell, the window frames and the Boswas applications, and the
   wallpaper; for KDE applications, where they are installed, also their
   colours. Nothing else: the Plasma themes, panel layouts and Konsole
@@ -179,8 +200,9 @@ exits; open windows are not affected. `boswas-shell(1)` is the reference.
   the compositor, of the login screen and of every program (ADR-0043).
 
 The pins are kept in `~/.config/boswas/shell.toml`; how often each
-application was started and the last commands typed into Run are in
-`~/.local/state/boswas/`. None of it leaves the device.
+application was started, when it was first seen (for "Recently added"),
+the applications that sent notifications and the last commands typed
+into Run are in `~/.local/state/boswas/`. None of it leaves the device.
 
 ## Windows and shortcuts
 
@@ -217,6 +239,9 @@ applications get the same frame and behave like every other window.
 | Super+Ctrl+Left, Super+Ctrl+Right | Previous or next desktop |
 | Super+Ctrl+F4 | Close the desktop (its windows move to the neighbour) |
 | Super+Space | Next keyboard layout |
+| Super+Plus, Super+Minus | Start the magnifier or enlarge by its step; reduce by the step |
+| Super+Esc | End the magnifier |
+| Super+Ctrl+C | Colour filter on or off (when Settings > Accessibility > Colour filters allows the shortcut) |
 | Print; Shift+Print, Super+Shift+S | Capture the screen; capture a region |
 | Volume, brightness and media keys | Handled by the shell, also on the lock screen |
 | Ctrl+Alt+F1 ... F12 | Switch virtual terminal |
@@ -225,7 +250,8 @@ With the pointer:
 
 - drag a title bar to move a window; drag it to the top edge to maximise,
   to a side for that half, to the outer quarter of a side for that corner.
-  A preview shows where the window will go;
+  A preview shows where the window will go. Dragged to the middle of the
+  top edge, it opens the snap layouts there; drop it on a zone;
 - rest the pointer on the maximise button for the snap layouts (two
   halves, a half beside two quarters, four quarters) and click a zone;
 - double-click a title bar to maximise; right-click it for the window
@@ -236,6 +262,12 @@ With the pointer:
 
 After Move or Size from the window menu the arrow keys move or resize the
 window (with Ctrl by single pixels) until Enter or Escape.
+
+Settings > System > Multitasking turns snapping off (dragging to an edge
+and Super+Left/Right then do nothing; Super+Up and Super+Down still
+maximise, restore and minimise), turns either way to the snap layouts
+off, and chooses whether the taskbar and Alt+Tab show the windows of the
+current desktop or of all desktops.
 
 On a touch screen a finger does what the pointer does on title bars,
 buttons, the window picker and Task View. On a touchpad, three or four
@@ -320,35 +352,45 @@ path has not been tested yet.
 
 ## Settings
 
-Settings live in **Boswas Control Center** (Super+I): each page holds its
-settings as sections with switches, lists and sliders that apply at once
-(ADR-0041, [control-center.md](control-center.md)). The search box above
-the page list finds a setting and jumps to it.
+Settings live in **Boswas Control Center** (Super+I), laid out like the
+Settings of Windows 11 (ADR-0049): eleven categories in the pane, their
+pages as cards, and on each page sections with switches, lists and
+sliders that apply at once (ADR-0041). The search box above the
+categories finds categories, pages, sections and single settings and
+jumps to them. [control-center.md](control-center.md) describes every
+page.
 
-| What | Where |
-|------|-------|
-| Wi-Fi (networks, passphrase, forget), Ethernet and VPN status, airplane mode, connection details | Control Center > Network; the common switches also in quick settings (Super+A) |
-| Bluetooth devices (add, pair, connect, remove, battery) | Control Center > Bluetooth; quick settings |
-| Sound output and input, volume, mute | Control Center > Sound; quick settings. Per-application volumes: `pavucontrol-qt` |
-| Battery, power mode, brightness, the time until the screens turn off | Control Center > Power; quick settings |
-| Monitors: arrangement by dragging, resolution, refresh rate (the fastest by default), variable refresh rate, scale, orientation, on or off | Control Center > Display. A change that could leave you without a picture asks "Keep these display settings?" and goes back after fifteen seconds |
-| Night light: switch, strength, schedule | Control Center > Display; quick settings |
-| Mouse, touchpad, keyboard layouts and repeat | Control Center > Devices |
-| Dark or light, background, motion | Control Center > Personalization. A preset (ten of them) sets light or dark, the wallpaper and the colours of KDE applications; `boswas-preset apply <id>` does the same |
-| Lock timeout | Control Center > Security. It ends at the limit the organisation set, which the page shows |
-| Date and time, time zone, region and language | Control Center > System |
-| Default applications, start-up applications | Control Center > Applications |
-| Your account (picture, name, password), other users, adding and removing users | Control Center > Users. Changes to other accounts ask for an administrator's password |
-| Software, updates, security, Windows and Android applications | Control Center |
+| Category | What it holds |
+|----------|---------------|
+| Home | The device (name, with Rename; maker and model), the account, the network, Boswas Update, dark mode and night light, Bluetooth devices, the background and theme, storage |
+| System | Display (monitors arranged by dragging; resolution, refresh rate, the fastest by default; variable refresh rate; scale; orientation; on or off; night light), Sound, Notifications (do not disturb and its schedule, banners per application), Power & battery (the time until the screens turn off), Storage (cleanup recommendations: temporary files, the Trash, old downloads), Multitasking, Troubleshoot (internet, sound, Bluetooth, display), Recovery (restart into the firmware settings or the boot menu), About (rename the device); in a live session Install Boswas OS. A display change that could leave you without a picture asks "Keep these display settings?" and goes back after fifteen seconds |
+| Bluetooth & devices | Bluetooth (add, pair, connect, remove, battery), Printers (CUPS; a test page; installing printing support), Cameras, Mouse, Touchpad, Keyboard (layouts and repeat), USB, Hardware & Drivers |
+| Network & internet | Wi-Fi (networks, passphrase, forget), Ethernet, VPN (WireGuard and OpenVPN: import a file, connect, disconnect, remove), Airplane mode, Proxy (read-only), Advanced network settings (adapters on and off, data used, connection details) |
+| Personalization | Background, Colours (dark or light, the accent colour, transparency), Themes (the ten presets: light or dark, the wallpaper and the colours of KDE applications; `boswas-preset apply <id>` does the same), Start, Taskbar, Fonts (install and remove fonts for your account) |
+| Apps | Installed apps (uninstall each the way it was installed), the Software Center, Default apps, Startup, Optional features (codecs, printing, fonts, Firefox in your languages, ...), Windows Compatibility, Android |
+| Accounts | Your account (picture, name, password), other users, adding and removing users (changes to other accounts ask for an administrator's password); Access work or school |
+| Time & language | Date and time, time zone; system language and regional format |
+| Accessibility | Text size, Visual effects (scroll bars, how long notifications stay, transparency, animations), Mouse pointer (size), Magnifier, Colour filters, Keyboard (sticky keys, filter keys) |
+| Privacy & security | Boswas Security Center, Lock screen (the timeout ends at the limit the organisation set, which the page shows), App permissions of sandboxed applications, Activity history, Diagnostics & feedback |
+| Boswas Update | Automatic updates, pending updates, checking and installing; Update history; Advanced options (read-only) |
 
-Display, input, appearance and the timeouts are the compositor's
+Wi-Fi, Bluetooth, airplane mode, night light, the power mode, do not
+disturb, brightness and volume are also in quick settings (Super+A).
+Per-application volumes: `pavucontrol-qt`.
+
+Display, input, the look, the taskbar, Start, multitasking,
+notifications, accessibility and the timeouts are the compositor's
 settings: Control Center writes the user's file,
-`~/.config/boswas/compositor.toml` (and the colour mode and background to
-`appearance.toml`), and asks the compositor to load it again. The file can
-also be edited by hand; `boswas-compositor(1)` lists every key,
-`boswas-compositor --send reload-config` applies it and `--send outputs`
-lists the monitors with their names and modes. System-wide values and the
-policy are in `/etc/boswas/compositor.toml`, which Settings never writes.
+`~/.config/boswas/compositor.toml` (the colour mode and the background go
+to `appearance.toml`, which presets replace), and asks the compositor to
+load it again. The file can also be edited by hand; `boswas-compositor(1)`
+lists every key, `boswas-compositor --send reload-config` applies it and
+`--send outputs` lists the monitors with their names and modes.
+System-wide values and the policy are in `/etc/boswas/compositor.toml`,
+which Settings never writes. Do not disturb, the magnifier and the colour
+filter work like night light: the setting is what a session starts with,
+and quick settings, the notification centre or their keys switch them in
+between.
 
 Example, a user's `~/.config/boswas/compositor.toml`:
 
@@ -365,6 +407,12 @@ position = [1920, 0]
 
 [lock]
 idle_seconds = 300
+
+[taskbar]
+alignment = "left"
+
+[accessibility]
+text_scale = 150
 ```
 
 Super+Space goes to the next keyboard layout. A file that does not
@@ -375,8 +423,11 @@ What it cannot keep (comments, a key the compositor does not know) is not
 dropped silently: the previous file is saved as `compositor.toml.bak`
 first, and Control Center says so.
 
-Not in Settings yet: editing a proxy, managing VPN connections, drawing
-tablets, an automatic suspend time.
+Not in Settings: editing a proxy, connecting a VPN that asks for a
+password each time (the desktop has no prompt for NetworkManager's
+secrets yet), drawing tablets, an automatic suspend time, pausing
+updates, notifications on the lock screen, contrast themes. The full list
+is in [control-center.md](control-center.md#left-out).
 
 ## Known gaps
 
@@ -393,11 +444,12 @@ The native desktop does not have, or has not shown yet:
   server; they cannot observe Wayland applications.
 - **Tested screen sharing.** The portal for it is installed and
   configured, shares the first monitor, and has not been run.
-- **Bluetooth devices that need a PIN or passkey,** and **enterprise
-  Wi-Fi (802.1X):** neither can be set up from quick settings or from
-  Control Center.
-- **An office suite, a mail client and a print service** (Print saves a
-  PDF file).
+- **Bluetooth devices that need a PIN or passkey,** **enterprise Wi-Fi
+  (802.1X)** and **VPNs that ask for a password when they connect:** none
+  can be set up from quick settings or from Control Center.
+- **An office suite, a mail client and a print service in the image**
+  (Print saves a PDF file; Control Center can install CUPS, which has not
+  been tried).
 - **What the system applications leave out** next to the KDE applications
   they replace, for example syntax highlighting, PDF annotations and
   split terminal panes (ADR-0040 has the list).
@@ -406,9 +458,11 @@ The native desktop does not have, or has not shown yet:
   compositor supports an input method that the administrator configures;
   none has been run.
 - **More than one GPU** and HDR.
-- **A screen reader for the shell.** See [Accessibility](#accessibility).
+- **A screen reader for the shell** and **contrast themes.** See
+  [Accessibility](#accessibility).
 - **Per-preset accents in the shell.** The taskbar, Start and the lock
-  screen follow a preset's light or dark variant, not its accent colour.
+  screen follow a preset's light or dark variant, not its accent colour;
+  the accent is chosen in Settings, from eight hues of the palette.
 - **A shortcut editor,** desktop icons, and a taskbar at another edge.
 
 ## Boswas applications

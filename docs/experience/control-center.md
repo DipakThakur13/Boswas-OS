@@ -274,7 +274,8 @@ Never a control that does nothing. Not offered:
   and VPN types other than WireGuard and OpenVPN files.
 - **Editing the proxy** (shown read-only), a test sound, an automatic
   suspend time (the compositor has no key for it), identifying monitors,
-  a pointer theme or pointer colour (the cursor theme has one colour),
+  a pointer theme or pointer colour (Boswas-Cursors is drawn in one
+  colour when the package is built),
   drawing tablets, locking an account, setting the default printer.
 - **Pausing updates:** nothing would resume them on time.
 - **Resetting the device:** Recovery says to reinstall instead.

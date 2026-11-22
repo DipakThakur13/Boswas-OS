@@ -1222,7 +1222,9 @@ reviewable and lets a designer change a value without reading Rust.
 **Consequences.**
 
 - A token change needs the Rust packages rebuilt; there is no run-time
-  theming of the shell beyond dark and light.
+  theming of the shell beyond dark and light. *(Changed by ADR-0049: the
+  accent colour, one of eight hues of the palette, is chosen at run time
+  too, and the shell, the window frames and the Qt applications take it.)*
 - The ten presets still change wallpaper, the scheme (dark or light) and
   the colours of KDE applications, but the shell and the window frames
   ignore a preset's accent colour. The Plasma Global Theme data of the
@@ -1377,6 +1379,8 @@ the Qt toolkit and the colours of KDE applications in step.
   (ADR-0008).
 - As before, a token change needs the Rust packages rebuilt, and a preset
   changes light or dark and the wallpaper of the shell, not its accent.
+  *(Changed by ADR-0049: the accent is chosen in Settings from eight hues
+  of the palette, `[appearance] accent`; a preset still leaves it alone.)*
 - The resemblance to another vendor's desktop is deliberate. The
   repository records no legal review of it and no design review; the
   layout follows an existing design, and the palette is as unreviewed as
@@ -1499,6 +1503,9 @@ version.
   screen and the login screen run the five status services only and obey
   nothing but refresh, volume, mute and brightness: they own no bus name,
   show no notifications, register no pairing or authentication agent.
+  *(ADR-0049 keeps this: Settings offers no notifications on the lock
+  screen. Do not disturb gained a daily schedule and a setting the
+  session starts with, and banners can be turned off per application.)*
   The third set is for Settings.
 - **A bridge for Settings.** `/usr/libexec/boswas/boswas-services-bridge`
   runs the network, Bluetooth, audio, power and brightness services for
@@ -1637,7 +1644,8 @@ configuration are missing. The feature list is in
 - **Desktops are created and closed as needed.** A session starts with
   one; Task View and Super+Ctrl+D add more.
 - **Shortcuts follow Windows,** and stay fixed: there is no shortcut
-  editor.
+  editor. *(ADR-0049 adds Super+Plus, Super+Minus and Super+Esc for the
+  magnifier and Super+Ctrl+C for the colour filter.)*
 - **Input methods are a trusted program.** Every application may use
   text input (`text-input-v3`). Being the input method, or a virtual
   keyboard, means seeing or making key strokes for all applications, so
@@ -1691,7 +1699,10 @@ configuration are missing. The feature list is in
   Display page does exactly that (ADR-0041).
 - **Still missing:** outputs on a second GPU, HDR, the NVIDIA
   proprietary driver, a screen reader interface for what the compositor
-  draws. *(Variable refresh rate: ADR-0048.)*
+  draws. *(Variable refresh rate: ADR-0048. ADR-0049 adds a magnifier
+  with both renderers, colour filters as an offscreen pass on OpenGL ES
+  only, sticky and filter keys before the shortcuts, and snap layouts when
+  a window is dragged to the top edge.)*
 - **Not verified yet:** everything that needs hardware. Modes, rotation,
   the gamma ramp, turning screens off, libinput's per-device settings,
   touch screens, tablets and touchpad gestures on real devices are
@@ -2136,7 +2147,10 @@ Replaces ADR-0026's "native settings pages are planned work".
   with a log line, a section that fails becomes a message on its page,
   and a page with nothing on it is hidden. The sidebar search finds
   sections by title and keyword, and `--page` with `--section` opens one
-  directly, which the shell's quick settings use.
+  directly, which the shell's quick settings use. *(Changed by ADR-0049:
+  the window is laid out in categories like Windows 11's Settings, search
+  lists its results in the content area, and the keys of earlier versions
+  lead to where their sections moved.)*
 - **Backend one: the service bridge** (ADR-0035), for Wi-Fi and other
   connections, Bluetooth, sound, battery, power mode and brightness. One
   `boswas-services-bridge` runs per window, from the first page that
@@ -2176,6 +2190,8 @@ Replaces ADR-0026's "native settings pages are planned work".
   (`boswas/compositor.toml`, its backup, `boswas/appearance.toml`,
   `mimeapps.list`, `autostart/<id>.desktop`), replaces the file
   atomically with mode 0600, and writes nothing through a symbolic link.
+  *(ADR-0049 adds the cache items, the Trash, downloads moved into it and
+  the user's fonts.)*
 - **What stays the administrator's.** Settings never writes `[policy]`,
   `[shell]`, `[input_method]` or `[lock] command`; the compositor would
   ignore them in a user's file anyway (ADR-0028). The lock timeout it
@@ -2222,7 +2238,9 @@ Replaces ADR-0026's "native settings pages are planned work".
   connections (status only), a test sound, an automatic suspend time (the
   compositor has no key for it), identifying monitors, a pointer theme,
   drawing tablets, more than four keyboard layouts (the limit of XKB),
-  locking an account.
+  locking an account. *(Changed by ADR-0049: VPN connections are managed
+  on Network & internet > VPN, except one that asks for a secret when it
+  connects.)*
 - `boswas-control-center` no longer depends on `kde-cli-tools` and
   `libkf6kcmutils-bin`; it depends on `libglib2.0-bin`, `systemd`,
   `passwd`, `tzdata`, `xkb-data` and the QtNetwork and QtDBus modules
@@ -2929,3 +2947,268 @@ Follows ADR-0045 (frame pacing) and ADR-0036 (outputs). Reported on
   choice, the HDMI mode change adaptive sync may need, the fallback when
   a driver refuses the mode), the boot screen on a real DRM device, Qt on
   Wayland reporting the true rate.
+
+## ADR-0049 Control Center as Boswas's Settings, like Windows 11
+
+Follows ADR-0041 (settings as native sections) and ADR-0033 (the Fluent
+design language). Requested on 2026-11-22: one Control Center that
+manages the functions of the device the way Windows does, all of them.
+The work had two phases: A, the structure of Windows 11's Settings and
+the functions that the system's own tools provide; B, the functions of
+the desktop itself (taskbar, Start, multitasking, notifications, the
+accent colour, accessibility) in the compositor, the shell and the Qt
+toolkit, with their settings.
+
+**Context.** Control Center was one list of about twenty pages (Network,
+Bluetooth, Sound, Power, Display, Devices, Personalization, Security,
+System, Applications, Privacy, Users, Storage and the centres). Much of
+what Windows 11's Settings offers had no place, and the desktop had no
+settings for the taskbar, Start, snapping or notifications, one accent,
+and no accessibility beyond motion, scaling and night light.
+
+**Decision.**
+
+- **The structure of Windows 11's Settings.** The pane holds eleven
+  categories: Home, System, Bluetooth & devices, Network & internet,
+  Personalization, Apps, Accounts, Time & language, Accessibility,
+  Privacy & security and Boswas Update. There is no Gaming category. A
+  category lists its pages as cards; a card whose page has nothing to
+  show on the device is hidden, and Install Boswas OS appears only in a
+  live session. The title is the path ("System › Display"); a crumb, the
+  back button or Alt+Left returns. The window opens at 1100 by 720
+  pixels, and below 720 pixels of width the pane shows icons only.
+  Search lists its results in the content area: categories, pages,
+  sections and about forty single settings (`catalog.SETTINGS`); Enter
+  opens the first. Home shows the device (a picture of its kind, its name
+  with Rename, maker and model), the account, the network, the update
+  state, dark mode and night light as switches, links to Display and
+  Sound, the Bluetooth devices, the background and theme, and a storage
+  bar, all from read-only sources.
+- **Pages are cut as Windows cuts them.** Mouse, Touchpad and Keyboard
+  are pages of their own; "Other connections" became Ethernet and
+  Airplane mode; the pointer size is also under Accessibility > Mouse
+  pointer; the animation switch is only on Accessibility > Visual
+  effects.
+- **Every deep link of earlier versions keeps working.** Every `--page`
+  key still exists; `system`, `devices`, `network` and `personalization`
+  are now category keys, and `--section` is also looked for where the
+  section moved (`catalog.MOVED_SECTIONS`; `--page system --section
+  date-time` opens Time & language > Date & time) or under its new name
+  (`catalog.SECTION_ALIASES`: `other-connections` opens Ethernet). The
+  keys are in `--help` and the manual page; a test checks that every key
+  the shell passes to `--page` exists.
+- **New functions on the system's own tools (phase A):**
+  - System > About renames the device (`hostnamectl --static
+    set-hostname NAME`, 1 to 63 letters, digits and hyphens) and copies
+    the specifications; Storage has cleanup recommendations (the biggest
+    items of `~/.cache`, ticked by the person; the Trash with its size and
+    Empty; downloads not changed for 14, 30, 60 or 90 days, moved to the
+    Trash); Troubleshoot has read-only checks of the internet connection
+    (it says that it contacts `deb.debian.org`), sound, Bluetooth and the
+    displays, each with a suggested fix and a link; Recovery restarts
+    into the firmware settings or the boot menu where logind says it can,
+    after a question. There is no reset.
+  - Bluetooth & devices: Printers (the printers and default of CUPS, a
+    test page with CUPS's own file, "Install printing support" through
+    sysops `apt-install cups`), Cameras (with Open Camera), USB (no
+    serial numbers).
+  - Network & internet: VPN (connect, disconnect and remove by UUID,
+    import of a WireGuard or OpenVPN file recognised by its content) and
+    Advanced network settings (adapters on and off, data since the
+    device started, the hardware address on request).
+  - Personalization > Fonts: list, search, preview; install a `.ttf`,
+    `.otf` or `.ttc` file checked by its header, at most 64 MB, into
+    `~/.local/share/fonts`, then `fc-cache -f`; remove only fonts the user
+    installed.
+  - Apps > Installed apps (origin, version, size; search, filter, sort;
+    removal the way the application was installed: sysops `apt-remove`,
+    `flatpak uninstall --user`, the AppImage's files, the Compatibility
+    Manager; packages of Boswas OS are not removable) and Optional
+    features (a curated list of Debian packages, and Firefox's language
+    packs for the locales generated on the device).
+  - Accounts: Users, and Access work or school (the device-management
+    page of before). Privacy & security: App permissions (the Flatpak
+    permission store, with Revoke; the page says that native applications
+    are not sandboxed), Diagnostics & feedback (no diagnostic data is
+    collected), Lock screen, Activity history. Boswas Update: Update
+    history (APT's history log and its rotated files) and Advanced
+    options (read-only).
+- **Each new program has fixed, validated forms** in `commands.py`:
+  `hostnamectl`, `fc-list`, `fc-cache`, `lpstat`, `lp`, `dpkg-query` and
+  `boswas-camera` join the allowlist; `nmcli` changes are made by one
+  builder, by connection UUID or adapter name, never with a secret on the
+  command line; `busctl` may ask logind its two read-only questions
+  (`CanRebootToFirmwareSetup`, `CanRebootToBootLoaderMenu`); `systemctl`
+  runs in four fixed forms; `flatpak permission-remove` takes validated
+  names. `userfiles.py` stays the only writer and now also deletes cache
+  items, empties the Trash, moves downloads into it and adds and removes
+  the user's fonts, never through a symbolic link. The test that opening
+  a page runs nothing privileged and changes nothing covers every page.
+- **The desktop's new settings live in the compositor's layered
+  configuration (phase B).** New keys: `[appearance] accent`,
+  `transparency`; `[accessibility] text_scale`, `always_show_scrollbars`;
+  `[color_filter] enabled`, `filter`, `shortcut`; `[magnifier] enabled`,
+  `zoom`, `step`; `[keyboard] sticky_keys`, `sticky_keys_lock`,
+  `filter_keys`, `slow_keys_ms`, `bounce_keys_ms`; `[taskbar] alignment`,
+  `auto_hide`, `task_view`, `clock_seconds`, `badges`; `[start] layout`,
+  `recently_added`, `most_used`, `folders`; `[multitasking]
+  snap_windows`, `snap_layouts_on_maximize`, `snap_layouts_on_drag`,
+  `taskbar_windows`, `alt_tab_windows`; `[notifications]
+  do_not_disturb`, `do_not_disturb_scheduled`, `do_not_disturb_from`,
+  `do_not_disturb_to`, `banners_off`, `toast_seconds`
+  (`boswas-compositor(1)` and the contract have the values and defaults).
+  The shipped defaults file has them all, so an administrator sets other
+  defaults in `/etc/boswas/compositor.toml`. The compositor passes the
+  shell's part on in the `config` event (at the start, in the reply to
+  `subscribe`, and on every `reload-config`). Settings writes no new file:
+  the accent goes to the user's `compositor.toml`, not to
+  `appearance.toml`, which `boswas-preset` rewrites as a whole.
+- **Switches for the session work like night light.** For do not
+  disturb, the magnifier and the colour filter the key is what a session
+  starts with; quick settings, the notification centre and the keys
+  switch them for the session, until the key changes again.
+- **The shell keeps two new files** in `~/.local/state/boswas/`:
+  `notification-senders.json`, the applications that sent notifications
+  (names, never content; Settings reads it to offer their banners and
+  never writes it), and `apps-seen.json`, when each application was first
+  seen, for "Recently added".
+- **Taskbar:** centred or left (Start then opens at the left);
+  automatically hidden, it reserves no room, leaves a 2 px sliver, comes
+  back when the pointer reaches the bottom edge or while a flyout, menu or
+  preview is open, and goes 400 ms after, without a slide animation; the
+  Task View button, seconds in the clock, and badges with the number of
+  an application's notifications. A right-click on the taskbar's
+  background offers "Taskbar settings".
+- **Start:** three layouts (more pins: four rows of pins and one of
+  recommendations; default: three and three; more recommendations: two
+  and four); recently added applications (the last 14 days) and the most
+  used; folders next to the power button (Settings and Files start their
+  programs; Documents, Downloads, Music, Pictures and Videos open with
+  `xdg-open`). Start's search finds the new pages.
+- **Multitasking:** with snapping off, dragging to an edge and
+  Super+Left/Right do nothing, and Super+Up/Down still maximise, restore
+  and minimise; snap layouts from the maximise button; new, snap layouts
+  at the top of the screen when a window is dragged to the middle of its
+  top edge; the taskbar and Alt+Tab show the windows of the current
+  desktop or of all.
+- **Notifications:** do not disturb with a daily schedule; banners off
+  per application (its notifications still reach the centre); a
+  notification stays at least 5 seconds to 5 minutes; the do-not-disturb
+  tile of quick settings stays; the notification centre's settings button
+  opens Settings > Notifications.
+- **Accent colour:** one of eight hues of the palette (iris, azure, sky,
+  mint, sun, coral, orchid, slate), taken by the shell, the compositor's
+  own surfaces and every Qt application. Each takes the shades of its hue
+  that the default takes of iris, moved towards the text colour only as
+  far as 4.5:1 for text on it needs, by the same rule in Rust
+  (`boswas-ui`) and Python (`boswas_fluent`); contrast tests cover every
+  accent in both schemes. With transparency off the shell's surfaces have
+  opaque tints.
+- **Accessibility:**
+  - **Text size** 100 to 225 %: the shell's text, the title bars (as far
+    as their 32 px height allows, about 180 %), and in Qt applications the
+    font, the type ramp and the style sheet. Nothing else grows.
+  - **Always show scroll bars** in Qt applications.
+  - **Colour filters:** greyscale, inverted, greyscale inverted, and
+    corrections for deuteranopia, protanopia and tritanopia. The
+    compositor draws the frame into an offscreen texture and that texture
+    through the filter, on OpenGL ES; Super+Ctrl+C switches it when
+    allowed. With pixman there is no filter: the `version` answer has
+    `color_filters`, and Settings disables the controls.
+  - **Magnifier:** Super+Plus, Super+Minus and Super+Esc, 100 to 1600 %,
+    following the pointer, with both renderers.
+  - **Sticky keys** (Shift, Ctrl, Alt and AltGr; locked by a second
+    press) and **filter keys** (slow keys and bounce keys), in the
+    compositor before any shortcut. Super is not sticky, so that tapping
+    it still opens Start; this differs from Windows.
+- **A trusted `screenshot` option,** `"display": true`, captures what an
+  output shows the person in front of it, magnified and filtered, for
+  tests. Every other capture is unchanged: without magnification and
+  filter.
+- **The toolkit's `BreadcrumbBar`** hides replaced crumbs at once; they
+  were painted under the new path until their deletion.
+
+**Why.**
+
+- Windows 11 is the target look of the desktop (ADR-0033), and the
+  request named Windows's Settings: people look for a function where
+  Windows puts it. Fifty-four pages need categories to stay findable,
+  and search through sections and single settings.
+- The shell, desktop entries, scripts and people's habits use the old
+  deep links; a link that silently opened the wrong place would be worse
+  than none.
+- One home for every desktop setting keeps one mechanism (ADR-0036,
+  ADR-0041): the shipped defaults, the administrator's layer, the user's
+  layer, a reload, and the policy out of the user's reach. No new file,
+  protocol or privilege was needed.
+- A switch flipped in quick settings must not rewrite the user's file,
+  and the file must not override that switch until the setting itself
+  changes; night light already worked that way.
+- An accent with less than 4.5:1 for the text on it would make buttons
+  unreadable; moving the shade only as far as needed keeps the hue. The
+  same rule on both sides keeps the shell and the applications alike.
+- pixman has no shaders, and the machines that draw with it have no GPU,
+  where a second pass would cost most. The magnifier only scales, which
+  both renderers do.
+- A sticky Super would turn the next key into a shortcut and stop the tap
+  that opens Start.
+
+**Left out:**
+
+- Pausing updates: something would have to resume them on time, and a
+  device left paused misses security updates.
+- Notifications on the lock screen: the lock screen runs no notification
+  service, by design (ADR-0035).
+- Contrast themes: a set of tokens of their own for every surface, a
+  large token job. Boswas Carbon remains the high-contrast preset for
+  applications.
+- A pointer colour (the pointer theme is drawn in one colour and
+  rendered when the package is built, ADR-0043), underlined access keys,
+  an accent taken from the wallpaper (iris is the default).
+- Functions that need an online service, another device or hardware
+  that is not supported: device activation, linking a phone, locating a
+  lost device, face sign-in, family and online accounts; also scanners
+  and a gaming category.
+- A VPN that asks for a password or another secret when it connects
+  cannot be connected: the desktop has no secret agent for
+  NetworkManager. The page says so and suggests `nmtui`.
+
+**Consequences.**
+
+- Control Center has 65 places: 11 categories and 54 pages.
+  `boswas-control-center` recommends `fontconfig`. No Rust crate and no
+  `unsafe` file was added.
+- VPN management is no longer left out of ADR-0041; editing the proxy,
+  an automatic suspend time and the rest of its list still are.
+- **Verified:** Control Center 688 tests (5 skipped), with new suites
+  for the places and search (`test_places.py`) and for the new pages in a
+  window on fakes (`test_pages_ui.py`), and for every new section
+  against the real settings files; the toolkit 147; the desktop
+  workspace 428 Rust tests (compositor 118 unit and 19 end to end, shell
+  106, `boswas-ui` 34, services 60 and 85, bridge 6); the applications
+  2,297 in 15 suites; the static checks. Looked at by the builder on the
+  headless back end and nested on OpenGL ES (Mesa's llvmpipe): the
+  taskbar's alignments, the accents, auto-hide, Start at 175 % text,
+  snap layouts by dragging to the top, the magnifier at 200 and 300 %,
+  and all six filters.
+- **Not verified:** real hardware: the colour-filter pass and the
+  magnifier through the DRM back end are compiled only. Sticky and filter
+  keys have unit tests only, not a run against the real compositor.
+  Every shell surface at 225 % was not looked at. Every new page ran
+  against fakes: no real NetworkManager, CUPS, logind, systemd-hostnamed,
+  Flatpak permission store or fontconfig, and the output formats of
+  `nmcli`, `lpstat`, `fc-list`, `dpkg-query` and `flatpak
+  permission-list` were not compared with the real programs. Some
+  package names of Optional features were not checked against the
+  archive (`gstreamer1.0-plugins-ugly`, `gstreamer1.0-libav`,
+  `printer-driver-cups-pdf`, `fonts-noto-cjk`,
+  `fonts-crosextra-carlito`, `fonts-crosextra-caladea`,
+  `build-essential`, `firefox-esr-l10n-*`, `cups`). Installing `cups`
+  may be refused if APT would bring `cups-browsed`, which the image pins
+  out and the system helper's policy excludes.
+
+**Revisit when** the first run on real hardware and services shows that
+a page reads a format wrongly; when the desktop gets a secret agent for
+NetworkManager (then VPNs that ask for a password); when a designer
+delivers contrast themes; or when updates need a pause that something
+resumes.
