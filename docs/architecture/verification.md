@@ -353,8 +353,9 @@ ADR.
   choose, and allows everything or nothing (ADR-0037).
 - Screen sharing through the portal shares the first monitor; there is no
   chooser (ADR-0037).
-- Outputs on a second GPU, HDR, variable refresh rate and the NVIDIA
-  proprietary driver are not supported (ADR-0036).
+- Outputs on a second GPU, HDR and the NVIDIA proprietary driver are not
+  supported (ADR-0036). Variable refresh rate exists (ADR-0048) and has not
+  run on a real monitor.
 - The boot screen's text is ASCII and English (ADR-0038).
 - With `nomodeset` there is no KMS device: the desktop does not start and
   the text login is shown. The boot screen does not draw on a 24-bit

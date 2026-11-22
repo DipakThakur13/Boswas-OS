@@ -331,7 +331,7 @@ the page list finds a setting and jumps to it.
 | Bluetooth devices (add, pair, connect, remove, battery) | Control Center > Bluetooth; quick settings |
 | Sound output and input, volume, mute | Control Center > Sound; quick settings. Per-application volumes: `pavucontrol-qt` |
 | Battery, power mode, brightness, the time until the screens turn off | Control Center > Power; quick settings |
-| Monitors: arrangement by dragging, resolution, refresh rate, scale, orientation, on or off | Control Center > Display. A change that could leave you without a picture asks "Keep these display settings?" and goes back after fifteen seconds |
+| Monitors: arrangement by dragging, resolution, refresh rate (the fastest by default), variable refresh rate, scale, orientation, on or off | Control Center > Display. A change that could leave you without a picture asks "Keep these display settings?" and goes back after fifteen seconds |
 | Night light: switch, strength, schedule | Control Center > Display; quick settings |
 | Mouse, touchpad, keyboard layouts and repeat | Control Center > Devices |
 | Dark or light, background, motion | Control Center > Personalization. A preset (ten of them) sets light or dark, the wallpaper and the colours of KDE applications; `boswas-preset apply <id>` does the same |
@@ -405,7 +405,7 @@ The native desktop does not have, or has not shown yet:
   Japanese or Korean text entry) and an on-screen keyboard. The
   compositor supports an input method that the administrator configures;
   none has been run.
-- **More than one GPU**, HDR and variable refresh rate.
+- **More than one GPU** and HDR.
 - **A screen reader for the shell.** See [Accessibility](#accessibility).
 - **Per-preset accents in the shell.** The taskbar, Start and the lock
   screen follow a preset's light or dark variant, not its accent colour.

@@ -116,7 +116,7 @@ Known gaps: no live blur behind translucent surfaces, X11 windows are not
 sharp on scaled monitors and X11 applications are not isolated from each
 other, Bluetooth devices that need a PIN and enterprise Wi-Fi cannot be
 set up from the desktop, no input method is in the image, one GPU only, no
-HDR or variable refresh rate, no screen reader for the shell. The full
+HDR, no screen reader for the shell. The full
 list is in [docs/experience/README.md](docs/experience/README.md#known-gaps).
 
 What the system applications and the settings leave out is listed in

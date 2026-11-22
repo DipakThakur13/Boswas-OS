@@ -65,7 +65,7 @@ full account.
 | **C4** | Materials, shadows, rounded corners, full animation set, snap layouts | **Implemented, with one decision against the plan** (ADR-0036): Fluent window frames with 8 px corners and shadows, client content clipped to the rounded corners on OpenGL ES, animations for opening, closing, minimising, restoring and switching desktops, snap layouts by dragging, by keys and from the maximise button. Materials are drawn from the wallpaper; the live blur of the plan's Horizon and Glass materials is open |
 | **C5** | Screen capture, portals, input methods, screen-reader support, session lock | **Partly**: session lock (ADR-0028); screen capture for the user (the shell's capture screen) and for other programs behind the user's consent (ADR-0037); `xdg-desktop-portal-gtk` for file dialogs and `xdg-desktop-portal-wlr` for screen sharing, the latter **not tested**; input-method support in the compositor, with no input method in the image. Open: screen-reader support |
 | **C6** | Whole team uses it daily; offered as a preview session | Open |
-| **C7** | NVIDIA proprietary driver, variable refresh rate, performance hardening | Open |
+| **C7** | NVIDIA proprietary driver, performance hardening (variable refresh rate and high refresh rates: ADR-0048) | Open |
 
 Performance budgets (frame time, memory, start time, dropped frames): **not
 measured.** There is no benchmark job yet, and nothing in this repository
@@ -152,7 +152,7 @@ In rough order of what a user misses first:
 7. **Accessibility**: screen-reader support in the shell and for what
    the compositor draws, a high-contrast scheme. `reduced_motion` exists
    as a setting.
-8. **Graphics**: a second GPU, variable refresh rate, HDR, the NVIDIA
+8. **Graphics**: a second GPU, HDR, the NVIDIA
    proprietary driver; sharp X11 windows on scaled monitors. Direct
    scan-out is left to Smithay's DRM compositor and has not been observed
    on hardware.

@@ -76,7 +76,10 @@ Plymouth:
   renders with OpenGL ES 2 through GBM and EGL (Mesa). Outputs of the
   primary GPU are used; displays connected to a second GPU are not driven
   yet. Each display has its own mode, scale, position and rotation
-  (Control Center > Display). No HDR, no variable refresh rate. The
+  (Control Center > Display). A monitor runs at the fastest refresh rate it
+  offers at its native size (120, 144, 165 Hz...) unless another mode is
+  chosen; variable refresh rate (adaptive sync) can be turned on per
+  monitor where the monitor and driver support it (ADR-0048). No HDR. The
   proprietary NVIDIA driver is not supported. Night light needs a driver
   with gamma tables. X11 applications run through Xwayland and are drawn
   at scale 1.

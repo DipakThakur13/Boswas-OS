@@ -43,6 +43,16 @@ Verification status of the native desktop
   resolution of the new image manifest on Debian trixie.
 
 ### Fixed
+- **High refresh rates** (ADR-0048): a 120, 144 or 165 Hz monitor ran at
+  60 Hz, because the compositor took the mode the monitor calls preferred.
+  It now takes the fastest rate at the monitor's native size. The boot
+  screen turned its ring at 30 frames a second and now draws once per
+  refresh (up to 240); animations in the toolkit and the applications
+  stepped on Qt's 16 ms timer and now follow the screen's rate
+  (`fluent.Animation`); the Terminal draws its output once per refresh.
+  New: variable refresh rate (adaptive sync) per monitor in Settings >
+  Display, off by default. Fixed on the way: Start, quick settings and the
+  other panels vanished instead of fading out when closed.
 - **A laggy desktop** *(native desktop)*: moving windows, opening Start
   and Task View were slow, worst in virtual machines (ADR-0045).
   - Without a hardware GPU the compositor drew with Mesa's software OpenGL;

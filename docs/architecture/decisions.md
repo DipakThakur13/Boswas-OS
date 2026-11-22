@@ -856,8 +856,8 @@ A compositor without a library would repeat years of protocol work.
   set up with `nmtui` or `nmcli` for now; volume with `pavucontrol-qt`.
   *(Superseded: notifications, the tray and quick settings exist,
   ADR-0035; screen capture for applications, ADR-0037; input-method
-  support and per-monitor settings, ADR-0036. Still missing: outputs on a
-  second GPU, HDR and variable refresh rate. The display configuration
+  support and per-monitor settings, ADR-0036; variable refresh rate,
+  ADR-0048. Still missing: outputs on a second GPU and HDR. The display configuration
   tool belongs to the settings pages, ADR-0041.)*
 - **Control Center:** the entries that open Plasma settings modules
   (`kcmshell6`: network, Bluetooth, display, sound, power, users, input
@@ -1689,9 +1689,9 @@ configuration are missing. The feature list is in
 - **No protocol means a file.** A program that changes the monitors
   writes `compositor.toml` and asks for a reload. Control Center's
   Display page does exactly that (ADR-0041).
-- **Still missing:** outputs on a second GPU, HDR, variable refresh rate,
-  the NVIDIA proprietary driver, a screen reader interface for what the
-  compositor draws.
+- **Still missing:** outputs on a second GPU, HDR, the NVIDIA
+  proprietary driver, a screen reader interface for what the compositor
+  draws. *(Variable refresh rate: ADR-0048.)*
 - **Not verified yet:** everything that needs hardware. Modes, rotation,
   the gamma ramp, turning screens off, libinput's per-device settings,
   touch screens, tablets and touchpad gestures on real devices are
@@ -2858,3 +2858,74 @@ size and can be changed by editing a generator rather than retracing.
   the boot screen built with the new mark and its frames looked at.
 - **Not verified:** the new artwork in a real GRUB menu, installer or boot;
   the icons on Qt 6.8 or in a running session.
+
+## ADR-0048 Every part of the desktop at the display's refresh rate
+
+Follows ADR-0045 (frame pacing) and ADR-0036 (outputs). Reported on
+2026-11-22: many parts of the OS did not use a fast refresh rate.
+
+**Context.** On a 120, 144 or 165 Hz monitor:
+
+- the compositor took the mode the monitor flags as preferred, which on
+  almost every high-refresh monitor is its 60 Hz mode;
+- the boot screen turned its ring at a fixed 30 frames a second;
+- Qt Widgets animations (the toolkit's switches, selection pills,
+  expanders, the navigation pane, dialogs; animations in Calculator,
+  Camera and Photos) ran on Qt's fixed 16 ms animation timer, and the
+  Terminal drew its output at most every 16 ms; PySide exposes neither
+  Qt's animation driver nor its timer interval;
+- variable refresh rate (adaptive sync) was not offered.
+
+**Decision.**
+
+- **The default mode** of a monitor is its native size (the size of its
+  preferred mode) at the highest refresh rate it offers there. The rate is
+  computed from the mode's timings, not taken from its label; interlaced
+  modes and timings without a clock are never chosen. `[outputs.NAME]
+  mode` still wins. If the driver refuses the chosen mode, the monitor's
+  own preferred mode is used and the log says so. The `preferred` flag of
+  wl_output and of the `outputs` JSON is now the compositor's default.
+- **Variable refresh rate**, off by default, per output:
+  `[outputs.NAME] adaptive_sync = true`, applied when an output is set
+  up, on reload and after a VT switch, through Smithay's DRM compositor.
+  The `outputs` JSON reports `adaptive_sync: {supported, enabled}`.
+  pixman outputs (ADR-0045) do not offer it. Settings has a "Variable
+  refresh rate" switch, enabled only where the monitor supports it; its
+  refresh-rate list shows every rate at the chosen size and marks the
+  default.
+- **No 60 Hz assumption left in the compositor:** frame pacing, idle
+  frame callbacks and presentation feedback use each output's interval;
+  the nested backend takes the host monitor's rate; the headless backend
+  has `--headless-refresh HZ` and a fixed schedule (for tests).
+- **The boot screen** draws one frame per refresh of the mode it shows
+  (from the CRTC mode's timings), at most 240 a second, 60 on a legacy
+  frame buffer; missed frames are skipped. A frame costs about 2 µs at
+  1080p.
+- **The toolkit's `fluent.Animation`** replaces QVariantAnimation where
+  the toolkit and the applications animate: the same interface subset,
+  stepping once per refresh of the widget's screen (`QScreen.refreshRate`,
+  read at every step), values from a monotonic clock, reduced motion
+  honoured. `fluent.refresh_rate(widget)` gives the rate to other code;
+  the Terminal draws its output once per refresh.
+- **The shell** already drew its transitions on frame callbacks; a bug
+  that made closing panels vanish without their fade (no frame was ever
+  requested for a transition that started fully visible) is fixed.
+
+**Consequences.**
+
+- A high-refresh monitor runs at its full rate without any setting.
+- Qt's own animated `QProgressBar` (indeterminate) still steps at about
+  60 Hz: Fusion animates it on Qt's timer.
+- **Verified:** the desktop workspace's tests (399) with new tests for the
+  mode choice (a 165 Hz monitor whose preferred mode is 60 Hz), the
+  `adaptive_sync` key and JSON, pacing at 144 Hz, and an end-to-end client
+  drawing on every frame callback: 60.0 frames a second on a 60 Hz output
+  and 144.0 on a 144 Hz one. With the real shell on the headless backend
+  at 144 Hz, Start opening drew 21 to 24 frames in its 200 ms (12 at
+  60 Hz) and Task View 30 to 35. The boot screen (154 tests), the toolkit
+  (10 new tests; 59, 143 and 239 steps a second at 60, 144 and 240 Hz),
+  Control Center and every application suite.
+- **Not verified:** a real high-refresh or adaptive-sync monitor (mode
+  choice, the HDMI mode change adaptive sync may need, the fallback when
+  a driver refuses the mode), the boot screen on a real DRM device, Qt on
+  Wayland reporting the true rate.
