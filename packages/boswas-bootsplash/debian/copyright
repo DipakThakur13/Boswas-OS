@@ -37,9 +37,10 @@ Comment: build.rs itself is a Boswas file. It is listed here because it
  Boswas OS source repository: the outlines are taken at build time from
  Inter-Regular.otf and Inter-SemiBold.otf of the Debian package
  fonts-inter, a build dependency of this package. The daemon embeds that
- data; the font files themselves are not shipped by this package. The fonts carry the notice "Copyright 2016 The Inter Project
- Authors" and are distributed under the SIL Open Font License 1.1 without a
- Reserved Font Name.
+ data; the font files themselves are not shipped by this package. The
+ fonts carry the notice "Copyright 2016 The Inter Project Authors" and are
+ distributed under the SIL Open Font License 1.1 without a Reserved Font
+ Name.
 
 Files: desktop/fonts/orbitron/*
 Copyright: 2018 The Orbitron Project Authors (https://github.com/theleagueof/orbitron)

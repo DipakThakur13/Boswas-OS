@@ -421,6 +421,16 @@ check "apps: the reminders service is shipped and starts with the Boswas session
 		f='$extract/etc/xdg/autostart/com.boswas.Reminders.desktop' &&
 		grep -qx 'Exec=boswas-reminders' \"\$f\" && grep -qx 'OnlyShowIn=Boswas;' \"\$f\" && grep -qx 'NoDisplay=true' \"\$f\" &&
 		! test -e '$extract/usr/share/applications/com.boswas.Reminders.desktop'" _ "$apps_listing"
+check "apps: the weather update for the lock screen is a hardened user service, its timer enabled for every user with the Boswas session" \
+	bash -c "grep -qE ' \\./usr/lib/systemd/user/boswas-weather-update\\.service\$' <<<\"\$1\" &&
+		grep -qE ' \\./usr/lib/systemd/user/boswas-weather-update\\.timer\$' <<<\"\$1\" &&
+		u='$extract/usr/lib/systemd/user/boswas-weather-update' &&
+		grep -q '^ExecStart=.*boswas-weather --update-lock-screen' \"\$u.service\" &&
+		grep -qx 'NoNewPrivileges=yes' \"\$u.service\" && grep -qx 'ProtectSystem=strict' \"\$u.service\" &&
+		grep -q '^RestrictAddressFamilies=' \"\$u.service\" &&
+		grep -qx 'WantedBy=boswas-session.target' \"\$u.timer\" &&
+		c=\$(mktemp -d) && dpkg-deb -e '$apps_deb' \"\$c\" &&
+		grep -q \"deb-systemd-helper --user enable 'boswas-weather-update.timer'\" \"\$c/postinst\"; r=\$?; rm -rf \"\$c\"; exit \$r" _ "$apps_listing"
 check "apps: desktop entries name icons of the Boswas Prism pack" \
 	bash -c "for f in '$extract'/usr/share/applications/com.boswas.*.desktop; do
 			icon=\$(sed -n 's/^Icon=//p' \"\$f\" | head -1); [ -n \"\$icon\" ] || continue
