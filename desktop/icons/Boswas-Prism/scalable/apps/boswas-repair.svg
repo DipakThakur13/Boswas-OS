@@ -28,7 +28,7 @@
   <path d="M20 210A100 9 0 1 1 220 210A100 9 0 1 1 20 210Z" fill="url(#boswas-repair-shadow)"/>
   <path d="M40 36H184A20 20 0 0 1 204 56V166A20 20 0 0 1 184 186H40A20 20 0 0 1 20 166V56A20 20 0 0 1 40 36Z" fill="url(#boswas-repair-paper-body)"/>
   <path d="M40 36H184A20 20 0 0 1 204 56V166A20 20 0 0 1 184 186H40A20 20 0 0 1 20 166V56A20 20 0 0 1 40 36Z" fill="url(#boswas-repair-sheen)"/>
-  <path d="M40 36H184A20 20 0 0 1 204 56V166A20 20 0 0 1 184 186H40A20 20 0 0 1 20 166V56A20 20 0 0 1 40 36Z" fill="none" stroke="#BDBCC6" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M40 36H184A20 20 0 0 1 204 56V166A20 20 0 0 1 184 186H40A20 20 0 0 1 20 166V56A20 20 0 0 1 40 36Z" fill="none" stroke="#BDBCC6" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M40 36H184A20 20 0 0 1 204 56V66H20V56A20 20 0 0 1 40 36Z" fill="url(#boswas-repair-sky-body)"/>
   <path d="M40 36H184A20 20 0 0 1 204 56V66H20V56A20 20 0 0 1 40 36Z" fill="url(#boswas-repair-sheen)"/>
   <path d="M166 124A26 26 0 1 1 140 150M184.38 168.38L226 226" fill="none" stroke="#0B0A12" stroke-width="40" stroke-linecap="round" stroke-linejoin="round" opacity="0.25"/>

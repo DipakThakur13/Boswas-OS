@@ -38,5 +38,5 @@
   <path d="M96 25H160A12 12 0 0 1 172 37V49A12 12 0 0 1 160 61H96A12 12 0 0 1 84 49V37A12 12 0 0 1 96 25Z" fill="#0B0A12" opacity="0.25"/>
   <path d="M96 20H160A12 12 0 0 1 172 32V44A12 12 0 0 1 160 56H96A12 12 0 0 1 84 44V32A12 12 0 0 1 96 20Z" fill="url(#boswas-app-policy-metal-body)"/>
   <path d="M96 20H160A12 12 0 0 1 172 32V44A12 12 0 0 1 160 56H96A12 12 0 0 1 84 44V32A12 12 0 0 1 96 20Z" fill="url(#boswas-app-policy-sheen-2)"/>
-  <path d="M96 20H160A12 12 0 0 1 172 32V44A12 12 0 0 1 160 56H96A12 12 0 0 1 84 44V32A12 12 0 0 1 96 20Z" fill="none" stroke="#9F9EAA" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.8"/>
+  <path d="M96 20H160A12 12 0 0 1 172 32V44A12 12 0 0 1 160 56H96A12 12 0 0 1 84 44V32A12 12 0 0 1 96 20Z" fill="none" stroke="#9F9EAA" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

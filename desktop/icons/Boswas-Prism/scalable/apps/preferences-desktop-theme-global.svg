@@ -52,7 +52,7 @@
   <path d="M38 224A90 8 0 1 1 218 224A90 8 0 1 1 38 224Z" fill="url(#preferences-desktop-theme-global-shadow)"/>
   <path d="M128 30C68 30 24 76 24 130C24 186 70 226 126 226C146 226 154 214 150 198C146 182 156 170 172 170H190C214 170 232 152 232 126C232 72 188 30 128 30Z" fill="url(#preferences-desktop-theme-global-paper-body)"/>
   <path d="M128 30C68 30 24 76 24 130C24 186 70 226 126 226C146 226 154 214 150 198C146 182 156 170 172 170H190C214 170 232 152 232 126C232 72 188 30 128 30Z" fill="url(#preferences-desktop-theme-global-sheen)"/>
-  <path d="M128 30C68 30 24 76 24 130C24 186 70 226 126 226C146 226 154 214 150 198C146 182 156 170 172 170H190C214 170 232 152 232 126C232 72 188 30 128 30Z" fill="none" stroke="#BDBCC6" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M128 30C68 30 24 76 24 130C24 186 70 226 126 226C146 226 154 214 150 198C146 182 156 170 172 170H190C214 170 232 152 232 126C232 72 188 30 128 30Z" fill="none" stroke="#BDBCC6" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M60 104A18 18 0 1 1 96 104A18 18 0 1 1 60 104Z" fill="url(#preferences-desktop-theme-global-coral-body)"/>
   <path d="M60 104A18 18 0 1 1 96 104A18 18 0 1 1 60 104Z" fill="url(#preferences-desktop-theme-global-sheen-2)"/>
   <path d="M106 72A18 18 0 1 1 142 72A18 18 0 1 1 106 72Z" fill="url(#preferences-desktop-theme-global-sun-body)"/>

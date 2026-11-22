@@ -32,7 +32,7 @@
   <path d="M20 210A100 9 0 1 1 220 210A100 9 0 1 1 20 210Z" fill="url(#wine-shadow)"/>
   <path d="M40 36H184A20 20 0 0 1 204 56V166A20 20 0 0 1 184 186H40A20 20 0 0 1 20 166V56A20 20 0 0 1 40 36Z" fill="url(#wine-paper-body)"/>
   <path d="M40 36H184A20 20 0 0 1 204 56V166A20 20 0 0 1 184 186H40A20 20 0 0 1 20 166V56A20 20 0 0 1 40 36Z" fill="url(#wine-sheen)"/>
-  <path d="M40 36H184A20 20 0 0 1 204 56V166A20 20 0 0 1 184 186H40A20 20 0 0 1 20 166V56A20 20 0 0 1 40 36Z" fill="none" stroke="#BDBCC6" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M40 36H184A20 20 0 0 1 204 56V166A20 20 0 0 1 184 186H40A20 20 0 0 1 20 166V56A20 20 0 0 1 40 36Z" fill="none" stroke="#BDBCC6" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M40 36H184A20 20 0 0 1 204 56V66H20V56A20 20 0 0 1 40 36Z" fill="url(#wine-sky-body)"/>
   <path d="M40 36H184A20 20 0 0 1 204 56V66H20V56A20 20 0 0 1 40 36Z" fill="url(#wine-sheen)"/>
   <path d="M130 184A50 50 0 1 1 230 184A50 50 0 1 1 130 184Z" fill="#0B0A12" opacity="0.25"/>

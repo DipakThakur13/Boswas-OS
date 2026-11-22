@@ -40,7 +40,7 @@
   <path d="M32 218A84 9 0 1 1 200 218A84 9 0 1 1 32 218Z" fill="url(#kmenuedit-shadow)"/>
   <path d="M48 30H184A20 20 0 0 1 204 50V198A20 20 0 0 1 184 218H48A20 20 0 0 1 28 198V50A20 20 0 0 1 48 30Z" fill="url(#kmenuedit-paper-body)"/>
   <path d="M48 30H184A20 20 0 0 1 204 50V198A20 20 0 0 1 184 218H48A20 20 0 0 1 28 198V50A20 20 0 0 1 48 30Z" fill="url(#kmenuedit-sheen)"/>
-  <path d="M48 30H184A20 20 0 0 1 204 50V198A20 20 0 0 1 184 218H48A20 20 0 0 1 28 198V50A20 20 0 0 1 48 30Z" fill="none" stroke="#BDBCC6" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M48 30H184A20 20 0 0 1 204 50V198A20 20 0 0 1 184 218H48A20 20 0 0 1 28 198V50A20 20 0 0 1 48 30Z" fill="none" stroke="#BDBCC6" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M56 72L176 72M56 168L140 168" fill="none" stroke="#9BA2B9" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M56 102H176A12 12 0 0 1 188 114V126A12 12 0 0 1 176 138H56A12 12 0 0 1 44 126V114A12 12 0 0 1 56 102Z" fill="url(#kmenuedit-azure-body)"/>
   <path d="M60 120L150 120" fill="none" stroke="#FFFFFF" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>

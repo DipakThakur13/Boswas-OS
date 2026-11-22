@@ -16,6 +16,10 @@
       <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.55"/>
       <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
     </linearGradient>
+    <linearGradient id="accessories-text-editor-azure-body" gradientUnits="userSpaceOnUse" x1="91.84" y1="56" x2="132.16" y2="168">
+      <stop offset="0" stop-color="#5CA3FF"/>
+      <stop offset="1" stop-color="#1E63D0"/>
+    </linearGradient>
     <linearGradient id="accessories-text-editor-pencil" gradientUnits="userSpaceOnUse" x1="216.66" y1="82.18" x2="239.34" y2="101.82">
       <stop offset="0" stop-color="#FF7788"/>
       <stop offset="1" stop-color="#CC3353"/>
@@ -36,8 +40,8 @@
   <path d="M40 226A72 9 0 1 1 184 226A72 9 0 1 1 40 226Z" fill="url(#accessories-text-editor-shadow)"/>
   <path d="M56 20H168A20 20 0 0 1 188 40V208A20 20 0 0 1 168 228H56A20 20 0 0 1 36 208V40A20 20 0 0 1 56 20Z" fill="url(#accessories-text-editor-paper-body)"/>
   <path d="M56 20H168A20 20 0 0 1 188 40V208A20 20 0 0 1 168 228H56A20 20 0 0 1 36 208V40A20 20 0 0 1 56 20Z" fill="url(#accessories-text-editor-sheen)"/>
-  <path d="M56 20H168A20 20 0 0 1 188 40V208A20 20 0 0 1 168 228H56A20 20 0 0 1 36 208V40A20 20 0 0 1 56 20Z" fill="none" stroke="#BDBCC6" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M64 64L160 64M64 96L160 96M64 128L144 128M64 160L112 160" fill="none" stroke="#5CA3FF" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M56 20H168A20 20 0 0 1 188 40V208A20 20 0 0 1 168 228H56A20 20 0 0 1 36 208V40A20 20 0 0 1 56 20Z" fill="none" stroke="#BDBCC6" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M64 64L160 64M64 96L160 96M64 128L144 128M64 160L112 160" fill="none" stroke="url(#accessories-text-editor-azure-body)" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M222.66 90.18L144.86 179.95L130 220L167.53 199.6L245.34 109.82Z" fill="#0B0A12" opacity="0.18"/>
   <path d="M216.66 82.18L204.88 95.78L227.55 115.43L239.34 101.82Z" fill="url(#accessories-text-editor-pencil)"/>
   <path d="M204.88 95.78L194.4 107.87L217.07 127.52L227.55 115.43Z" fill="url(#accessories-text-editor-pencil-2)"/>

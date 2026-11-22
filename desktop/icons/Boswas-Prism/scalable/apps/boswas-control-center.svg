@@ -40,7 +40,7 @@
   <path d="M144 155H204A32 32 0 0 1 236 187V187A32 32 0 0 1 204 219H144A32 32 0 0 1 112 187V187A32 32 0 0 1 144 155Z" fill="#0B0A12" opacity="0.25"/>
   <path d="M144 150H204A32 32 0 0 1 236 182V182A32 32 0 0 1 204 214H144A32 32 0 0 1 112 182V182A32 32 0 0 1 144 150Z" fill="url(#boswas-control-center-paper-body)"/>
   <path d="M144 150H204A32 32 0 0 1 236 182V182A32 32 0 0 1 204 214H144A32 32 0 0 1 112 182V182A32 32 0 0 1 144 150Z" fill="url(#boswas-control-center-sheen-2)"/>
-  <path d="M144 150H204A32 32 0 0 1 236 182V182A32 32 0 0 1 204 214H144A32 32 0 0 1 112 182V182A32 32 0 0 1 144 150Z" fill="none" stroke="#BDBCC6" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M144 150H204A32 32 0 0 1 236 182V182A32 32 0 0 1 204 214H144A32 32 0 0 1 112 182V182A32 32 0 0 1 144 150Z" fill="none" stroke="#BDBCC6" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M182 182A22 22 0 1 1 226 182A22 22 0 1 1 182 182Z" fill="url(#boswas-control-center-mint-body)"/>
   <path d="M182 182A22 22 0 1 1 226 182A22 22 0 1 1 182 182Z" fill="url(#boswas-control-center-sheen-3)"/>
 </svg>

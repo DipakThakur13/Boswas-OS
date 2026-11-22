@@ -28,10 +28,10 @@
   <path d="M54.4 230A73.6 9 0 1 1 201.6 230A73.6 9 0 1 1 54.4 230Z" fill="url(#application-json-shadow)"/>
   <path d="M68 20H156L208 72V212A20 20 0 0 1 188 232H68A20 20 0 0 1 48 212V40A20 20 0 0 1 68 20Z" fill="url(#application-json-paper-body)"/>
   <path d="M68 20H156L208 72V212A20 20 0 0 1 188 232H68A20 20 0 0 1 48 212V40A20 20 0 0 1 68 20Z" fill="url(#application-json-sheen)"/>
-  <path d="M68 20H156L208 72V212A20 20 0 0 1 188 232H68A20 20 0 0 1 48 212V40A20 20 0 0 1 68 20Z" fill="none" stroke="#BDBCC6" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M68 20H156L208 72V212A20 20 0 0 1 188 232H68A20 20 0 0 1 48 212V40A20 20 0 0 1 68 20Z" fill="none" stroke="#BDBCC6" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M151 25V65Q151 77 163 77H203Z" fill="#0B0A12" opacity="0.18"/>
   <path d="M156 20V60Q156 72 168 72H208Z" fill="url(#application-json-paper-deep)"/>
-  <path d="M156 20V60Q156 72 168 72H208Z" fill="none" stroke="#BDBCC6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M156 20V60Q156 72 168 72H208Z" fill="none" stroke="#BDBCC6" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M112 100Q96 100 96 114V128Q96 142 82 142Q96 142 96 156V170Q96 184 112 184M144 100Q160 100 160 114V128Q160 142 174 142Q160 142 160 156V170Q160 184 144 184" fill="none" stroke="url(#application-json-iris-rich)" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M113 142A7 7 0 1 1 127 142A7 7 0 1 1 113 142ZM129 142A7 7 0 1 1 143 142A7 7 0 1 1 129 142Z" fill="url(#application-json-iris-rich)"/>
 </svg>

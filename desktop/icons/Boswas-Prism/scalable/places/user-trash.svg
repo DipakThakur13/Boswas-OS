@@ -33,7 +33,7 @@
   <path d="M100 64V54Q100 38 116 38H140Q156 38 156 54V64" fill="none" stroke="url(#user-trash-slate-deep)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M58 88H198L186 210Q184 228 166 228H90Q72 228 70 210Z" fill="url(#user-trash-metal-body)"/>
   <path d="M58 88H198L186 210Q184 228 166 228H90Q72 228 70 210Z" fill="url(#user-trash-sheen)"/>
-  <path d="M58 88H198L186 210Q184 228 166 228H90Q72 228 70 210Z" fill="none" stroke="#9F9EAA" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.8"/>
+  <path d="M58 88H198L186 210Q184 228 166 228H90Q72 228 70 210Z" fill="none" stroke="#9F9EAA" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M100 112L104 204M128 112L128 204M156 112L152 204" fill="none" stroke="#2C3044" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" opacity="0.35"/>
   <path d="M56 67H200A12 12 0 0 1 212 79V83A12 12 0 0 1 200 95H56A12 12 0 0 1 44 83V79A12 12 0 0 1 56 67Z" fill="#0B0A12" opacity="0.25"/>
   <path d="M56 62H200A12 12 0 0 1 212 74V78A12 12 0 0 1 200 90H56A12 12 0 0 1 44 78V74A12 12 0 0 1 56 62Z" fill="url(#user-trash-slate-body)"/>

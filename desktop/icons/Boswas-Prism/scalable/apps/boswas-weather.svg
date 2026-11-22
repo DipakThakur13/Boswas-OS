@@ -31,5 +31,5 @@
   <path d="M95 204A34 34 0 0 1 93.37 136.04A50 50 0 0 1 193 130.22A36 36 0 0 1 197 204Z" fill="#0B0A12" opacity="0.22"/>
   <path d="M100 208A34 34 0 0 1 98.37 140.04A50 50 0 0 1 198 134.22A36 36 0 0 1 202 208Z" fill="url(#boswas-weather-paper-body)"/>
   <path d="M100 208A34 34 0 0 1 98.37 140.04A50 50 0 0 1 198 134.22A36 36 0 0 1 202 208Z" fill="url(#boswas-weather-sheen-2)"/>
-  <path d="M100 208A34 34 0 0 1 98.37 140.04A50 50 0 0 1 198 134.22A36 36 0 0 1 202 208Z" fill="none" stroke="#BDBCC6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M100 208A34 34 0 0 1 98.37 140.04A50 50 0 0 1 198 134.22A36 36 0 0 1 202 208Z" fill="none" stroke="#BDBCC6" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

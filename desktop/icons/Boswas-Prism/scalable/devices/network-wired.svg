@@ -24,7 +24,7 @@
   <path d="M38 220A90 10 0 1 1 218 220A90 10 0 1 1 38 220Z" fill="url(#network-wired-shadow)"/>
   <path d="M68 36H188A32 32 0 0 1 220 68V188A32 32 0 0 1 188 220H68A32 32 0 0 1 36 188V68A32 32 0 0 1 68 36Z" fill="url(#network-wired-metal-body)"/>
   <path d="M68 36H188A32 32 0 0 1 220 68V188A32 32 0 0 1 188 220H68A32 32 0 0 1 36 188V68A32 32 0 0 1 68 36Z" fill="url(#network-wired-sheen)"/>
-  <path d="M68 36H188A32 32 0 0 1 220 68V188A32 32 0 0 1 188 220H68A32 32 0 0 1 36 188V68A32 32 0 0 1 68 36Z" fill="none" stroke="#9F9EAA" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M68 36H188A32 32 0 0 1 220 68V188A32 32 0 0 1 188 220H68A32 32 0 0 1 36 188V68A32 32 0 0 1 68 36Z" fill="none" stroke="#9F9EAA" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M72 92H184V164H158V186H98V164H72Z" fill="url(#network-wired-glass-body)"/>
   <path d="M96 104L96 124M112 104L112 124M128 104L128 124M144 104L144 124M160 104L160 124" fill="none" stroke="#FFC24F" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

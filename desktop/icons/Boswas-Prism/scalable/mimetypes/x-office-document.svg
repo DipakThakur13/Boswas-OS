@@ -28,10 +28,10 @@
   <path d="M54.4 230A73.6 9 0 1 1 201.6 230A73.6 9 0 1 1 54.4 230Z" fill="url(#x-office-document-shadow)"/>
   <path d="M68 20H156L208 72V212A20 20 0 0 1 188 232H68A20 20 0 0 1 48 212V40A20 20 0 0 1 68 20Z" fill="url(#x-office-document-paper-body)"/>
   <path d="M68 20H156L208 72V212A20 20 0 0 1 188 232H68A20 20 0 0 1 48 212V40A20 20 0 0 1 68 20Z" fill="url(#x-office-document-sheen)"/>
-  <path d="M68 20H156L208 72V212A20 20 0 0 1 188 232H68A20 20 0 0 1 48 212V40A20 20 0 0 1 68 20Z" fill="none" stroke="#BDBCC6" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M68 20H156L208 72V212A20 20 0 0 1 188 232H68A20 20 0 0 1 48 212V40A20 20 0 0 1 68 20Z" fill="none" stroke="#BDBCC6" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M151 25V65Q151 77 163 77H203Z" fill="#0B0A12" opacity="0.18"/>
   <path d="M156 20V60Q156 72 168 72H208Z" fill="url(#x-office-document-paper-deep)"/>
-  <path d="M156 20V60Q156 72 168 72H208Z" fill="none" stroke="#BDBCC6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M156 20V60Q156 72 168 72H208Z" fill="none" stroke="#BDBCC6" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M86 104L146 104" fill="none" stroke="url(#x-office-document-azure-rich)" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M84 136L172 136M84 160L172 160M84 184L140 184" fill="none" stroke="url(#x-office-document-azure-rich)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

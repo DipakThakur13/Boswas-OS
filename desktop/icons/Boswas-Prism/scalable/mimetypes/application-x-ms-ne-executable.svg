@@ -44,14 +44,14 @@
   <path d="M54.4 230A73.6 9 0 1 1 201.6 230A73.6 9 0 1 1 54.4 230Z" fill="url(#application-x-ms-ne-executable-shadow)"/>
   <path d="M68 20H156L208 72V212A20 20 0 0 1 188 232H68A20 20 0 0 1 48 212V40A20 20 0 0 1 68 20Z" fill="url(#application-x-ms-ne-executable-paper-body)"/>
   <path d="M68 20H156L208 72V212A20 20 0 0 1 188 232H68A20 20 0 0 1 48 212V40A20 20 0 0 1 68 20Z" fill="url(#application-x-ms-ne-executable-sheen)"/>
-  <path d="M68 20H156L208 72V212A20 20 0 0 1 188 232H68A20 20 0 0 1 48 212V40A20 20 0 0 1 68 20Z" fill="none" stroke="#BDBCC6" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M68 20H156L208 72V212A20 20 0 0 1 188 232H68A20 20 0 0 1 48 212V40A20 20 0 0 1 68 20Z" fill="none" stroke="#BDBCC6" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M151 25V65Q151 77 163 77H203Z" fill="#0B0A12" opacity="0.18"/>
   <path d="M156 20V60Q156 72 168 72H208Z" fill="url(#application-x-ms-ne-executable-paper-deep)"/>
-  <path d="M156 20V60Q156 72 168 72H208Z" fill="none" stroke="#BDBCC6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M156 20V60Q156 72 168 72H208Z" fill="none" stroke="#BDBCC6" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M88 96H156A12 12 0 0 1 168 108V158A12 12 0 0 1 156 170H88A12 12 0 0 1 76 158V108A12 12 0 0 1 88 96Z" fill="#0B0A12" opacity="0.18"/>
   <path d="M88 92H156A12 12 0 0 1 168 104V154A12 12 0 0 1 156 166H88A12 12 0 0 1 76 154V104A12 12 0 0 1 88 92Z" fill="url(#application-x-ms-ne-executable-paper-body-2)"/>
   <path d="M88 92H156A12 12 0 0 1 168 104V154A12 12 0 0 1 156 166H88A12 12 0 0 1 76 154V104A12 12 0 0 1 88 92Z" fill="url(#application-x-ms-ne-executable-sheen-2)"/>
-  <path d="M88 92H156A12 12 0 0 1 168 104V154A12 12 0 0 1 156 166H88A12 12 0 0 1 76 154V104A12 12 0 0 1 88 92Z" fill="none" stroke="#BDBCC6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M88 92H156A12 12 0 0 1 168 104V154A12 12 0 0 1 156 166H88A12 12 0 0 1 76 154V104A12 12 0 0 1 88 92Z" fill="none" stroke="#BDBCC6" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M88 92H156A12 12 0 0 1 168 104V114H76V104A12 12 0 0 1 88 92Z" fill="url(#application-x-ms-ne-executable-sky-body)"/>
   <path d="M162 136Q177 143.92 186.6 145.24Q192 145.24 192 150.64V169Q192 191.44 162 202Q132 191.44 132 169V150.64Q132 145.24 137.4 145.24Q147 143.92 162 136Z" fill="#0B0A12" opacity="0.25"/>
   <path d="M162 132Q177 139.92 186.6 141.24Q192 141.24 192 146.64V165Q192 187.44 162 198Q132 187.44 132 165V146.64Q132 141.24 137.4 141.24Q147 139.92 162 132Z" fill="url(#application-x-ms-ne-executable-sun-body)"/>

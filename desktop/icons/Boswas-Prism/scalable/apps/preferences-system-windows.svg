@@ -36,13 +36,13 @@
   <path d="M66 220A84 8 0 1 1 234 220A84 8 0 1 1 66 220Z" fill="url(#preferences-system-windows-shadow)"/>
   <path d="M44 32H158A20 20 0 0 1 178 52V140A20 20 0 0 1 158 160H44A20 20 0 0 1 24 140V52A20 20 0 0 1 44 32Z" fill="url(#preferences-system-windows-paper-body)"/>
   <path d="M44 32H158A20 20 0 0 1 178 52V140A20 20 0 0 1 158 160H44A20 20 0 0 1 24 140V52A20 20 0 0 1 44 32Z" fill="url(#preferences-system-windows-sheen)"/>
-  <path d="M44 32H158A20 20 0 0 1 178 52V140A20 20 0 0 1 158 160H44A20 20 0 0 1 24 140V52A20 20 0 0 1 44 32Z" fill="none" stroke="#BDBCC6" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M44 32H158A20 20 0 0 1 178 52V140A20 20 0 0 1 158 160H44A20 20 0 0 1 24 140V52A20 20 0 0 1 44 32Z" fill="none" stroke="#BDBCC6" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M44 32H158A20 20 0 0 1 178 52V62H24V52A20 20 0 0 1 44 32Z" fill="url(#preferences-system-windows-iris-body)"/>
   <path d="M44 32H158A20 20 0 0 1 178 52V62H24V52A20 20 0 0 1 44 32Z" fill="url(#preferences-system-windows-sheen)"/>
   <path d="M94 88H208A20 20 0 0 1 228 108V196A20 20 0 0 1 208 216H94A20 20 0 0 1 74 196V108A20 20 0 0 1 94 88Z" fill="#0B0A12" opacity="0.22"/>
   <path d="M98 92H212A20 20 0 0 1 232 112V200A20 20 0 0 1 212 220H98A20 20 0 0 1 78 200V112A20 20 0 0 1 98 92Z" fill="url(#preferences-system-windows-paper-body-2)"/>
   <path d="M98 92H212A20 20 0 0 1 232 112V200A20 20 0 0 1 212 220H98A20 20 0 0 1 78 200V112A20 20 0 0 1 98 92Z" fill="url(#preferences-system-windows-sheen-2)"/>
-  <path d="M98 92H212A20 20 0 0 1 232 112V200A20 20 0 0 1 212 220H98A20 20 0 0 1 78 200V112A20 20 0 0 1 98 92Z" fill="none" stroke="#BDBCC6" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M98 92H212A20 20 0 0 1 232 112V200A20 20 0 0 1 212 220H98A20 20 0 0 1 78 200V112A20 20 0 0 1 98 92Z" fill="none" stroke="#BDBCC6" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M98 92H212A20 20 0 0 1 232 112V122H78V112A20 20 0 0 1 98 92Z" fill="url(#preferences-system-windows-azure-body)"/>
   <path d="M98 92H212A20 20 0 0 1 232 112V122H78V112A20 20 0 0 1 98 92Z" fill="url(#preferences-system-windows-sheen-2)"/>
 </svg>

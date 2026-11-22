@@ -452,7 +452,7 @@ class Objects(unittest.TestCase):
         """Every part's gradient runs from the lighter colour at its top to the
         deeper one at its bottom; highlights fade out downwards."""
         families = "|".join(icon_roles())
-        ramp = re.compile(rf"-({families})-(light|body|deep|bright|full|rich|flat)(-\d+)?$")
+        ramp = re.compile(rf"-({families})-(light|body|deep|bright|full|rich)(-\d+)?$")
         for path in svg_files(DARK, COLOURED):
             with self.subTest(icon=path.name):
                 root = ET.fromstring(path.read_text(encoding="utf-8"))

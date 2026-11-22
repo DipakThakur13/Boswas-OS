@@ -18,5 +18,5 @@
   <path d="M67.38 89A70 70 0 0 1 163 63.38" fill="none" stroke="#8FDDF7" stroke-width="26" stroke-linecap="round" stroke-linejoin="round" opacity="0.75"/>
   <path d="M188.62 159A70 70 0 0 1 93 184.62" fill="none" stroke="#F0A8E9" stroke-width="26" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"/>
   <path d="M94 124A34 34 0 1 1 162 124A34 34 0 1 1 94 124Z" fill="none" stroke="#9F9EAA" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" opacity="0.7"/>
-  <path d="M22 124A106 106 0 1 1 234 124A106 106 0 1 1 22 124Z" fill="none" stroke="#9F9EAA" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.8"/>
+  <path d="M22 124A106 106 0 1 1 234 124A106 106 0 1 1 22 124Z" fill="none" stroke="#9F9EAA" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

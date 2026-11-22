@@ -43,7 +43,7 @@
   <path d="M38 65H190A14 14 0 0 1 204 79V199A14 14 0 0 1 190 213H38A14 14 0 0 1 24 199V79A14 14 0 0 1 38 65Z" fill="#0B0A12" opacity="0.18"/>
   <path d="M38 70H190A14 14 0 0 1 204 84V204A14 14 0 0 1 190 218H38A14 14 0 0 1 24 204V84A14 14 0 0 1 38 70Z" fill="url(#preferences-desktop-wallpaper-paper-body)"/>
   <path d="M38 70H190A14 14 0 0 1 204 84V204A14 14 0 0 1 190 218H38A14 14 0 0 1 24 204V84A14 14 0 0 1 38 70Z" fill="url(#preferences-desktop-wallpaper-sheen-2)"/>
-  <path d="M38 70H190A14 14 0 0 1 204 84V204A14 14 0 0 1 190 218H38A14 14 0 0 1 24 204V84A14 14 0 0 1 38 70Z" fill="none" stroke="#BDBCC6" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M38 70H190A14 14 0 0 1 204 84V204A14 14 0 0 1 190 218H38A14 14 0 0 1 24 204V84A14 14 0 0 1 38 70Z" fill="none" stroke="#BDBCC6" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M44 84H184A6 6 0 0 1 190 90V182A6 6 0 0 1 184 188H44A6 6 0 0 1 38 182V90A6 6 0 0 1 44 84Z" fill="url(#preferences-desktop-wallpaper-sky-bright)"/>
   <path d="M38 168L84 128L118 156L142 138L190 172V182Q190 188 184 188H44Q38 188 38 182Z" fill="url(#preferences-desktop-wallpaper-mint-body)"/>
   <path d="M139 112A13 13 0 1 1 165 112A13 13 0 1 1 139 112Z" fill="url(#preferences-desktop-wallpaper-sun-light)"/>

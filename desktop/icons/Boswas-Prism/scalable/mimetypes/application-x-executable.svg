@@ -28,9 +28,9 @@
   <path d="M54.4 230A73.6 9 0 1 1 201.6 230A73.6 9 0 1 1 54.4 230Z" fill="url(#application-x-executable-shadow)"/>
   <path d="M68 20H156L208 72V212A20 20 0 0 1 188 232H68A20 20 0 0 1 48 212V40A20 20 0 0 1 68 20Z" fill="url(#application-x-executable-paper-body)"/>
   <path d="M68 20H156L208 72V212A20 20 0 0 1 188 232H68A20 20 0 0 1 48 212V40A20 20 0 0 1 68 20Z" fill="url(#application-x-executable-sheen)"/>
-  <path d="M68 20H156L208 72V212A20 20 0 0 1 188 232H68A20 20 0 0 1 48 212V40A20 20 0 0 1 68 20Z" fill="none" stroke="#BDBCC6" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M68 20H156L208 72V212A20 20 0 0 1 188 232H68A20 20 0 0 1 48 212V40A20 20 0 0 1 68 20Z" fill="none" stroke="#BDBCC6" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M151 25V65Q151 77 163 77H203Z" fill="#0B0A12" opacity="0.18"/>
   <path d="M156 20V60Q156 72 168 72H208Z" fill="url(#application-x-executable-paper-deep)"/>
-  <path d="M156 20V60Q156 72 168 72H208Z" fill="none" stroke="#BDBCC6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M156 20V60Q156 72 168 72H208Z" fill="none" stroke="#BDBCC6" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M118.06 109.49L119.22 96.85L136.78 96.85L137.94 109.49A34 34 0 0 1 143.96 111.98L153.72 103.86L166.14 116.28L158.02 126.04A34 34 0 0 1 160.51 132.06L173.15 133.22L173.15 150.78L160.51 151.94A34 34 0 0 1 158.02 157.96L166.14 167.72L153.72 180.14L143.96 172.02A34 34 0 0 1 137.94 174.51L136.78 187.15L119.22 187.15L118.06 174.51A34 34 0 0 1 112.04 172.02L102.28 180.14L89.86 167.72L97.98 157.96A34 34 0 0 1 95.49 151.94L82.85 150.78L82.85 133.22L95.49 132.06A34 34 0 0 1 97.98 126.04L89.86 116.28L102.28 103.86L112.04 111.98A34 34 0 0 1 118.06 109.49ZM115 142A13 13 0 1 1 141 142A13 13 0 1 1 115 142Z" fill="url(#application-x-executable-slate-rich)" fill-rule="evenodd"/>
 </svg>

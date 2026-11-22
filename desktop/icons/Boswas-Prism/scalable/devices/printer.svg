@@ -39,14 +39,14 @@
   </defs>
   <path d="M24 228A104 9 0 1 1 232 228A104 9 0 1 1 24 228Z" fill="url(#printer-shadow)"/>
   <path d="M78 22H178A8 8 0 0 1 186 30V98A8 8 0 0 1 178 106H78A8 8 0 0 1 70 98V30A8 8 0 0 1 78 22Z" fill="url(#printer-paper-body)"/>
-  <path d="M78 22H178A8 8 0 0 1 186 30V98A8 8 0 0 1 178 106H78A8 8 0 0 1 70 98V30A8 8 0 0 1 78 22Z" fill="none" stroke="#BDBCC6" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M78 22H178A8 8 0 0 1 186 30V98A8 8 0 0 1 178 106H78A8 8 0 0 1 70 98V30A8 8 0 0 1 78 22Z" fill="none" stroke="#BDBCC6" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M42 79H214A20 20 0 0 1 234 99V163A20 20 0 0 1 214 183H42A20 20 0 0 1 22 163V99A20 20 0 0 1 42 79Z" fill="#0B0A12" opacity="0.18"/>
   <path d="M42 84H214A20 20 0 0 1 234 104V168A20 20 0 0 1 214 188H42A20 20 0 0 1 22 168V104A20 20 0 0 1 42 84Z" fill="url(#printer-metal-body)"/>
   <path d="M42 84H214A20 20 0 0 1 234 104V168A20 20 0 0 1 214 188H42A20 20 0 0 1 22 168V104A20 20 0 0 1 42 84Z" fill="url(#printer-sheen)"/>
-  <path d="M42 84H214A20 20 0 0 1 234 104V168A20 20 0 0 1 214 188H42A20 20 0 0 1 22 168V104A20 20 0 0 1 42 84Z" fill="none" stroke="#9F9EAA" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M42 84H214A20 20 0 0 1 234 104V168A20 20 0 0 1 214 188H42A20 20 0 0 1 22 168V104A20 20 0 0 1 42 84Z" fill="none" stroke="#9F9EAA" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M59 148H197A7 7 0 0 1 204 155V155A7 7 0 0 1 197 162H59A7 7 0 0 1 52 155V155A7 7 0 0 1 59 148Z" fill="url(#printer-glass-body)"/>
   <path d="M70 156H186A8 8 0 0 1 194 164V224A8 8 0 0 1 186 232H70A8 8 0 0 1 62 224V164A8 8 0 0 1 70 156Z" fill="url(#printer-paper-body-2)"/>
-  <path d="M70 156H186A8 8 0 0 1 194 164V224A8 8 0 0 1 186 232H70A8 8 0 0 1 62 224V164A8 8 0 0 1 70 156Z" fill="none" stroke="#BDBCC6" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M70 156H186A8 8 0 0 1 194 164V224A8 8 0 0 1 186 232H70A8 8 0 0 1 62 224V164A8 8 0 0 1 70 156Z" fill="none" stroke="#BDBCC6" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M84 186L172 186M84 208L148 208" fill="none" stroke="#5CA3FF" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M196 116A8 8 0 1 1 212 116A8 8 0 1 1 196 116Z" fill="url(#printer-mint-bright)"/>
   <path d="M196 116A8 8 0 1 1 212 116A8 8 0 1 1 196 116Z" fill="url(#printer-sheen-2)"/>

@@ -32,6 +32,6 @@
   <path d="M58 82H198L186 204Q184 222 166 222H90Q72 222 70 204Z" fill="#0B0A12" opacity="0.22"/>
   <path d="M58 88H198L186 210Q184 228 166 228H90Q72 228 70 210Z" fill="url(#user-trash-full-metal-body)"/>
   <path d="M58 88H198L186 210Q184 228 166 228H90Q72 228 70 210Z" fill="url(#user-trash-full-sheen)"/>
-  <path d="M58 88H198L186 210Q184 228 166 228H90Q72 228 70 210Z" fill="none" stroke="#9F9EAA" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.8"/>
+  <path d="M58 88H198L186 210Q184 228 166 228H90Q72 228 70 210Z" fill="none" stroke="#9F9EAA" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M100 112L104 204M128 112L128 204M156 112L152 204" fill="none" stroke="#2C3044" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" opacity="0.35"/>
 </svg>

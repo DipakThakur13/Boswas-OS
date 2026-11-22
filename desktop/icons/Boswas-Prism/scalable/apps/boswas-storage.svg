@@ -44,13 +44,13 @@
   <path d="M24 216A104 9 0 1 1 232 216A104 9 0 1 1 24 216Z" fill="url(#boswas-storage-shadow)"/>
   <path d="M46 48H210A18 18 0 0 1 228 66V102A18 18 0 0 1 210 120H46A18 18 0 0 1 28 102V66A18 18 0 0 1 46 48Z" fill="url(#boswas-storage-metal-body)"/>
   <path d="M46 48H210A18 18 0 0 1 228 66V102A18 18 0 0 1 210 120H46A18 18 0 0 1 28 102V66A18 18 0 0 1 46 48Z" fill="url(#boswas-storage-sheen)"/>
-  <path d="M46 48H210A18 18 0 0 1 228 66V102A18 18 0 0 1 210 120H46A18 18 0 0 1 28 102V66A18 18 0 0 1 46 48Z" fill="none" stroke="#9F9EAA" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M46 48H210A18 18 0 0 1 228 66V102A18 18 0 0 1 210 120H46A18 18 0 0 1 28 102V66A18 18 0 0 1 46 48Z" fill="none" stroke="#9F9EAA" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M56 84L122 84" fill="none" stroke="#9BA2B9" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M187 84A9 9 0 1 1 205 84A9 9 0 1 1 187 84Z" fill="url(#boswas-storage-azure-bright)"/>
   <path d="M187 84A9 9 0 1 1 205 84A9 9 0 1 1 187 84Z" fill="url(#boswas-storage-sheen-2)"/>
   <path d="M46 128H210A18 18 0 0 1 228 146V182A18 18 0 0 1 210 200H46A18 18 0 0 1 28 182V146A18 18 0 0 1 46 128Z" fill="url(#boswas-storage-metal-body-2)"/>
   <path d="M46 128H210A18 18 0 0 1 228 146V182A18 18 0 0 1 210 200H46A18 18 0 0 1 28 182V146A18 18 0 0 1 46 128Z" fill="url(#boswas-storage-sheen-3)"/>
-  <path d="M46 128H210A18 18 0 0 1 228 146V182A18 18 0 0 1 210 200H46A18 18 0 0 1 28 182V146A18 18 0 0 1 46 128Z" fill="none" stroke="#9F9EAA" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M46 128H210A18 18 0 0 1 228 146V182A18 18 0 0 1 210 200H46A18 18 0 0 1 28 182V146A18 18 0 0 1 46 128Z" fill="none" stroke="#9F9EAA" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M56 164L122 164" fill="none" stroke="#9BA2B9" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M187 164A9 9 0 1 1 205 164A9 9 0 1 1 187 164Z" fill="url(#boswas-storage-mint-bright)"/>
   <path d="M187 164A9 9 0 1 1 205 164A9 9 0 1 1 187 164Z" fill="url(#boswas-storage-sheen-4)"/>
