@@ -27,8 +27,8 @@ test keeps it so.
   (no section and no content of its own) has no card, and a category
   without such a page is left out of the pane. The Install Boswas OS card
   appears only in a live session.
-- **The title is the path** to the current place ("System › Display").
-  A crumb, the back button or Alt+Left returns.
+- **The title is the path** to the current place: System, a chevron,
+  Display. A crumb, the back button or Alt+Left returns.
 - **Size:** 1100 by 720 pixels at the start, 560 by 440 at least. Below a
   width of 720 pixels the pane shows the categories' icons only.
 - **Keys:** Tab moves into the page, F5 refreshes it, Ctrl+F opens the
@@ -67,10 +67,13 @@ directly; `--help` and `boswas-control-center(1)` list every key. A
 section is named by its title in lower case with dashes (`wi-fi`,
 `night-light`, `date-time`); a name the page does not have is ignored.
 The shell uses these links: quick settings ("More Wi-Fi settings" opens
-`--page network --section wi-fi`), Start's search, the notification
-centre's settings button (`--page notifications`) and the menu of the
-taskbar's background ("Taskbar settings", `--page taskbar`). A test
-checks that every key the shell passes exists.
+`--page wifi`, "More Bluetooth settings" `--page bluetooth`, "More
+sound settings" `--page sound`), Start's search, the user menu ("Account
+settings", `--page users`), the notification centre's settings button
+(`--page notifications`) and the menus of the desktop ("Display
+settings", "Personalise") and of the taskbar's background ("Taskbar
+settings", `--page taskbar`). A test checks that every key the shell
+passes exists.
 
 | Category (key) | Pages (keys) |
 |----------------|--------------|
@@ -136,10 +139,10 @@ the user's layer of the compositor's settings; both are described under
 |------|---------------|---------|
 | Wi-Fi | The switch, the connected network, the networks with Connect and Forget, Scan, a passphrase dialog | The bridge |
 | Ethernet | The wired connection, connected or not | The bridge |
-| VPN | The VPN and WireGuard connections of NetworkManager: Connect, Disconnect, Remove (after a question), and **Add**: a WireGuard or OpenVPN file the person chooses, recognised by its content and imported. A VPN that asks for a password or another secret when it connects cannot be connected from here: the desktop has no prompt for NetworkManager's secrets yet, and the page says so and suggests saving the secret with `nmtui` | `nmcli -t ... connection show`; `nmcli connection up|down|delete uuid UUID`, `nmcli connection import type openvpn|wireguard file PATH` (NetworkManager asks polkit) |
+| VPN | The VPN and WireGuard connections of NetworkManager: Connect, Disconnect, Remove (after a question), and **Add**: a WireGuard or OpenVPN file the person chooses, recognised by its content and imported. A VPN that asks for a password or another secret when it connects cannot be connected from here: the desktop has no prompt for NetworkManager's secrets yet, and the page says so and suggests saving the secret with `nmtui` | `nmcli -t ... connection show`; `nmcli connection up\|down\|delete uuid UUID`, `nmcli connection import type openvpn\|wireguard file PATH` (NetworkManager asks polkit) |
 | Airplane mode | The switch for every radio | The bridge |
 | Proxy | The proxy variables of this session, read-only | The environment |
-| Advanced network settings | **Network adapters**: every adapter with its state and connection, the data it moved since the device started, its hardware address when asked for, and Disable (after a question) or Enable. **Connection details**: addresses, gateways, name servers, hardware address, link speed, with Copy | `nmcli -t ... device`, `/sys/class/net`; `nmcli device disconnect|connect IFNAME`; `ip -j`, `/etc/resolv.conf` |
+| Advanced network settings | **Network adapters**: every adapter with its state and connection, the data it moved since the device started, its hardware address when asked for, and Disable (after a question) or Enable. **Connection details**: addresses, gateways, name servers, hardware address, link speed, with Copy | `nmcli -t ... device`, `/sys/class/net`; `nmcli device disconnect\|connect IFNAME`; `ip -j`, `/etc/resolv.conf` |
 
 ### Personalization
 
@@ -271,12 +274,12 @@ the service asks polkit, and the shell shows the question.
 Never a control that does nothing. Not offered:
 
 - **Connecting a VPN that asks for a secret each time** (see VPN above),
-  and VPN types other than WireGuard and OpenVPN files.
+  and importing other files than WireGuard and OpenVPN configurations.
 - **Editing the proxy** (shown read-only), a test sound, an automatic
   suspend time (the compositor has no key for it), identifying monitors,
   a pointer theme or pointer colour (Boswas-Cursors is drawn in one
-  colour when the package is built),
-  drawing tablets, locking an account, setting the default printer.
+  colour when the package is built), drawing tablets, locking an
+  account, setting the default printer.
 - **Pausing updates:** nothing would resume them on time.
 - **Resetting the device:** Recovery says to reinstall instead.
 - **Notifications on the lock screen:** the lock screen is a program of

@@ -295,8 +295,6 @@ PAGES = (
     _page("accessibility", "mouse-pointer", "Mouse pointer", "Pointer size",
           ("input-mouse", "input-mouse-symbolic"), ("pointer size", "cursor size", "bigger pointer"),
           description="Make the pointer easier to see."),
-
-    # --- Privacy & security ---
     _page("accessibility", "magnifier", "Magnifier", "Zoom in, zoom increment",
           ("zoom-in-symbolic",), ("magnifier", "zoom", "magnify", "enlarge screen", "lens"),
           description="Enlarge the screen around the pointer: Super+Plus starts the magnifier, Super+Esc ends it."),
@@ -309,6 +307,8 @@ PAGES = (
           ("input-keyboard", "input-keyboard-symbolic"),
           ("sticky keys", "filter keys", "slow keys", "bounce keys", "modifier keys", "keyboard accessibility"),
           description="Press shortcuts one key at a time, and ignore brief or repeated keystrokes."),
+
+    # --- Privacy & security ---
     _category("privacy-security", "Privacy & security",
               "Protection of this device, the screen lock, what apps may use, and what this device shares.",
               ("preferences-system-privacy", "security-high-symbolic"), ("privacy", "security", "protection")),
