@@ -3,9 +3,9 @@
   ~/Applications/<name>.AppImage                         AppImages the user added
   ~/.local/share/applications/boswas-appimage-<id>.desktop  their menu entries
   ~/.cache/thumbnails/                                   the thumbnail cache (cleanup)
-  <config>/boswas/compositor.toml                        the user layer of the compositor's settings
+  <config>/boswas/compositor.toml                        the user layer of the compositor's settings (accent too)
   <config>/boswas/compositor.toml.bak                    its previous content (kept while a change is tried)
-  <config>/boswas/appearance.toml                        the [appearance] table (colour scheme, accent, ...)
+  <config>/boswas/appearance.toml                        [appearance] scheme and wallpaper (boswas-preset's file)
   <config>/mimeapps.list                                 default applications
   <config>/autostart/<id>.desktop                        start-up applications and their overrides
   ~/.face                                                the account picture
