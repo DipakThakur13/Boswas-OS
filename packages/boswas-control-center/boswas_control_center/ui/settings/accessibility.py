@@ -87,10 +87,15 @@ class TextSizeSection(ConfigSection):
         row.addWidget(self.percent)
         row.addWidget(self.apply_button)
         self.card("Text size", "Text in the taskbar, Start, title bars and applications; nothing else grows",
-                  "format-text-larger-symbolic", holder)
+                  "draw-text-symbolic", holder)
         self.slider.valueChanged.connect(self._moved)
         self.apply_button.clicked.connect(self._apply)
         self.current = 100
+        # The window's own restyling (a scheme change) resets the preview's font: set it again.
+        fluent.manager().changed.connect(self._restyled)
+
+    def _restyled(self, _theme=None) -> None:
+        self._moved(self.slider.value())
 
     def _moved(self, value: int) -> None:
         self.percent.setText(f"{value} %")
@@ -146,11 +151,11 @@ class ColourFiltersSection(ConfigSection):
 
     def build(self) -> None:
         self.enabled = self.toggle("Colour filters", "Show the whole screen through a filter: greyscale, inverted, "
-                                   "or one that helps to tell colours apart", "applications-graphics-symbolic",
+                                   "or one that helps to tell colours apart", "eye-open-symbolic",
                                    "color_filter", "enabled")
         self.filter = combo(((label, name) for name, label in FILTERS), width=300)
         self.filter.setAccessibleName("Colour filter")
-        self.filter_card = self.card("Filter", "", "preferences-desktop-color-symbolic", self.filter)
+        self.filter_card = self.card("Filter", "", "draw-highlight-symbolic", self.filter)
         self.filter.activated.connect(lambda _i: self.change({("color_filter", "filter"): self.filter.currentData()}))
         self.shortcut = self.toggle("Keyboard shortcut for colour filters", "Super+Ctrl+C turns the filter on and off",
                                     "input-keyboard-symbolic", "color_filter", "shortcut")

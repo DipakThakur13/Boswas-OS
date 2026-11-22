@@ -99,7 +99,7 @@ class AccentSection(ConfigSection):
         row.addStretch(1)
         self.row = self.add(fluent.SettingsExpander(
             "Accent colour", "The colour of selections, switches, the focused window's details and the taskbar's "
-            "marks", "preferences-desktop-color-symbolic", None, self, expanded=True))
+            "marks", "draw-highlight-symbolic", None, self, expanded=True))
         self.row.add_row("Choose a colour", "", holder)
         self.current = fluent.Label("", "caption", self, tone="secondary")
         self.row.header.add_control(self.current)
@@ -121,7 +121,7 @@ class TransparencySection(ConfigSection):
 
     def build(self) -> None:
         self.effects = self.toggle("Transparency effects", "The taskbar and the flyouts let the background show "
-                                   "through", "preferences-desktop-effects-symbolic", "appearance", "transparency")
+                                   "through", "image-x-generic-symbolic", "appearance", "transparency")
 
     def show_state(self, snapshot: cc.Snapshot) -> None:
         self.effects.setChecked(snapshot.get("appearance", "transparency"))

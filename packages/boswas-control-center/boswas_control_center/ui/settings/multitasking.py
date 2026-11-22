@@ -74,7 +74,7 @@ class DesktopsSection(ConfigSection):
             lambda _i: self.change({("multitasking", "taskbar_windows"): self.taskbar.currentData()}))
         self.alt_tab = combo(SCOPES, width=260)
         self.alt_tab.setAccessibleName("Show all open windows when I press Alt+Tab")
-        self.card("Show all open windows when I press Alt+Tab", "", "preferences-system-windows-symbolic",
+        self.card("Show all open windows when I press Alt+Tab", "", "view-grid-symbolic",
                   self.alt_tab)
         self.alt_tab.activated.connect(
             lambda _i: self.change({("multitasking", "alt_tab_windows"): self.alt_tab.currentData()}))

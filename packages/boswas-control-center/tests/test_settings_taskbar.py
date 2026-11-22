@@ -52,6 +52,8 @@ if shared.HAVE_QT:
         def pictures(self, section, name: str) -> None:
             """The section in both colour modes, kept when BOSWAS_TEST_GRABS names a directory."""
             keep = os.environ.get("BOSWAS_TEST_GRABS")
+            section.resize(900, section.sizeHint().height())        # as tall as the page would make it
+            testing.process(20)
             for scheme in ("dark", "light"):
                 testing.set_scheme(scheme)
                 path = testing.grab(section, self.tmp / f"{name}-{scheme}.png")

@@ -484,7 +484,8 @@ capability.
 .SH CONTROL SOCKET
 \fB$XDG_RUNTIME_DIR/boswas\-\fIWAYLAND_DISPLAY\fB.sock\fR accepts one JSON
 object per line, for example {"cmd": "outputs"}. Connections to this socket
-may ask for \fBversion\fR, \fBlock\fR, \fBreload\-config\fR, \fBoutputs\fR
+may ask for \fBversion\fR (with "color_filters": whether the renderer can
+draw the colour filters), \fBlock\fR, \fBreload\-config\fR, \fBoutputs\fR
 (every monitor with its modes, scale, position, rotation and
 "adaptive_sync": whether it offers variable refresh rate and whether it is
 on) and

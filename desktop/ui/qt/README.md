@@ -119,8 +119,16 @@ to lambdas: Qt drops a connection to a method when the widget is destroyed.
 6. **Programs never run as root** (`fluent.run` refuses), start other
    programs only with argument lists, and open files and addresses with
    `fluent.open_path` / `fluent.open_url`.
-7. **Honour reduced motion**: animate with `fluent.duration(...)` (0 when
-   the desktop asks for reduced motion) and `fluent.easing(...)`.
+7. **Honour reduced motion**: animate with `fluent.Animation` (see
+   [Motion](#motion-animation)), never with `QVariantAnimation` or
+   `QPropertyAnimation`: its steps follow the screen's refresh rate, and it
+   goes straight to the end when the desktop asks for reduced motion. Take
+   its length from `fluent.duration(...)` (0 with reduced motion) and its
+   curve from `fluent.easing(...)`.
+8. **Text grows, the rest does not.** Accessibility > Text size makes the
+   type ramp up to 225 % larger: take sizes from `fluent.font(...)` and lay
+   rows out with layouts, not fixed pixel heights, so that larger text has
+   room.
 
 ### Adding a page
 
@@ -162,21 +170,40 @@ through an attribute of your window that tests replace.
 
 | Name | What it does |
 |------|--------------|
-| `Theme(scheme="dark", tokens=None)` | The tokens through one scheme. `color(name)` → `#RRGGBB` for a role (`accent`, `text-secondary`, ...), a derived colour (`layer`, `card`, `flyout`, `warning-tint`, `success-text`, `accent-fill-hover`, ...) or a palette reference (`iris.500`); `rgba(name)` → (colour, opacity) for the layers `fill-control[-hover/-pressed]`, `fill-subtle-hover/-pressed`, `fill-disabled`, `stroke-control/-surface/-divider/-window`, `stroke-strong`, `text-disabled`, `accent-disabled`, `smoke`; `over(layer, base)`, `css(name)`, `radius(name)`, `spacing(steps)`, `type(name)` → `TypeStyle(size, line_height, weight)`, `families`, `duration(name)`, `curve(name)`, `elevation(name)`, `is_dark` |
+| `Theme(scheme="dark", tokens=None, *, accent=None, text_scale=100)` | The tokens through one scheme, with the desktop's accent colour (a hue of `ACCENTS`: `iris`, the default, `azure`, `sky`, `mint`, `sun`, `coral`, `orchid`, `slate`) and text size (100 to 225 percent of the type ramp). `color(name)` → `#RRGGBB` for a role (`accent`, `text-secondary`, ...), a derived colour (`layer`, `card`, `flyout`, `warning-tint`, `success-text`, `accent-fill-hover`, ...) or a palette reference (`iris.500`); `rgba(name)` → (colour, opacity) for the layers `fill-control[-hover/-pressed]`, `fill-subtle-hover/-pressed`, `fill-disabled`, `stroke-control/-surface/-divider/-window`, `stroke-strong`, `text-disabled`, `accent-disabled`, `smoke`; `over(layer, base)`, `css(name)`, `radius(name)`, `spacing(steps)`, `type(name)` → `TypeStyle(size, line_height, weight)`, `families`, `duration(name)`, `curve(name)`, `elevation(name)`, `is_dark` |
 | `fluent.theme()` | The current `Theme` |
 | `fluent.apply(app=None, *, scheme=None, watch=True)` | Style the application: Fusion as base, palette, generated style sheet, Inter at the body size, icon theme `Boswas-Prism` / `Boswas-Prism-Light` (fallback Breeze), focus ring, round popups; then follow the desktop. Returns the manager. `FluentWindow` and `run` call it for you |
-| `fluent.manager()` | The `ThemeManager`: `scheme`, `theme`, `reduced_motion`, `follows_desktop`, `applied`, `font_family()`, `set_scheme("dark"/"light"/None)`, `set_reduced_motion(bool/None)`, `reload()`, signal `changed(Theme)` |
+| `fluent.manager()` | The `ThemeManager`: `scheme`, `theme`, `reduced_motion`, `always_show_scrollbars`, `follows_desktop`, `applied`, `font_family()`, `set_scheme("dark"/"light"/None)`, `set_reduced_motion(bool/None)`, `reload()`, signal `changed(Theme)` |
 | `fluent.font(style="body")` | QFont of a ramp step: `caption` 12, `body` 14, `body-strong`, `body-large` 16, `subtitle` 20, `title` 28, `title-large` 40 |
 | `fluent.qcolor(name)` | QColor of a colour or layer (with its opacity) |
 | `fluent.duration(name)`, `fluent.easing(name)` | `fast` 150, `normal` 200, `slow` 250 ms (0 with reduced motion); `decelerate`, `accelerate`, `standard` as QEasingCurve |
 | `fluent.repolish(widget)` | After changing a dynamic property that the style sheet looks at |
-| `read_appearance()`, `Appearance` | The desktop's `[appearance]` table: `scheme`, `reduced_motion` |
+| `read_appearance()`, `Appearance` | The desktop's look: `scheme`, `reduced_motion` and `accent` of `[appearance]`; `text_scale` and `always_show_scrollbars` of `[accessibility]` |
 
 The scheme comes from the `[appearance]` table the compositor reads:
 `/usr/share/boswas/compositor/compositor.toml`, `/etc/boswas/compositor.toml`,
 `~/.config/boswas/compositor.toml`, then `~/.config/boswas/appearance.toml`
 (written by `boswas-preset`). The two user files are watched; a change
 re-styles every open window. Dark is the default.
+
+The same files give the rest of what Settings changes for every
+application (`boswas-compositor(1)`):
+
+* **Accent colour** (`[appearance] accent`, Personalization > Colours).
+  The roles `accent`, `accent-hover` and `accent-pressed` take the same
+  shades of the chosen hue as the token file's accent takes of iris;
+  `accent` is moved towards the text colour just far enough for
+  `on-accent` text to keep 4.5:1, and every colour derived from it
+  (`accent-text`, `accent-fill-*`, ...) is derived as before.
+  `tests/test_contrast.py` checks every rule for every accent in both
+  schemes.
+* **Text size** (`[accessibility] text_scale`, Accessibility > Text size):
+  every step of the type ramp, and with it `fluent.font(...)`, the
+  application font and the style sheet's font sizes, is that much larger.
+  Radii, spacing and icons stay.
+* **Always show scroll bars** (`[accessibility] always_show_scrollbars`,
+  Accessibility > Visual effects): scroll bars are drawn at the width they
+  take under the pointer instead of as thin lines.
 
 Custom-painted widgets read `fluent.theme()` in `paintEvent`; they need no
 code for a scheme change.
@@ -319,7 +346,13 @@ enough towards the text colour; widgets use those.
   elsewhere.
 * **Animated state changes of standard widgets** (hover fades, the check
   mark drawing itself): style sheets do not animate. The toolkit's own
-  widgets animate (switch, selection pills, expander, pane, dialog smoke).
+  widgets animate (switch, selection pills, expander, pane, dialog smoke),
+  at the screen's refresh rate (`fluent.Animation`); Qt's indeterminate
+  `QProgressBar` still steps at about 60 Hz, because Fusion animates it on
+  Qt's own timer.
+* **Transparency effects** (Personalization > Colours) change nothing in
+  Qt applications: their surfaces are opaque tints already (see Mica and
+  acrylic above).
 * **Tick marks of a styled `QSlider`**, the arrows of scroll bars, and
   whole-row hover in a `QTableView` (a table that selects rows has no hover
   highlight; one that selects cells highlights the cell).
