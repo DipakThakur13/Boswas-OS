@@ -51,6 +51,9 @@ struct Connection {
 pub enum CaptureTarget {
     /// An output by name, or the first one.
     Output(Option<String>),
+    /// What an output shows the person in front of it: with the magnifier
+    /// and the colour filter (for tests; `"display": true`).
+    Display(Option<String>),
     /// A window's current content, scaled down to `width` pixels.
     Window { id: u64, width: u32 },
 }
@@ -305,12 +308,40 @@ impl Boswas {
         )
     }
 
-    /// What the shell needs to match the session's look.
+    /// What the shell needs to match the session's look, and the settings
+    /// of its taskbar, Start and notifications (they are kept in the same
+    /// layered files as everything else, and reach the shell this way).
     pub fn appearance_json(&self) -> Value {
+        let c = &self.config;
         json!({
-            "scheme": self.config.appearance.scheme,
-            "wallpaper": self.config.appearance.wallpaper,
-            "reduced_motion": self.config.appearance.reduced_motion,
+            "scheme": c.appearance.scheme,
+            "wallpaper": c.appearance.wallpaper,
+            "reduced_motion": c.appearance.reduced_motion,
+            "accent": c.appearance.accent,
+            "transparency": c.appearance.transparency,
+            "text_scale": c.accessibility.text_scale,
+            "taskbar": {
+                "alignment": c.taskbar.alignment,
+                "auto_hide": c.taskbar.auto_hide,
+                "task_view": c.taskbar.task_view,
+                "clock_seconds": c.taskbar.clock_seconds,
+                "badges": c.taskbar.badges,
+                "windows": c.multitasking.taskbar_windows,
+            },
+            "start": {
+                "layout": c.start.layout,
+                "recently_added": c.start.recently_added,
+                "most_used": c.start.most_used,
+                "folders": c.start.folders,
+            },
+            "notifications": {
+                "do_not_disturb": c.notifications.do_not_disturb,
+                "scheduled": c.notifications.do_not_disturb_scheduled,
+                "from": c.notifications.do_not_disturb_from,
+                "to": c.notifications.do_not_disturb_to,
+                "banners_off": c.notifications.banners_off,
+                "toast_seconds": c.notifications.toast_seconds,
+            },
         })
     }
 
@@ -410,6 +441,8 @@ impl Boswas {
                     // Whether the session is locked is on screen for anyone
                     // to see; it is not a secret.
                     "locked": self.lock.locked,
+                    // Settings says where colour filters cannot be drawn.
+                    "color_filters": self.backend.filters_color(),
                 })))
             }
             "lock" => {
@@ -581,7 +614,11 @@ impl Boswas {
                         connection,
                         request_id: id.clone(),
                         path,
-                        target: CaptureTarget::Output(output),
+                        target: if request.get("display").and_then(Value::as_bool) == Some(true) {
+                            CaptureTarget::Display(output)
+                        } else {
+                            CaptureTarget::Output(output)
+                        },
                     });
                     self.schedule_redraw();
                     return None;

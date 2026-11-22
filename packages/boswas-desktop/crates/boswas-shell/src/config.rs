@@ -185,6 +185,150 @@ impl ShellConfig {
     }
 }
 
+/// An application that sent notifications, as Settings lists it to turn
+/// its banners off (`~/.local/state/boswas/notification-senders.json`).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Sender {
+    /// The name it sends (`app_name`): what banners are turned off by.
+    pub name: String,
+    #[serde(default)]
+    pub icon: String,
+    #[serde(default)]
+    pub desktop_entry: String,
+    /// When it last sent one, in seconds since the epoch.
+    #[serde(default)]
+    pub last: u64,
+}
+
+/// The applications that sent notifications, most recent first.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Senders {
+    path: Option<PathBuf>,
+    pub entries: Vec<Sender>,
+}
+
+impl Senders {
+    /// Applications kept.
+    pub const MAX: usize = 100;
+    /// A sender already listed is written again after this long, so the
+    /// list stays in the order of use without a write per notification.
+    const REFRESH: u64 = 3600;
+
+    pub fn load() -> Self {
+        let path = state_dir().map(|dir| dir.join("notification-senders.json"));
+        let mut senders = Self { path, entries: Vec::new() };
+        if let Some(text) = senders.path.as_deref().and_then(read_capped) {
+            senders.entries = Self::parse(&text);
+        }
+        senders
+    }
+
+    /// Reads the file's text; what is not understood is left out.
+    pub fn parse(text: &str) -> Vec<Sender> {
+        let mut out: Vec<Sender> = Vec::new();
+        for sender in serde_json::from_str::<Vec<Sender>>(text).unwrap_or_default() {
+            if Self::plain(&sender.name, 128) && Self::plain(&sender.icon, 256) && Self::plain(&sender.desktop_entry, 256) && !out.iter().any(|o| o.name == sender.name) && out.len() < Self::MAX {
+                out.push(sender);
+            }
+        }
+        out
+    }
+
+    fn plain(text: &str, limit: usize) -> bool {
+        text.chars().count() <= limit && !text.chars().any(char::is_control)
+    }
+
+    /// Notes that `note` arrived. Returns whether the list changed (and was
+    /// written).
+    pub fn record(&mut self, note: &boswas_services::Notification, now: std::time::SystemTime) -> bool {
+        let name = note.app_name.trim();
+        if name.is_empty() || !Self::plain(name, 128) {
+            return false;
+        }
+        let seconds = now.duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+        let entry = Sender {
+            name: name.to_owned(),
+            icon: Some(note.app_icon.as_str()).filter(|i| Self::plain(i, 256)).unwrap_or_default().to_owned(),
+            desktop_entry: note.desktop_entry.as_deref().filter(|e| Self::plain(e, 256)).unwrap_or_default().to_owned(),
+            last: seconds,
+        };
+        if let Some(position) = self.entries.iter().position(|s| s.name == entry.name) {
+            let old = &self.entries[position];
+            if position == 0 && old.icon == entry.icon && old.desktop_entry == entry.desktop_entry && seconds.saturating_sub(old.last) < Self::REFRESH {
+                return false;
+            }
+            self.entries.remove(position);
+        }
+        self.entries.insert(0, entry);
+        self.entries.truncate(Self::MAX);
+        if let (Some(path), Ok(text)) = (&self.path, serde_json::to_string(&self.entries)) {
+            write_atomically(path, &text);
+        }
+        true
+    }
+}
+
+/// When each installed application was first seen, in seconds since the
+/// epoch (`~/.local/state/boswas/apps-seen.json`), for Start's "Recently
+/// added". The applications of the first run count as old (0).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SeenApps {
+    path: Option<PathBuf>,
+    /// The file existed: applications not in it are new.
+    known: bool,
+    pub first_seen: std::collections::BTreeMap<String, u64>,
+}
+
+impl SeenApps {
+    /// Applications remembered.
+    const MAX: usize = 4000;
+    /// How long an application counts as recently added.
+    pub const RECENT: u64 = 14 * 24 * 3600;
+
+    pub fn load() -> Self {
+        let path = state_dir().map(|dir| dir.join("apps-seen.json"));
+        let read = path
+            .as_deref()
+            .and_then(read_capped)
+            .and_then(|text| serde_json::from_str::<std::collections::BTreeMap<String, u64>>(&text).ok());
+        Self {
+            path,
+            known: read.is_some(),
+            first_seen: read.unwrap_or_default().into_iter().filter(|(id, _)| valid_id(id)).collect(),
+        }
+    }
+
+    /// Records the applications installed now; forgets those that are gone.
+    /// Writes the file when anything changed.
+    pub fn update(&mut self, ids: &[&str], now: u64) {
+        let before = self.first_seen.clone();
+        self.first_seen.retain(|id, _| ids.contains(&id.as_str()));
+        for id in ids.iter().filter(|id| valid_id(id)).take(Self::MAX) {
+            let stamp = if self.known { now } else { 0 };
+            self.first_seen.entry((*id).to_owned()).or_insert(stamp);
+        }
+        self.known = true;
+        if self.first_seen != before {
+            if let (Some(path), Ok(text)) = (&self.path, serde_json::to_string(&self.first_seen)) {
+                write_atomically(path, &text);
+            }
+        }
+    }
+
+    /// The applications added in the last [`Self::RECENT`] seconds, newest
+    /// first.
+    pub fn recent(&self, now: u64) -> Vec<&str> {
+        let mut found: Vec<(&u64, &String)> = self
+            .first_seen
+            .iter()
+            .filter(|(_, at)| **at > 0 && now.saturating_sub(**at) < Self::RECENT)
+            .map(|(id, at)| (at, id))
+            .collect();
+        found.sort_by(|a, b| b.0.cmp(a.0).then(a.1.cmp(b.1)));
+        found.into_iter().map(|(_, id)| id.as_str()).collect()
+    }
+}
+
 /// Commands typed into the Run dialog, the most recent last.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RunHistory {
@@ -268,6 +412,59 @@ mod tests {
         let many: Vec<String> = (0..200).map(|i| format!("\"app{i}\"")).collect();
         let config = ShellConfig::parse(&format!("[taskbar]\npinned = [{}]\n", many.join(",")));
         assert_eq!(config.taskbar.len(), MAX_PINS);
+    }
+
+    #[test]
+    fn senders_are_listed_once_most_recent_first() {
+        let note = |app: &str| boswas_services::Notification {
+            id: 1,
+            app_name: app.into(),
+            app_icon: "mail".into(),
+            desktop_entry: Some("org.example.Mail".into()),
+            summary: String::new(),
+            body: String::new(),
+            actions: Vec::new(),
+            urgency: boswas_services::Urgency::Normal,
+            timeout_ms: None,
+            transient: false,
+            progress: None,
+            time: 0,
+            replaces_existing: false,
+        };
+        let at = |s: u64| std::time::UNIX_EPOCH + std::time::Duration::from_secs(s);
+        let mut senders = Senders::default();
+        assert!(senders.record(&note("Mail"), at(1000)));
+        assert!(senders.record(&note("Chat"), at(1001)));
+        assert!(!senders.record(&note("Chat"), at(1002)), "nothing new to write");
+        assert!(senders.record(&note("Mail"), at(1003)), "Mail moves to the front");
+        assert_eq!(senders.entries.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), ["Mail", "Chat"]);
+        assert!(!senders.record(&note("  "), at(1004)));
+        assert!(!senders.record(&note("a\u{7}b"), at(1004)));
+        let text = serde_json::to_string(&senders.entries).unwrap();
+        assert_eq!(Senders::parse(&text), senders.entries);
+        assert!(Senders::parse("not json").is_empty());
+        assert_eq!(Senders::parse(r#"[{"name": "A"}, {"name": "A"}, {"name": 3}, {"icon": "x"}]"#).len(), 0, "one bad entry rejects the list");
+        assert_eq!(Senders::parse(r#"[{"name": "A"}, {"name": "A"}, {"name": "B", "last": 5}]"#).len(), 2);
+        for i in 0..150 {
+            senders.record(&note(&format!("App {i}")), at(2000 + i));
+        }
+        assert_eq!(senders.entries.len(), Senders::MAX);
+        assert_eq!(senders.entries[0].name, "App 149");
+    }
+
+    #[test]
+    fn applications_of_the_first_run_are_not_new() {
+        let mut seen = SeenApps::default();
+        seen.update(&["a.b", "c"], 1000);
+        assert!(seen.recent(1000).is_empty(), "the first run sets the baseline");
+        seen.update(&["a.b", "c", "new.app"], 2000);
+        seen.update(&["a.b", "c", "new.app", "newer"], 3000);
+        assert_eq!(seen.recent(3000), ["newer", "new.app"]);
+        assert_eq!(seen.recent(2000 + SeenApps::RECENT), ["newer"], "two weeks later it is no longer new");
+        seen.update(&["a.b", "newer"], 4000);
+        assert_eq!(seen.recent(4000), ["newer"], "removed applications are forgotten");
+        seen.update(&["bad id; x"], 5000);
+        assert!(seen.first_seen.is_empty());
     }
 
     #[test]

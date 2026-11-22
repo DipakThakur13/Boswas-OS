@@ -45,6 +45,25 @@ UPDATES_OFF = ("Automatic security updates are turned off on this device. Check 
                "below, or contact your administrator.")
 NEVER_COLLECTED = ("Boswas OS never collects keystrokes, screen contents, your files or browsing history, the "
                    "commands you type, or which applications you start.")
+# Diagnostics & feedback: there is no diagnostic data to switch on or off (docs/security/privacy.md).
+DIAGNOSTICS_TEXT = ("Boswas OS sends no diagnostic data. It has no usage telemetry, no crash reporting and no "
+                    "record of the applications you start, so there is nothing to turn off here and no feedback is "
+                    "sent from this device. Debian's popularity contest is turned off.")
+PRIVACY_STATEMENT = (
+    "Never on any device: telemetry about how people use the device, crash reporting, or reporting of the "
+    "applications started on it.\n\n"
+    "A device that is not enrolled sends nothing to Boswas. The only connections the system makes by itself are "
+    "the package manager and automatic updates to the Debian archive, time synchronisation, and NetworkManager's "
+    "connectivity check where Debian turns it on.\n\n"
+    "A device your organisation enrolled talks only to its organisation's Control Plane, with a fixed list of "
+    "messages: enrolment, heartbeat, inventory (no user names and no serial numbers), security check results if "
+    "the device policy allows them, management events and command results. Program output, logs, your files, "
+    "keystrokes and screen contents are never sent.\n\n"
+    "The desktop keeps two small records in your home folder for your convenience: how often each application "
+    "was started (to rank the search of Start) and the commands typed into Run. Only the shell reads them. "
+    "Weather asks Open-Meteo for the places you added and nothing else.\n\n"
+    "The complete statement is the Boswas OS privacy document (docs/security/privacy.md in the Boswas OS "
+    "sources).")
 
 # --- untrusted text ------------------------------------------------------------------------------------
 
@@ -677,6 +696,18 @@ def updates_view(doc: object, update_policy: str | None = None, live: bool = Fal
     if live:
         note = (note + " " if note else "") + "In a live session, updates are lost when you shut down."
     return UpdatesView(summary, rows, relevant, note)
+
+
+def update_option_rows(doc: object) -> list[tuple[str, str]]:
+    """The periodic settings the Update page does not show: downloading ahead and cleaning the package cache."""
+    periodic = _dict(_dict(doc).get("periodic"))
+    download, clean = _days(periodic.get("Download-Upgradeable-Packages")), _days(periodic.get("AutocleanInterval"))
+    return [
+        ("Download updates in advance", "Unknown" if download is None else
+         ("Off" if download == 0 else _every(download))),
+        ("Remove outdated downloaded packages", "Unknown" if clean is None else
+         ("Never" if clean == 0 else _every(clean))),
+    ]
 
 
 # --- privacy ---------------------------------------------------------------------------------------------

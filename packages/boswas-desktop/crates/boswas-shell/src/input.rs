@@ -211,7 +211,7 @@ impl Shell {
         match (role, self.open_kind()) {
             (Role::Flyout, Some(Flyout::Start)) => {
                 let panel = crate::ui::Rect::new(crate::PAD, crate::PAD, surface.width as f32 - 2.0 * crate::PAD, surface.height as f32 - 2.0 * crate::PAD);
-                let geo = start::geometry(panel);
+                let geo = start::geometry(panel, self.st.desktop.start.layout);
                 let pages = start::page_count(self.st.start_pins().len(), geo.rows);
                 let rows = start::all_rows(&self.st.apps).len();
                 if !self.st.start.searching() && self.st.start.scroll_by(steps, pages, rows, geo.list_rows) {
@@ -272,7 +272,7 @@ impl Shell {
         let at = self.on_output(index, position);
         match action {
             Action::Taskbar(taskbar::Act::Task(task)) => {
-                let list = taskbar::tasks(&self.st.apps, &self.st.config.taskbar, &self.st.windows, self.st.workspace);
+                let list = self.st.tasks();
                 if let (Some(entry), Some(rect)) = (list.get(task), self.control_rect(index, &Action::Taskbar(taskbar::Act::Task(task)))) {
                     let items = self.task_menu(entry);
                     self.close_flyout();
@@ -302,7 +302,7 @@ impl Shell {
     fn secondary(&mut self, action: Action, index: usize, position: (f32, f32)) {
         match action {
             Action::Taskbar(taskbar::Act::Task(task)) => {
-                let list = taskbar::tasks(&self.st.apps, &self.st.config.taskbar, &self.st.windows, self.st.workspace);
+                let list = self.st.tasks();
                 if let Some(app) = list.get(task).and_then(|t| t.app) {
                     self.launch_app(app);
                 }
@@ -395,7 +395,7 @@ impl Shell {
             Act::StopCapture => self.stop_capturing(),
             Act::Task(task) => {
                 self.close_transients();
-                let list = taskbar::tasks(&self.st.apps, &self.st.config.taskbar, &self.st.windows, self.st.workspace);
+                let list = self.st.tasks();
                 let Some(entry) = list.get(task) else {
                     return;
                 };
@@ -440,6 +440,7 @@ impl Shell {
                     return self.activate_result(result);
                 }
             }
+            Act::Folder(folder) => return self.open_folder(folder),
             Act::User | Act::Power => {
                 let action = Action::Start(act.clone());
                 if let (Some(rect), Some(output)) = (self.control_rect(index, &action), output) {
@@ -587,7 +588,7 @@ impl Shell {
         self.service(Command::WifiConnect { ssid, passphrase });
     }
 
-    fn set_dnd(&mut self, on: bool) {
+    pub(crate) fn set_dnd(&mut self, on: bool) {
         self.st.notes.dnd = on;
         self.service(Command::SetDoNotDisturb(on));
         self.mark(Role::Taskbar);

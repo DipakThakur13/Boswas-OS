@@ -1,21 +1,24 @@
 """System, application and privacy settings that use the system's own tools and files.
 
-Page "system":
-  Date & time           the clock, "Set the time automatically" (timedatectl
-                        set-ntp), the time zone with a searchable list
-                        (set-timezone) and, while automatic time is off,
-                        setting the clock by hand (set-time)
-  Region & language     the system language and the regional format, from the
-                        locales that are generated (localectl set-locale);
-                        they apply after signing in again
-  Notifications         one line: where Do not disturb is
-Page "applications":
-  Default applications  per kind of file or link, the installed applications
-                        that declare it; written to ~/.config/mimeapps.list
-  Start-up applications the autostart entries of this desktop: on/off, add an
-                        installed application, remove one the user added
-Page "privacy":
-  Recent files          empties the shared list of recently used files
+Category "Time & language":
+  Date & time           (page date-time) the clock, "Set the time
+                        automatically" (timedatectl set-ntp), the time zone
+                        with a searchable list (set-timezone) and, while
+                        automatic time is off, setting the clock by hand
+                        (set-time)
+  Region & language     (page region) the system language and the regional
+                        format, from the locales that are generated (localectl
+                        set-locale); they apply after signing in again
+Category "Apps":
+  Default applications  (page default-apps) per kind of file or link, the
+                        installed applications that declare it; written to
+                        ~/.config/mimeapps.list
+  Start-up applications (page startup) the autostart entries of this desktop:
+                        on/off, add an installed application, remove one the
+                        user added
+Category "Privacy & security":
+  Recent files          (page recent-files) empties the shared list of
+                        recently used files
 
 timedatectl and localectl are run on a worker thread with a long time-out:
 systemd's services ask polkit, and the shell's agent shows the question.
@@ -196,7 +199,7 @@ class ZoneDialog(fluent.ContentDialog):
 
 
 class DateTimeSection(ToolSection):
-    page = "system"
+    page = "date-time"
     title = "Date & time"
     order = 10
     keywords = ("date", "time", "clock", "time zone", "timezone", "ntp", "automatic time", "set time")
@@ -351,7 +354,7 @@ class DateTimeSection(ToolSection):
 # --- region and language ----------------------------------------------------------------------------------------
 
 class RegionSection(ToolSection):
-    page = "system"
+    page = "region"
     title = "Region & language"
     order = 20
     keywords = ("language", "region", "locale", "formats", "regional format", "number format", "date format",
@@ -438,19 +441,6 @@ class RegionSection(ToolSection):
         self.change(apply, "Saved. The new language and formats apply after you sign out and in again.")
 
 
-class NotificationsSection(Section):
-    page = "system"
-    title = "Notifications"
-    order = 30
-    keywords = ("notifications", "do not disturb", "quiet")
-
-    def __init__(self, parent: QWidget | None = None):
-        super().__init__(parent)
-        self.card = self.add(fluent.SettingsCard(
-            "Do not disturb", "Do not disturb is switched in the quick settings (Super+A); the notification "
-            "centre opens with Super+N.", fluent.icon("notification-symbolic"), None, self))
-
-
 # --- default applications ---------------------------------------------------------------------------------------
 
 class FilesSection(ToolSection):
@@ -489,7 +479,7 @@ class FilesSection(ToolSection):
 
 
 class DefaultAppsSection(FilesSection):
-    page = "applications"
+    page = "default-apps"
     title = "Default applications"
     order = 60
     keywords = ("default applications", "default apps", "browser", "mail", "file manager", "text editor",
@@ -653,7 +643,7 @@ class AppDialog(fluent.ContentDialog):
 
 
 class StartupSection(FilesSection):
-    page = "applications"
+    page = "startup"
     title = "Start-up applications"
     order = 70
     keywords = ("start-up", "startup", "autostart", "start automatically", "sign in", "login", "log in")
@@ -787,7 +777,7 @@ class StartupSection(FilesSection):
 # --- privacy ---------------------------------------------------------------------------------------------------
 
 class RecentFilesSection(FilesSection):
-    page = "privacy"
+    page = "recent-files"
     title = "Recent files"
     order = 30
     keywords = ("recent files", "recently used", "history", "clear history")
@@ -835,5 +825,4 @@ class RecentFilesSection(FilesSection):
         self.change(apply, "The list of recently used files was cleared. The files themselves were not touched.")
 
 
-SECTIONS = (DateTimeSection, RegionSection, NotificationsSection, DefaultAppsSection, StartupSection,
-            RecentFilesSection)
+SECTIONS = (DateTimeSection, RegionSection, DefaultAppsSection, StartupSection, RecentFilesSection)

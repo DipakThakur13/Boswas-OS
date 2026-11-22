@@ -92,6 +92,19 @@ REPEAT_RATE = (1, 100)
 CURSOR_SIZE = (16, 96)
 SCREEN_OFF = (30, 6 * 3600)                     # seconds; 0 means never
 POSITION = (-32768, 32767)
+# The settings that came with the desktop's Windows-like functions (boswas-compositor(1)).
+ACCENTS = ("iris", "azure", "sky", "mint", "sun", "coral", "orchid", "slate")   # palette hues; iris is the default
+TEXT_SCALE = (100, 225)                         # percent of the type ramp
+COLOR_FILTERS = ("grayscale", "inverted", "grayscale_inverted", "deuteranopia", "protanopia", "tritanopia")
+MAGNIFIER_ZOOM = (100, 1600)                    # percent
+MAGNIFIER_STEPS = (25, 50, 100, 150, 200, 400)  # percent
+KEY_DELAY = (100, 5000)                         # slow and bounce keys, milliseconds; 0 means off
+TASKBAR_ALIGNMENTS = ("center", "left")
+START_LAYOUTS = ("default", "more_pins", "more_recommendations")
+START_FOLDERS = ("settings", "files", "documents", "downloads", "music", "pictures", "videos")
+WINDOW_SCOPES = ("desktop", "all")              # windows of the current desktop, or of every desktop
+TOAST_SECONDS = (5, 7, 15, 30, 60, 300)
+MAX_MUTED = 256                                 # applications whose banners can be off
 
 HEADER = ("# Settings of this user for the Boswas desktop, written by Boswas Control Center.\n"
           "# Keys that boswas-compositor(1) does not document are not kept when a setting changes.\n")
@@ -293,6 +306,39 @@ def _program(default: tuple[str, ...], user: bool = True) -> Key:
     return Key("strings", list(default), accepts, check, _same, user)
 
 
+def _number_choice(default: int, values: tuple[int, ...], what: str, tidy: Callable[[int], int]) -> Key:
+    """A whole number from a fixed list; the compositor makes ``tidy(value)`` of any other number."""
+    def check(value: object) -> int:
+        if not _is_int(value) or value not in values:
+            raise InvalidValue(f"The {what} must be one of: {', '.join(str(v) for v in values)}.")
+        return value
+    return Key("int", default, lambda v: _is_int(v) and _U32[0] <= v <= _U32[1], check, tidy)
+
+
+def _names(default: tuple[str, ...], allowed: tuple[str, ...] | None, what: str, limit: int = 64) -> Key:
+    """A list of names, each once: from ``allowed`` (when given), else any plain text of up to 128 characters.
+    The compositor drops what it cannot use and keeps the rest."""
+    def usable(name: object) -> bool:
+        if allowed is not None:
+            return name in allowed
+        return (isinstance(name, str) and bool(name.strip()) and len(name) <= 128
+                and not any(ord(ch) < 32 or ord(ch) == 127 for ch in name))
+
+    def check(value: object) -> list[str]:
+        if not isinstance(value, (list, tuple)) or len(value) > limit or not all(usable(name) for name in value):
+            raise InvalidValue(f"That is not a list of {what}.")
+        return list(dict.fromkeys(value))
+
+    def tidy(value: list) -> list[str]:
+        return list(dict.fromkeys(name for name in value if usable(name)))[:limit]
+    return Key("strings", list(default), lambda v: isinstance(v, list) and all(isinstance(n, str) for n in v),
+               check, tidy)
+
+
+def _nearest(values: tuple[int, ...]) -> Callable[[int], int]:
+    return lambda value: value if value in values else min(values, key=lambda v: (abs(v - value), v))
+
+
 def _mode() -> Key:
     def check(value: object) -> str:
         if parse_mode(value) is None:
@@ -327,6 +373,11 @@ SCHEMA: dict[str, dict[str, Key]] = {
         "repeat_delay": _integer(400, *REPEAT_DELAY, what="repeat delay"),
         "repeat_rate": _integer(30, *REPEAT_RATE, what="repeat rate"),
         "numlock": _boolean(False),
+        "sticky_keys": _boolean(False),
+        "sticky_keys_lock": _boolean(True),
+        "filter_keys": _boolean(False),
+        "slow_keys_ms": _integer(0, *KEY_DELAY, storage=_U32, what="time in milliseconds", zero=True),
+        "bounce_keys_ms": _integer(500, *KEY_DELAY, storage=_U32, what="time in milliseconds", zero=True),
     },
     "pointer": {
         "natural_scroll": _boolean(False),
@@ -370,6 +421,50 @@ SCHEMA: dict[str, dict[str, Key]] = {
         "scheme": _choice("dark", SCHEMES, "colour mode", "dark"),
         "reduced_motion": _boolean(False),
         "wallpaper": _path(),
+        "accent": _choice("iris", ACCENTS, "accent colour", "iris"),
+        "transparency": _boolean(True),
+    },
+    "accessibility": {
+        "text_scale": _integer(100, *TEXT_SCALE, storage=_U32, what="text size"),
+        "always_show_scrollbars": _boolean(False),
+    },
+    "color_filter": {
+        "enabled": _boolean(False),
+        "filter": _choice("grayscale", COLOR_FILTERS, "colour filter", "grayscale"),
+        "shortcut": _boolean(False),
+    },
+    "magnifier": {
+        "enabled": _boolean(False),
+        "zoom": _integer(200, *MAGNIFIER_ZOOM, storage=_U32, what="zoom"),
+        "step": _number_choice(100, MAGNIFIER_STEPS, "zoom increment", lambda v: v if v in MAGNIFIER_STEPS else 100),
+    },
+    "taskbar": {
+        "alignment": _choice("center", TASKBAR_ALIGNMENTS, "taskbar alignment", "center"),
+        "auto_hide": _boolean(False),
+        "task_view": _boolean(True),
+        "clock_seconds": _boolean(False),
+        "badges": _boolean(True),
+    },
+    "start": {
+        "layout": _choice("default", START_LAYOUTS, "layout of Start", "default"),
+        "recently_added": _boolean(True),
+        "most_used": _boolean(True),
+        "folders": _names(("settings", "files"), START_FOLDERS, "folders Start can show"),
+    },
+    "multitasking": {
+        "snap_windows": _boolean(True),
+        "snap_layouts_on_maximize": _boolean(True),
+        "snap_layouts_on_drag": _boolean(True),
+        "taskbar_windows": _choice("desktop", WINDOW_SCOPES, "choice of windows", "desktop"),
+        "alt_tab_windows": _choice("desktop", WINDOW_SCOPES, "choice of windows", "desktop"),
+    },
+    "notifications": {
+        "do_not_disturb": _boolean(False),
+        "do_not_disturb_scheduled": _boolean(False),
+        "do_not_disturb_from": _clock("22:00"),
+        "do_not_disturb_to": _clock("07:00"),
+        "banners_off": _names((), None, "application names", MAX_MUTED),
+        "toast_seconds": _number_choice(5, TOAST_SECONDS, "time", _nearest(TOAST_SECONDS)),
     },
     "policy": {
         "lock_idle_max_seconds": Key("int", 600, lambda v: _is_int(v) and _U32[0] <= v <= _U32[1], _same, _same,
@@ -389,7 +484,8 @@ OUTPUT_KEYS: dict[str, Key] = {
 
 # The order tables and keys are written in.
 _TABLE_ORDER = ("keyboard", "pointer", "touchpad", "output", "outputs", "night_light", "power", "lock", "xwayland",
-                "apps", "appearance")
+                "apps", "appearance", "accessibility", "color_filter", "magnifier", "taskbar", "start", "multitasking",
+                "notifications")
 # Which of the user's two files holds an [appearance] key (see the module text).
 _APPEARANCE_FILE_KEYS = ("scheme", "wallpaper")
 

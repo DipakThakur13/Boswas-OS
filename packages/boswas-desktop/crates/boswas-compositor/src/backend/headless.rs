@@ -134,7 +134,7 @@ impl Headless {
     fn render(&mut self, state: &mut Boswas) {
         let started = std::time::Instant::now();
         state.prepare_frame();
-        let (elements, clear) = state.output_elements(&mut self.renderer, &self.output);
+        let (elements, clear) = state.display_elements(&mut self.renderer, &self.output);
         let states = {
             let mut framebuffer = match self.renderer.bind(&mut self.target) {
                 Ok(framebuffer) => framebuffer,

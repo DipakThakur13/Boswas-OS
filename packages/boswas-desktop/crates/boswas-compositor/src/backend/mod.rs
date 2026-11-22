@@ -91,6 +91,18 @@ pub enum Backend {
 }
 
 impl Backend {
+    /// Whether the picture can be drawn through a colour filter: the
+    /// renderer is OpenGL ES (`effects::BoswasRenderer::FILTERS_COLOR`).
+    pub fn filters_color(&self) -> bool {
+        match self {
+            #[cfg(feature = "winit")]
+            Backend::Winit(_) => true,
+            #[cfg(feature = "udev")]
+            Backend::Udev(udev) => udev.draws_with_gles(),
+            _ => false,
+        }
+    }
+
     /// Switches to another virtual terminal (real hardware only).
     pub fn switch_vt(&mut self, vt: i32) {
         match self {
@@ -347,15 +359,20 @@ where
     R::Error: std::fmt::Display,
 {
     match &request.target {
-        CaptureTarget::Output(name) => {
+        CaptureTarget::Output(name) | CaptureTarget::Display(name) => {
             let output = match name {
                 Some(name) => outputs.iter().find(|o| &o.name() == name).ok_or("no such output")?,
                 None => outputs.first().ok_or("no output is connected")?,
             };
             let size = output.current_mode().ok_or("the output has no mode")?.size;
             let scale = output.current_scale().fractional_scale();
-            let (elements, clear) = state.output_elements(renderer, output);
-            let rgba = render_offscreen(renderer, format, size, scale, &elements, clear)?;
+            let rgba = if matches!(request.target, CaptureTarget::Display(_)) {
+                let (elements, clear) = state.display_elements(renderer, output);
+                render_offscreen(renderer, format, size, scale, &elements, clear)?
+            } else {
+                let (elements, clear) = state.output_elements(renderer, output);
+                render_offscreen(renderer, format, size, scale, &elements, clear)?
+            };
             write_png(&request.path, size.w as u32, size.h as u32, rgba, true)?;
             Ok(serde_json::json!({ "path": request.path, "output": output.name(), "width": size.w, "height": size.h }))
         }

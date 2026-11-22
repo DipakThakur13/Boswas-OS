@@ -387,6 +387,11 @@ impl Boswas {
     /// The snap layout a window dropped at `pointer` would take, and the
     /// rectangle to preview.
     pub fn snap_target(&self, pointer: Point<f64, Logical>) -> Option<(Tile, Rectangle<i32, Logical>)> {
+        // Multitasking > Snap windows: off, a dragged window lands where it
+        // is dropped.
+        if !self.config.multitasking.snap_windows {
+            return None;
+        }
         let output = self
             .space
             .outputs()
@@ -712,7 +717,8 @@ impl Boswas {
             };
             let mut decoration = window.data().decoration.borrow_mut();
             decoration.ensure_shadow(&window);
-            redrawn |= decoration.update(&window, active, scale, rounds, icon, self.text(), theme);
+            let text_scale = self.config.accessibility.text_scale;
+            redrawn |= decoration.update(&window, active, scale, rounds, icon, self.text(), theme, text_scale);
         }
         if redrawn {
             self.schedule_redraw();

@@ -470,8 +470,9 @@ if HAVE_QT:
     class ContractTest(testing.FluentTestCase):
         def test_sections_follow_the_contract(self):
             pages = [(cls.page, cls.title) for cls in personalize.SECTIONS]
-            self.assertEqual(pages, [("personalization", "Colour mode"), ("personalization", "Background"),
-                                     ("personalization", "Motion"), ("security", "Lock screen"), ("power", "Screen")])
+            self.assertEqual(pages, [("colours", "Colour mode"), ("background", "Background"),
+                                     ("colours", "Motion"), ("lock-screen", "Lock screen"), ("power", "Screen")])
+            self.assertEqual(personalize.MotionSection.also, ("visual-effects",))      # Accessibility shows it too
             for cls in personalize.SECTIONS:
                 self.assertTrue(isinstance(cls.order, int) and cls.keywords)
                 section = self.keep(cls())

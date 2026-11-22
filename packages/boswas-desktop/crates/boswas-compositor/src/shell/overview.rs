@@ -130,6 +130,8 @@ struct StripKey {
     maps: Vec<Vec<[i32; 4]>>,
     scale: i32,
     light: bool,
+    /// The strip shows the wallpaper through its tint.
+    translucent: bool,
 }
 
 /// Where everything goes on one output, relative to its usable area.
@@ -520,6 +522,7 @@ impl Boswas {
             maps,
             scale: pixel_scale,
             light,
+            translucent: self.config.appearance.transparency,
         };
         let name = output.name();
         let cached = self
@@ -729,7 +732,7 @@ impl Boswas {
         let (w, h) = (strip.size.w as f32, strip.size.h as f32);
         let mut canvas = Canvas::new(w, h, key.scale as f32)?;
         let chrome = t.material(scheme, "chrome");
-        canvas.fill_rect(0.0, 0.0, w, h, chrome.tint.alpha(chrome.tint_opacity));
+        canvas.fill_rect(0.0, 0.0, w, h, chrome.tint.alpha(if key.translucent { chrome.tint_opacity } else { 1.0 }));
         canvas.fill_rect(0.0, 0.0, w, 1.0, t.stroke(scheme, "divider"));
 
         let caption = t.type_style("caption");

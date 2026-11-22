@@ -63,10 +63,12 @@ pub struct Status {
 }
 
 impl Status {
-    pub fn read() -> Self {
+    /// The status now; `seconds`: the time with seconds (the taskbar's
+    /// clock can show them).
+    pub fn read(seconds: bool) -> Self {
         let now = chrono::Local::now();
         Self {
-            time: now.format("%H:%M").to_string(),
+            time: now.format(if seconds { "%H:%M:%S" } else { "%H:%M" }).to_string(),
             date: now.format("%a %-d %b").to_string(),
             battery: read_battery(Path::new("/sys/class/power_supply")),
             network: read_network(Path::new("/sys/class/net"), Path::new("/proc/net/wireless")),

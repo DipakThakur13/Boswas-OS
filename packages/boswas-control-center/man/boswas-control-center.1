@@ -12,31 +12,47 @@ boswas-control-center \- settings hub of Boswas OS
 .B \-\-version
 .SH DESCRIPTION
 .B boswas-control-center
-is Boswas Control Center, the settings hub of Boswas OS. It has one page per
-area. Each page shows the state of the device as the system reports it and
-holds the settings of that area as native sections: rows with a switch, a
-list or a slider that apply at once and show a message next to the control
-when a change could not be made. No page depends on a program of another
-desktop.
+is Boswas Control Center, the settings hub of Boswas OS. It is laid out in
+categories: the pane on the left holds Home, System, Bluetooth & devices,
+Network & internet, Personalization, Apps, Accounts, Time & language,
+Accessibility, Privacy & security and Boswas Update. A category lists its
+pages as cards; the path above the content shows where you are (for example
+System > Display), and a crumb or the back button (Alt+Left) returns. Each
+page shows the state of the device as the system reports it and holds the
+settings of its area as native sections: rows with a switch, a list or a
+slider that apply at once and show a message next to the control when a
+change could not be made. No page depends on a program of another desktop.
 .PP
-The pages are Personalization, Network, Bluetooth, Display, Sound, Power,
-Storage, Applications (the Boswas Software Center), Windows Compatibility,
-Android, Security (the Boswas Security Center), Users, Updates (the Boswas
-Update Center), Devices, Privacy, Hardware & Drivers, System and About
-Boswas OS. In a live session an Install Boswas OS page explains how to
-restart into the installer. A page that has nothing to show on a system is
-left out of the list.
+Home shows the device (its name, kind and model, with Rename), the person
+signed in, the network connection, Boswas Update, recommended settings
+(dark mode and night light as switches, Display and Sound), the Bluetooth
+devices, the background and theme, and how full the storage is.
+.PP
+The pages: System: Display, Sound, Power & battery, Storage, Troubleshoot,
+Recovery, About, and in a live session Install Boswas OS. Bluetooth &
+devices: Bluetooth, Printers, Cameras, Mouse, Touchpad, Keyboard, USB,
+Hardware & Drivers. Network & internet: Wi\-Fi, Ethernet, VPN, Airplane
+mode, Proxy, Advanced network settings. Personalization: Background,
+Colours, Themes (the Boswas presets), Fonts. Apps: Installed apps, Software
+Center, Default apps, Startup, Optional features, Windows Compatibility,
+Android. Accounts: Your info & other users, Access work or school. Time &
+language: Date & time, Language & region. Accessibility: Visual effects,
+Mouse pointer. Privacy & security: Boswas Security Center, Lock screen, App
+permissions, Activity history, Diagnostics & feedback. Boswas Update: the
+update status and pending updates, Update history, Advanced options. A page
+that has nothing to show on a system has no card.
 .PP
 Only one Control Center runs in a session. Starting the program again does
 not open a second window: the running window comes to the front and shows
-the page (and section) the new command line names. The quick settings of
+the place (and section) the new command line names. The quick settings of
 the shell use this, for example
 .B boswas\-control\-center \-\-page network \-\-section wi\-fi
-for "More Wi\-Fi settings".
+for "More Wi\-Fi settings", which opens Network & internet > Wi\-Fi.
 .PP
-The search box above the page list finds a page by its name and by the
-settings it holds; Enter opens the page of the best match and scrolls to
-that section.
+Typing in the search box above the categories lists the categories, pages,
+sections and single settings whose names or keywords contain every word;
+a result opens its place and scrolls to its section, and Enter opens the
+first result.
 .SS Settings sections
 Network, Bluetooth, Sound and Power talk to the system through
 .IR /usr/libexec/boswas/boswas\-services\-bridge ,
@@ -56,7 +72,7 @@ and
 and asks the compositor to load it again; see
 .BR boswas\-compositor (1).
 .PP
-Date and time and Region and language (page System) use
+Date and time and Language and region (Time & language) use
 .BR timedatectl (1)
 and
 .BR localectl (1).
@@ -120,16 +136,74 @@ missing firmware, offering to install the Debian package that provides it.
 Storage shows the disks and file systems and frees space (package cache,
 system journal, thumbnail cache) and opens the file system in Files
 .RB ( boswas\-files (1)).
-About Boswas OS includes a system overview (load, memory, network,
-runtimes).
+Its cleanup recommendations list the biggest items of the cache folder, the
+Trash (freedesktop Trash specification) and the downloads not changed for
+14 to 90 days; only what the person ticks is cleared, the Trash is emptied
+after a question, and old downloads are moved to the Trash, not deleted.
+.PP
+About includes a system overview (load, memory, network, runtimes) and
+renames the device:
+.B hostnamectl \-\-static set\-hostname
+.I name
+(1 to 63 letters, digits and hyphens, not starting or ending with one);
+systemd\-hostnamed asks polkit. Troubleshoot runs, on request, read\-only
+checks of the internet connection (an adapter, an address, a route, name
+servers, then a name lookup of deb.debian.org and an HTTPS request to it,
+which the page says before it runs), the sound, Bluetooth and the
+monitors, each with what helps. Recovery restarts into the firmware
+settings or the boot loader's menu
+.RB ( "systemctl reboot \-\-firmware\-setup" ,
+.BR "\-\-boot\-loader\-menu=0" )
+only where logind says the device supports it, after a question.
+.PP
+Printers lists the printers of CUPS
+.RB ( lpstat ),
+prints CUPS's own test page
+.RB ( "lp \-d" " printer " /usr/share/cups/data/testprint )
+and, without CUPS, installs the package cups through the system helper.
+Cameras lists the cameras of /sys/class/video4linux and opens the Camera
+application; USB lists the connected USB devices. VPN lists the VPN and
+WireGuard connections of NetworkManager, connects, disconnects and removes
+them and imports a WireGuard or OpenVPN file the person chooses
+.RB ( "nmcli connection" ...);
+no secret is ever part of a command line. Advanced network settings shows
+each adapter with the data it moved since the device started, its hardware
+address when asked, and turns it off and on
+.RB ( "nmcli device disconnect" | connect ).
+.PP
+Fonts lists the font families
+.RB ( fc\-list ),
+previews them, installs a TrueType or OpenType file for the user (checked
+by its header, at most 64 MB, copied to
+.I ~/.local/share/fonts
+and followed by
+.BR "fc\-cache \-f" )
+and removes fonts the user installed. Installed apps lists every application
+with its origin (the owning Debian package from
+.BR "dpkg\-query \-S" ,
+Flatpak, AppImage, Windows) and removes it the way it was installed.
+Optional features installs and removes optional Debian packages (codecs,
+printing, fonts, Firefox in the languages of this device) through the
+system helper. App permissions lists what sandboxed (Flatpak) applications
+were allowed through the desktop portals
+.RB ( "flatpak permission\-list" )
+and revokes a decision
+.RB ( "flatpak permission\-remove" ).
+Update history reads
+.I /var/log/apt/history.log
+and its rotated files.
 .SH SECURITY
 Control Center runs as the desktop user and never as root. It starts only
 the programs it knows (boswas, boswas\-preset, boswas\-android,
-boswas\-files, boswas\-compat\-manager, gio launch, apt\-config, apt\-get
-(simulation only), apt\-cache, flatpak, nmcli and ip (queries only), lsblk,
-timedatectl, localectl, locale \-a, busctl (calls to the AccountsService
-only), passwd (without arguments), systemctl reboot in a live session, and
-the polkit authorization tool), each with a validated argument list and a
+boswas\-files, boswas\-compat\-manager, boswas\-camera, gio launch,
+apt\-config, apt\-get (simulation only), apt\-cache, dpkg\-query (reading
+only), flatpak, nmcli (queries, and the connection and adapter changes
+above), ip (queries only), lsblk, timedatectl, localectl, hostnamectl (the
+static host name only), locale \-a, busctl (calls to the AccountsService
+and two read\-only questions to logind), passwd (without arguments),
+systemctl (restarting, and whether Bluetooth runs), fc\-list, fc\-cache (the
+user's font folder), lpstat, lp (CUPS's test page only), and the polkit
+authorization tool), each with a validated argument list and a
 timeout, and never through a shell; and the services bridge, by its fixed
 path and without arguments. The only files it writes are listed under
 FILES.
@@ -144,11 +218,23 @@ will change. Success is reported only when the helper reports success.
 .TP
 .BI \-\-page " page"
 Open the window at
-.IR page :
-one of personalization, network, bluetooth, display, sound, power, storage,
-applications, windows, android, security, users, updates, devices, privacy,
-hardware, system, about or install. The install page exists only in a live
-session.
+.IR page ,
+a category: home, system, devices, network, personalization, apps,
+accounts, time\-language, accessibility, privacy\-security or updates; or a
+page: display, sound, power, storage, troubleshoot, recovery, about,
+install (live sessions only), bluetooth, printers, cameras, mouse, touchpad,
+keyboard, usb, hardware, wifi, ethernet, vpn, airplane, proxy,
+advanced\-network, background, colours, themes, fonts, installed\-apps,
+applications (the Software Center), default\-apps, startup,
+optional\-features, windows, android, users, work, date\-time, region,
+visual\-effects, mouse\-pointer, security, lock\-screen, app\-permissions,
+recent\-files, privacy (Diagnostics & feedback), update\-history or
+update\-options. The names of earlier versions still work: system,
+devices, network and personalization open their category, and with
+.B \-\-section
+the section is looked for where it moved (for example
+.B \-\-page system \-\-section date\-time
+opens Time & language > Date & time).
 .TP
 .BI \-\-section " section"
 With
@@ -169,7 +255,10 @@ Print a short usage summary and exit.
 .SH KEYBOARD
 .TP
 .B Up, Down
-In the category list: switch pages.
+In the category list: switch categories.
+.TP
+.B Alt+Left
+Back to the place shown before.
 .TP
 .B F5
 Refresh the current page.
@@ -218,8 +307,19 @@ The account picture (a PNG of 256 by 256 pixels), also given to the
 AccountsService.
 .TP
 .I ~/.local/share/recently\-used.xbel
-The shared list of recently used files, emptied by "Clear" on the Privacy
-page.
+The shared list of recently used files, emptied by "Clear" on Privacy &
+security > Activity history.
+.TP
+.I ~/.cache
+.TQ
+.I ~/.local/share/Trash
+.TQ
+.I ~/Downloads
+Items of the cache folder the person picked are deleted, the Trash is
+emptied, picked downloads are moved to the Trash (Storage).
+.TP
+.I ~/.local/share/fonts
+Fonts the user installed on the Fonts page.
 .TP
 .I $XDG_RUNTIME_DIR/boswas\-fluent/com.boswas.ControlCenter.sock
 Where the running window listens for a second start of the program.
@@ -233,7 +333,11 @@ over; 2 for a wrong option; 4 when started as root.
 .BR boswas\-compositor (1),
 .BR boswas\-files (1),
 .BR busctl (1),
+.BR fc\-list (1),
+.BR hostnamectl (1),
 .BR localectl (1),
+.BR lp (1),
+.BR nmcli (1),
 .BR passwd (1),
 .BR pkexec (1),
 .BR timedatectl (1)

@@ -13,6 +13,7 @@ mod focus;
 mod handlers;
 mod input;
 mod ipc;
+mod keyaccess;
 mod render;
 mod shell;
 mod state;

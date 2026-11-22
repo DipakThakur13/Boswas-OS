@@ -1,10 +1,11 @@
-"""Mouse, touchpad and keyboard settings.
+"""Mouse, touchpad and keyboard settings (pages mouse, touchpad, keyboard), and the pointer size alone.
 
-The three sections change the [pointer], [touchpad] and [keyboard] tables
+The sections change the [pointer], [touchpad] and [keyboard] tables
 of the compositor's configuration (compositorconfig; ConfigSection of
 display.py does the loading and saving off the GUI thread). They offer
 exactly the keys boswas-compositor(1) documents; drawing tablets have no
-settings there, so there is no section for them.
+settings there, so there is no section for them. PointerSection shows the
+pointer size of the Mouse page once more, on Accessibility > Mouse pointer.
 
 Keyboard layouts are shown by their names from the XKB data
 (boswas_control_center.xkb). XKB keeps four layouts at a time (the
@@ -113,7 +114,7 @@ class _Pointing(ConfigSection):
 
 
 class MouseSection(_Pointing):
-    page = "devices"
+    page = "mouse"
     title = "Mouse"
     order = 30
     keywords = ("mouse", "pointer", "cursor", "speed", "acceleration", "left-handed", "primary button", "scroll",
@@ -152,8 +153,30 @@ class MouseSection(_Pointing):
         select(self.size, size, f"Custom ({size})")
 
 
+class PointerSection(ConfigSection):
+    """The size of the pointer alone, for Accessibility > Mouse pointer (the Mouse page has it too)."""
+
+    page = "mouse-pointer"
+    title = "Mouse pointer"
+    order = 10
+    keywords = ("pointer size", "cursor size", "bigger pointer", "larger cursor", "visibility")
+
+    def build(self) -> None:
+        self.size = combo((f"{label} ({size})", size) for size, label in POINTER_SIZES)
+        self.card("Pointer size", "A bigger pointer is easier to find. Takes effect for windows as they are redrawn",
+                  "view-fullscreen-symbolic", self.size)
+        self.size.activated.connect(lambda _i: self.change({("pointer", "cursor_size"): self.size.currentData()}))
+
+    def show_state(self, snapshot: cc.Snapshot) -> None:
+        size = snapshot.get("pointer", "cursor_size")
+        for index in reversed(range(self.size.count())):
+            if self.size.itemData(index) not in dict(POINTER_SIZES):
+                self.size.removeItem(index)
+        select(self.size, size, f"Custom ({size})")
+
+
 class TouchpadSection(_Pointing):
-    page = "devices"
+    page = "touchpad"
     title = "Touchpad"
     order = 40
     keywords = ("touchpad", "trackpad", "tap to click", "natural scrolling", "gestures", "three fingers", "swipe",
@@ -214,7 +237,7 @@ class LayoutRow(QWidget):
 
 
 class KeyboardSection(ConfigSection):
-    page = "devices"
+    page = "keyboard"
     title = "Keyboard"
     order = 50
     keywords = ("keyboard", "layout", "language", "input", "repeat", "delay", "num lock", "typing", "switch layout",
@@ -427,4 +450,4 @@ class KeyboardSection(ConfigSection):
         super().deactivate()
 
 
-SECTIONS = (MouseSection, TouchpadSection, KeyboardSection)
+SECTIONS = (MouseSection, PointerSection, TouchpadSection, KeyboardSection)

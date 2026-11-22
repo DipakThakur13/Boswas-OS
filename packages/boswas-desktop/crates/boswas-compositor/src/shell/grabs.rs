@@ -195,7 +195,13 @@ impl PointerGrab<Boswas> for MoveGrab {
         let delta = event.location - self.anchor;
         let location = (self.initial_location.to_f64() + delta).to_i32_round();
         data.move_window(&self.window, location);
-        data.snap_preview = data.snap_target(event.location).map(|(_, rect)| rect);
+        // Near the top of a screen the snap layouts open; over one of
+        // their zones the preview shows that zone.
+        let zone = data.drag_snap_flyout(self.window.id(), event.location);
+        data.snap_preview = match zone {
+            Some((_, rect)) => Some(rect),
+            None => data.snap_target(event.location).map(|(_, rect)| rect),
+        };
         data.schedule_redraw();
     }
 
@@ -203,9 +209,11 @@ impl PointerGrab<Boswas> for MoveGrab {
         handle.button(data, event);
         if !handle.current_pressed().contains(&BTN_LEFT) {
             let pos = handle.current_location();
-            if let Some((tile, _)) = data.snap_target(pos) {
+            let zone = data.drag_snap_flyout(self.window.id(), pos);
+            if let Some((tile, _)) = zone.or_else(|| data.snap_target(pos)) {
                 data.set_tile(&self.window, tile);
             }
+            data.end_drag_snap_flyout();
             data.snap_preview = None;
             data.schedule_redraw();
             handle.unset_grab(self, data, event.serial, event.time, true);
@@ -216,6 +224,7 @@ impl PointerGrab<Boswas> for MoveGrab {
 
     fn unset(&mut self, data: &mut Boswas) {
         data.snap_preview = None;
+        data.end_drag_snap_flyout();
     }
 }
 

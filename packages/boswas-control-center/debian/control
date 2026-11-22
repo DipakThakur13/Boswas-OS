@@ -26,6 +26,7 @@ Depends: python3 (>= 3.11),
          ${misc:Depends}
 Recommends: boswas-desktop,
             boswas-apps,
+            fontconfig,
             accountsservice,
             boswas-compat-manager,
             boswas-sysops,
@@ -37,10 +38,20 @@ Recommends: boswas-desktop,
             pci.ids,
             usb.ids
 Description: Boswas OS Control Center, Security Center and Software Center
- The settings hub of Boswas OS. One window with a page per area, each
- showing the state of the device as the system reports it and holding the
- settings of that area as native sections that apply at once:
+ The settings hub of Boswas OS. One window in categories (Home, System,
+ Bluetooth & devices, Network & internet, Personalization, Apps, Accounts,
+ Time & language, Accessibility, Privacy & security, Boswas Update), whose
+ pages show the state of the device as the system reports it and hold the
+ settings of their area as native sections that apply at once:
  .
+  * Home: the device, the account, the connection, updates, storage and
+    recommended settings at a glance
+  * System: rename the device, storage cleanup (temporary files, Trash,
+    old downloads), troubleshooters, restart into the firmware settings
+  * Devices: printers (CUPS), cameras, USB devices
+  * Network: VPN connections (WireGuard, OpenVPN) and network adapters
+  * Fonts, installed apps, optional features, app permissions, update
+    history
   * Personalization: Boswas desktop presets (boswas-preset), colour mode,
     background and motion
   * Network and Bluetooth: Wi-Fi networks, airplane mode, connection
@@ -48,7 +59,7 @@ Description: Boswas OS Control Center, Security Center and Software Center
   * Display and Devices: screens, night light, mouse, touchpad, keyboard
     (the compositor's configuration)
   * Sound and Power: devices and volume, battery, power mode, brightness
-  * System: date and time, region and language
+  * Time & language: date and time, region and language
   * Users: the own account (picture, name, password), other users, adding
     and removing users (AccountsService)
   * Storage: disks, file systems, and freeing space

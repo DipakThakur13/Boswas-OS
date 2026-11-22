@@ -32,7 +32,8 @@ import time
 
 from boswas_agent.localapi import ApiClient, ApiError
 
-from . import android, commands, filetypes, hardware, jobs, probes, software, sysinfo, userfiles
+from . import (android, commands, device, filetypes, hardware, jobs, peripherals, probes, software, sysinfo,
+               userfiles)
 from . import viewmodel as vm
 from .catalog import PROGRAM_IDS, PROGRAMS, Program
 from .commands import CommandRunner, android_argv, argv, sysops_argv
@@ -205,6 +206,14 @@ class Backend:
 
     def live_session(self) -> bool:
         return probes.live_session(self.root)
+
+    def device_info(self) -> device.DeviceInfo:
+        """The device's name, kind, maker and model (public files; no serial number is read)."""
+        return device.read_device(self.root)
+
+    def account(self) -> device.Account:
+        """The person signed in: user name, full name and picture."""
+        return device.read_account(self.environ)
 
     def desktop_entries(self) -> list[vm.DesktopEntry]:
         locale = self.environ.get("LC_ALL") or self.environ.get("LC_MESSAGES") or self.environ.get("LANG")
@@ -497,10 +506,7 @@ class Backend:
         return hardware.pci_rows(raw, names)
 
     def usb(self) -> list[hardware.Device]:
-        raw = probes.usb_devices(self.root)
-        text = probes.ids_text(self.root, probes.USB_IDS)
-        names = hardware.parse_ids(text, hardware.wanted_ids(raw, "product_id")) if text else None
-        return hardware.usb_rows(raw, names)
+        return peripherals.usb(self.root)
 
     # --- storage ------------------------------------------------------------------------------------------------
     def disks(self) -> list[sysinfo.Disk]:

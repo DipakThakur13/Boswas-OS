@@ -778,9 +778,12 @@ class ApplicationsSectionsTest(SectionCase if PYSIDE else unittest.TestCase):
     def test_registration(self):
         names = lambda page: [c.__name__ for c in settings.sections_for(page)        # noqa: E731
                               if c.__module__.endswith(".system")]
-        self.assertEqual(names("system"), ["DateTimeSection", "RegionSection", "NotificationsSection"])
-        self.assertEqual(names("applications"), ["DefaultAppsSection", "StartupSection"])
-        self.assertEqual(names("privacy"), ["RecentFilesSection"])
+        self.assertEqual(names("date-time"), ["DateTimeSection"])
+        self.assertEqual(names("region"), ["RegionSection"])
+        self.assertEqual(names("default-apps"), ["DefaultAppsSection"])
+        self.assertEqual(names("startup"), ["StartupSection"])
+        self.assertEqual(names("recent-files"), ["RecentFilesSection"])
+        self.assertFalse(hasattr(system, "NotificationsSection"))        # Notifications come with their own page
         self.assertEqual(settings.section_id(system.DateTimeSection), "date-time")
         self.assertEqual(settings.find("time zone")[0], system.DateTimeSection)
         self.assertEqual(settings.find("autostart")[0], system.StartupSection)

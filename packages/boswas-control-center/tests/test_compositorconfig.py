@@ -181,7 +181,9 @@ class SchemaTest(unittest.TestCase):
     def test_defaults_are_the_compositors(self):
         config = cc.defaults()
         self.assertEqual(config["keyboard"], {"layout": "us", "variant": "", "model": "", "options": "",
-                                              "repeat_delay": 400, "repeat_rate": 30, "numlock": False})
+                                              "repeat_delay": 400, "repeat_rate": 30, "numlock": False,
+                                              "sticky_keys": False, "sticky_keys_lock": True, "filter_keys": False,
+                                              "slow_keys_ms": 0, "bounce_keys_ms": 500})
         self.assertEqual(config["touchpad"], {"tap_to_click": True, "natural_scroll": True, "accel_speed": 0.0,
                                               "disable_while_typing": True, "gestures": True})
         self.assertEqual(config["night_light"], {"enabled": False, "temperature": 4500, "scheduled": False,
@@ -354,11 +356,13 @@ class WriterTest(unittest.TestCase):
         text = cc.serialize(config)
         parsed = tomllib.loads(text)
         self.assertTrue(text.startswith(cc.HEADER))
-        self.assertEqual(sorted(parsed), ["appearance", "apps", "keyboard", "lock", "night_light", "output", "outputs",
-                                          "pointer", "power", "touchpad", "xwayland"])
+        self.assertEqual(sorted(parsed), ["accessibility", "appearance", "apps", "color_filter", "keyboard", "lock",
+                                          "magnifier", "multitasking", "night_light", "notifications", "output",
+                                          "outputs", "pointer", "power", "start", "taskbar", "touchpad", "xwayland"])
         self.assertEqual(parsed["lock"], {"idle_seconds": 600})           # never the command
         self.assertEqual(parsed["outputs"], {"eDP-1": config["outputs"]["eDP-1"], "HDMI-A-1": {"enabled": False}})
-        for table in ("keyboard", "pointer", "touchpad", "night_light", "apps", "appearance"):
+        for table in ("keyboard", "pointer", "touchpad", "night_light", "apps", "appearance", "accessibility",
+                      "color_filter", "magnifier", "taskbar", "start", "multitasking", "notifications"):
             self.assertEqual(parsed[table], config[table], table)
         self.assertIsInstance(parsed["output"]["scale"], float)
         self.assertIsInstance(parsed["keyboard"]["repeat_delay"], int)

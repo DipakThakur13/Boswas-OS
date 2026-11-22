@@ -82,7 +82,7 @@ use smithay::{
 use tracing::{debug, error, info, warn};
 
 use super::{output_refresh_interval, seatlog, AdaptiveSync, Backend};
-use crate::{exit::Failure, render::OutputRenderElement, state::Boswas};
+use crate::{exit::Failure, render::DisplayRenderElement, state::Boswas};
 
 /// Scan-out formats tried in order.
 const COLOR_FORMATS: &[Fourcc] = &[Fourcc::Argb8888, Fourcc::Xrgb8888, Fourcc::Abgr8888];
@@ -217,6 +217,14 @@ impl RendererChoice {
             Some("pixman" | "software") => RendererChoice::Pixman,
             _ => RendererChoice::Auto,
         }
+    }
+}
+
+impl Udev {
+    /// Whether the device draws with OpenGL ES (and so can apply colour
+    /// filters).
+    pub fn draws_with_gles(&self) -> bool {
+        self.device.as_ref().is_some_and(|device| matches!(device.gpu, Gpu::Gles(_)))
     }
 }
 
@@ -994,7 +1002,7 @@ impl Udev {
                         let result: Result<(), String> = match &mut device.gpu {
                             Gpu::Gles(stack) => match stack.outputs.get_mut(&crtc) {
                                 Some(output) => output
-                                    .use_mode::<_, OutputRenderElement<GlesRenderer>>(
+                                    .use_mode::<_, DisplayRenderElement<GlesRenderer>>(
                                         mode,
                                         &mut stack.renderer,
                                         &DrmOutputRenderElements::default(),
@@ -1004,7 +1012,7 @@ impl Udev {
                             },
                             Gpu::Pixman(stack) => match stack.outputs.get_mut(&crtc) {
                                 Some(output) => output
-                                    .use_mode::<_, OutputRenderElement<PixmanRenderer>>(
+                                    .use_mode::<_, DisplayRenderElement<PixmanRenderer>>(
                                         mode,
                                         &mut stack.renderer,
                                         &DrmOutputRenderElements::default(),
@@ -1052,7 +1060,7 @@ impl Udev {
         let started = Instant::now();
         state.prepare_frame();
         let drawn: Drawn = with_stack!(&mut device.gpu, stack => {
-            let (elements, clear) = state.output_elements(&mut stack.renderer, &output);
+            let (elements, clear) = state.display_elements(&mut stack.renderer, &output);
             match stack.outputs.get_mut(&crtc) {
                 None => Drawn::Failed("the output is not set up".into()),
                 Some(drm_output) => match drm_output.render_frame(&mut stack.renderer, &elements, clear, FrameFlags::DEFAULT) {
@@ -1411,7 +1419,7 @@ fn connect(
         let initialized: Result<(), String> = match &mut device.gpu {
             Gpu::Gles(stack) => stack
                 .manager
-                .initialize_output::<GlesRenderer, OutputRenderElement<GlesRenderer>>(
+                .initialize_output::<GlesRenderer, DisplayRenderElement<GlesRenderer>>(
                     crtc,
                     candidate,
                     &[info.handle()],
@@ -1426,7 +1434,7 @@ fn connect(
                 .map_err(|err| format!("{err}")),
             Gpu::Pixman(stack) => stack
                 .manager
-                .initialize_output::<PixmanRenderer, OutputRenderElement<PixmanRenderer>>(
+                .initialize_output::<PixmanRenderer, DisplayRenderElement<PixmanRenderer>>(
                     crtc,
                     candidate,
                     &[info.handle()],

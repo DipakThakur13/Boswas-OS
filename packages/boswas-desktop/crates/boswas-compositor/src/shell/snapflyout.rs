@@ -65,6 +65,9 @@ pub struct SnapFlyout {
     /// When the pointer left the flyout and the button.
     left: Option<Instant>,
     picture: Option<((Option<usize>, i32, bool), MemoryRenderBuffer)>,
+    /// Opened by dragging the window to the top of the screen: it lives
+    /// as long as the drag stays near the top.
+    dragged: bool,
 }
 
 /// The flyout's size.
@@ -104,6 +107,27 @@ pub fn place(button: Rectangle<i32, Logical>, area: Rectangle<i32, Logical>) -> 
     )
 }
 
+/// How near the top edge a dragged window's pointer opens the snap layouts
+/// (logical pixels), and how much of the edge's width counts, in the
+/// middle.
+const DRAG_TRIGGER_DEPTH: f64 = 24.0;
+const DRAG_TRIGGER_SHARE: f64 = 0.4;
+
+/// Whether a dragged window's pointer is where the snap layouts open: near
+/// the middle of an output's top edge.
+pub fn drag_trigger(output: Rectangle<i32, Logical>, pointer: Point<f64, Logical>) -> bool {
+    let geo = output.to_f64();
+    let from_top = pointer.y - geo.loc.y;
+    let centre = geo.loc.x + geo.size.w / 2.0;
+    (0.0..DRAG_TRIGGER_DEPTH).contains(&from_top) && (pointer.x - centre).abs() <= geo.size.w * DRAG_TRIGGER_SHARE / 2.0
+}
+
+/// Where the snap layouts of a drag go: centred at the top of the output.
+pub fn place_at_top(output: Rectangle<i32, Logical>) -> Rectangle<i32, Logical> {
+    let size = size();
+    Rectangle::new(Point::from((output.loc.x + (output.size.w - size.w) / 2, output.loc.y + 8)), size)
+}
+
 impl Boswas {
     /// Opens the flyout when the pointer has rested on a maximize button,
     /// and closes it when the pointer has been away. Called before each
@@ -111,6 +135,9 @@ impl Boswas {
     pub fn snap_flyout_tick(&mut self) {
         let now = Instant::now();
         if let Some(flyout) = &self.snap_flyout {
+            if flyout.dragged {
+                return;
+            }
             let gone = self.window_by_id(flyout.window).is_none_or(|w| self.space.element_location(&w).is_none());
             if gone || flyout.left.is_some_and(|left| now.duration_since(left) >= LEAVE_GRACE) {
                 self.snap_flyout = None;
@@ -143,8 +170,64 @@ impl Boswas {
             hover: None,
             left: None,
             picture: None,
+            dragged: false,
         });
         self.schedule_redraw();
+    }
+
+    /// While a window is dragged: opens the snap layouts at the top of the
+    /// screen when the pointer comes near the top edge's middle, keeps them
+    /// while it is near or on them, and closes them when it leaves (the
+    /// same as Windows' "show snap layouts when I drag a window to the top
+    /// of my screen"). Returns the zone under the pointer and the place it
+    /// stands for.
+    pub fn drag_snap_flyout(&mut self, window: u64, pointer: Point<f64, Logical>) -> Option<(Tile, Rectangle<i32, Logical>)> {
+        let multitasking = &self.config.multitasking;
+        if !(multitasking.snap_windows && multitasking.snap_layouts_on_drag) {
+            self.end_drag_snap_flyout();
+            return None;
+        }
+        let output = self.space.outputs().find(|o| self.space.output_geometry(o).is_some_and(|g| g.to_f64().contains(pointer))).cloned();
+        let (Some(output), Some(geo)) = (output.clone(), output.as_ref().and_then(|o| self.space.output_geometry(o))) else {
+            self.end_drag_snap_flyout();
+            return None;
+        };
+        let on_flyout = self.snap_flyout.as_ref().is_some_and(|f| f.dragged && f.rect.to_f64().contains(pointer));
+        if !on_flyout && !drag_trigger(geo, pointer) {
+            self.end_drag_snap_flyout();
+            return None;
+        }
+        let open_here = self.snap_flyout.as_ref().is_some_and(|f| f.dragged && geo.contains(f.rect.loc));
+        if !open_here {
+            let rect = place_at_top(geo);
+            self.snap_flyout = Some(SnapFlyout {
+                window,
+                rect,
+                zones: zones().into_iter().map(|(zone, tile)| (Rectangle::new(zone.loc + rect.loc, zone.size), tile)).collect(),
+                hover: None,
+                left: None,
+                picture: None,
+                dragged: true,
+            });
+            self.redraw = true;
+        }
+        let flyout = self.snap_flyout.as_mut()?;
+        let hover = flyout.zones.iter().position(|(zone, _)| zone.to_f64().contains(pointer));
+        if hover != flyout.hover {
+            flyout.hover = hover;
+            self.redraw = true;
+        }
+        let tile = hover.map(|index| flyout.zones[index].1)?;
+        let rect = tile.rect(self.usable_area(&output))?;
+        Some((tile, rect))
+    }
+
+    /// Closes the snap layouts a drag opened.
+    pub fn end_drag_snap_flyout(&mut self) {
+        if self.snap_flyout.as_ref().is_some_and(|f| f.dragged) {
+            self.snap_flyout = None;
+            self.redraw = true;
+        }
     }
 
     /// Whether the flyout is waiting to open or to close, so that frames
@@ -306,5 +389,23 @@ mod tests {
         assert_eq!(corner.loc.x + corner.size.w, 1272);
         let low = place(rect(100, 790, 46, 32), screen);
         assert!(screen.contains_rect(low));
+    }
+
+    #[test]
+    fn dragging_to_the_middle_of_the_top_edge_opens_the_layouts_there() {
+        let screen = rect(1920, 0, 1280, 800);
+        let at = |x: f64, y: f64| Point::from((x, y));
+        assert!(drag_trigger(screen, at(2560.0, 0.0)), "the middle of the top edge");
+        assert!(drag_trigger(screen, at(2560.0 + 200.0, 20.0)));
+        assert!(!drag_trigger(screen, at(2560.0, 30.0)), "too far down");
+        assert!(!drag_trigger(screen, at(1925.0, 2.0)), "a top corner maximizes as before");
+        assert!(!drag_trigger(screen, at(100.0, 2.0)), "another output");
+        let placed = place_at_top(screen);
+        assert_eq!(placed.loc.y, 8);
+        assert!((placed.loc.x + placed.size.w / 2 - 2560).abs() <= 1, "{placed:?}");
+        assert!(screen.contains_rect(placed));
+        // The flyout reaches up into the trigger, so the pointer can move
+        // from the edge onto the zones without leaving both.
+        assert!(placed.loc.y < DRAG_TRIGGER_DEPTH as i32);
     }
 }

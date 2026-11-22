@@ -97,6 +97,17 @@ pub struct State {
     /// Window previews by window id.
     pub thumbnails: HashMap<u64, Rc<Pixmap>>,
     pub auth: AuthView,
+    /// The desktop's settings, as the compositor last sent them.
+    pub desktop: crate::settings::Desktop,
+    /// Whether the settings have arrived at least once.
+    pub desktop_known: bool,
+    /// Whether the do-not-disturb schedule was on at the last check
+    /// (`None` before the first): it acts when it turns on or off.
+    pub dnd_schedule: Option<bool>,
+    /// The applications that sent notifications (for Settings).
+    pub senders: crate::config::Senders,
+    /// When each application was first seen, for "Recently added".
+    pub seen: crate::config::SeenApps,
 }
 
 #[cfg(test)]
@@ -167,6 +178,11 @@ impl State {
             layout: 1,
             thumbnails: HashMap::new(),
             auth: AuthView::default(),
+            desktop: crate::settings::Desktop::default(),
+            desktop_known: true,
+            dnd_schedule: None,
+            senders: crate::config::Senders::default(),
+            seen: crate::config::SeenApps::default(),
         };
         for event in crate::svc::fake::Fake::default().initial() {
             state.sys.apply(&event);
@@ -182,6 +198,12 @@ impl State {
     /// Index of the application with this desktop file id.
     pub fn app_index(&self, id: &str) -> Option<usize> {
         self.apps.iter().position(|a| a.id == id)
+    }
+
+    /// The buttons of the taskbar's application group.
+    pub fn tasks(&self) -> Vec<crate::taskbar::Task> {
+        let workspace = (!self.desktop.taskbar.all_desktops).then_some(self.workspace);
+        crate::taskbar::tasks(&self.apps, &self.config.taskbar, &self.windows, workspace)
     }
 
     /// The applications pinned to Start, as ids, in order.
@@ -260,6 +282,38 @@ mod tests {
     }
 
     #[test]
+    fn the_taskbar_follows_its_settings() {
+        let mut st = State::for_tests();
+        st.desktop.taskbar.left = true;
+        st.desktop.taskbar.task_view = false;
+        st.desktop.taskbar.clock_seconds = true;
+        st.status.time = "09:41:07".into();
+        each(|f, _| taskbar::draw(f, &st), 1366.0, 48.0, "taskbar at the left");
+        let (_, hits) = testing::render(1366.0, 48.0, 1.0, Scheme::Dark, None, None, |f| taskbar::draw(f, &st));
+        assert!(!hits.iter().any(|h| h.action == Action::Taskbar(taskbar::Act::TaskView)), "no Task View button");
+        let start = hits.iter().find(|h| h.action == Action::Taskbar(taskbar::Act::Start)).unwrap();
+        assert!(start.rect.x < 20.0, "Start at the left edge");
+        // A badge: the notifications of the application in the centre.
+        let firefox = st.tasks().iter().position(|t| t.id == "firefox-esr").unwrap();
+        let before = taskbar::badge_count(&st, &st.tasks()[firefox]);
+        let mut note = st.notes.history[0].clone();
+        note.id = 900;
+        note.app_name = "Someone else".into();
+        note.desktop_entry = Some("firefox-esr".into());
+        st.notes.history.push(note);
+        assert_eq!(taskbar::badge_count(&st, &st.tasks()[firefox]), before + 1);
+        st.desktop.taskbar.badges = true;
+        let (with, _) = testing::render(1366.0, 48.0, 1.0, Scheme::Dark, None, None, |f| taskbar::draw(f, &st));
+        st.desktop.taskbar.badges = false;
+        let (without, _) = testing::render(1366.0, 48.0, 1.0, Scheme::Dark, None, None, |f| taskbar::draw(f, &st));
+        assert_ne!(with.data(), without.data(), "the badge is drawn");
+        // The largest text size still fits the taskbar.
+        crate::ui::set_text_scale(225);
+        each(|f, _| taskbar::draw(f, &st), 1366.0, 48.0, "taskbar with large text");
+        crate::ui::set_text_scale(100);
+    }
+
+    #[test]
     fn start_draws_in_every_view() {
         let mut st = State::for_tests();
         for (w, h) in [(642.0, 726.0), (642.0, 480.0), (400.0, 360.0)] {
@@ -273,6 +327,17 @@ mod tests {
             st.start.typed("fi", &apps, &usage);
             each(|f, _| start::draw(f, &st, panel), w + 2.0 * PAD, h + 2.0 * PAD, "start search");
         }
+        // Every layout, with every folder next to the power button.
+        st.desktop.start.folders = crate::settings::Folder::ALL.to_vec();
+        for layout in [crate::settings::StartLayout::MorePins, crate::settings::StartLayout::MoreRecommendations] {
+            st.desktop.start.layout = layout;
+            st.start.reset();
+            let panel = Rect::new(PAD, PAD, 642.0, 726.0);
+            each(|f, _| start::draw(f, &st, panel), 642.0 + 2.0 * PAD, 726.0 + 2.0 * PAD, "start layouts");
+        }
+        let panel = Rect::new(PAD, PAD, 642.0, 726.0);
+        let (_, hits) = testing::render(642.0 + 2.0 * PAD, 726.0 + 2.0 * PAD, 1.0, Scheme::Dark, None, None, |f| start::draw(f, &st, panel));
+        assert!(hits.iter().filter(|h| matches!(h.action, Action::Start(start::Act::Folder(_)))).count() >= 4, "the folders are there");
     }
 
     #[test]

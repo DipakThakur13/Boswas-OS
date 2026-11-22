@@ -7,6 +7,9 @@ by a message, so that one broken section never takes the page with it. A
 section that hides itself (the battery on a device without one) takes its
 title with it: the group is shown only while the section is.
 
+SubpageCards are the pages of a category as clickable rows (icon, title, one
+line of what is there, chevron); a card opens its page in the window.
+
 A ProgramTile is a row that starts another Boswas program of the catalog
 (Files, the Compatibility Manager): a SettingsCard of the toolkit with the
 program's icon, title and a one-line description, and a chevron telling
@@ -23,6 +26,7 @@ import boswas_fluent as fluent
 from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
+from .. import catalog
 from ..catalog import Program
 from .common import SP, icon
 from .settings import section_id
@@ -164,3 +168,48 @@ class ProgramGroup(QWidget):
 
     def tile(self, program_id: str) -> ProgramTile:
         return next(t for t in self.tiles if t.program.id == program_id)
+
+
+CARD_ICON = 24
+
+
+def place_icon(info: catalog.PageInfo):
+    return icon(*info.icons, "preferences-system", fallback=SP.SP_FileDialogDetailedView)
+
+
+class SubpageCards(QWidget):
+    """The pages of a category as clickable cards, in the order of the catalog."""
+
+    def __init__(self, category: str, window, parent: QWidget | None = None, title: str = ""):
+        super().__init__(parent)
+        self.window_ = window
+        self.category = category
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+        self.title = None
+        if title:
+            self.title = fluent.Label(title, "body-strong", self)
+            self.title.setContentsMargins(0, 8, 0, 4)
+            layout.addWidget(self.title)
+        self.cards: dict[str, fluent.SettingsCard] = {}
+        for info in catalog.children(category):
+            card = fluent.SettingsCard(info.label, info.card_text, None, None, self, clickable=True)
+            card.set_icon(place_icon(info), CARD_ICON)
+            card.setToolTip(info.description)
+            card.clicked.connect(lambda key=info.key: self.window_.show_page(key))
+            self.cards[info.key] = card
+            layout.addWidget(card)
+        self.sync()
+
+    def sync(self) -> None:
+        """Show the cards of the pages that can be shown now (the live check may have answered meanwhile)."""
+        for key, card in self.cards.items():
+            card.setVisible(self.window_.page_visible(key))
+        self.setVisible(any(not card.isHidden() for card in self.cards.values()))
+
+    def visible_keys(self) -> list[str]:
+        return [key for key, card in self.cards.items() if not card.isHidden()]
+
+    def card(self, key: str) -> fluent.SettingsCard:
+        return self.cards[key]

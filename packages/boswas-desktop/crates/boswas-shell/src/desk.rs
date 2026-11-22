@@ -10,7 +10,10 @@ use std::{
 use boswas_services::{Command, Event, Notification, PowerAction, Secret, SessionEvent, Urgency};
 use boswas_ui::{tokens::tokens, Scheme, Theme};
 use serde_json::{json, Value};
-use smithay_client_toolkit::shell::wlr_layer::{Anchor, KeyboardInteractivity, Layer};
+use smithay_client_toolkit::shell::{
+    wlr_layer::{Anchor, KeyboardInteractivity, Layer},
+    WaylandSurface,
+};
 use wayland_client::protocol::wl_output::WlOutput;
 
 use crate::{
@@ -33,6 +36,15 @@ use crate::{
 pub const PREVIEW_GRACE: Duration = Duration::from_millis(350);
 /// Shortest time between two commands of a dragged slider.
 pub const SLIDER_INTERVAL: Duration = Duration::from_millis(40);
+/// How long an auto-hiding taskbar stays after the pointer left it.
+pub const TASKBAR_HIDE_DELAY: Duration = Duration::from_millis(400);
+
+/// How far an auto-hiding taskbar moves down: all but a two-pixel sliver
+/// stays below the screen's edge, where the pointer brings it back.
+pub fn taskbar_hidden_offset() -> i32 {
+    tokens().shell("taskbar-height") as i32 - 2
+}
+
 /// Largest screenshot or thumbnail file read back from the compositor.
 const MAX_PICTURE_BYTES: u64 = 256 * 1024 * 1024;
 
@@ -116,6 +128,37 @@ impl Shell {
         }
     }
 
+    /// One of the folders next to Start's power button: Settings and Files
+    /// start their programs, the others open the user's folder.
+    pub fn open_folder(&mut self, folder: crate::settings::Folder) {
+        use crate::settings::Folder;
+        self.close_transients();
+        match folder {
+            Folder::Settings => {
+                self.spawn(&["boswas-control-center".to_owned()]);
+            }
+            Folder::Files => match self.st.app_index("com.boswas.Files") {
+                Some(index) => self.launch_app(index),
+                None => {
+                    let home = std::env::var("HOME").unwrap_or_else(|_| "/".into());
+                    self.spawn(&["xdg-open".to_owned(), home]);
+                }
+            },
+            _ => {
+                let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+                let user_dirs = std::env::var_os("XDG_CONFIG_HOME")
+                    .map(PathBuf::from)
+                    .filter(|p| p.is_absolute())
+                    .unwrap_or_else(|| home.join(".config"))
+                    .join("user-dirs.dirs");
+                let text = std::fs::read_to_string(user_dirs).ok();
+                if let Some(path) = capture::user_dir(&home, text.as_deref(), folder) {
+                    self.spawn(&["xdg-open".to_owned(), path.to_string_lossy().into_owned()]);
+                }
+            }
+        }
+    }
+
     pub fn launch_app(&mut self, index: usize) {
         let Some(app) = self.st.apps.get(index).cloned() else {
             return;
@@ -165,7 +208,15 @@ impl Shell {
     }
 
     fn receive_note(&mut self, note: Notification) {
-        let quiet = self.st.locked || self.st.mode != Mode::Desktop || self.st.capture.is_some();
+        // Settings lists the applications that sent notifications, to turn
+        // their banners off; one whose banners are off still reaches the
+        // notification centre.
+        if self.st.mode == Mode::Desktop {
+            self.st.senders.record(&note, std::time::SystemTime::now());
+        }
+        let muted = !self.st.desktop.notifications.banners_for(&note.app_name);
+        let quiet = muted || self.st.locked || self.st.mode != Mode::Desktop || self.st.capture.is_some();
+        self.st.notes.toast_time = Duration::from_secs(u64::from(self.st.desktop.notifications.toast_seconds));
         self.st.notes.receive(note, Instant::now(), quiet, self.res.reduced_motion);
         if self.st.flyout == Some(Flyout::Notifications) && !self.flyout_closing {
             self.st.notes.unread = 0;
@@ -222,16 +273,7 @@ impl Shell {
                     self.sync_toasts();
                 }
             }
-            ControlEvent::Appearance { light, wallpaper, reduced_motion } => {
-                let scheme = if light { Scheme::Light } else { Scheme::Dark };
-                if self.res.theme.scheme != scheme {
-                    self.res = Resources::new(Theme::of(scheme));
-                }
-                self.res.reduced_motion = reduced_motion;
-                self.res.backdrop = None;
-                self.background.load_picture(&wallpaper);
-                self.mark_all();
-            }
+            ControlEvent::Config(desktop) => self.apply_desktop(*desktop),
             ControlEvent::Run => {
                 if self.st.mode == Mode::Desktop && !self.st.locked {
                     let last = self.st.run_history.entries.last().cloned();
@@ -241,7 +283,7 @@ impl Shell {
             ControlEvent::Capture { whole_screen } => self.start_capture(whole_screen),
             ControlEvent::MediaKey(key) => self.media_key(&key),
             ControlEvent::TaskbarApp { index, new_instance } => {
-                let list = taskbar::tasks(&self.st.apps, &self.st.config.taskbar, &self.st.windows, self.st.workspace);
+                let list = self.st.tasks();
                 if let Some(task) = list.get(index - 1) {
                     match (taskbar::click_target(task, &self.st.windows), task.app) {
                         (Some(id), _) if !new_instance => self.window_command(if task.windows.len() == 1 { "toggle-minimize" } else { "activate" }, id),
@@ -406,7 +448,10 @@ impl Shell {
     pub fn tick(&mut self) {
         #[cfg(debug_assertions)]
         self.read_feed();
-        let status = crate::status::Status::read();
+        let clock = chrono::Local::now();
+        self.follow_dnd_schedule(chrono::Timelike::hour(&clock) * 60 + chrono::Timelike::minute(&clock));
+        let seconds = self.st.mode == Mode::Desktop && self.st.desktop.taskbar.clock_seconds;
+        let status = crate::status::Status::read(seconds);
         if status != self.st.status {
             self.st.status = status;
             self.mark(Role::Taskbar);
@@ -417,8 +462,130 @@ impl Shell {
         }
     }
 
+    /// Takes the desktop's settings as the compositor sent them: at start,
+    /// and after every change in Settings.
+    pub fn apply_desktop(&mut self, desktop: crate::settings::Desktop) {
+        let first = !std::mem::replace(&mut self.st.desktop_known, true);
+        let old = std::mem::replace(&mut self.st.desktop, desktop);
+        let new = self.st.desktop.clone();
+        let scheme = if new.light { Scheme::Light } else { Scheme::Dark };
+        let theme = Theme::accented(scheme, &new.accent);
+        if self.res.theme.scheme != scheme {
+            self.res = Resources::new(theme);
+        } else {
+            self.res.theme = theme;
+        }
+        self.res.reduced_motion = new.reduced_motion;
+        self.res.transparency = new.transparency;
+        crate::ui::set_text_scale(new.text_scale);
+        self.res.backdrop = None;
+        self.background.load_picture(&new.wallpaper);
+        if self.st.mode == Mode::Desktop {
+            // Do not disturb follows the setting when it changes (and at
+            // start); quick settings and the notification centre switch it
+            // for the session in between, like night light.
+            if first || old.notifications.do_not_disturb != new.notifications.do_not_disturb {
+                if new.notifications.do_not_disturb || !first {
+                    self.set_dnd(new.notifications.do_not_disturb);
+                }
+            }
+            if first || old.notifications.scheduled != new.notifications.scheduled || old.notifications.from != new.notifications.from || old.notifications.to != new.notifications.to {
+                self.st.dnd_schedule = None;
+            }
+            if new.taskbar.auto_hide != self.taskbar_auto_hide {
+                self.recreate_taskbars();
+            }
+            // The flyouts' places and sizes may have changed with the text
+            // size or the taskbar's arrangement.
+            if old.taskbar != new.taskbar || old.text_scale != new.text_scale || old.start != new.start {
+                self.close_transients();
+            }
+            // The toasts' heights follow the text size.
+            self.sync_toasts();
+        }
+        self.mark_all();
+    }
+
+    /// Do not disturb by the clock: on when the scheduled time begins, back
+    /// to the setting when it ends. A change in between (quick settings)
+    /// holds until the next of the two.
+    pub fn follow_dnd_schedule(&mut self, minutes: u32) {
+        if self.st.mode != Mode::Desktop || !self.st.desktop_known {
+            return;
+        }
+        let on = self.st.desktop.notifications.scheduled_at(minutes);
+        let before = self.st.dnd_schedule.replace(on);
+        match before {
+            Some(was) if was == on => {}
+            // At start or after a change of the schedule: only a schedule
+            // that is on now acts.
+            None if !on => {}
+            _ => self.set_dnd(on || self.st.desktop.notifications.do_not_disturb),
+        }
+    }
+
+    /// Makes the taskbars again after "Automatically hide the taskbar"
+    /// changed: whether they reserve room for themselves is fixed when they
+    /// are made.
+    fn recreate_taskbars(&mut self) {
+        let outputs: Vec<WlOutput> = self.surfaces.iter().filter(|s| s.role == Role::Wallpaper).map(|s| s.output.clone()).collect();
+        self.remove(Role::Taskbar);
+        self.taskbar_hide_at = None;
+        for output in outputs {
+            self.create_taskbar(&output);
+        }
+    }
+
+    /// Whether something keeps an auto-hiding taskbar in sight: the pointer
+    /// on it, or a flyout, a menu, a preview or a dialog of the desktop.
+    fn taskbar_wanted(&self) -> bool {
+        self.surfaces.iter().any(|s| s.role == Role::Taskbar && (s.pointer.is_some() || s.pressed))
+            || self.st.flyout.is_some()
+            || !self.st.menus.is_empty()
+            || self.st.preview.is_some()
+    }
+
+    /// Shows or hides the auto-hiding taskbars.
+    fn set_taskbar_hidden(&mut self, hidden: bool) {
+        if self.taskbar_hidden == hidden {
+            return;
+        }
+        self.taskbar_hidden = hidden;
+        let offset = if hidden { -taskbar_hidden_offset() } else { 0 };
+        for surface in self.surfaces.iter_mut().filter(|s| s.role == Role::Taskbar) {
+            if let crate::Handle::Layer(layer) = &surface.handle {
+                layer.set_margin(0, 0, offset, 0);
+                layer.commit();
+            }
+            surface.touch();
+        }
+    }
+
+    /// Lets an auto-hiding taskbar come when the pointer reaches the bottom
+    /// edge, and go a moment after nothing needs it any more.
+    fn auto_hide_taskbar(&mut self, now: Instant) {
+        if !self.taskbar_auto_hide {
+            self.taskbar_hide_at = None;
+            return self.set_taskbar_hidden(false);
+        }
+        if self.taskbar_wanted() {
+            self.taskbar_hide_at = None;
+            self.set_taskbar_hidden(false);
+        } else if !self.taskbar_hidden {
+            match self.taskbar_hide_at {
+                None => self.taskbar_hide_at = Some(now + TASKBAR_HIDE_DELAY),
+                Some(at) if at <= now => {
+                    self.taskbar_hide_at = None;
+                    self.set_taskbar_hidden(true);
+                }
+                Some(_) => {}
+            }
+        }
+    }
+
     /// Everything that happens because time passed.
     pub fn housekeeping(&mut self, now: Instant) {
+        self.auto_hide_taskbar(now);
         // Transitions that ended.
         let mut removed_flyout = false;
         let mut index = 0;
@@ -485,6 +652,11 @@ impl Shell {
         let (sw, sh) = (pw + 2.0 * PAD, ph + 2.0 * PAD);
         let top = h - bar - sh;
         match kind {
+            // Start opens above its button: in the middle, or at the left
+            // edge when the taskbar's group is there.
+            Flyout::Start if self.st.desktop.taskbar.left => {
+                (Anchor::BOTTOM | Anchor::LEFT, ((sw as u32, sh as u32), (0, 0, bar as i32, 0), (0.0, top)))
+            }
             Flyout::Start => (Anchor::BOTTOM, ((sw as u32, sh as u32), (0, 0, bar as i32, 0), (((w - sw) / 2.0).floor(), top))),
             Flyout::TrayOverflow => {
                 // Above the chevron.
@@ -498,6 +670,7 @@ impl Shell {
                     self.st.keyboard_layout().is_some(),
                     status_icons,
                     80.0,
+                    taskbar::Arrangement::of(&self.st),
                 );
                 let centre = lay.overflow.map_or(w - 200.0, |r| r.center().0);
                 let right = (w - (centre + sw / 2.0)).max(0.0).round();
@@ -531,6 +704,9 @@ impl Shell {
             Flyout::Start => {
                 // Applications may have been installed since the last time.
                 self.st.apps = apps::load_apps(&apps::application_dirs(), &self.st.locale);
+                let ids: Vec<&str> = self.st.apps.iter().map(|a| a.id.as_str()).collect();
+                let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+                self.st.seen.update(&ids, now);
                 self.st.start.reset();
             }
             Flyout::Quick => {
@@ -1108,7 +1284,7 @@ impl Shell {
         };
         // A running application shows its windows instead of its name.
         if let Some(task) = task {
-            let list = taskbar::tasks(&self.st.apps, &self.st.config.taskbar, &self.st.windows, self.st.workspace);
+            let list = self.st.tasks();
             if let Some(entry) = list.get(task).filter(|t| !t.windows.is_empty()) {
                 if self.open_kind().is_none() {
                     let windows = entry.windows.clone();

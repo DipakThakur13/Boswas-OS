@@ -1,30 +1,39 @@
-"""Main window: a navigation pane with the categories, the page title and lazily built pages.
+"""Main window: the categories in the pane, a category's pages as cards, the path above the page, and search.
 
-The window is a FluentWindow of the Boswas UI toolkit with a NavigationView:
-the categories on the left (with a search box that filters them by name
-and by the settings they hold), the title of the current page above it,
-and messages as an InfoBar between title and page. Pages are created the
-first time they are shown, and each loads only the data it displays
-(store.py). A page shows its native settings sections (ui/settings); they
-are activated while the page is the current one and deactivated when it is
-left or the window closes. Enter in the search box opens the page of the
-best matching settings section and scrolls to it. A page that has nothing
-to show on this system (no section, no content of its own) is left out of
-the pane. The Install page exists only in a live session: its entry stays
-hidden until the live check has answered yes. Keyboard: Up/Down in the
-pane switch pages, Tab moves into the page, F5 refreshes the current page,
-Ctrl+F searches the applications, Ctrl+Q quits.
+The window is a FluentWindow of the Boswas UI toolkit with a NavigationView.
+The pane holds the categories (catalog.CATEGORIES: Home, System, Bluetooth &
+devices, ...). Each category has a stack of its own in the content area: its
+category page, which lists its pages as cards, and the pages themselves,
+built the first time they are shown. Above the content stands the path to
+the current place ("System > Display", a BreadcrumbBar in the title style)
+with the back button before it: a crumb or Back returns. Messages are an
+InfoBar between the path and the page. Each page loads only the data it
+displays (store.py); its native settings sections (ui/settings) are
+activated while it is shown and deactivated when it is left or the window
+closes. A page that has nothing to show on this system (no section, no
+content of its own) has no card, and a category without such a page is left
+out of the pane. The Install page exists only in a live session: its card
+stays hidden until the live check has answered yes.
 
-A second start of the program does not open a second window: the toolkit
-hands its arguments to handle_arguments(), which shows the page (and
-section) they name.
+Search: typing in the box of the pane shows the results in the content area,
+the categories, pages, sections and single settings whose names or keywords
+contain every word (catalog.search); a result opens its place and scrolls to
+its section, Enter opens the first. Keyboard: Up/Down in the pane switch
+categories, Tab moves into the page, Alt+Left goes back, F5 refreshes the
+current page, Ctrl+F searches the applications, Ctrl+Q quits.
+
+``--page KEY`` names a category or a page; the keys of earlier versions
+still lead to the place their settings moved to, and ``--section`` is
+looked for there too (catalog.section_homes). A second start of the program
+does not open a second window: the toolkit hands its arguments to
+handle_arguments(), which shows the place they name.
 """
 
 from __future__ import annotations
 
 import boswas_fluent as fluent
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QStackedWidget, QVBoxLayout, QWidget
 
 from .. import catalog
 from ..app import requested_page
@@ -32,37 +41,42 @@ from ..errors import user_message
 from . import bridgeclient, settings
 from .android_page import AndroidPage
 from .applications import ApplicationsPage
+from .category import CategoryPage, SearchResults
 from .common import SP, Badge, MessageBanner, app_icon, icon
 from .device_pages import SettingsPage, StoragePage
 from .hardware_page import HardwarePage
+from .home import HomePage
 from .jobs import JobController
 from .personalization import PersonalizationPage
 from .security import SecurityPage
-from .status_pages import PrivacyPage, WindowsPage
+from .status_pages import DeviceManagementPage, PrivacyPage, WindowsPage
 from .store import Store
-from .system_pages import AboutPage, InstallPage, SystemPage
+from .system_pages import AboutPage, InstallPage
 from .updates import UpdatesPage
 from .worker import Runner
 
 APP_NAME = "Boswas Control Center"
 APP_ID = "com.boswas.ControlCenter"
-DEFAULT_PAGE = "personalization"
-# Pages with content of their own; every other page is a SettingsPage: its native settings sections.
+DEFAULT_PAGE = "home"
+COMPACT_BELOW = 720
+# Places with content of their own; every other category is a CategoryPage (its pages as cards) and every other
+# page a SettingsPage (its native settings sections).
 PAGE_CLASSES = {
-    "personalization": PersonalizationPage, "storage": StoragePage,
-    "applications": ApplicationsPage, "windows": WindowsPage, "security": SecurityPage, "updates": UpdatesPage,
-    "privacy": PrivacyPage, "system": SystemPage, "about": AboutPage, "install": InstallPage,
-    "android": AndroidPage, "hardware": HardwarePage,
+    "home": HomePage, "updates": UpdatesPage, "themes": PersonalizationPage, "storage": StoragePage,
+    "applications": ApplicationsPage, "windows": WindowsPage, "security": SecurityPage, "privacy": PrivacyPage,
+    "about": AboutPage, "install": InstallPage, "android": AndroidPage, "hardware": HardwarePage,
+    "work": DeviceManagementPage,
 }
 SIDEBAR_FALLBACKS = {"about": SP.SP_MessageBoxInformation, "storage": SP.SP_DriveHDIcon,
-                     "install": SP.SP_DriveHDIcon, "applications": SP.SP_FileDialogListView,
-                     "security": SP.SP_DialogApplyButton, "network": SP.SP_DriveNetIcon,
-                     "system": SP.SP_ComputerIcon, "hardware": SP.SP_ComputerIcon, "android": SP.SP_DesktopIcon,
-                     "updates": SP.SP_BrowserReload}
+                     "install": SP.SP_DriveHDIcon, "apps": SP.SP_FileDialogListView,
+                     "privacy-security": SP.SP_DialogApplyButton, "network": SP.SP_DriveNetIcon,
+                     "system": SP.SP_ComputerIcon, "hardware": SP.SP_ComputerIcon, "devices": SP.SP_ComputerIcon,
+                     "updates": SP.SP_BrowserReload, "home": SP.SP_DirHomeIcon}
+SEARCH_TITLE = "Search results"
 
 
 class Header(QWidget):
-    """What stands beside the page title: the live-session badge and the refresh button."""
+    """What stands beside the path: the live-session badge and the refresh button."""
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -72,7 +86,8 @@ class Header(QWidget):
         self.live_badge = Badge("Live session", icon("media-optical", "drive-optical"), parent=self)
         self.live_badge.setToolTip("Boswas OS is running from the boot medium; changes are lost at shutdown")
         self.live_badge.hide()
-        self.refresh_button = fluent.IconButton(icon("view-refresh", fallback=SP.SP_BrowserReload),
+        self.refresh_button = fluent.IconButton(icon("view-refresh-symbolic", "view-refresh",
+                                                     fallback=SP.SP_BrowserReload),
                                                 "Refresh this page (F5)", self)
         self.refresh_button.setAccessibleName("Refresh this page")
         layout.addWidget(self.live_badge, 0, Qt.AlignmentFlag.AlignVCenter)
@@ -82,8 +97,8 @@ class Header(QWidget):
 class MainWindow(fluent.FluentWindow):
     def __init__(self, backend, *, runner: Runner | None = None, initial_page: str | None = None,
                  initial_section: str | None = None, parent: QWidget | None = None):
-        super().__init__(APP_ID, APP_NAME, parent, navigation={"search": True, "compact_below": 1000},
-                         icon=app_icon(), size=(1180, 780), minimum_size=(820, 560))
+        super().__init__(APP_ID, APP_NAME, parent, navigation={"search": True, "compact_below": COMPACT_BELOW},
+                         icon=app_icon(), size=(1100, 720), minimum_size=(560, 440))
         self.backend = backend
         self.runner = runner or Runner(self)
         self.store = Store(backend, self.runner, self)
@@ -99,14 +114,20 @@ class MainWindow(fluent.FluentWindow):
         self.close_when_done = False
         self.jobs.finished.connect(self._job_finished)
         self._shown: str | None = None
+        self.history: list[str] = []
+        self._selecting = False
+        self._query = ""
         self._build()
         self.store.changed.connect(self._store_changed)
         self.add_shortcut("refresh", self.refresh_current)
         self.add_shortcut("find", self.focus_search)
         self.add_shortcut("quit", self.close)
+        self.add_shortcut("back", self.go_back)
         self.store.request("live")
         start = self.pending_page if self.pending_page and self.pending_page != "install" else DEFAULT_PAGE
         self.show_page(start, self.pending_section if start == self.pending_page else None)
+        self.history.clear()
+        self._update_header()
         self.sidebar.setFocus(Qt.FocusReason.OtherFocusReason)
 
     # --- layout ---
@@ -117,21 +138,34 @@ class MainWindow(fluent.FluentWindow):
         self.sidebar.setAccessibleName("Settings categories")
         self.sidebar.setAccessibleDescription("Use the Up and Down arrow keys to switch between categories")
         self.stack = nav.stack
-        self.holders: dict[str, QWidget] = {}
+        self.holders: dict[str, QStackedWidget] = {}
         section_words = settings.all_keywords()
-        for page in catalog.PAGES:
-            holder = QWidget()
-            holder_layout = QVBoxLayout(holder)
-            holder_layout.setContentsMargins(0, 0, 0, 0)
-            self.holders[page.key] = holder
-            fallback = SIDEBAR_FALLBACKS.get(page.key, SP.SP_FileDialogInfoView)
-            # The search box of the pane also finds a category by the settings it holds.
-            keywords = [*page.keywords, *section_words.get(page.key, ()),
-                        *(word for program in page.programs for word in (program.title, program.description))]
-            nav.add_page(page.key, page.label, holder, icon=icon(*page.icons, fallback=fallback),
-                         tooltip=page.description, heading=page.heading, keywords=keywords)
-            if page.live_only or not self.page_available(page.key):
-                nav.set_item_visible(page.key, False)
+        for category in catalog.CATEGORIES:
+            holder = QStackedWidget()
+            holder.setAccessibleName(category.heading)
+            self.holders[category.key] = holder
+            fallback = SIDEBAR_FALLBACKS.get(category.key, SP.SP_FileDialogInfoView)
+            words = [*category.keywords]
+            for page in (category, *catalog.children(category.key)):
+                words += [page.label, *page.keywords, *section_words.get(page.key, ())]
+            nav.add_page(category.key, category.label, holder, icon=icon(*category.icons, fallback=fallback),
+                         tooltip=category.description, heading=category.heading, keywords=words)
+            if not self.page_available(category.key):
+                nav.set_item_visible(category.key, False)
+        # The pane is not filtered by the search box: the results are listed in the content area.
+        nav.set_search_filters_items(False)
+        self.results = SearchResults(self)
+        self.results.chosen.connect(self.open_result)
+        self.stack.addWidget(self.results)
+        nav.title_label.hide()
+        self.back_button = fluent.IconButton(fluent.icon("go-previous-symbolic"), "Back (Alt+Left)", size=36)
+        self.back_button.setAccessibleName("Back")
+        self.back_button.clicked.connect(self.go_back)
+        nav.add_header_widget(self.back_button)
+        self.crumbs = fluent.BreadcrumbBar(style="title")
+        self.crumbs.setAccessibleName("Where you are")
+        self.crumbs.item_clicked.connect(self._crumb_clicked)
+        nav.add_header_widget(self.crumbs)
         self.header = Header()
         self.header.refresh_button.clicked.connect(self.refresh_current)
         nav.add_header_widget(self.header)
@@ -143,30 +177,47 @@ class MainWindow(fluent.FluentWindow):
         message_row.addWidget(self.message)
         self.message_holder.hide()
         nav.add_banner(self.message_holder)
-        nav.current_changed.connect(self._page_selected)
+        nav.current_changed.connect(self._category_selected)
+        nav.list.itemClicked.connect(self._pane_clicked)
+        nav.search_changed.connect(self._search_changed)
         nav.search_submitted.connect(self._search_submitted)
         if nav.search_box is not None:
             nav.search_box.setPlaceholderText("Find a setting")
             nav.search_box.setAccessibleName("Find a setting")
 
-    # --- pages ---
+    # --- places ---
     def page(self, key: str) -> QWidget:
-        """The page widget, built on first use."""
+        """The widget of a category or page, built on first use."""
         widget = self.pages.get(key)
         if widget is None:
             info = catalog.BY_KEY[key]
-            widget = PAGE_CLASSES.get(key, SettingsPage)(info, self, self.holders[key])
-            self.holders[key].layout().addWidget(widget)
+            cls = PAGE_CLASSES.get(key, CategoryPage if info.is_category else SettingsPage)
+            holder = self.holders[catalog.category_of(key)]
+            widget = cls(info, self, holder)
+            holder.addWidget(widget)
             self.pages[key] = widget
         return widget
 
     @staticmethod
     def page_available(key: str) -> bool:
-        """Whether the page has anything to show: content of its own, a settings section or a program row."""
-        return key in PAGE_CLASSES or bool(catalog.BY_KEY[key].programs) or bool(settings.sections_for(key))
+        """Whether a place has anything to show: content of its own, a settings section, a program row, or (for a
+        category) a page that has."""
+        info = catalog.BY_KEY[key]
+        if key in PAGE_CLASSES or info.programs or settings.sections_for(key):
+            return True
+        return info.is_category and any(MainWindow.page_available(child.key) for child in catalog.children(key))
+
+    def page_visible(self, key: str) -> bool:
+        """Whether a place can be shown now: it has something to show and, if it is live-only, this is live."""
+        info = catalog.BY_KEY.get(key)
+        return info is not None and self.page_available(key) and (not info.live_only or self.live is True)
 
     def show_page(self, key: str, section: str | type | None = None) -> None:
-        """Make ``key`` the current page; with ``section`` (a title, command-line name or class), scroll to it."""
+        """Show the category or page ``key``; with ``section`` (a title, command-line name or class), scroll to it.
+
+        A section that is not on ``key`` itself is looked for where the settings of ``key`` were in earlier
+        versions and, for a category, on its pages (catalog.section_homes); the first page that has it is shown.
+        """
         if key not in catalog.BY_KEY:
             raise ValueError(f"unknown page {key!r}")
         if catalog.BY_KEY[key].live_only and self.live is not True:
@@ -178,42 +229,157 @@ class MainWindow(fluent.FluentWindow):
         if not self.page_available(key):
             self.show_status(f"The {catalog.BY_KEY[key].label} settings are not available on this system.")
             return
-        if self.navigation.current() == key:
-            self._page_selected(key)
-        else:
-            self.navigation.set_current(key)
-        if section is not None and self._shown == key:
-            self.page(key).scroll_to_section(section)
+        target, found = self.resolve(key, section)
+        self._go(target, found)
+
+    def resolve(self, key: str, section: str | type | None) -> tuple[str, str | type | None]:
+        """(the place to show, the section to scroll to) for ``--page key --section section``."""
+        if section is None:
+            return key, None
+        if isinstance(section, type):
+            pages = settings.pages_of(section) if hasattr(section, "page") else ()
+            if key in pages:
+                return key, section
+            return (section.page, section) if self.page_visible(section.page) else (key, None)
+        name = catalog.SECTION_ALIASES.get(section.casefold(), section.casefold())
+        if name in catalog.BY_KEY and name != key and catalog.BY_KEY[name].parent in (key, ""):
+            if name in catalog.section_homes(key) and self.page_visible(name):
+                return name, None              # the section of earlier versions is a page of its own now
+        for home in catalog.section_homes(key):
+            if not self.page_visible(home):
+                continue
+            for cls in settings.sections_for(home):
+                if name in (cls.__name__.casefold(), cls.title.casefold(), settings.section_id(cls)):
+                    return home, cls
+        return key, None
+
+    def _go(self, key: str, section: str | type | None = None, *, remember: bool = True) -> None:
+        previous = self._shown
+        if previous is not None and previous != key:
+            if remember:
+                self.history.append(previous)
+                del self.history[:-50]
+            if previous in self.pages:
+                self.pages[previous].deactivate()
+        self._shown = key
+        category = catalog.category_of(key)
+        self._selecting = True
+        try:
+            if self.navigation.current() != category:
+                self.navigation.set_current(category)
+        finally:
+            self._selecting = False
+        holder = self.holders[category]
+        page = self.page(key)
+        holder.setCurrentWidget(page)
+        if self._query:
+            self._query = ""
+            box = self.navigation.search_box
+            if box is not None and box.text():
+                blocked = box.blockSignals(True)
+                box.clear()
+                box.blockSignals(blocked)
+        self.stack.setCurrentWidget(holder)
+        page.activate()
+        self._update_header()
+        if section is not None:
+            page.scroll_to_section(section)
 
     def current_page(self) -> str:
         return self._shown or self.navigation.current()
 
-    def _page_selected(self, key: str) -> None:
-        info = catalog.BY_KEY[key]
-        if (info.live_only and self.live is not True) or not self.page_available(key):
-            # Never reachable outside a live session (or without content), whatever selected it.
-            self.navigation.set_current(self._shown or DEFAULT_PAGE)
+    def current_category(self) -> str:
+        return catalog.category_of(self.current_page())
+
+    def _category_selected(self, key: str) -> None:
+        """A category was chosen in the pane (click, arrow keys): show its category page."""
+        if self._selecting or key not in catalog.BY_KEY:
             return
-        previous = self._shown
-        if previous is not None and previous != key and previous in self.pages:
-            self.pages[previous].deactivate()
-        self._shown = key
-        self.page(key).activate()
-        self.setWindowTitle(f"{info.heading} — {APP_NAME}" if info.heading != APP_NAME else APP_NAME)
-        query = self.navigation.search_box.text().strip() if self.navigation.search_box is not None else ""
-        if query and previous != key:
-            # Chosen from the filtered list: show what was searched for.
-            found = settings.find(query, key)
-            if found:
-                self.page(key).scroll_to_section(found[0])
+        if not self.page_visible(key):
+            # Never reachable without content, whatever selected it.
+            self._selecting = True
+            try:
+                self.navigation.set_current(self.current_category() if self._shown else DEFAULT_PAGE)
+            finally:
+                self._selecting = False
+            return
+        self._go(key)
+
+    def _pane_clicked(self, item) -> None:
+        """A click on the category that is already selected returns to its category page."""
+        key = next((k for k in self.navigation.keys() if self.navigation.item(k) is item), None)
+        if key is not None and key in catalog.BY_KEY and (key != self._shown or self._query):
+            self._go(key)
+
+    def _crumb_clicked(self, index: int) -> None:
+        if index == 0 and not self._query:
+            self._go(self.current_category())
+
+    def can_go_back(self) -> bool:
+        return bool(self.history) or not catalog.BY_KEY[self.current_page()].is_category or bool(self._query)
+
+    def go_back(self) -> None:
+        """Back: to the place shown before, or from a page to its category."""
+        if self._query:
+            self._end_search()
+            return
+        while self.history:
+            key = self.history.pop()
+            if self.page_visible(key):
+                self._go(key, remember=False)
+                return
+        current = self.current_page()
+        if not catalog.BY_KEY[current].is_category:
+            self._go(catalog.category_of(current), remember=False)
+        self._update_header()
+
+    def _update_header(self) -> None:
+        if self._query:
+            items, heading = [SEARCH_TITLE], SEARCH_TITLE
+        else:
+            key = self.current_page()
+            items, heading = list(catalog.path(key)), catalog.BY_KEY[key].heading
+        if self.crumbs.items() != items:
+            self.crumbs.set_items(items)
+        self.setWindowTitle(f"{heading} — {APP_NAME}")
+        self.back_button.setEnabled(self.can_go_back())
+        self.header.refresh_button.setVisible(not self._query)
 
     # --- search and other instances ---
+    def search(self, query: str) -> list[catalog.Entry]:
+        return catalog.search(query, catalog.entries(settings.search_entries()), visible=self.page_visible)
+
+    def _search_changed(self, text: str) -> None:
+        query = text.strip()
+        if not query:
+            self._end_search()
+            return
+        self._query = query
+        self.results.show_results(query, self.search(query))
+        self.stack.setCurrentWidget(self.results)
+        self._update_header()
+
+    def _end_search(self) -> None:
+        if not self._query:
+            return
+        self._query = ""
+        box = self.navigation.search_box
+        if box is not None and box.text():
+            blocked = box.blockSignals(True)
+            box.clear()
+            box.blockSignals(blocked)
+        self.stack.setCurrentWidget(self.holders[self.current_category()])
+        self._update_header()
+
     def _search_submitted(self, query: str) -> None:
-        """Enter in the search box: the page of the best matching settings section, scrolled to it."""
-        found = [cls for cls in settings.find(query)
-                 if self.page_available(cls.page) and not catalog.BY_KEY[cls.page].live_only]
+        """Enter in the search box: the best result."""
+        found = self.search(query)
         if found:
-            self.show_page(found[0].page, found[0])
+            self.open_result(found[0])
+
+    def open_result(self, entry: catalog.Entry) -> None:
+        self._end_search()
+        self.show_page(entry.page, entry.section or None)
 
     def handle_arguments(self, arguments: list[str]) -> None:
         """A second start of the program: show the page (and section) its command line names."""
@@ -234,7 +400,6 @@ class MainWindow(fluent.FluentWindow):
             return
         self.live = self.store.value("live") is True
         self.header.live_badge.setVisible(self.live)
-        self.navigation.set_item_visible("install", self.live)
         if not self.live and self.current_page() == "install":
             self.show_page(DEFAULT_PAGE)
         if self.pending_page == "install":
@@ -242,6 +407,8 @@ class MainWindow(fluent.FluentWindow):
             self.show_page("install" if self.live else DEFAULT_PAGE)
             if not self.live:
                 self.show_status("Install Boswas OS is available only in a live session.")
+        for page in self.pages.values():
+            page.places_changed()
 
     # --- actions ---
     def open_program(self, program: catalog.Program) -> None:

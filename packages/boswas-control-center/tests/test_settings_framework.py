@@ -125,7 +125,19 @@ class RegistryTest(unittest.TestCase):
         for name, reason in settings.problems().items():
             self.assertIsInstance(reason, str, name)
         self.assertEqual(settings.MODULES, ("connectivity", "sound_power", "accounts", "system", "display", "input",
-                                            "personalize"))
+                                            "personalize", "maintenance", "cleanup", "peripherals", "netadmin",
+                                            "fonts", "apps", "permissions", "updates"))
+        self.assertEqual(settings.problems(), {})
+        # Every page of the catalog that is not a category and has no content of its own has a section.
+        from boswas_control_center.ui.main_window import PAGE_CLASSES
+        for page in catalog.PAGES:
+            if not page.is_category and page.key not in PAGE_CLASSES and not page.programs:
+                self.assertTrue(settings.sections_for(page.key), page.key)
+        # A section shown on a second page (also) is found on both.
+        motion = next(cls for cls in found if cls.__name__ == "MotionSection")
+        self.assertIn(motion, settings.sections_for("colours"))
+        self.assertIn(motion, settings.sections_for("visual-effects"))
+        self.assertIn(("Motion", "visual-effects", "motion", motion.keywords), settings.search_entries())
         with self.assertRaises(ImportError):
             settings._import("os")
 
@@ -312,15 +324,20 @@ class PageTest(unittest.TestCase):
     # --- pages without content ---
     def test_a_page_without_sections_or_content_is_left_out(self):
         w = self.window()
-        for key in ("bluetooth", "users", "devices", "power", "network"):
+        for key in ("bluetooth", "users", "mouse", "power", "wifi", "date-time"):
+            self.assertFalse(w.page_available(key), key)
+        for key in ("network", "time-language", "accessibility"):        # no page of theirs has anything
             self.assertFalse(w.page_available(key), key)
             self.assertFalse(w.navigation.is_item_visible(key), key)
-        for key in ("display", "sound", "storage", "windows", "about", "personalization"):
+        for key in ("display", "sound", "storage", "windows", "about", "themes", "system", "devices", "home"):
             self.assertTrue(w.page_available(key), key)
+        for key in ("system", "devices", "personalization", "home"):
             self.assertTrue(w.navigation.is_item_visible(key), key)
+        devices = self.show(w, "devices")
+        self.assertEqual(devices.subpages.visible_keys(), ["cameras", "hardware"])  # a program row; content
         w.show_page("bluetooth")
         self.settle(w)
-        self.assertEqual(w.current_page(), "personalization")
+        self.assertEqual(w.current_page(), "devices")
         self.assertIn("Bluetooth settings are not available", w.message.text.text())
         self.assertNotIn("bluetooth", w.pages)                           # never built: no empty heading anywhere
 
@@ -343,13 +360,16 @@ class PageTest(unittest.TestCase):
     def test_search_finds_pages_by_section_titles_and_keywords(self):
         w = self.window()
         nav = w.navigation
-        for query, pages in (("night", ["display"]), ("blue light", ["display"]), ("speakers", ["sound"]),
-                             ("Screens", ["display"]), ("microphone", ["sound"])):
+        for query, title, page in (("night", "Night light", "display"), ("blue light", "Night light", "display"),
+                                   ("speakers", "Sound", "sound"), ("Screens", "Screens", "display"),
+                                   ("microphone", "Input", "sound")):
             nav.search_box.setText(query)
-            visible = [key for key in nav.keys() if not nav.item(key).isHidden()]
-            self.assertEqual(visible, pages, query)
+            found = [(row.entry.title, row.entry.page) for row in w.results.rows]
+            self.assertIn((title, page), found, query)
+            self.assertIs(w.stack.currentWidget(), w.results)
         nav.search_box.setText("")
-        self.assertIn("about", [key for key in nav.keys() if not nav.item(key).isHidden()])
+        self.assertIs(w.stack.currentWidget(), w.holders["home"])
+        self.assertTrue(all(not nav.item(key).isHidden() for key in nav.keys() if w.page_available(key)))
 
     def test_enter_in_the_search_box_jumps_to_the_section(self):
         w = self.window()
@@ -380,7 +400,7 @@ class PageTest(unittest.TestCase):
         w = self.window()
         w._search_submitted("zebra crossing")
         self.settle(w)
-        self.assertEqual(w.current_page(), "personalization")
+        self.assertEqual(w.current_page(), "home")
 
     # --- another start of the program ---
     def test_second_start_opens_the_page_and_section(self):

@@ -153,7 +153,7 @@ impl Winit {
                 Ok(bound) => bound,
                 Err(err) => return warn!("winit: could not bind the window: {err}"),
             };
-            let (elements, clear) = state.output_elements(renderer, &self.output);
+            let (elements, clear) = state.display_elements(renderer, &self.output);
             match self.damage.render_output(renderer, &mut framebuffer, age, &elements, clear) {
                 Ok(result) => {
                     if let Some(damage) = result.damage {

@@ -30,6 +30,14 @@ TOKENS_ENV = "BOSWAS_UI_TOKENS"
 INSTALLED_TOKENS = Path("/usr/share/boswas/ui/tokens.json")
 SCHEMES = ("dark", "light")
 DEFAULT_SCHEME = "dark"
+# The palette hues the desktop's accent colour can be (``[appearance] accent``); the first is the token file's
+# own accent. Another hue takes the same shades of its family as the token file's accent takes of its own.
+ACCENTS = ("iris", "azure", "sky", "mint", "sun", "coral", "orchid", "slate")
+DEFAULT_ACCENT = ACCENTS[0]
+# The roles that follow the accent colour.
+ACCENT_ROLES = ("accent", "accent-hover", "accent-pressed")
+# Accessibility > Text size: the type ramp in percent of its own sizes.
+TEXT_SCALE_RANGE = (100, 225)
 
 _HEX = re.compile(r"^#[0-9A-Fa-f]{6}$")
 _MAX_TOKEN_BYTES = 1 << 20
@@ -216,23 +224,44 @@ class Theme:
     Colours are returned as ``#RRGGBB`` strings; ``Theme.rgba`` gives a colour
     with its opacity for the translucent layers (fills and strokes), which are
     defined as an opacity over whatever lies beneath.
+
+    ``accent`` is a hue of ``ACCENTS`` (Personalization > Colours): the accent
+    roles take the same shades of that hue as the token file's accent takes of
+    its own, and ``accent`` itself is moved towards the text colour just far
+    enough for ``on-accent`` text to keep 4.5:1, as the derived fills are.
+    ``text_scale`` (percent, 100 to 225; Accessibility > Text size) enlarges
+    the type ramp and nothing else.
     """
 
-    def __init__(self, scheme: str = DEFAULT_SCHEME, tokens: Mapping | None = None):
+    accent: str = DEFAULT_ACCENT
+    text_scale: int = 100
+
+    def __init__(self, scheme: str = DEFAULT_SCHEME, tokens: Mapping | None = None, *,
+                 accent: str | None = None, text_scale: int = 100):
         if scheme not in SCHEMES:
             raise TokenError(f"unknown scheme {scheme!r} (expected one of {', '.join(SCHEMES)})")
+        if accent is not None and accent not in ACCENTS:
+            raise TokenError(f"unknown accent colour {accent!r} (expected one of {', '.join(ACCENTS)})")
+        if isinstance(text_scale, bool) or not isinstance(text_scale, int) \
+                or not TEXT_SCALE_RANGE[0] <= text_scale <= TEXT_SCALE_RANGE[1]:
+            raise TokenError(f"a text size of {text_scale!r} percent is not offered")
         self.scheme = scheme
         self.tokens = tokens if tokens is not None else default_tokens()
+        self.accent = accent or DEFAULT_ACCENT
+        self.text_scale = text_scale
         self._cache: dict[str, str] = {}
 
     def __repr__(self) -> str:
-        return f"Theme({self.scheme!r})"
+        extra = "".join((f", accent={self.accent!r}" if self.accent != DEFAULT_ACCENT else "",
+                         f", text_scale={self.text_scale}" if self.text_scale != 100 else ""))
+        return f"Theme({self.scheme!r}{extra})"
 
     def __eq__(self, other: object) -> bool:
-        return isinstance(other, Theme) and other.scheme == self.scheme and other.tokens == self.tokens
+        return (isinstance(other, Theme) and other.scheme == self.scheme and other.tokens == self.tokens
+                and other.accent == self.accent and other.text_scale == self.text_scale)
 
     def __hash__(self) -> int:
-        return hash((self.scheme, id(self.tokens)))
+        return hash((self.scheme, id(self.tokens), self.accent, self.text_scale))
 
     @property
     def is_dark(self) -> bool:
@@ -263,7 +292,9 @@ class Theme:
             return cached
         key = name[1:] if name.startswith("@") else name
         roles = self.tokens["semantic"][self.scheme]
-        if key in roles:
+        if key in ACCENT_ROLES and self.accent != DEFAULT_ACCENT:
+            value = self._accent_role(key)
+        elif key in roles:
             value = self._palette(roles[key]) if not str(roles[key]).startswith("#") else str(roles[key]).upper()
         elif key in DERIVED_COLOURS:
             value = self._derived(key)
@@ -273,6 +304,17 @@ class Theme:
         else:
             value = self._palette(key)
         self._cache[name] = value
+        return value
+
+    def _accent_role(self, key: str) -> str:
+        """An accent role in the chosen hue: the token file's shade of it (``iris.400`` -> ``azure.400``)."""
+        reference = str(self.tokens["semantic"][self.scheme].get(key, ""))
+        family, dot, shade = reference.partition(".")
+        if not dot:
+            raise TokenError(f"semantic.{self.scheme}.{key} is not a palette shade; the accent cannot change")
+        value = self._palette(f"{self.accent}.{shade}")
+        if key == "accent":
+            value = self._readable(value, [self.color("on-accent")], (self.color("text"),))
         return value
 
     def _derived(self, key: str) -> str:
@@ -389,12 +431,16 @@ class Theme:
         return round(unit * steps)
 
     def type(self, name: str = "body") -> TypeStyle:
-        """A step of the type ramp: caption, body, body-strong, body-large, subtitle, title, title-large."""
+        """A step of the type ramp: caption, body, body-strong, body-large, subtitle, title, title-large
+        (at the desktop's text size)."""
         entry = self.tokens["type"].get("ramp", {}).get(name)
         if (not isinstance(entry, list) or len(entry) != 3
                 or any(isinstance(v, bool) or not isinstance(v, int) or v <= 0 for v in entry)):
             raise TokenError(f"unknown type style {name!r}")
-        return TypeStyle(*entry)
+        size, line_height, weight = entry
+        if self.text_scale != 100:
+            size, line_height = round(size * self.text_scale / 100), round(line_height * self.text_scale / 100)
+        return TypeStyle(size, line_height, weight)
 
     @property
     def families(self) -> tuple[str, ...]:

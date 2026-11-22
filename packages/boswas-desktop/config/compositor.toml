@@ -9,6 +9,14 @@
 layout = "us"
 repeat_delay = 400
 repeat_rate = 30
+# Accessibility: modifiers that stay pressed for the next key, and keys
+# that count only when held (slow keys) or are ignored when repeated too
+# soon (bounce keys). Times in milliseconds.
+sticky_keys = false
+sticky_keys_lock = true
+filter_keys = false
+slow_keys_ms = 0
+bounce_keys_ms = 500
 
 [pointer]
 # Mice and trackballs.
@@ -57,6 +65,55 @@ screen_off_seconds = 300
 
 [appearance]
 scheme = "dark"
+accent = "iris"
+transparency = true
+
+[accessibility]
+# Text size in percent (100 to 225); nothing else grows.
+text_scale = 100
+always_show_scrollbars = false
+
+[color_filter]
+# grayscale, inverted, grayscale_inverted, deuteranopia, protanopia or
+# tritanopia; Super+Ctrl+C toggles it when shortcut is true.
+enabled = false
+filter = "grayscale"
+shortcut = false
+
+[magnifier]
+# Super+Plus and Super+Minus zoom by step percent, Super+Esc ends it.
+enabled = false
+zoom = 200
+step = 100
+
+[taskbar]
+alignment = "center"
+auto_hide = false
+task_view = true
+clock_seconds = false
+badges = true
+
+[start]
+layout = "default"
+recently_added = true
+most_used = true
+folders = ["settings", "files"]
+
+[multitasking]
+snap_windows = true
+snap_layouts_on_maximize = true
+snap_layouts_on_drag = true
+# "desktop": only the windows of the current desktop; "all": of every one.
+taskbar_windows = "desktop"
+alt_tab_windows = "desktop"
+
+[notifications]
+do_not_disturb = false
+do_not_disturb_scheduled = false
+do_not_disturb_from = "22:00"
+do_not_disturb_to = "07:00"
+banners_off = []
+toast_seconds = 5
 
 [policy]
 # Users may shorten the lock timeout but not lengthen or disable it.

@@ -9,8 +9,9 @@ use smithay_client_toolkit::seat::keyboard::Keysym;
 use crate::{
     action::Action,
     apps::{self, App},
-    config::{ShellConfig, DEFAULT_START},
+    config::{SeenApps, ShellConfig, DEFAULT_START},
     glyph::Glyph,
+    settings::{self, Folder, StartLayout},
     state::State,
     ui::{ramp, ButtonKind, Frame, Rect, TextField},
 };
@@ -32,6 +33,8 @@ pub enum Act {
     Result(usize),
     User,
     Power,
+    /// A folder or place next to the power button.
+    Folder(Folder),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -110,6 +113,45 @@ pub fn recommended(apps: &[App], usage: &HashMap<String, u32>, count: usize) -> 
     let mut used: Vec<(u32, usize)> = apps.iter().enumerate().filter_map(|(i, a)| usage.get(&a.id).filter(|n| **n > 0).map(|n| (*n, i))).collect();
     used.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
     used.into_iter().take(count).map(|(_, i)| i).collect()
+}
+
+/// Why an application is recommended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Why {
+    RecentlyAdded,
+    FrequentlyUsed,
+}
+
+impl Why {
+    pub fn label(self) -> &'static str {
+        match self {
+            Why::RecentlyAdded => "Recently added",
+            Why::FrequentlyUsed => "Frequently used",
+        }
+    }
+}
+
+/// What "Recommended" shows, as far as Personalization > Start allows:
+/// applications added lately (newest first), then the most used, each once.
+pub fn recommendations(apps: &[App], usage: &HashMap<String, u32>, seen: &SeenApps, start: &settings::Start, now: u64, count: usize) -> Vec<(usize, Why)> {
+    let mut out: Vec<(usize, Why)> = Vec::new();
+    if start.recently_added {
+        for id in seen.recent(now) {
+            if let Some(index) = apps.iter().position(|a| a.id == id) {
+                out.push((index, Why::RecentlyAdded));
+            }
+        }
+        out.truncate(count.div_ceil(2).max(1).min(count));
+    }
+    if start.most_used {
+        for index in recommended(apps, usage, count) {
+            if out.len() < count && !out.iter().any(|(i, _)| *i == index) {
+                out.push((index, Why::FrequentlyUsed));
+            }
+        }
+    }
+    out.truncate(count);
+    out
 }
 
 /// A row of the "All apps" list.
@@ -314,23 +356,35 @@ pub struct Geometry {
     pub footer: Rect,
     /// Rows of the pinned grid.
     pub rows: usize,
-    /// Whether "Recommended" fits under the grid.
-    pub recommended: bool,
+    /// Rows of "Recommended" under the grid (two applications each); 0
+    /// when it does not fit.
+    pub recommended: usize,
     /// Rows the "All apps" list shows.
     pub list_rows: usize,
 }
 
-pub fn geometry(panel: Rect) -> Geometry {
+/// Rows of pins and of recommendations of each layout (Personalization >
+/// Start > Layout).
+pub fn layout_rows(layout: StartLayout) -> (usize, usize) {
+    match layout {
+        StartLayout::Default => (3, 3),
+        StartLayout::MorePins => (4, 1),
+        StartLayout::MoreRecommendations => (2, 4),
+    }
+}
+
+pub fn geometry(panel: Rect, layout: StartLayout) -> Geometry {
     let pad = if panel.w >= 560.0 { 32.0 } else { 16.0 };
     let search = Rect::new(panel.x + pad, panel.y + 24.0, panel.w - 2.0 * pad, 36.0);
     let footer = Rect::new(panel.x, panel.bottom() - FOOTER_H, panel.w, FOOTER_H);
     let top = search.bottom() + 16.0;
     let room = footer.y - top - 44.0 - 8.0;
-    let recommended_block = 44.0 + 3.0 * 52.0 + 8.0;
-    let (rows, recommended) = if room >= 3.0 * CELL_H + recommended_block {
-        (3, true)
+    let (pin_rows, recommended_rows) = layout_rows(layout);
+    let recommended_block = 44.0 + recommended_rows as f32 * 52.0 + 8.0;
+    let (rows, recommended) = if room >= pin_rows as f32 * CELL_H + recommended_block {
+        (pin_rows, recommended_rows)
     } else {
-        (((room / CELL_H).floor() as usize).clamp(1, 3), false)
+        (((room / CELL_H).floor() as usize).clamp(1, pin_rows), 0)
     };
     Geometry {
         search,
@@ -353,7 +407,7 @@ pub fn draw(f: &mut Frame, st: &State, panel: Rect) {
     let theme = f.theme();
     let t = tokens();
     let radius = t.radius_control;
-    let geo = geometry(panel);
+    let geo = geometry(panel, st.desktop.start.layout);
     f.panel(panel, "acrylic");
     f.area(panel, Action::None);
 
@@ -402,6 +456,22 @@ pub fn draw(f: &mut Frame, st: &State, panel: Rect) {
     f.tip("Power");
     f.state_layer(power, radius, touch, false);
     f.icon("system-shutdown-symbolic", power.x + 12.0, power.y + 12.0, 16.0);
+    // The folders chosen in Personalization > Start, next to the power
+    // button, as long as they leave the user's name room.
+    for (slot, folder) in folder_slots(&st.desktop.start.folders, power.x - (user.right() + 8.0)).into_iter().enumerate() {
+        let rect = Rect::new(power.x - (slot as f32 + 1.0) * 44.0, power.y, 40.0, 40.0);
+        let touch = f.hit(rect, Action::Start(Act::Folder(folder)));
+        f.tip(folder.label());
+        f.state_layer(rect, radius, touch, false);
+        f.icon_or_placeholder(&[folder.icon(), "folder-symbolic"], rect.x + 12.0, rect.y + 12.0, 16.0);
+    }
+}
+
+/// The folders that fit into `room` logical pixels of the footer, nearest
+/// to the power button first (the first of the list is next to it).
+pub fn folder_slots(folders: &[Folder], room: f32) -> Vec<Folder> {
+    let fit = (room.max(0.0) / 44.0).floor() as usize;
+    folders.iter().copied().take(fit).collect()
 }
 
 fn section_header(f: &mut Frame, geo: &Geometry, y: f32, title: &str, button: Option<(&str, Action)>) {
@@ -472,29 +542,31 @@ fn draw_home(f: &mut Frame, st: &State, geo: &Geometry, panel: Rect) {
             f.canvas.fill_circle(x, rect.y + 8.0, r, color);
         }
     }
-    if !geo.recommended {
+    if geo.recommended == 0 {
         return;
     }
     let top = grid_top + geo.rows as f32 * CELL_H + 8.0;
     section_header(f, geo, top, "Recommended", None);
-    let list = recommended(&st.apps, &st.usage.counts, 6);
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    let list = recommendations(&st.apps, &st.usage.counts, &st.seen, &st.desktop.start, now, 2 * geo.recommended);
     if list.is_empty() {
-        f.text_left(
-            "The applications you use most will appear here.",
-            Rect::new(geo.x + 8.0, top + 40.0, geo.w - 16.0, 28.0),
-            &ramp("body", theme.text_muted),
-        );
+        let hint = if st.desktop.start.recently_added || st.desktop.start.most_used {
+            "New applications and the applications you use most will appear here."
+        } else {
+            "Turn on recommendations in Settings, Personalization, Start."
+        };
+        f.text_wrapped(hint, geo.x + 8.0, top + 40.0, geo.w - 16.0, 2, &ramp("body", theme.text_muted));
         return;
     }
     let column = geo.w / 2.0;
-    for (slot, index) in list.iter().enumerate() {
+    for (slot, (index, why)) in list.iter().enumerate() {
         let app = &st.apps[*index];
         let row = Rect::new(geo.x + (slot % 2) as f32 * column, top + 40.0 + (slot / 2) as f32 * 52.0, column - 8.0, 48.0);
         let touch = f.hit(row, Action::Start(Act::Recommended(*index)));
         f.state_layer(row, radius, touch, false);
         f.icon_or_placeholder(&[&app.icon, "application-x-executable"], row.x + 10.0, row.y + 8.0, 32.0);
         f.text_left(&app.name, Rect::new(row.x + 54.0, row.y + 5.0, row.w - 62.0, 20.0), &ramp("body", theme.text));
-        f.text_left("Frequently used", Rect::new(row.x + 54.0, row.y + 24.0, row.w - 62.0, 18.0), &ramp("caption", theme.text_muted));
+        f.text_left(why.label(), Rect::new(row.x + 54.0, row.y + 24.0, row.w - 62.0, 18.0), &ramp("caption", theme.text_muted));
     }
 }
 
@@ -715,16 +787,52 @@ mod tests {
     }
 
     #[test]
+    fn recommendations_follow_the_settings() {
+        let apps = apps();
+        let usage: HashMap<String, u32> = [("firefox-esr".to_owned(), 9), ("com.boswas.Calculator".to_owned(), 2)].into();
+        let mut seen = SeenApps::default();
+        let ids: Vec<&str> = apps.iter().map(|a| a.id.as_str()).filter(|id| *id != "zz.app" && *id != "firefox-esr").collect();
+        seen.update(&ids, 10);
+        let all: Vec<&str> = apps.iter().map(|a| a.id.as_str()).collect();
+        seen.update(&all, 100);
+        let mut start = settings::Start::default();
+        let list = recommendations(&apps, &usage, &seen, &start, 200, 6);
+        assert_eq!(list[0].1, Why::RecentlyAdded);
+        assert_eq!(list.iter().filter(|(_, why)| *why == Why::RecentlyAdded).count(), 2, "Firefox and 9 Lives are new");
+        assert_eq!(list.iter().filter(|(i, _)| *i == 3).count(), 1, "Firefox is listed once");
+        assert!(list.contains(&(1, Why::FrequentlyUsed)));
+        start.recently_added = false;
+        assert_eq!(recommendations(&apps, &usage, &seen, &start, 200, 6), [(3, Why::FrequentlyUsed), (1, Why::FrequentlyUsed)]);
+        start.most_used = false;
+        assert!(recommendations(&apps, &usage, &seen, &start, 200, 6).is_empty());
+        start.recently_added = true;
+        assert_eq!(recommendations(&apps, &usage, &seen, &start, 200, 2).len(), 1, "new ones take half the room at most");
+        assert_eq!(why_labels(), ["Recently added", "Frequently used"]);
+        assert_eq!(folder_slots(&[Folder::Settings, Folder::Music, Folder::Videos], 100.0), [Folder::Settings, Folder::Music]);
+        assert!(folder_slots(&[Folder::Settings], -5.0).is_empty());
+    }
+
+    fn why_labels() -> [&'static str; 2] {
+        [Why::RecentlyAdded.label(), Why::FrequentlyUsed.label()]
+    }
+
+    #[test]
     fn the_panel_fits_small_outputs_and_pages_scroll() {
         assert_eq!(panel_size((1920.0, 1080.0)), (642.0, 726.0));
         let (w, h) = panel_size((800.0, 600.0));
         assert_eq!(w, 642.0);
         assert_eq!(h, 600.0 - 48.0 - 24.0);
-        let geo = geometry(Rect::new(12.0, 12.0, 642.0, 726.0));
-        assert_eq!((geo.rows, geo.recommended), (3, true));
+        let geo = geometry(Rect::new(12.0, 12.0, 642.0, 726.0), StartLayout::Default);
+        assert_eq!((geo.rows, geo.recommended), (3, 3));
         assert!(geo.footer.bottom() == 738.0 && geo.search.x == 44.0);
-        let small = geometry(Rect::new(12.0, 12.0, 642.0, 400.0));
-        assert!(small.rows >= 1 && !small.recommended && small.list_rows >= 3);
+        let small = geometry(Rect::new(12.0, 12.0, 642.0, 400.0), StartLayout::Default);
+        assert!(small.rows >= 1 && small.recommended == 0 && small.list_rows >= 3);
+        // The layouts trade rows of pins for rows of recommendations.
+        let pins = geometry(Rect::new(12.0, 12.0, 642.0, 726.0), StartLayout::MorePins);
+        assert_eq!((pins.rows, pins.recommended), (4, 1));
+        let more = geometry(Rect::new(12.0, 12.0, 642.0, 726.0), StartLayout::MoreRecommendations);
+        assert_eq!((more.rows, more.recommended), (2, 4));
+        assert_eq!(page_count(20, 4), 1);
         assert_eq!(page_count(0, 3), 1);
         assert_eq!(page_count(18, 3), 1);
         assert_eq!(page_count(19, 3), 2);
