@@ -82,13 +82,14 @@ impl Capture {
     }
 }
 
-/// The folder screenshots are saved in: `Screenshots` under the user's
-/// Pictures folder (from `user-dirs.dirs`, else `~/Pictures`).
-pub fn screenshots_dir(home: &Path, user_dirs: Option<&str>) -> PathBuf {
-    let pictures = user_dirs
+/// An XDG user folder (`PICTURES`, `DOCUMENTS`, ...) from `user-dirs.dirs`,
+/// else `default` in the home folder.
+fn xdg_user_dir(home: &Path, user_dirs: Option<&str>, key: &str, default: &str) -> PathBuf {
+    let prefix = format!("XDG_{key}_DIR=");
+    user_dirs
         .and_then(|text| {
             text.lines().find_map(|line| {
-                let value = line.trim().strip_prefix("XDG_PICTURES_DIR=")?.trim().trim_matches('"');
+                let value = line.trim().strip_prefix(prefix.as_str())?.trim().trim_matches('"');
                 let path = match value.strip_prefix("$HOME/") {
                     Some(rest) => home.join(rest),
                     None => PathBuf::from(value),
@@ -96,8 +97,20 @@ pub fn screenshots_dir(home: &Path, user_dirs: Option<&str>) -> PathBuf {
                 (path.is_absolute() && path != home && !value.contains("..")).then_some(path)
             })
         })
-        .unwrap_or_else(|| home.join("Pictures"));
-    pictures.join("Screenshots")
+        .unwrap_or_else(|| home.join(default))
+}
+
+/// The folder screenshots are saved in: `Screenshots` under the user's
+/// Pictures folder (from `user-dirs.dirs`, else `~/Pictures`).
+pub fn screenshots_dir(home: &Path, user_dirs: Option<&str>) -> PathBuf {
+    xdg_user_dir(home, user_dirs, "PICTURES", "Pictures").join("Screenshots")
+}
+
+/// The user's folder behind one of Start's folder buttons (`None` for the
+/// two that are programs).
+pub fn user_dir(home: &Path, user_dirs: Option<&str>, folder: crate::settings::Folder) -> Option<PathBuf> {
+    let key = folder.xdg_name()?;
+    Some(xdg_user_dir(home, user_dirs, key, folder.label()))
 }
 
 /// A file name for a screenshot taken at `time` that does not exist yet
@@ -203,6 +216,19 @@ mod tests {
         for bad in ["XDG_PICTURES_DIR=\"relative\"\n", "XDG_PICTURES_DIR=\"$HOME/\"\n", "XDG_PICTURES_DIR=\"$HOME/../other\"\n"] {
             assert_eq!(screenshots_dir(home, Some(bad)), Path::new("/home/asha/Pictures/Screenshots"), "{bad}");
         }
+    }
+
+    #[test]
+    fn start_folders_are_the_users_folders() {
+        use crate::settings::Folder;
+        let home = Path::new("/home/asha");
+        let dirs = "XDG_DOWNLOAD_DIR=\"$HOME/Herunterladen\"\nXDG_MUSIC_DIR=\"/data/music\"\n";
+        assert_eq!(user_dir(home, Some(dirs), Folder::Downloads).unwrap(), Path::new("/home/asha/Herunterladen"));
+        assert_eq!(user_dir(home, Some(dirs), Folder::Music).unwrap(), Path::new("/data/music"));
+        assert_eq!(user_dir(home, Some(dirs), Folder::Documents).unwrap(), Path::new("/home/asha/Documents"));
+        assert_eq!(user_dir(home, None, Folder::Videos).unwrap(), Path::new("/home/asha/Videos"));
+        assert_eq!(user_dir(home, None, Folder::Settings), None);
+        assert_eq!(user_dir(home, None, Folder::Files), None);
     }
 
     #[test]

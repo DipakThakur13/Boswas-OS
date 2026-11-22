@@ -174,7 +174,7 @@ class BackendReadTest(RigTestCase):
 
     def test_program_availability(self):
         programs = self.backend.program_availability()
-        self.assertEqual({key for key in programs if key in PROGRAM_IDS}, {"files", "compat-manager"})
+        self.assertEqual({key for key in programs if key in PROGRAM_IDS}, {"files", "compat-manager", "camera"})
         self.assertTrue(programs["compat-manager"])
         self.assertTrue(programs["files"])
         self.assertTrue(programs["gio"])
@@ -216,7 +216,7 @@ class BackendActionTest(RigTestCase):
                 self.assertIn(command[0], commands.ALLOWED_PATHS)
                 name, args = PROGRAMS[program.id]
                 self.assertEqual(command, [E[name], *args])
-        self.assertEqual(found, 2)
+        self.assertEqual(found, 3)                       # Files, the Compatibility Manager, the Camera
 
     def test_unknown_programs_are_refused(self):
         for program in (Program("kcm_evil", "x", "x", "x"), Program("--list", "x", "x", "x"),

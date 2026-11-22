@@ -3,9 +3,10 @@
 ``apply(app)`` gives an application the Boswas look: the Fusion style as a
 neutral base, a palette, the generated style sheet, the interface font and
 the icon theme, all from the tokens. It then follows the desktop: when the
-``[appearance]`` table of the user's desktop configuration changes (see
-``appearance.py``), the scheme is applied again to every open window and
-``manager().changed`` is emitted.
+``[appearance]`` or ``[accessibility]`` table of the user's desktop
+configuration changes (see ``appearance.py``), the scheme, the accent
+colour, the text size and the scroll bars are applied again to every open
+window and ``manager().changed`` is emitted.
 
 ``manager()`` is the one ``ThemeManager`` of the process; ``theme()`` its
 current ``Theme``. Widgets that paint themselves ask ``theme()`` each time
@@ -83,7 +84,9 @@ class ThemeManager(QObject):
         self._forced_scheme: str | None = None
         self._forced_reduced: bool | None = None
         self._appearance = appearance.read_appearance()
-        self._theme = Theme(self._appearance.scheme)
+        self._theme = Theme(self._appearance.scheme, accent=self._appearance.accent,
+                            text_scale=self._appearance.text_scale)
+        self._scrollbars = self._appearance.always_show_scrollbars
         self._app: QApplication | None = None
         self._watcher: QFileSystemWatcher | None = None
         self._debounce: QTimer | None = None
@@ -108,6 +111,11 @@ class ThemeManager(QObject):
         if self._forced_reduced is not None:
             return self._forced_reduced
         return self._appearance.reduced_motion
+
+    @property
+    def always_show_scrollbars(self) -> bool:
+        """Accessibility > Visual effects: full scroll bars instead of thin lines that widen under the pointer."""
+        return self._scrollbars
 
     @property
     def applied(self) -> bool:
@@ -143,9 +151,13 @@ class ThemeManager(QObject):
     def _update(self) -> None:
         scheme = self._forced_scheme or self._appearance.scheme
         tokens = default_tokens()
-        if scheme == self._theme.scheme and tokens is self._theme.tokens:
+        accent, text_scale = self._appearance.accent, self._appearance.text_scale
+        scrollbars = self._appearance.always_show_scrollbars
+        if (scheme == self._theme.scheme and tokens is self._theme.tokens and accent == self._theme.accent
+                and text_scale == self._theme.text_scale and scrollbars == self._scrollbars):
             return
-        self._theme = Theme(scheme, tokens)
+        self._theme = Theme(scheme, tokens, accent=accent, text_scale=text_scale)
+        self._scrollbars = scrollbars
         if self.applied:
             self._restyle()
         self.changed.emit(self._theme)
@@ -178,7 +190,7 @@ class ThemeManager(QObject):
         app.setPalette(build_palette(theme))
         QToolTip.setPalette(build_palette(theme))
         app.setFont(build_font(theme, "body"))
-        app.setStyleSheet(qss.build(theme, str(assets.ensure(theme))))
+        app.setStyleSheet(qss.build(theme, str(assets.ensure(theme)), always_show_scrollbars=self._scrollbars))
         QIcon.setThemeName(ICON_THEMES[theme.scheme])
         QIcon.setFallbackThemeName(FALLBACK_ICON_THEMES[theme.scheme])
         from . import icons

@@ -258,6 +258,21 @@ pub struct Boswas {
     pub disabled_outputs: Vec<String>,
     /// The screens are turned off for idleness; any input turns them on.
     pub outputs_off: bool,
+    /// How much the magnifier enlarges the output under the pointer (1.0:
+    /// it is off). Super+Plus, Super+Minus and Super+Esc change it; so does
+    /// Settings through `[magnifier]`.
+    pub magnifier_zoom: f64,
+    /// The magnifier was started (it stays on at 100 % until Super+Esc).
+    pub magnifier_running: bool,
+    /// The colour filter is on (Super+Ctrl+C, or Settings through
+    /// `[color_filter] enabled`).
+    pub color_filter_on: bool,
+    /// The filtered frame's identity for the damage trackers, and its
+    /// frame count.
+    pub filter_id: smithay::backend::renderer::element::Id,
+    pub filter_commit: smithay::backend::renderer::utils::CommitCounter,
+    /// Accessibility of the keyboard: sticky and filter keys.
+    pub key_access: crate::keyaccess::KeyAccess,
 
     // Protocol state
     _globals: Globals,
@@ -424,11 +439,10 @@ impl Boswas {
         let pointer = seat.add_pointer();
 
         let socket_name = Self::listen(display, &loop_handle, socket)?;
-        let theme = Theme::of(if config.appearance.scheme == "light" {
-            Scheme::Light
-        } else {
-            Scheme::Dark
-        });
+        let theme = Theme::accented(
+            if config.appearance.scheme == "light" { Scheme::Light } else { Scheme::Dark },
+            &config.appearance.accent,
+        );
         let cursor_theme = CursorTheme::load(&config.pointer.cursor_theme, config.pointer.cursor_size);
 
         Ok(Self {
@@ -467,6 +481,12 @@ impl Boswas {
             app_icons: AppIcons::new(config.appearance.scheme == "light"),
             disabled_outputs: Vec::new(),
             outputs_off: false,
+            magnifier_zoom: if config.magnifier.enabled { f64::from(config.magnifier.zoom) / 100.0 } else { 1.0 },
+            magnifier_running: config.magnifier.enabled,
+            color_filter_on: config.color_filter.enabled,
+            filter_id: smithay::backend::renderer::element::Id::new(),
+            filter_commit: smithay::backend::renderer::utils::CommitCounter::default(),
+            key_access: crate::keyaccess::KeyAccess::default(),
             _globals: Globals {
                 xdg_decoration_state,
                 output_manager_state,
@@ -1013,17 +1033,26 @@ impl Boswas {
         if let Err(err) = keyboard.set_xkb_config(self, xkb) {
             warn!("keyboard layout \"{}\" rejected: {err:?}", config.keyboard.layout);
         }
-        self.theme = Theme::of(if config.appearance.scheme == "light" {
-            Scheme::Light
-        } else {
-            Scheme::Dark
-        });
+        self.theme = Theme::accented(
+            if config.appearance.scheme == "light" { Scheme::Light } else { Scheme::Dark },
+            &config.appearance.accent,
+        );
         self.cursor_theme = CursorTheme::load(&config.pointer.cursor_theme, config.pointer.cursor_size);
         if (config.appearance.scheme == "light") != self.app_icons.is_light() {
             self.app_icons = AppIcons::new(config.appearance.scheme == "light");
         }
         if config.night_light != self.config.night_light {
             self.night_light = (config.night_light.enabled, config.night_light.temperature);
+        }
+        // Settings switches the magnifier and the colour filter; the keys
+        // switch them for the session in between, like night light.
+        if config.magnifier.enabled != self.config.magnifier.enabled || config.magnifier.zoom != self.config.magnifier.zoom {
+            self.magnifier_zoom = if config.magnifier.enabled { f64::from(config.magnifier.zoom) / 100.0 } else { 1.0 };
+            self.magnifier_running = config.magnifier.enabled;
+        }
+        let sticky_off = (self.config.keyboard.sticky_keys && !config.keyboard.sticky_keys) || (self.config.keyboard.filter_keys && !config.keyboard.filter_keys);
+        if config.color_filter.enabled != self.config.color_filter.enabled {
+            self.color_filter_on = config.color_filter.enabled;
         }
         // The shell command and the trust policy are fixed for the session.
         let shell = std::mem::take(&mut self.config.shell);
@@ -1033,6 +1062,9 @@ impl Boswas {
         self.config.shell = shell;
         self.config.input_method = input_method;
         self.config.policy.privileged_protocols = policy;
+        if sticky_off {
+            self.release_sticky_keys();
+        }
         let config = self.config.clone();
         self.backend.config_changed(&config);
         self.apply_night_light();

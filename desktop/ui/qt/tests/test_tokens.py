@@ -105,6 +105,37 @@ class TokenFileTest(unittest.TestCase):
         path.write_text(data if isinstance(data, str) else json.dumps(data), encoding="utf-8")
         return path
 
+    def test_an_accent_takes_the_shades_of_its_hue(self):
+        colours = self.data["color"]
+        dark, light = Theme("dark", accent="azure"), Theme("light", accent="azure")
+        self.assertEqual(dark.color("accent"), colours["azure"]["400"])
+        self.assertEqual(dark.color("accent-hover"), colours["azure"]["300"])
+        self.assertEqual(light.color("accent-pressed"), colours["azure"]["700"])
+        # sun.600 is too light for white text: it is darkened just enough.
+        sun = Theme("light", accent="sun")
+        self.assertNotEqual(sun.color("accent"), colours["sun"]["600"])
+        self.assertGreaterEqual(tokens.contrast(sun.color("accent"), sun.color("on-accent")), tokens.TEXT_CONTRAST)
+        self.assertLess(tokens.contrast(sun.color("accent"), sun.color("on-accent")), tokens.TEXT_CONTRAST + 0.6)
+        # Nothing else changes, and iris is the default.
+        self.assertEqual(dark.color("background"), Theme("dark").color("background"))
+        self.assertEqual(Theme("dark", accent="iris"), Theme("dark"))
+        self.assertNotEqual(dark, Theme("dark"))
+        self.assertIn("azure", repr(dark))
+        with self.assertRaisesRegex(TokenError, "accent"):
+            Theme("dark", accent="teal")
+
+    def test_the_text_size_scales_the_type_ramp_only(self):
+        normal, large = Theme("dark"), Theme("dark", text_scale=150)
+        self.assertEqual(large.type("body").size, round(normal.type("body").size * 1.5))
+        self.assertEqual(large.type("title").line_height, round(normal.type("title").line_height * 1.5))
+        self.assertEqual(large.type("body").weight, normal.type("body").weight)
+        self.assertEqual(large.radius("control"), normal.radius("control"))
+        self.assertEqual(large.spacing(4), normal.spacing(4))
+        self.assertEqual(Theme("dark", text_scale=225).type("caption").size, 27)
+        for bad in (99, 226, 1.5, True, "150"):
+            with self.assertRaises(TokenError, msg=bad):
+                Theme("dark", text_scale=bad)
+
     def test_the_environment_variable_overrides(self):
         self.data["semantic"]["dark"]["accent"] = "mint.500"
         path = self.write(self.data)
@@ -160,6 +191,24 @@ class AppearanceTest(unittest.TestCase):
         self.assertEqual(self.read(system), appearance.Appearance("light", False))
         (self.user / "appearance.toml").write_text('[appearance]\nscheme = "dark"\n')
         self.assertEqual(self.read(system), appearance.Appearance("dark", False))
+
+    def test_accent_text_size_and_scroll_bars(self):
+        system = Path(self.tmp.name) / "system.toml"
+        system.write_text('[appearance]\naccent = "azure"\n[accessibility]\ntext_scale = 150\n')
+        self.assertEqual(self.read(system), appearance.Appearance("dark", False, "azure", 150, False))
+        (self.user / "compositor.toml").write_text('[appearance]\naccent = "coral"\n'
+                                                   '[accessibility]\ntext_scale = 900\nalways_show_scrollbars = true\n')
+        self.assertEqual(self.read(system), appearance.Appearance("dark", False, "coral", 225, True),
+                         "the user's file wins; the text size is clamped as the compositor clamps it")
+        # appearance.toml holds [appearance] only: an [accessibility] table there makes it unusable.
+        (self.user / "appearance.toml").write_text('[appearance]\naccent = "mint"\n')
+        self.assertEqual(self.read(system).accent, "mint")
+        (self.user / "appearance.toml").write_text('[appearance]\naccent = "mint"\n[accessibility]\ntext_scale = 100\n')
+        self.assertEqual(self.read(system), appearance.Appearance("dark", False, "coral", 225, True))
+        for text in ('[appearance]\naccent = "teal"\n', '[accessibility]\ntext_scale = "big"\n',
+                     '[accessibility]\nalways_show_scrollbars = 1\n'):
+            (self.user / "compositor.toml").write_text(text)
+            self.assertEqual(self.read(system), appearance.Appearance("dark", False, "azure", 150, False), text)
 
     def test_bad_files_and_values_are_ignored(self):
         target = self.user / "appearance.toml"

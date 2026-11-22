@@ -20,18 +20,24 @@ The desktop:
 the background;
 .IP \(bu 2
 the taskbar along the bottom edge: Start, Task View and the pinned and
-running applications in the centre; tray icons, the keyboard layout, the
-network, volume and battery icons, and the clock at the right. A click on
-an application shows its window, starts it, or goes through its windows;
-the secondary button opens its menu (new window, pin or unpin, the
-application's own actions, close); the middle button starts another
-instance. Resting the pointer on a running application shows its windows;
+running applications in the centre (or at the left edge); tray icons, the
+keyboard layout, the network, volume and battery icons, and the clock at the
+right. A click on an application shows its window, starts it, or goes
+through its windows; the secondary button opens its menu (new window, pin or
+unpin, the application's own actions, close); the middle button starts
+another instance. Resting the pointer on a running application shows its
+windows. A button can show how many notifications its application has in
+the notification centre. The taskbar can hide itself: it then leaves the
+whole screen to the windows and comes back when the pointer touches the
+bottom edge, and while Start, a flyout, a menu or a preview is open;
 .IP \(bu 2
 Start: search (applications, pages of Boswas Control Center, and running a
-command), the pinned applications, all applications by letter, the
-applications used most, and the user and power menus. Search is local and
-ranks applications by how often they were started. Signing out, restarting
-and shutting down ask first when windows are open;
+command), the pinned applications, all applications by letter,
+recommendations (applications installed in the last two weeks and the
+applications used most), the user and power menus, and the folders chosen
+in Settings next to the power button. Search is local and ranks
+applications by how often they were started. Signing out, restarting and
+shutting down ask first when windows are open;
 .IP \(bu 2
 quick settings: Wi-Fi with the list of networks, Bluetooth with the list of
 devices, airplane mode, night light, the power mode, do not disturb, media
@@ -39,7 +45,9 @@ controls, brightness, and volume with the choice of the sound output;
 .IP \(bu 2
 notifications: up to three at a time above the taskbar, and the
 notification centre with a calendar. While do not disturb is on only
-critical notifications pop up. Nothing pops up while the session is locked;
+critical notifications pop up; it can turn itself on during set hours. An
+application whose banners are turned off reaches the notification centre
+only. Nothing pops up while the session is locked;
 .IP \(bu 2
 the on-screen display of the volume and brightness keys, the Run dialog,
 screen capture (an area or the whole screen, saved to the Screenshots
@@ -88,6 +96,14 @@ on) belong to the compositor and are listed in
 The applications pinned to the taskbar (\fB[taskbar] pinned\fR) and to
 Start (\fB[start] pinned\fR), as lists of desktop file ids. Written by the
 shell when something is pinned or unpinned; it may be edited by hand.
+.PP
+The look and the settings of the taskbar, Start and notifications are part
+of the compositor's configuration (\fB[appearance]\fR, \fB[accessibility]\fR,
+\fB[taskbar]\fR, \fB[start]\fR, \fB[multitasking]\fR and
+\fB[notifications]\fR in
+.BR boswas-compositor (1)),
+which passes them on when it starts the shell and when its files are
+read again.
 .TP
 .I ~/.local/state/boswas/launcher\-usage.json
 How often each application was started; used to rank search results and
@@ -95,6 +111,15 @@ for the "Recommended" list. It never leaves the device.
 .TP
 .I ~/.local/state/boswas/run\-history.json
 The last commands typed into the Run dialog.
+.TP
+.I ~/.local/state/boswas/notification\-senders.json
+The applications that sent notifications (name, icon, desktop entry and
+when they last did), most recent first, at most 100: Settings lists them to
+turn their banners off.
+.TP
+.I ~/.local/state/boswas/apps\-seen.json
+When each installed application was first seen, for "Recently added". The
+applications installed when the shell first ran do not count as new.
 .TP
 .I /etc/pam.d/boswas\-lock
 PAM service of the lock screen.

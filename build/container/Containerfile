@@ -31,7 +31,7 @@ RUN apt-get update \
         grub-common grub-efi-amd64-bin grub-pc-bin \
         wget curl ca-certificates gnupg rsync file git \
         build-essential dpkg-dev debhelper dh-apparmor fakeroot lintian \
-        librsvg2-bin fonts-lato potrace netpbm \
+        librsvg2-bin fonts-lato netpbm \
         python3 openssl \
         python3-pyside6.qtcore python3-pyside6.qtgui python3-pyside6.qtwidgets qt6-qpa-plugins \
         python3-pyside6.qtsvg python3-pyside6.qtdbus python3-pyside6.qtnetwork \

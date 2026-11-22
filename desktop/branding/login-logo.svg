@@ -1,5 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="440" height="100" viewBox="0 0 440 100">
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="361" height="100" viewBox="0 0 361 100">
   <title>Boswas OS horizontal lockup (login screen logo; inlined by the boswas-branding build)</title>
-  <image x="0" y="0" width="80" height="100" href="boswas-os-mark.svg"/>
-  <image x="104" y="38" width="336" height="30" href="wordmark-boswas-os.svg" data-fill="#E8EEF6"/>
+  <!-- The mark's ink starts at x = 0 (its 256-unit box has 42 units of space on the left).
+       The wordmark is 0.42 of the mark's ink high, centred on it, 0.24 of it away. -->
+  <image x="-16.41" y="0" width="100" height="100" href="boswas-os-mark.svg"/>
+  <image x="89.31" y="30.64" width="271.55" height="38.72" href="wordmark-boswas-os.svg" data-fill="#FFFFFF"/>
 </svg>

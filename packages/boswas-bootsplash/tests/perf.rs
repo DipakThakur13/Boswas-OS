@@ -3,12 +3,14 @@
 //! The boot screen runs while the machine is busy starting up, so a frame
 //! must cost next to nothing: only the ring's rectangle is redrawn (five
 //! dots on the background) and copied to the display; during a prompt only
-//! the text box is. The time limits here are deliberately loose (they must
-//! hold in an unoptimised build on a slow build machine);
+//! the text box is. The ring turns at the display's refresh rate, up to
+//! 240 frames a second. The time limits here are deliberately loose (they
+//! must hold in an unoptimised build on a slow build machine);
 //! `cargo test --release --test perf -- --nocapture` prints the real figures.
 
 use std::time::{Duration, Instant};
 
+use boswas_bootsplash::daemon::MAX_FPS;
 use boswas_bootsplash::gfx::{Canvas, Rect};
 use boswas_bootsplash::scene::{self, Mode, PromptView, Scene, View};
 
@@ -53,15 +55,18 @@ fn an_animation_frame_is_cheap() {
         present(scene.canvas(), scene.damage(), &mut target);
         let layout = scene.layout().clone();
 
-        // The ring, at 30 frames a second, for more than a whole cycle.
+        // The ring at the most frames a second it is drawn, for more than a
+        // whole cycle.
         let mut frames = Vec::new();
-        for i in 1..=200 {
-            view.phase = (i as f32 / (30.0 * scene::SPINNER_SECS)).fract();
+        let cycle = (MAX_FPS as f32 * scene::SPINNER_SECS) as u32;
+        for i in 1..=cycle + 100 {
+            view.phase = (i as f32 / (MAX_FPS as f32 * scene::SPINNER_SECS)).fract();
             frames.push(frame(&mut scene, &view, &mut target));
             assert_eq!(scene.damage(), [layout.spinner], "an animation frame redraws the ring and nothing else");
         }
         let slowest = *frames.iter().max().unwrap();
         let animation = median(frames);
+        let second = animation * MAX_FPS;
         let ring = layout.spinner.area();
         let share = ring as f64 * 100.0 / screen;
 
@@ -96,13 +101,17 @@ fn an_animation_frame_is_cheap() {
 
         println!(
             "{w}x{h}: first frame {first_frame:?}; animation frame {animation:?}, slowest {slowest:?} \
-             ({ring} pixels, {share:.3} % of the screen); keystroke {key:?}, caret {blink:?}, shake frame {shake:?} \
-             ({} pixels, {field_share:.3} %)",
+             ({ring} pixels, {share:.3} % of the screen), {second:?} a second at {MAX_FPS} frames a second; \
+             keystroke {key:?}, caret {blink:?}, shake frame {shake:?} ({} pixels, {field_share:.3} %)",
             layout.field.area()
         );
         assert!(share < 0.25, "an animation frame touches under a quarter of a percent of the screen: {share}");
         assert!(field_share < 2.0, "a keystroke touches under two percent of the screen: {field_share}");
         assert!(animation < Duration::from_millis(20), "animation frame took {animation:?} at {w}x{h}");
+        assert!(
+            second < Duration::from_millis(500),
+            "a second of the ring at {MAX_FPS} frames takes {second:?} of processor time at {w}x{h}"
+        );
         assert!(key < Duration::from_millis(40), "keystroke redraw took {key:?} at {w}x{h}");
         assert!(blink < Duration::from_millis(40), "caret redraw took {blink:?} at {w}x{h}");
         assert!(shake < Duration::from_millis(40), "shake frame took {shake:?} at {w}x{h}");

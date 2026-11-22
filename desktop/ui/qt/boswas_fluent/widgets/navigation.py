@@ -5,13 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable
 
-from PySide6.QtCore import QEvent, QModelIndex, QRect, QRectF, QSize, Qt, QVariantAnimation, Signal
+from PySide6.QtCore import QEvent, QModelIndex, QRect, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QFontMetrics, QIcon, QPainter
 from PySide6.QtWidgets import (QAbstractItemView, QBoxLayout, QFrame, QHBoxLayout, QListWidget, QListWidgetItem,
                                QSizePolicy, QStackedWidget, QStyle, QStyledItemDelegate, QToolTip, QVBoxLayout,
                                QWidget)
 
 from .. import icons, paint
+from ..animation import Animation
 from ..theming import current_theme, duration, easing, font, qcolor
 from .basic import IconButton, Label, to_icon
 from .inputs import SearchBox
@@ -113,7 +114,7 @@ class NavigationList(QListWidget):
         self.compact = False
         self.pressed_row = -1
         self._pill: QRectF | None = None
-        self._animation: QVariantAnimation | None = None
+        self._animation: Animation | None = None
         self.setItemDelegate(NavigationDelegate(self))
         self.setFrameShape(QFrame.Shape.NoFrame)
         self.setIconSize(QSize(16, 16))
@@ -216,7 +217,7 @@ class NavigationList(QListWidget):
             self._pill = None            # painted where the current row is
             self.viewport().update()
             return
-        animation = QVariantAnimation(self)
+        animation = Animation(self)
         animation.setStartValue(QRectF(self._pill))
         animation.setEndValue(target)
         animation.setDuration(time)
@@ -333,7 +334,7 @@ class NavigationView(QWidget):
         self._search_filters = True
         self._content_layer = content_layer
         self._anonymous = 0
-        self._width_animation: QVariantAnimation | None = None
+        self._width_animation: Animation | None = None
 
         outer = QHBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -790,7 +791,7 @@ class NavigationView(QWidget):
         if time <= 0 or not self.isVisible():
             self.pane.setFixedWidth(target)
         else:
-            animation = QVariantAnimation(self)
+            animation = Animation(self)
             animation.setStartValue(self.pane.width())
             animation.setEndValue(target)
             animation.setDuration(time)

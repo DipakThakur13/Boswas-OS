@@ -112,9 +112,11 @@ class FunctionalCase(unittest.TestCase):
 
     @staticmethod
     def settle(window) -> None:
+        from boswas_fluent.worker import shared_worker
         for _ in range(4):
             if not window.runner.wait(15):
                 raise AssertionError("backend calls did not finish")
+            shared_worker().wait(15)                      # what the settings sections read
             QCoreApplication.processEvents()
 
     def show(self, window, key: str):

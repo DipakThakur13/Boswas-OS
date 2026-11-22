@@ -8,12 +8,12 @@
     <radialGradient id="w-rad4" gradientUnits="userSpaceOnUse" cx="900" cy="300" r="1600" gradientTransform="translate(900 300) scale(1 0.75) translate(-900 -300)"><stop offset="0" stop-color="#E8E2D4" stop-opacity="0.07"/><stop offset="0.35" stop-color="#E8E2D4" stop-opacity="0.04"/><stop offset="0.7" stop-color="#E8E2D4" stop-opacity="0.01"/><stop offset="1" stop-color="#E8E2D4" stop-opacity="0"/></radialGradient>
     <radialGradient id="w-rad5" gradientUnits="userSpaceOnUse" cx="3300" cy="1900" r="1400" gradientTransform="translate(3300 1900) scale(1 0.64) translate(-3300 -1900)"><stop offset="0" stop-color="#E8E2D4" stop-opacity="0.04"/><stop offset="0.35" stop-color="#E8E2D4" stop-opacity="0.03"/><stop offset="0.7" stop-color="#E8E2D4" stop-opacity="0.01"/><stop offset="1" stop-color="#E8E2D4" stop-opacity="0"/></radialGradient>
     <radialGradient id="w-rad6" gradientUnits="userSpaceOnUse" cx="2100" cy="2300" r="2400" gradientTransform="translate(2100 2300) scale(1 0.38) translate(-2100 -2300)"><stop offset="0" stop-color="#1E2A3E" stop-opacity="0.5"/><stop offset="0.35" stop-color="#1E2A3E" stop-opacity="0.31"/><stop offset="0.7" stop-color="#1E2A3E" stop-opacity="0.1"/><stop offset="1" stop-color="#1E2A3E" stop-opacity="0"/></radialGradient>
-    <linearGradient id="w-lin7" gradientUnits="userSpaceOnUse" x1="2273.66" y1="70" x2="2372.61" y2="1102.96"><stop offset="0" stop-color="#E8E2D4" stop-opacity="0.06"/><stop offset="1" stop-color="#E8E2D4" stop-opacity="0"/></linearGradient>
+    <linearGradient id="w-lin7" gradientUnits="userSpaceOnUse" x1="2356.03" y1="70" x2="2429.86" y2="1453"><stop offset="0" stop-color="#E8E2D4" stop-opacity="0.06"/><stop offset="1" stop-color="#E8E2D4" stop-opacity="0"/></linearGradient>
     <filter id="w-blur8" filterUnits="userSpaceOnUse" x="-96" y="-96" width="4032" height="2352"><feGaussianBlur stdDeviation="24"/></filter>
-    <linearGradient id="w-lin9" gradientUnits="userSpaceOnUse" x1="2273.66" y1="70" x2="2273.66" y2="1102.96"><stop offset="0" stop-color="#FBD693" stop-opacity="0.35"/><stop offset="0.55" stop-color="#FBD693" stop-opacity="0.12"/><stop offset="1" stop-color="#FBD693" stop-opacity="0"/></linearGradient>
-    <linearGradient id="w-lin10" gradientUnits="userSpaceOnUse" x1="2481.08" y1="762.08" x2="3011.06" y2="526.13"><stop offset="0" stop-color="#D9B26E" stop-opacity="0"/><stop offset="0.7" stop-color="#D9B26E" stop-opacity="0.55"/><stop offset="1" stop-color="#FBD693" stop-opacity="0.95"/></linearGradient>
-    <radialGradient id="w-rad11" gradientUnits="userSpaceOnUse" cx="3011.06" cy="526.13" r="119"><stop offset="0" stop-color="#FBD693" stop-opacity="0.45"/><stop offset="1" stop-color="#FBD693" stop-opacity="0"/></radialGradient>
-    <linearGradient id="w-lin12" gradientUnits="userSpaceOnUse" x1="3633.29" y1="1151.26" x2="3424.82" y2="1484.89"><stop offset="0" stop-color="#D9B26E" stop-opacity="0"/><stop offset="0.5" stop-color="#FBD693" stop-opacity="0.4"/><stop offset="1" stop-color="#D9B26E" stop-opacity="0"/></linearGradient>
+    <linearGradient id="w-lin9" gradientUnits="userSpaceOnUse" x1="2356.03" y1="70" x2="2356.03" y2="1453"><stop offset="0" stop-color="#FBD693" stop-opacity="0.35"/><stop offset="0.55" stop-color="#FBD693" stop-opacity="0.12"/><stop offset="1" stop-color="#FBD693" stop-opacity="0"/></linearGradient>
+    <linearGradient id="w-lin10" gradientUnits="userSpaceOnUse" x1="2526.49" y1="778.61" x2="2992.95" y2="570.93"><stop offset="0" stop-color="#D9B26E" stop-opacity="0"/><stop offset="0.7" stop-color="#D9B26E" stop-opacity="0.55"/><stop offset="1" stop-color="#FBD693" stop-opacity="0.95"/></linearGradient>
+    <radialGradient id="w-rad11" gradientUnits="userSpaceOnUse" cx="2992.95" cy="570.93" r="119"><stop offset="0" stop-color="#FBD693" stop-opacity="0.45"/><stop offset="1" stop-color="#FBD693" stop-opacity="0"/></radialGradient>
+    <linearGradient id="w-lin12" gradientUnits="userSpaceOnUse" x1="3540.62" y1="1121.15" x2="3357.13" y2="1414.79"><stop offset="0" stop-color="#D9B26E" stop-opacity="0"/><stop offset="0.5" stop-color="#FBD693" stop-opacity="0.4"/><stop offset="1" stop-color="#D9B26E" stop-opacity="0"/></linearGradient>
   </defs>
   <rect width="3840" height="2160" fill="url(#w-lin1)"/>
   <rect width="3840" height="2160" fill="url(#w-rad2)"/>
@@ -21,12 +21,12 @@
   <rect width="3840" height="2160" fill="url(#w-rad4)"/>
   <rect width="3840" height="2160" fill="url(#w-rad5)"/>
   <rect width="3840" height="2160" fill="url(#w-rad6)"/>
-  <path d="M2273.66 70A329.82 289.23 0 0 1 2603.48 359.23L2603.48 1102.96A329.82 330.55 0 0 1 2273.66 772.42Z" fill="url(#w-lin7)" filter="url(#w-blur8)"/>
-  <path d="M2273.66 70A329.82 289.23 0 0 1 2603.48 359.23L2603.48 1102.96A329.82 330.55 0 0 1 2273.66 772.42Z" fill="none" stroke="url(#w-lin9)" stroke-width="3"/>
-  <g fill="none" stroke="#E8E2D4"><circle cx="2860" cy="900" r="283.97" stroke-opacity="0.07" stroke-width="3"/><circle cx="2860" cy="900" r="403.24" stroke-opacity="0.06" stroke-width="3"/><circle cx="2860" cy="900" r="572.6" stroke-opacity="0.04" stroke-width="3"/><circle cx="2860" cy="900" r="813.09" stroke-opacity="0.03" stroke-width="3"/><circle cx="2860" cy="900" r="1154.58" stroke-opacity="0.02" stroke-width="3"/></g>
-  <path d="M2481.08 762.08A403.24 403.24 0 0 1 3011.06 526.13" fill="none" stroke="url(#w-lin10)" stroke-width="6" stroke-linecap="round"/>
-  <circle cx="3011.06" cy="526.13" r="119" fill="url(#w-rad11)"/>
-  <circle cx="3011.06" cy="526.13" r="17" fill="#FBD693" fill-opacity="1"/>
-  <path d="M3633.29 1151.26A813.09 813.09 0 0 1 3424.82 1484.89" fill="none" stroke="url(#w-lin12)" stroke-width="3" stroke-linecap="round"/>
-  <image x="2662.14" y="614.56" width="386.2" height="480" href="../../../branding/boswas-os-mark.svg" opacity="0.14"/>
+  <path d="M2356.03 193.06A123.06 123.06 0 0 1 2602.15 193.06L2602.15 1329.93A123.06 123.06 0 0 1 2356.03 1329.93Z" fill="url(#w-lin7)" filter="url(#w-blur8)"/>
+  <path d="M2356.03 193.06A123.06 123.06 0 0 1 2602.15 193.06L2602.15 1329.93A123.06 123.06 0 0 1 2356.03 1329.93Z" fill="none" stroke="url(#w-lin9)" stroke-width="3"/>
+  <g fill="none" stroke="#E8E2D4"><circle cx="2860" cy="900" r="249.94" stroke-opacity="0.07" stroke-width="3"/><circle cx="2860" cy="900" r="354.91" stroke-opacity="0.06" stroke-width="3"/><circle cx="2860" cy="900" r="503.97" stroke-opacity="0.04" stroke-width="3"/><circle cx="2860" cy="900" r="715.64" stroke-opacity="0.03" stroke-width="3"/><circle cx="2860" cy="900" r="1016.21" stroke-opacity="0.02" stroke-width="3"/></g>
+  <path d="M2526.49 778.61A354.91 354.91 0 0 1 2992.95 570.93" fill="none" stroke="url(#w-lin10)" stroke-width="6" stroke-linecap="round"/>
+  <circle cx="2992.95" cy="570.93" r="119" fill="url(#w-rad11)"/>
+  <circle cx="2992.95" cy="570.93" r="17" fill="#FBD693" fill-opacity="1"/>
+  <path d="M3540.62 1121.15A715.64 715.64 0 0 1 3357.13 1414.79" fill="none" stroke="url(#w-lin12)" stroke-width="3" stroke-linecap="round"/>
+  <image x="2620" y="600" width="480" height="480" href="../../../branding/boswas-os-mark.svg" opacity="0.14"/>
 </svg>

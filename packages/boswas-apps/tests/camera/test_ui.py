@@ -178,6 +178,23 @@ class PhotoTest(CameraCase):
         self.assertEqual(len(self.files(self.photos)), 2)
         self.assertTrue(testing.wait_until(lambda: not window.viewfinder.is_flashing(), 3))
 
+    def test_the_shutter_flash_fades_at_the_refresh_rate_of_the_screen(self) -> None:
+        from unittest import mock
+
+        from PySide6.QtGui import QScreen
+        window = self.open()
+        levels = []
+        with mock.patch.object(QScreen, "refreshRate", lambda _screen: 144.0):
+            self.assertTrue(window.viewfinder.flash())
+            fade = window.viewfinder._animation
+            # The toolkit's animation, stepping once per refresh of the window's screen (Qt's own would step at 60 Hz).
+            self.assertIsInstance(fade, fluent.Animation)
+            self.assertEqual(fade.refresh_rate(), 144.0)
+            fade.valueChanged.connect(levels.append)
+            self.assertTrue(testing.wait_until(lambda: not window.viewfinder.is_flashing(), 3))
+        self.assertGreater(len(levels), 5, levels)
+        self.assertEqual(levels[-1], 0.0)
+
     def test_reduced_motion_and_sounds_off(self) -> None:
         fluent.manager().set_reduced_motion(True)
         self.addCleanup(lambda: fluent.manager().set_reduced_motion(None))

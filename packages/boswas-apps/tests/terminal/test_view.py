@@ -48,6 +48,14 @@ class ViewCase(testing.FluentTestCase):
 
 
 class Drawing(ViewCase):
+    def test_output_is_drawn_at_the_refresh_rate_of_the_screen(self):
+        view = self.view()
+        from unittest import mock
+        from boswas_apps.terminal import view as view_module
+        for rate, frame in ((60.0, 16), (144.0, 6), (240.0, 4)):
+            with mock.patch.object(view_module.fluent, "refresh_rate", return_value=rate):
+                self.assertEqual(view.frame_ms(), frame, rate)
+
     def test_grid_fits_the_widget(self):
         view = self.view(640, 360)
         cols, rows = view.grid_size()

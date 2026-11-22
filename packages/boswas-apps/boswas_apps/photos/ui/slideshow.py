@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import random
 
-from PySide6.QtCore import QRectF, QSize, Qt, QTimer, QVariantAnimation, Signal
+from PySide6.QtCore import QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QImage, QKeySequence, QPainter, QShortcut
 from PySide6.QtWidgets import QHBoxLayout, QWidget
 
@@ -34,7 +34,7 @@ class SlideshowPage(QWidget):
         self._current: QImage | None = None
         self._previous: QImage | None = None
         self._fade = 1.0
-        self._animation: QVariantAnimation | None = None
+        self._animation: fluent.Animation | None = None
         self._paused = False
         self._token = 0
         self._failures = 0
@@ -245,7 +245,7 @@ class SlideshowPage(QWidget):
         time = fluent.duration("slow") * FADE_FACTOR
         if time > 0 and self._previous is not None and self.isVisible():
             self._fade = 0.0
-            animation = QVariantAnimation(self)
+            animation = fluent.Animation(self)
             animation.setStartValue(0.0)
             animation.setEndValue(1.0)
             animation.setDuration(time)

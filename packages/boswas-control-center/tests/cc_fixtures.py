@@ -21,6 +21,7 @@ of the monorepo), so they run without PYTHONPATH.
 from __future__ import annotations
 
 import copy
+import gzip
 import json
 import os
 import struct
@@ -222,6 +223,72 @@ FLATPAK_SYSTEM_REMOTES = "flathub\thttps://dl.flathub.org/repo/\tsystem\n"
 FLATPAK_USER_APPS = "org.gimp.GIMP\tGNU Image Manipulation Program\t3.0.4\tflathub\n"
 FLATPAK_SEARCH = "org.videolan.VLC\tVLC\tVLC media player\t3.0.21\tflathub\n"
 
+# Canned answers of the places added with the categories (fonts, printers, VPN, permissions, packages, logind).
+FONT_LIST = ("Inter\tRegular\t/usr/share/fonts/truetype/inter/Inter-Regular.ttf\n"
+             "Inter\tBold\t/usr/share/fonts/truetype/inter/Inter-Bold.ttf\n"
+             "Noto Sans\tRegular\t/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf\n"
+             "Liberation Serif\tRegular\t/usr/share/fonts/truetype/liberation2/LiberationSerif-Regular.ttf\n"
+             "Hack\tRegular\t/usr/share/fonts/truetype/hack/Hack-Regular.ttf\n"
+             "Handwriting Demo\tRegular\t{home}/.local/share/fonts/HandwritingDemo.ttf\n"
+             "broken line without tabs\n")
+LPSTAT_E = "Office_Laser\nHome_Inkjet\n"
+LPSTAT_PD = ("printer Home_Inkjet is idle.  enabled since Sat 21 Nov 2026 09:00:00\n"
+             "printer Office_Laser disabled since Sat 21 Nov 2026 08:00:00 -\n\treason unknown\n"
+             "system default destination: Office_Laser\n")
+VPN_UUID = "5b2c7f2e-1d3a-4c55-9e0b-3f6a7d8e9a10"
+WG_UUID = "0c9d8e7f-6a5b-4c3d-2e1f-0a9b8c7d6e5f"
+NMCLI_CONNECTIONS = (f"Office VPN:{VPN_UUID}:vpn::no\n"
+                     f"wg-home:{WG_UUID}:wireguard:wg-home:yes\n"
+                     "Home\\:Net:11111111-2222-3333-4444-555555555555:802-11-wireless:wlp2s0:yes\n"
+                     "not a uuid:x:vpn::no\n")
+PERMISSIONS = ("devices\tcamera\torg.example.Meet\tyes\t0x00\n"
+               "location\tlocation\torg.example.Maps\tEXACT,1700000000\t\n"
+               "screenshot\tscreenshot\torg.example.Draw\tno\t\n"
+               "background\tbackground\torg.example.Meet\tyes\t\n"
+               "notifications\tnotification\t\tyes\t\n")
+# Debian packages of the fake desktop entries and their states (dpkg-query); cups is not installed.
+OWNERS = {"org.kde.kate.desktop": "kate", "org.kde.dolphin.desktop": "dolphin", "firefox-esr.desktop": "firefox-esr",
+          "com.boswas.CompatibilityManager.desktop": "boswas-compat-manager",
+          "com.boswas.ControlCenter.desktop": "boswas-control-center"}
+PACKAGE_STATES = {"kate": ("ii ", "24.12.3-1", 9000), "dolphin": ("ii ", "24.12.3-1", 12000),
+                  "firefox-esr": ("ii ", "140.5.0esr-1", 250000), "boswas-compat-manager": ("ii ", "3.0", 400),
+                  "boswas-control-center": ("ii ", "3.0", 2000), "7zip": ("ii ", "24.09+dfsg-4", 6000),
+                  "fonts-noto-color-emoji": ("ii ", "2.047-1", 11000), "flatpak": ("ii ", "1.16.1-1", 5000)}
+LOGIND = {"CanRebootToFirmwareSetup": "yes", "CanRebootToBootLoaderMenu": "na"}
+HISTORY_LOG = """Start-Date: 2026-11-01  10:00:00
+Commandline: apt-get install vlc
+Requested-By: alice (1000)
+Install: vlc:amd64 (3.0.21-1), vlc-bin:amd64 (3.0.21-1, automatic)
+End-Date: 2026-11-01  10:01:00
+
+Start-Date: 2026-11-03  06:12:01
+Commandline: /usr/bin/unattended-upgrade
+Upgrade: libssl3t64:amd64 (3.5.1-1, 3.5.1-1+deb13u1), openssl:amd64 (3.5.1-1, 3.5.1-1+deb13u1)
+End-Date: 2026-11-03  06:13:10
+"""
+HISTORY_LOG_OLD = """Start-Date: 2026-10-02  09:00:00
+Commandline: /usr/bin/apt-get -q -y remove gimp
+Requested-By: alice (1000)
+Remove: gimp:amd64 (3.0.4-1)
+End-Date: 2026-10-02  09:00:30
+"""
+
+
+def package_states(command: list[str]) -> "commands.Completed":
+    lines = []
+    for name in command[3:]:
+        status, version, size = PACKAGE_STATES.get(name, ("un ", "", 0))
+        if status.startswith("ii"):
+            lines.append(f"{name}\t{status}\t{size}\t{version}")
+    return completed("\n".join(lines) + "\n", 0 if len(lines) == len(command[3:]) else 1,
+                     "" if len(lines) == len(command[3:]) else "dpkg-query: no packages found matching some")
+
+
+def package_owners(command: list[str]) -> "commands.Completed":
+    lines = [f"{OWNERS[os.path.basename(path)]}: {path}" for path in command[2:] if os.path.basename(path) in OWNERS]
+    return completed("\n".join(lines) + "\n", 0 if lines else 1)
+
+
 ANDROID_STATUS = {
     "schema": "boswas-android/1",
     "runtime": {"installed": True, "version": "1.5.4", "repository": True},
@@ -310,6 +377,21 @@ class FakeCommands:
             (E["boswas-android"], "--json", "status"): completed(json.dumps(ANDROID_STATUS)),
             (E["boswas-android"], "--json", "app", "list"): completed(json.dumps(ANDROID_APPS)),
         })
+        home = str(Path(root).parent / "home" / "alice")
+        self.outputs.update({
+            (E["fc-list"], commands.FONT_LIST_FORMAT): completed(FONT_LIST.replace("{home}", home)),
+            (E["lpstat"], "-e"): completed(LPSTAT_E),
+            (E["lpstat"], "-p", "-d"): completed(LPSTAT_PD),
+            (E["nmcli"], "-t", "-f", "NAME,UUID,TYPE,DEVICE,ACTIVE", "connection", "show"): completed(NMCLI_CONNECTIONS),
+            (E["flatpak"], "permission-list"): completed(PERMISSIONS),
+            (E["systemctl"], "is-active", "bluetooth.service"): completed("active\n"),
+            (E["locale"], "-a"): completed("C\nC.utf8\nPOSIX\nde_DE.utf8\nen_US.utf8\n"),
+        })
+        for question, answer in LOGIND.items():
+            self.outputs[tuple(commands.logind_argv(question))] = completed(json.dumps({"type": "s",
+                                                                                        "data": [answer]}))
+        # Programs whose answer depends on the arguments: a function of the command.
+        self.handlers = {E["dpkg-query"]: lambda c: package_states(c) if c[1] == "-W" else package_owners(c)}
         self.ran: list[list[str]] = []
         self.started: list[list[str]] = []
         self.streamed: list[list[str]] = []
@@ -337,6 +419,8 @@ class FakeCommands:
             return completed(APT_SHELL)
         if command[:2] == [E["boswas-preset"], "apply"] or command == [E["boswas-preset"], "reset"]:
             return self.outputs.get(tuple(command), completed())
+        if tuple(command) not in self.outputs and command[0] in self.handlers:
+            return self.handlers[command[0]](command)
         return self.outputs.get(tuple(command), completed("", 1, "no canned output"))
 
     def converse(self, command: list[str], dialogue, timeout: float = 60.0) -> int:
@@ -384,8 +468,12 @@ class FakeCommands:
         """Run commands that change state (network, Flatpak, Android apps), as opposed to reads."""
         with self.lock:
             return [c for c in self.ran if c[:2] in ([E["nmcli"], "radio"], [E["nmcli"], "device"]) or
-                    (c[0] == E["flatpak"] and c[1] in ("install", "uninstall", "update", "remote-add")) or
-                    (c[0] == E["boswas-android"] and c[2:4] == ["app", "launch"])]
+                    (c[0] == E["nmcli"] and any(w in commands.NMCLI_CHANGE_WORDS for w in c[1:])) or
+                    (c[0] == E["flatpak"] and c[1] in ("install", "uninstall", "update", "remote-add",
+                                                       "permission-remove")) or
+                    (c[0] == E["boswas-android"] and c[2:4] == ["app", "launch"]) or
+                    c[0] in (E["hostnamectl"], E["lp"], E["fc-cache"]) or
+                    (c[0] == E["systemctl"] and c[1] == "reboot")]
 
     def ran_program(self, name: str) -> list[list[str]]:
         with self.lock:
@@ -503,6 +591,28 @@ def make_root(base: Path, live: bool = False, battery: bool = True, uu_log: bool
     if uu_log:
         write(root / "var/log/unattended-upgrades/unattended-upgrades.log", UU_LOG)
     write(root / "usr/share/boswas/compositor/version", "1.0~alpha3\n")
+    # The device: its name, kind and model; a camera (with its metadata node), CUPS, APT's history, network counters.
+    write(root / "etc/hostname", "alice-laptop\n")
+    dmi = root / "sys/class/dmi/id"
+    write(dmi / "chassis_type", "10\n")
+    write(dmi / "sys_vendor", "Example Computers\n")
+    write(dmi / "product_name", "Example Book 14\n")
+    write(dmi / "product_serial", "SECRET-PRODUCT-SERIAL\n")
+    usb_camera = root / "sys/devices/pci0000:00/0000:00:14.0/usb3/3-6/3-6:1.0"
+    usb_camera.mkdir(parents=True, exist_ok=True)
+    for node, name, index in (("video0", "Integrated Camera: Integrated C", "0"), ("video1", "Integrated Camera: "
+                                                                                             "Integrated C", "1")):
+        write(root / "sys/class/video4linux" / node / "name", name + "\n")
+        write(root / "sys/class/video4linux" / node / "index", index + "\n")
+        os.symlink(usb_camera, root / "sys/class/video4linux" / node / "device")
+    write(root / "usr/sbin/cupsd", "")
+    write(root / "var/log/apt/history.log", HISTORY_LOG)
+    write(root / "var/log/apt/history.log.1.gz", gzip.compress(HISTORY_LOG_OLD.encode()))
+    for device, received, sent, mac in (("wlp2s0", 1536000000, 204800000, "a0:b1:c2:d3:e4:f5"),
+                                        ("enp3s0", 0, 0, "00:11:22:33:44:55")):
+        write(root / "sys/class/net" / device / "statistics/rx_bytes", f"{received}\n")
+        write(root / "sys/class/net" / device / "statistics/tx_bytes", f"{sent}\n")
+        write(root / "sys/class/net" / device / "address", mac + "\n")
     # sysfs: an Ethernet controller without a driver, a GPU with one, a USB keyboard (serial numbers present but
     # never read), the ids databases and /proc/stat.
     pci = root / "sys/bus/pci/devices"
@@ -576,6 +686,18 @@ def make_xdg(base: Path) -> dict:
     write(user / "dolphin-hidden-override.desktop", DESKTOP + "Name=Override\nExec=x\nHidden=true\n")
     runtime = base / "run/user/1000"
     runtime.mkdir(parents=True, exist_ok=True)
+    # The home folder's cache, Trash and Downloads (old and new), and a font the user installed.
+    home = base / "home/alice"
+    write(home / ".cache/mozilla/firefox/cache2/entry1", b"x" * 300000)
+    write(home / ".cache/mozilla/firefox/cache2/entry2", b"x" * 200000)
+    write(home / ".cache/pip/http/wheel", b"x" * 120000)
+    write(home / ".local/share/Trash/files/old report.odt", b"x" * 50000)
+    write(home / ".local/share/Trash/info/old report.odt.trashinfo",
+          "[Trash Info]\nPath=/home/alice/Documents/old%20report.odt\nDeletionDate=2026-11-01T10:00:00\n")
+    old = write(home / "Downloads/installer-2025.iso", b"x" * 700000)
+    os.utime(old, (STAMP_TIME - 90 * 86400, STAMP_TIME - 90 * 86400))
+    write(home / "Downloads/today.pdf", b"x" * 1000)
+    write(home / ".local/share/fonts/HandwritingDemo.ttf", b"\x00\x01\x00\x00" + b"\x00" * 200)
     return {"HOME": str(base / "home/alice"), "XDG_DATA_DIRS": f"{base / 'usr/share'}", "LANG": "en_US.UTF-8",
             "PATH": "/usr/bin:/bin", "XDG_RUNTIME_DIR": str(runtime)}
 

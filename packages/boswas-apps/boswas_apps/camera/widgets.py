@@ -8,7 +8,7 @@ as on every camera.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPointF, QRect, QRectF, QSize, Qt, QVariantAnimation, Signal
+from PySide6.QtCore import QPointF, QRect, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QIcon, QIconEngine, QImage, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import QAbstractButton, QSizePolicy, QWidget
 
@@ -122,7 +122,7 @@ class Viewfinder(QWidget):
         self.badge = ""
         self.badge_live = False
         self._flash = 0.0
-        self._animation: QVariantAnimation | None = None
+        self._animation: fluent.Animation | None = None
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
         self.setMinimumSize(160, 120)
@@ -165,7 +165,7 @@ class Viewfinder(QWidget):
             return False
         if self._animation is not None:
             self._animation.stop()
-        animation = QVariantAnimation(self)
+        animation = fluent.Animation(self)
         animation.setStartValue(0.85)
         animation.setEndValue(0.0)
         animation.setDuration(duration)

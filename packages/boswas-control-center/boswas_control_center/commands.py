@@ -25,11 +25,24 @@ boswas-android only with a command of ANDROID_COMMANDS; gio only as ``gio
 launch <desktop entry>``; nmcli only for queries; ip only with the three
 read-only JSON queries of IP_QUERIES; timedatectl and localectl only with
 the subcommands and validated values of timedatectl_argv() and
-localectl_argv() (systemd's own services ask polkit for the changes).
+localectl_argv(), hostnamectl only to set the static host name
+(hostnamectl_argv()), systemctl only for the restarts and the one query of
+SYSTEMCTL_FORMS (systemd's own services ask polkit for the changes).
+
+nmcli changes only what nmcli_change_argv() builds: a connection up, down,
+deleted or imported from a file the user chose, an adapter connected or
+disconnected; NetworkManager asks polkit, and a VPN's secret is asked by
+NetworkManager's agent, never put on a command line. fc-list and fc-cache
+only in their fixed forms (the font list; the cache of the user's own font
+folder), lpstat only to list printers, lp only to print CUPS's own test page
+(TEST_PAGE) on a validated printer, dpkg-query only to read which package
+owns a file and which packages are installed, flatpak's permission store only
+to list and to remove one application's permission (permission_argv()).
 
 busctl only talks to AccountsService, with the methods and validated
 arguments of accounts_argv() (user names, numbers, a full name, a file
-path: never a password or a password hash). passwd is started without
+path: never a password or a password hash), and asks logind the two
+read-only questions of logind_argv(). passwd is started without
 arguments (the user's own password) on a pseudo-terminal by converse(),
 which types the answers of a conversation object and never keeps or logs
 what was typed or printed.
@@ -72,8 +85,15 @@ EXECUTABLES = {
     "flatpak": "/usr/bin/flatpak",                                # user installation and read-only queries
     "nmcli": "/usr/bin/nmcli",                                    # NetworkManager: queries only (-t)
     "lsblk": "/usr/bin/lsblk",                                    # disks (read-only, no serial numbers)
-    "systemctl": "/usr/bin/systemctl",                            # only `systemctl reboot`
+    "systemctl": "/usr/bin/systemctl",                            # only the forms of SYSTEMCTL_FORMS
     "pkexec": "/usr/bin/pkexec",                                  # only `pkexec SYSOPS <operation> ...`
+    "hostnamectl": "/usr/bin/hostnamectl",                        # systemd: the static host name (polkit)
+    "fc-list": "/usr/bin/fc-list",                                # fontconfig: the installed fonts (read-only)
+    "fc-cache": "/usr/bin/fc-cache",                              # fontconfig: the cache of the user's fonts
+    "lpstat": "/usr/bin/lpstat",                                  # cups-client: printers (read-only)
+    "lp": "/usr/bin/lp",                                          # cups-client: only CUPS's own test page
+    "dpkg-query": "/usr/bin/dpkg-query",                          # dpkg: owners of files, installed packages
+    "boswas-camera": "/usr/bin/boswas-camera",                    # Camera (boswas-apps)
 }
 ALLOWED_PATHS = frozenset(EXECUTABLES.values())
 
@@ -90,7 +110,8 @@ SYSOPS_OPERATIONS = frozenset({
 })
 PACKAGE_RE = re.compile(r"^[a-z0-9][a-z0-9+.-]{0,99}(:(amd64|i386|all))?$")
 # flatpak: read-only queries of both installations; changes only to the user's own installation.
-FLATPAK_SUBCOMMANDS = frozenset({"remotes", "list", "search", "remote-add", "install", "uninstall", "update"})
+FLATPAK_SUBCOMMANDS = frozenset({"remotes", "list", "search", "remote-add", "install", "uninstall", "update",
+                                 "permission-list"})
 FLATPAK_USER_ONLY = frozenset({"remote-add", "install", "uninstall", "update"})
 REMOTE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 MAX_PACKAGES = 50
@@ -112,6 +133,41 @@ ACCOUNTS_NAME_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 ACCOUNTS_METHODS = frozenset({"ListCachedUsers", "CreateUser", "DeleteUser", "GetAll", "SetRealName",
                               "SetAccountType", "SetIconFile", "SetLocked"})
 CONVERSE_TIMEOUT = 60.0
+
+# logind (busctl): the two questions the Recovery page asks, both read-only.
+LOGIND_SERVICE = "org.freedesktop.login1"
+LOGIND_PATH = "/org/freedesktop/login1"
+LOGIND_INTERFACE = "org.freedesktop.login1.Manager"
+LOGIND_QUESTIONS = frozenset({"CanRebootToFirmwareSetup", "CanRebootToBootLoaderMenu"})
+
+# systemctl: the only argument lists used. The restarts are asked by logind, which asks polkit.
+SYSTEMCTL_FORMS = frozenset({("reboot",), ("reboot", "--firmware-setup"), ("reboot", "--boot-loader-menu=0"),
+                             ("is-active", "bluetooth.service")})
+
+# hostnamectl: a static host name of 1-63 letters, digits and hyphens, not starting or ending with a hyphen.
+HOSTNAME_RE = re.compile(r"^(?!-)[A-Za-z0-9-]{1,63}(?<!-)$")
+
+# nmcli: the words that make a change; a query (-t) never contains one of them.
+NMCLI_CHANGE_WORDS = frozenset({"up", "down", "delete", "import", "connect", "disconnect", "modify", "add", "on",
+                                "off", "reload", "edit", "clone", "monitor", "load", "reapply", "set", "wifi-hotspot",
+                                "--show-secrets", "-s", "--ask", "-a", "rescan", "export"})
+NMCLI_UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+NMCLI_IMPORT_TYPES = frozenset({"openvpn", "wireguard"})
+IFNAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.@:-]{0,14}$")
+
+# fontconfig and CUPS.
+FONT_LIST_FORMAT = "--format=%{family[0]}\\t%{style[0]}\\t%{file}\\n"
+TEST_PAGE = "/usr/share/cups/data/testprint"
+PRINTER_RE = re.compile(r"^[A-Za-z0-9_.@][A-Za-z0-9_.@+-]{0,126}$")
+LPSTAT_FORMS = frozenset({("-e",), ("-p", "-d")})
+
+# dpkg-query: who owns a file (-S), and the state and size of packages (-W with this format).
+DPKG_STATUS_FORMAT = "--showformat=${Package}\\t${db:Status-Abbrev}\\t${Installed-Size}\\t${Version}\\n"
+MAX_DPKG_ARGS = 400
+
+# The flatpak permission store: table and object names as xdg-desktop-portal writes them.
+PERMISSION_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
+FLATPAK_APP_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*(\.[A-Za-z_][A-Za-z0-9_-]*){2,}$")
 
 # boswas-android commands (contract section 2): words after `boswas-android --json`.
 ANDROID_PACKAGE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$")
@@ -152,14 +208,22 @@ def argv(name: str, *args: str) -> list[str]:
         raise ValueError("apt-get is only ever run as a simulation (-s)")
     if name == "apt-cache" and (not args or args[0] not in ("search", "show", "policy")):
         raise ValueError("apt-cache is only used for search, show and policy")
-    if name == "nmcli" and (not args or args[0] != "-t"):
-        raise ValueError("nmcli is used for queries (-t) only")
+    if name == "nmcli" and (not args or args[0] != "-t" or any(a in NMCLI_CHANGE_WORDS for a in args)):
+        raise ValueError("nmcli is used for queries (-t) only; changes are built by nmcli_change_argv()")
     if name == "gio" and (len(args) != 2 or args[0] != "launch" or not _desktop_entry_path(args[1])):
         raise ValueError("gio is only used as `gio launch <absolute path of a desktop entry>`")
     if name == "ip" and tuple(args) not in IP_QUERIES:
         raise ValueError("ip is used for the read-only JSON queries of addresses and routes only")
     if name == "locale" and tuple(args) != ("-a",):
         raise ValueError("locale is only used as `locale -a`")
+    if name == "systemctl" and tuple(args) not in SYSTEMCTL_FORMS:
+        raise ValueError("systemctl is used for the restarts and the query of SYSTEMCTL_FORMS only")
+    if name == "fc-list" and tuple(args) != (FONT_LIST_FORMAT,):
+        raise ValueError("fc-list is only used with its fixed format")
+    if name == "lpstat" and tuple(args) not in LPSTAT_FORMS:
+        raise ValueError("lpstat is only used to list printers")
+    if name in ("hostnamectl", "fc-cache", "lp", "dpkg-query"):
+        raise ValueError(f"{name} is started only through its builder")
     if name in ("timedatectl", "localectl"):
         raise ValueError(f"{name} is started only through {name}_argv()")
     if name == "busctl":
@@ -264,6 +328,90 @@ def accounts_argv(method: str, *args, path: str | None = None) -> list[str]:
             ACCOUNTS_SERVICE, *target, *words]
 
 
+def logind_argv(question: str) -> list[str]:
+    """busctl ... call org.freedesktop.login1 ... CanRebootToFirmwareSetup | CanRebootToBootLoaderMenu (read-only)."""
+    if question not in LOGIND_QUESTIONS:
+        raise ValueError(f"logind {question!r} is not an allowed question")
+    return [EXECUTABLES["busctl"], "--system", "--json=short", "--timeout=10", "--", "call", LOGIND_SERVICE,
+            LOGIND_PATH, LOGIND_INTERFACE, question]
+
+
+def valid_hostname(name: object) -> bool:
+    """1-63 characters of A-Z, a-z, 0-9 and "-", not starting or ending with "-" (a static host name)."""
+    return isinstance(name, str) and bool(HOSTNAME_RE.fullmatch(name))
+
+
+def hostnamectl_argv(name: str) -> list[str]:
+    """hostnamectl --static set-hostname NAME: the static host name only (systemd-hostnamed asks polkit)."""
+    if not valid_hostname(name):
+        raise ValueError("a device name has 1-63 letters, digits and hyphens and does not start or end with one")
+    return [EXECUTABLES["hostnamectl"], "--static", "set-hostname", name]
+
+
+def nmcli_change_argv(*words: str) -> list[str]:
+    """nmcli connection up|down|delete uuid UUID, connection import type openvpn|wireguard file PATH, or
+    device connect|disconnect IFNAME. NetworkManager asks polkit; no secret is ever an argument."""
+    words = tuple(words)
+    ok = False
+    if len(words) == 4 and words[:2] in (("connection", "up"), ("connection", "down"), ("connection", "delete")):
+        ok = words[2] == "uuid" and isinstance(words[3], str) and bool(NMCLI_UUID_RE.fullmatch(words[3]))
+    elif len(words) == 6 and words[:3] == ("connection", "import", "type") and words[4] == "file":
+        path = words[5]
+        ok = (words[3] in NMCLI_IMPORT_TYPES and _plain(path) and os.path.isabs(path)
+              and ".." not in path.split("/") and not os.path.basename(path).startswith("-"))
+    elif len(words) == 3 and words[:2] in (("device", "connect"), ("device", "disconnect")):
+        ok = isinstance(words[2], str) and bool(IFNAME_RE.fullmatch(words[2]))
+    if not ok:
+        raise ValueError(f"nmcli {' '.join(map(str, words))!r} is not an allowed change")
+    return [EXECUTABLES["nmcli"], "-t", *words]
+
+
+def fc_cache_argv(directory: str) -> list[str]:
+    """fc-cache -f DIR, for the user's own font folder (an absolute path ending in /fonts)."""
+    if (not _plain(directory) or not os.path.isabs(directory) or ".." in directory.split("/")
+            or os.path.basename(directory.rstrip("/")) != "fonts"):
+        raise ValueError("fc-cache only refreshes the cache of the user's font folder")
+    return [EXECUTABLES["fc-cache"], "-f", directory]
+
+
+def valid_printer(name: object) -> bool:
+    return isinstance(name, str) and bool(PRINTER_RE.fullmatch(name))
+
+
+def lp_test_page_argv(printer: str) -> list[str]:
+    """lp -d PRINTER /usr/share/cups/data/testprint: CUPS's own test page, nothing else is ever printed."""
+    if not valid_printer(printer):
+        raise ValueError("not a printer name")
+    return [EXECUTABLES["lp"], "-d", printer, TEST_PAGE]
+
+
+def dpkg_query_argv(mode: str, *names: str) -> list[str]:
+    """dpkg-query -S PATH... (the packages that own these files) or dpkg-query -W -f=FORMAT PACKAGE... (read-only)."""
+    if not 1 <= len(names) <= MAX_DPKG_ARGS:
+        raise ValueError("dpkg-query needs 1 to 400 names")
+    if mode == "owners":
+        if not all(_plain(n) and os.path.isabs(n) and ".." not in n.split("/") for n in names):
+            raise ValueError("dpkg-query -S takes absolute paths")
+        return [EXECUTABLES["dpkg-query"], "-S", *names]
+    if mode == "status":
+        if not all(valid_package(n) for n in names):
+            raise ValueError("dpkg-query -W takes package names")
+        return [EXECUTABLES["dpkg-query"], "-W", DPKG_STATUS_FORMAT, *names]
+    raise ValueError(f"dpkg-query {mode!r} is not allowed")
+
+
+def valid_permission_name(name: object) -> bool:
+    return isinstance(name, str) and bool(PERMISSION_NAME_RE.fullmatch(name))
+
+
+def permission_remove_argv(table: str, ident: str, app_id: str) -> list[str]:
+    """flatpak permission-remove TABLE ID APP: take back what one application was allowed (the user's store)."""
+    if not (valid_permission_name(table) and valid_permission_name(ident) and isinstance(app_id, str)
+            and FLATPAK_APP_RE.fullmatch(app_id) and len(app_id) <= 255):
+        raise ValueError("not a permission of an application")
+    return [EXECUTABLES["flatpak"], "permission-remove", table, ident, app_id]
+
+
 def passwd_argv() -> list[str]:
     """passwd without arguments: it changes the password of the user who runs it, and asks on its terminal."""
     return [EXECUTABLES["passwd"]]
@@ -338,7 +486,10 @@ def _check(command: list[str]) -> None:
         _validate_sysops(command[2], tuple(command[3:]))
     if command[0] == EXECUTABLES["apt-get"] and (len(command) < 2 or command[1] != "-s"):
         raise ValueError("apt-get is only ever run as a simulation (-s)")
-    if command[0] == EXECUTABLES["busctl"]:
+    if command[0] == EXECUTABLES["busctl"] and len(command) == 10 and command[6] == LOGIND_SERVICE:
+        if command != logind_argv(command[9]):
+            raise ValueError("busctl only asks logind the questions of logind_argv()")
+    elif command[0] == EXECUTABLES["busctl"]:
         fixed = [command[0], "--system", "--json=short"]
         if (len(command) < 10 or command[:3] != fixed or not re.fullmatch(r"--timeout=[0-9]{1,3}", command[3])
                 or command[4:7] != ["--", "call", ACCOUNTS_SERVICE] or command[9] not in ACCOUNTS_METHODS
@@ -348,6 +499,31 @@ def _check(command: list[str]) -> None:
             raise ValueError("busctl only calls the account methods of accounts_argv()")
     if command[0] == EXECUTABLES["passwd"] and len(command) != 1:
         raise ValueError("passwd is only started without arguments (the own password)")
+    name, args = program_name(command), command[1:]
+    if command[0] == EXECUTABLES["nmcli"]:
+        try:
+            change = args[:1] == ["-t"] and any(a in NMCLI_CHANGE_WORDS for a in args)
+            expected = nmcli_change_argv(*args[1:]) if change else argv("nmcli", *args)
+        except ValueError:
+            expected = None
+        if command != expected:
+            raise ValueError("nmcli runs only the queries and the changes of nmcli_change_argv()")
+    elif command[0] == EXECUTABLES["hostnamectl"] and command != hostnamectl_argv(args[-1] if args else ""):
+        raise ValueError("hostnamectl only sets the static host name")
+    elif command[0] == EXECUTABLES["fc-cache"] and command != fc_cache_argv(args[-1] if len(args) == 2 else ""):
+        raise ValueError("fc-cache only refreshes the user's font folder")
+    elif command[0] == EXECUTABLES["lp"] and command != lp_test_page_argv(args[1] if len(args) == 3 else ""):
+        raise ValueError("lp only prints CUPS's test page")
+    elif command[0] == EXECUTABLES["dpkg-query"]:
+        mode = {"-S": "owners", "-W": "status"}.get(args[0] if args else "", "")
+        names = args[1:] if mode == "owners" else args[2:]
+        if not mode or command != dpkg_query_argv(mode, *names):
+            raise ValueError("dpkg-query only reads owners and package states")
+    elif command[0] == EXECUTABLES["flatpak"] and args[:1] == ["permission-remove"]:
+        if len(args) != 4 or command != permission_remove_argv(*args[1:]):
+            raise ValueError("flatpak permission-remove takes a table, an object and an application")
+    elif name in ("systemctl", "fc-list", "lpstat", "locale", "ip", "gio") and command != argv(name, *args):
+        raise ValueError(f"{name} is used in its fixed forms only")
 
 
 def _tail(text: str, limit: int = 400) -> str:

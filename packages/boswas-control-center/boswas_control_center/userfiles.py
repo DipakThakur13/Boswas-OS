@@ -3,16 +3,25 @@
   ~/Applications/<name>.AppImage                         AppImages the user added
   ~/.local/share/applications/boswas-appimage-<id>.desktop  their menu entries
   ~/.cache/thumbnails/                                   the thumbnail cache (cleanup)
-  <config>/boswas/compositor.toml                        the user layer of the compositor's settings
+  <config>/boswas/compositor.toml                        the user layer of the compositor's settings (accent too)
   <config>/boswas/compositor.toml.bak                    its previous content (kept while a change is tried)
-  <config>/boswas/appearance.toml                        the [appearance] table (colour scheme, accent, ...)
+  <config>/boswas/appearance.toml                        [appearance] scheme and wallpaper (boswas-preset's file)
   <config>/mimeapps.list                                 default applications
   <config>/autostart/<id>.desktop                        start-up applications and their overrides
   ~/.face                                                the account picture
   <data>/recently-used.xbel                              the list of recently used files (emptied)
+  <cache>/<item>                                         items of the cache folder the user picked (deleted)
+  <data>/Trash/files, <data>/Trash/info                  the user's Trash (emptied; downloads moved into it)
+  <Downloads>/<item>                                     items the user picked, moved to the Trash
+  <data>/fonts/<file>                                    fonts the user installed (added, removed)
 
 <config> is $XDG_CONFIG_HOME when that is an absolute path, else ~/.config;
-<data> is $XDG_DATA_HOME when that is an absolute path, else ~/.local/share.
+<data> is $XDG_DATA_HOME when that is an absolute path, else ~/.local/share;
+<cache> is $XDG_CACHE_HOME when that is an absolute path, else ~/.cache;
+<Downloads> is the Downloads folder of xdg-user-dirs (cleanup.downloads_dir).
+The storage cleanup and the fonts take names the person picked from a list
+this program showed, and each name is checked again here: one component, a
+direct child of its folder, never followed through a symbolic link.
 The settings files are written by write_config() and deleted by
 remove_config(), which accept the names of CONFIG_FILES (and
 autostart/<id>.desktop) only: the content replaces the file atomically (a
@@ -478,3 +487,229 @@ def clear_recent_files(environ) -> int:
     finally:
         os.close(dir_fd)
     return count
+
+
+# --- storage cleanup ------------------------------------------------------------------------------------------------
+
+def _remove_tree(path: str) -> int:
+    """Delete a file, a symbolic link (itself) or a folder with everything in it; returns the bytes freed."""
+    from . import cleanup
+    info = os.lstat(path)
+    if stat.S_ISDIR(info.st_mode):
+        size, _files = cleanup.measure(path)
+        shutil.rmtree(path)                   # the descriptor-based rmtree does not follow symbolic links
+        return size
+    os.unlink(path)
+    return info.st_size if stat.S_ISREG(info.st_mode) else 0
+
+
+def _child(directory: str | None, name: object) -> str:
+    """``directory``/``name`` for a name of one component that exists there; UserFileError otherwise."""
+    from . import cleanup
+    if directory is None or not cleanup.valid_name(name):
+        raise UserFileError("This item cannot be removed here.")
+    if os.path.islink(directory) or not os.path.isdir(directory):
+        raise UserFileError(f"{directory} is not a folder.")
+    path = os.path.join(directory, name)
+    if os.path.dirname(path) != directory or not os.path.lexists(path):
+        raise UserFileError(f"{name} is no longer there.")
+    if not _inside(os.path.dirname(path), directory):
+        raise UserFileError(f"{name} cannot be removed safely.")
+    return path
+
+
+def clear_cache_items(environ, names: list[str]) -> int:
+    """Delete the picked items of the cache folder; returns the bytes freed."""
+    from . import cleanup
+    directory = cleanup.cache_dir(environ)
+    if directory is not None:
+        directory = os.path.normpath(directory)
+    freed = 0
+    for name in names:
+        path = _child(directory, name)
+        try:
+            freed += _remove_tree(path)
+        except OSError as exc:
+            raise UserFileError(f"{name} could not be cleared ({_reason(exc)}).") from None
+    return freed
+
+
+def empty_trash(environ) -> int:
+    """Empty the user's Trash (files/, info/ and the size cache of the specification); returns the bytes freed."""
+    from . import cleanup
+    trash = cleanup.trash_dir(environ)
+    if trash is None or not os.path.isdir(trash):
+        return 0
+    if os.path.islink(trash):
+        raise UserFileError(f"{trash} is a symbolic link; it was not emptied.")
+    freed = 0
+    for part in ("files", "info"):
+        folder = os.path.join(trash, part)
+        if os.path.islink(folder):
+            raise UserFileError(f"{folder} is a symbolic link; it was not emptied.")
+        if not os.path.isdir(folder):
+            continue
+        for name in os.listdir(folder):
+            if name in (".", ".."):
+                continue
+            try:
+                freed += _remove_tree(os.path.join(folder, name))
+            except OSError as exc:
+                raise UserFileError(f"The Trash could not be emptied completely ({_reason(exc)}).") from None
+    sizes = os.path.join(trash, "directorysizes")
+    if os.path.isfile(sizes) and not os.path.islink(sizes):
+        try:
+            os.unlink(sizes)
+        except OSError:
+            pass
+    return freed
+
+
+def _trashinfo(original: str, when: float) -> bytes:
+    from urllib.parse import quote
+    import time as _time
+    stamp = _time.strftime("%Y-%m-%dT%H:%M:%S", _time.localtime(when))
+    return f"[Trash Info]\nPath={quote(original)}\nDeletionDate={stamp}\n".encode("utf-8")
+
+
+def trash_downloads(environ, names: list[str]) -> int:
+    """Move the picked items of the Downloads folder to the Trash (freedesktop Trash specification).
+
+    Each item gets its .trashinfo (original path, time) first, then is renamed into Trash/files; an item
+    whose name is taken there gets a number. Nothing is deleted. Returns how many were moved."""
+    import time as _time
+    from . import cleanup
+    downloads = cleanup.downloads_dir(environ)
+    trash = cleanup.trash_dir(environ)
+    if downloads is None or trash is None:
+        raise UserFileError("The Downloads folder or the Trash could not be found.")
+    files, info = os.path.join(trash, "files"), os.path.join(trash, "info")
+    for folder in (trash, files, info):
+        if os.path.islink(folder):
+            raise UserFileError(f"{folder} is a symbolic link; nothing was moved.")
+        os.makedirs(folder, mode=0o700, exist_ok=True)
+    moved = 0
+    for name in names:
+        path = _child(os.path.normpath(downloads), name)
+        target_name, number = name, 1
+        while True:
+            try:
+                descriptor = os.open(os.path.join(info, f"{target_name}.trashinfo"),
+                                     os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+                break
+            except FileExistsError:
+                number += 1
+                stem, dot, suffix = name.rpartition(".")
+                target_name = f"{stem}.{number}.{suffix}" if dot and stem else f"{name}.{number}"
+                if number > 999:
+                    raise UserFileError(f"{name} could not be moved to the Trash.") from None
+            except OSError as exc:
+                raise UserFileError(f"{name} could not be moved to the Trash ({_reason(exc)}).") from None
+        info_path = os.path.join(info, f"{target_name}.trashinfo")
+        try:
+            os.write(descriptor, _trashinfo(path, _time.time()))
+        finally:
+            os.close(descriptor)
+        try:
+            if os.path.lexists(os.path.join(files, target_name)):
+                raise OSError(17, "an item of that name is already in the Trash")
+            os.rename(path, os.path.join(files, target_name))
+        except OSError as exc:
+            try:
+                os.unlink(info_path)
+            except OSError:
+                pass
+            raise UserFileError(f"{name} could not be moved to the Trash ({_reason(exc)}).") from None
+        moved += 1
+    return moved
+
+
+# --- fonts the user installs ------------------------------------------------------------------------------------------
+
+FONT_DIR = "fonts"                      # below <data>
+MAX_FONT = 64 * 1024 * 1024
+FONT_MAGIC = {b"\x00\x01\x00\x00": (".ttf",), b"true": (".ttf",), b"OTTO": (".otf",), b"ttcf": (".ttc",)}
+FONT_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._+()-]{0,126}\.(ttf|otf|ttc|TTF|OTF|TTC)$")
+
+
+def font_dir(environ) -> str:
+    """The user's own font folder: <data>/fonts (fontconfig reads it)."""
+    return os.path.join(data_dir(environ), FONT_DIR)
+
+
+def font_kind(head: bytes) -> str:
+    """".ttf", ".otf" or ".ttc" from the first bytes of a font file; "" when it is none of them."""
+    suffixes = FONT_MAGIC.get(bytes(head[:4]))
+    return suffixes[0] if suffixes else ""
+
+
+def install_font(environ, source: str) -> str:
+    """Copy a TrueType, OpenType or collection file the user chose into the user's font folder; returns its path.
+
+    The file is opened without following a symbolic link, must be a regular file of at most MAX_FONT bytes
+    whose header is a font's, and keeps its name (with the suffix of its kind)."""
+    if not isinstance(source, str) or not os.path.isabs(source):
+        raise UserFileError("Choose a font file.")
+    try:
+        descriptor = os.open(source, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    except OSError as exc:
+        raise UserFileError(f"The file could not be opened ({_reason(exc)}).") from None
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode):
+            raise UserFileError("This is not a regular file.")
+        if info.st_size > MAX_FONT:
+            raise UserFileError(f"This file is larger than {MAX_FONT // (1024 * 1024)} MB; it is not a font.")
+        data = b""
+        while len(data) < info.st_size + 1 and len(data) <= MAX_FONT:
+            chunk = os.read(descriptor, 1024 * 1024)
+            if not chunk:
+                break
+            data += chunk
+    finally:
+        os.close(descriptor)
+    kind = font_kind(data[:4])
+    if not kind or len(data) < 64:
+        raise UserFileError("This file is not a TrueType or OpenType font (.ttf, .otf, .ttc).")
+    stem = os.path.splitext(os.path.basename(source))[0]
+    name = re.sub(r"[^A-Za-z0-9 ._+()-]+", "-", stem).strip(" .-")[:120] or "font"
+    name = f"{name}{kind}"
+    if not FONT_NAME_RE.fullmatch(name):
+        name = f"font{kind}"
+    directory = font_dir(environ)
+    parent = os.path.dirname(directory)
+    for folder in (parent, directory):
+        if os.path.islink(folder):
+            raise UserFileError(f"{folder} is a symbolic link; refusing to write through it.")
+        os.makedirs(folder, mode=0o755, exist_ok=True)
+    try:
+        dir_fd = os.open(directory, _DIR_FLAGS | os.O_NOFOLLOW)
+    except OSError as exc:
+        raise UserFileError(f"Your font folder cannot be used ({_reason(exc)}).") from None
+    try:
+        if _kind(name, dir_fd) != "missing":
+            raise UserFileError(f"A font file named {name} is already installed. Remove it first.")
+        _replace_file(dir_fd, name, data, 0o644, os.path.join(directory, name))
+    finally:
+        os.close(dir_fd)
+    return os.path.join(directory, name)
+
+
+def user_font(environ, path: object) -> bool:
+    """Whether ``path`` is a font file the user installed (below the user's font folder, not through a link)."""
+    if not isinstance(path, str) or not os.path.isabs(path) or "\0" in path:
+        return False
+    directory = os.path.normpath(font_dir(environ))
+    normal = os.path.normpath(path)
+    return (normal.startswith(directory + os.sep) and not os.path.islink(normal) and os.path.isfile(normal)
+            and _inside(normal, directory) and not os.path.islink(directory))
+
+
+def remove_font(environ, path: str) -> None:
+    """Delete a font the user installed (never a font of the system)."""
+    if not user_font(environ, path):
+        raise UserFileError("Only fonts you installed can be removed here; fonts of the system come with packages.")
+    try:
+        os.unlink(path)
+    except OSError as exc:
+        raise UserFileError(f"The font could not be removed ({_reason(exc)}).") from None

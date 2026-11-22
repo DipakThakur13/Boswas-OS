@@ -44,6 +44,9 @@ use crate::{
     state::{root_surface, Boswas, Under},
 };
 
+/// The magnifier's largest zoom (1600 %).
+pub const MAX_ZOOM: f64 = 16.0;
+
 const BTN_LEFT: u32 = 0x110;
 const BTN_RIGHT: u32 = 0x111;
 
@@ -159,6 +162,18 @@ pub enum Action {
     MenuKey(MenuKey),
     /// A key while a window is moved or resized from the keyboard.
     Adjust(AdjustKey),
+    /// Super+Plus, Super+Minus, Super+Esc: the magnifier.
+    Magnify(Zoom),
+    /// Super+Ctrl+C, where Settings allows it: the colour filter on or off.
+    ToggleColorFilter,
+}
+
+/// What a magnifier key does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Zoom {
+    In,
+    Out,
+    Off,
 }
 
 /// What a key does while the window switcher is open.
@@ -281,6 +296,7 @@ pub fn shortcut(mods: &ModifiersState, sym: Keysym, modified: Keysym, locked: bo
             keysyms::KEY_Right => Some(Action::SwitchDesktop { forward: true }),
             keysyms::KEY_d => Some(Action::NewDesktop),
             keysyms::KEY_F4 => Some(Action::CloseDesktop),
+            keysyms::KEY_c => Some(Action::ToggleColorFilter),
             _ => None,
         };
     }
@@ -301,6 +317,13 @@ pub fn shortcut(mods: &ModifiersState, sym: Keysym, modified: Keysym, locked: bo
         };
         if let Some(index) = digit {
             return Some(Action::TaskbarApp { index, shift: mods.shift });
+        }
+        // The magnifier: the key with + on it, with or without Shift.
+        match lower {
+            keysyms::KEY_plus | keysyms::KEY_equal | keysyms::KEY_KP_Add => return Some(Action::Magnify(Zoom::In)),
+            keysyms::KEY_minus | keysyms::KEY_KP_Subtract if !mods.shift => return Some(Action::Magnify(Zoom::Out)),
+            keysyms::KEY_Escape if !mods.shift => return Some(Action::Magnify(Zoom::Off)),
+            _ => {}
         }
         if mods.shift {
             return match lower {
@@ -769,10 +792,47 @@ impl Boswas {
     // Keyboard
     // ---------------------------------------------------------------------
 
-    /// A key was pressed or released. `keycode` is the XKB keycode (the
-    /// evdev code plus 8).
+    /// A key was pressed or released on a device. `keycode` is the XKB
+    /// keycode (the evdev code plus 8). Sticky and filter keys decide which
+    /// key events count (`keyaccess`).
     pub fn on_key(&mut self, keycode: u32, state: KeyState, time: u32) {
         self.note_activity();
+        let outcome = self.key_access.key(&self.config.keyboard, keycode, state == KeyState::Pressed, Instant::now());
+        self.key_access_outcome(outcome, time);
+    }
+
+    /// Delivers what sticky and filter keys let through, and comes back
+    /// when a held slow key is due.
+    fn key_access_outcome(&mut self, outcome: crate::keyaccess::Outcome, time: u32) {
+        for (code, pressed) in outcome.keys {
+            self.deliver_key(code, if pressed { KeyState::Pressed } else { KeyState::Released }, time);
+        }
+        if let Some(due) = outcome.wake {
+            let timer = smithay::reexports::calloop::timer::Timer::from_deadline(due);
+            let inserted = self.loop_handle.insert_source(timer, move |_, _, state| {
+                let outcome = state.key_access.due(&state.config.keyboard, Instant::now());
+                let time = state.start_time.elapsed().as_millis() as u32;
+                state.key_access_outcome(outcome, time);
+                smithay::reexports::calloop::timer::TimeoutAction::Drop
+            });
+            if inserted.is_err() {
+                tracing::warn!("slow keys: no timer; the key is let through at once");
+                let outcome = self.key_access.due(&self.config.keyboard, due);
+                self.key_access_outcome(outcome, time);
+            }
+        }
+    }
+
+    /// Lets go of the modifiers sticky keys holds down (it was turned off).
+    pub fn release_sticky_keys(&mut self) {
+        let time = self.start_time.elapsed().as_millis() as u32;
+        for (code, _) in self.key_access.release_all() {
+            self.deliver_key(code, KeyState::Released, time);
+        }
+    }
+
+    /// A key event that counts: shortcuts, then the focused client.
+    fn deliver_key(&mut self, keycode: u32, state: KeyState, time: u32) {
         let serial = SERIAL_COUNTER.next_serial();
         let keyboard = self.keyboard.clone();
         let locked = self.lock.locked;
@@ -837,7 +897,9 @@ impl Boswas {
                     return FilterResult::Intercept(Action::TaskView(key));
                 }
             }
-            match shortcut(mods, sym, modified, locked, inhibited) {
+            // Super+Ctrl+C only where Settings turned the shortcut on.
+            let allowed = |action: &Action| *action != Action::ToggleColorFilter || data.config.color_filter.shortcut;
+            match shortcut(mods, sym, modified, locked, inhibited).filter(allowed) {
                 Some(action) => {
                     data.suppressed_keys.insert(keycode);
                     FilterResult::Intercept(action)
@@ -890,6 +952,17 @@ impl Boswas {
             Action::Snap(direction) => {
                 if let Some(window) = focused {
                     let current = window.data().tile.get();
+                    if !self.config.multitasking.snap_windows {
+                        // Without snapping Super+Up and Super+Down still
+                        // maximize, restore and minimize; the sides do nothing.
+                        match direction {
+                            Direction::Up if current != Tile::Maximized => self.set_tile(&window, Tile::Maximized),
+                            Direction::Down if current == Tile::Floating => self.minimize_window(&window),
+                            Direction::Down => self.set_tile(&window, Tile::Floating),
+                            _ => {}
+                        }
+                        return;
+                    }
                     match snap_step(current, direction) {
                         // Already at that side: on to the next monitor, at
                         // the side facing the one it left.
@@ -947,7 +1020,29 @@ impl Boswas {
                 let command = self.config.apps.task_manager.clone();
                 self.spawn(&command);
             }
+            Action::Magnify(zoom) => self.magnify(zoom),
+            Action::ToggleColorFilter => {
+                self.color_filter_on = !self.color_filter_on;
+                self.schedule_redraw();
+            }
         }
+    }
+
+    /// The magnifier keys: Super+Plus starts it at the zoom of Settings or
+    /// enlarges by its step, Super+Minus reduces by the step (it stays on at
+    /// 100 %), Super+Esc ends it.
+    pub fn magnify(&mut self, zoom: Zoom) {
+        let step = f64::from(self.config.magnifier.step) / 100.0;
+        let start = (f64::from(self.config.magnifier.zoom) / 100.0).max(1.0 + step);
+        let current = self.magnifier_zoom;
+        self.magnifier_zoom = match zoom {
+            Zoom::In if current <= 1.0 && !self.magnifier_running => start,
+            Zoom::In => (current + step).min(MAX_ZOOM),
+            Zoom::Out => (current - step).max(1.0),
+            Zoom::Off => 1.0,
+        };
+        self.magnifier_running = zoom != Zoom::Off;
+        self.schedule_redraw();
     }
 
     /// Starts the interactive capture: the shell freezes the picture and
@@ -1126,9 +1221,11 @@ impl Boswas {
             let mut decoration = window.data().decoration.borrow_mut();
             decoration.hover = if hovered == Some(window.id()) { button } else { None };
         }
-        // Resting on a maximize button opens the snap layouts.
+        // Resting on a maximize button opens the snap layouts (unless
+        // Multitasking turned them off).
+        let layouts = self.config.multitasking.snap_windows && self.config.multitasking.snap_layouts_on_maximize;
         self.maximize_hover = match (hovered, button) {
-            (Some(id), Some(Button::Maximize)) => match self.maximize_hover {
+            (Some(id), Some(Button::Maximize)) if layouts => match self.maximize_hover {
                 Some((current, since)) if current == id => Some((current, since)),
                 _ => Some((id, Instant::now())),
             },
@@ -1439,6 +1536,24 @@ mod tests {
         let ctrl_shift = mods(false, false, true, true);
         assert_eq!(press(&ctrl_shift, keysyms::KEY_Escape), Some(Action::TaskManager));
         assert_eq!(press(&mods(false, false, false, false), keysyms::KEY_F11), Some(Action::Fullscreen));
+    }
+
+    #[test]
+    fn accessibility_shortcuts_take_free_keys() {
+        let logo = mods(true, false, false, false);
+        assert_eq!(press(&logo, keysyms::KEY_equal), Some(Action::Magnify(Zoom::In)));
+        assert_eq!(press(&logo, keysyms::KEY_KP_Add), Some(Action::Magnify(Zoom::In)));
+        assert_eq!(press(&mods(true, false, false, true), keysyms::KEY_equal), Some(Action::Magnify(Zoom::In)), "Super+Shift+= is Super+Plus");
+        assert_eq!(press(&logo, keysyms::KEY_minus), Some(Action::Magnify(Zoom::Out)));
+        assert_eq!(press(&logo, keysyms::KEY_KP_Subtract), Some(Action::Magnify(Zoom::Out)));
+        assert_eq!(press(&logo, keysyms::KEY_Escape), Some(Action::Magnify(Zoom::Off)));
+        let logo_ctrl = mods(true, false, true, false);
+        assert_eq!(press(&logo_ctrl, keysyms::KEY_c), Some(Action::ToggleColorFilter));
+        // Nothing else lost its key.
+        assert_eq!(press(&logo_ctrl, keysyms::KEY_d), Some(Action::NewDesktop));
+        assert_eq!(press(&mods(false, false, true, false), keysyms::KEY_c), None, "Ctrl+C is the application's");
+        assert_eq!(press(&mods(false, false, false, false), keysyms::KEY_Escape), None);
+        assert_eq!(press(&mods(true, false, false, true), keysyms::KEY_s), Some(Action::Capture { region: true }));
     }
 
     #[test]

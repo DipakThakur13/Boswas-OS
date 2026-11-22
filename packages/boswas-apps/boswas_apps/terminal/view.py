@@ -36,7 +36,7 @@ from .emulator import (BOLD, DEFAULT_ATTR, DIM, INVERSE, INVISIBLE, ITALIC, MOUS
                        OVERLINE, RGB, STRIKE, UNDERLINE_MASK, UNDERLINE_SHIFT, Terminal)
 from .wcwidth import clusters, wcwidth
 
-FRAME_MS = 16
+FRAME_MS = 16                    # the frame time when the screen reports no refresh rate
 SYNC_TIMEOUT = 0.15              # seconds a program may hold back drawing (synchronized output)
 PADDING = 8                      # logical pixels around the grid
 WHEEL_LINES = 3
@@ -437,7 +437,13 @@ class TerminalView(QWidget):
     def schedule_frame(self) -> None:
         if not self._frame_timer.isActive():
             elapsed = (time.monotonic() - self._last_frame) * 1000
-            self._frame_timer.start(max(0, int(FRAME_MS - elapsed)))
+            self._frame_timer.start(max(0, int(self.frame_ms() - elapsed)))
+
+    def frame_ms(self) -> int:
+        """Milliseconds between two redraws: one refresh of the screen the
+        terminal is on (16 at 60 Hz, 6 at 144 Hz), so output appears as
+        fast as the display shows it."""
+        return max(1, int(1000 / fluent.refresh_rate(self)))
 
     def flush(self) -> None:
         """Draw what is pending now (tests, screenshots)."""
@@ -451,7 +457,7 @@ class TerminalView(QWidget):
             if not self._sync_since:
                 self._sync_since = now
             if now - self._sync_since < SYNC_TIMEOUT:
-                self._frame_timer.start(FRAME_MS)
+                self._frame_timer.start(self.frame_ms())
                 return
         self._sync_since = 0.0
         self._last_frame = now

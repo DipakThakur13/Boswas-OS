@@ -34,18 +34,21 @@ TLS, exactly as listed in "Device agent messages" below.
 | Security events | Changes to identity files, sudoers, security config, kernel modules, clock | auditd log (root-only), max retention set by the journal policy | **Not forwarded** in 1.0~alpha3 (only the agent's own management and security events) | Local administrators |
 | Application inventory | Boswas packages and Windows apps | dpkg database; per-user WinCompat records (`~/.local/share/boswas/wine/<id>/app.json`) | Enrolled devices: application IDs, versions, statuses, states and installation **counts**, never user names | Control Plane operators |
 | User content | Documents, browser history, e-mail, files in /home | Never by Boswas OS | **Never** | Only the user (and company-approved backup, once defined) |
-| Private user activity | Keystrokes, screen contents, command lines, file reads | **Never** by the system. The desktop keeps two small records in the user's own home for the user's convenience (see [The desktop](#the-desktop-what-stays-in-the-users-home)) | **Never** | Nobody but the user |
+| Private user activity | Keystrokes, screen contents, command lines, file reads | **Never** by the system. The desktop keeps a few small records in the user's own home for the user's convenience (see [The desktop](#the-desktop-what-stays-in-the-users-home)) | **Never** | Nobody but the user |
 
 ## The desktop: what stays in the user's home
 
 The desktop shell (`boswas-shell`) writes these files in the user's home
-directory. Nothing reads them but the shell; the device agent does not,
-and its messages have closed field lists (below).
+directory. Nothing reads them but the shell and, for the list of
+notification senders, Control Center; the device agent does not, and its
+messages have closed field lists (below).
 
 | File | Content | Why |
 |------|---------|-----|
 | `~/.local/state/boswas/launcher-usage.json` | How often each application was started: an application ID and a count, no times | Ranks search results in Start and fills its list of the most used applications |
 | `~/.local/state/boswas/run-history.json` | The last 50 commands typed into the Run dialog | The arrow keys recall them |
+| `~/.local/state/boswas/notification-senders.json` | The applications that sent notifications: the name each gives itself, its icon and desktop entry, and when it last sent one; at most 100, never what a notification said | Settings > System > Notifications lists them, to turn their banners off (ADR-0049) |
+| `~/.local/state/boswas/apps-seen.json` | When each installed application was first seen | Start's "Recently added" (the last two weeks) |
 | `~/.config/boswas/shell.toml` | The applications pinned to the taskbar and to Start | The user's arrangement |
 
 Each is an ordinary file of the user and can be deleted; the shell reads
@@ -85,8 +88,14 @@ it when it starts.
 - **Snipping Tool** captures the screen only through the desktop's
   capture screen, where the user chooses the area and confirms; the
   pictures are saved where the user saves them.
-- **Settings** (Control Center) writes only the settings files listed in
-  `docs/experience/control-center.md`, all in the user's home.
+- **Settings** (Control Center) writes and deletes only the files listed
+  in `docs/experience/control-center.md`, all in the user's home: its
+  settings files, and, when the person asks, items of the cache folder,
+  the Trash, old downloads (moved to the Trash) and fonts. Diagnostics &
+  feedback says that Boswas OS collects no diagnostic data. The internet
+  troubleshooter (System > Troubleshoot) looks up `deb.debian.org` and
+  makes one HTTPS request to it, only when the person runs it and after
+  saying so; Debian's server sees the device's address.
 
 ## Windows applications (WinCompat)
 

@@ -41,12 +41,16 @@ if PYSIDE:
     from boswas_control_center.ui.tiles import ProgramTile
 
     fx.use_fake_bridge()                  # no test starts the real services bridge
-    # The pages with content of their own and those made of this package's own sections; Display and
-    # Devices appear with the compositor sections (ui/settings/display.py, input.py).
-    ALWAYS_PAGES = ("personalization", "network", "bluetooth", "sound", "power", "storage", "applications",
-                    "windows", "android",
-                    "security", "users", "updates",
-                    "privacy", "hardware", "system", "about")
+    # The places with content of their own and those made of this package's own sections; Display and the
+    # input pages appear with the compositor sections (ui/settings/display.py, input.py).
+    ALWAYS_PAGES = ("home", "system", "devices", "network", "personalization", "apps", "accounts", "time-language",
+                    "accessibility", "privacy-security", "updates",
+                    "sound", "power", "storage", "troubleshoot", "recovery", "about", "bluetooth", "printers",
+                    "cameras", "usb", "hardware", "wifi", "ethernet", "vpn", "airplane", "proxy", "advanced-network",
+                    "background", "colours", "themes", "fonts", "installed-apps", "applications", "default-apps",
+                    "startup", "optional-features", "windows", "android", "users", "work", "date-time", "region",
+                    "visual-effects", "security", "lock-screen", "app-permissions", "recent-files", "privacy",
+                    "update-history", "update-options")
 
     APP = QApplication.instance() or QApplication(["test"])
 
@@ -103,9 +107,11 @@ class UiTestCase(unittest.TestCase):
 
     @staticmethod
     def settle(window) -> None:
+        from boswas_fluent.worker import shared_worker
         for _ in range(3):
             if not window.runner.wait(15):
                 raise AssertionError("backend calls did not finish")
+            shared_worker().wait(15)                      # the settings sections read on the toolkit's worker
             QCoreApplication.processEvents()
 
     def show(self, window, key: str):
@@ -122,11 +128,15 @@ class UiTestCase(unittest.TestCase):
 class NavigationTest(UiTestCase):
     def test_sidebar_order_and_default_page(self):
         w = self.window()
-        self.assertEqual(self.sidebar_keys(w, visible_only=False), list(catalog.PAGE_KEYS))
+        self.assertEqual(self.sidebar_keys(w, visible_only=False), list(catalog.CATEGORY_KEYS))
         self.assertEqual([w.sidebar.item(i).text() for i in range(4)],
-                         ["Personalization", "Network", "Bluetooth", "Display"])
-        self.assertEqual(w.current_page(), "personalization")
-        self.assertEqual(w.windowTitle(), "Personalization — Boswas Control Center")
+                         ["Home", "System", "Bluetooth & devices", "Network & internet"])
+        self.assertEqual(self.sidebar_keys(w)[-1], "updates")
+        self.assertEqual([w.sidebar.item(i).text() for i in range(w.sidebar.count())][-3:],
+                         ["Accessibility", "Privacy & security", "Boswas Update"])
+        self.assertEqual(w.current_page(), "home")
+        self.assertEqual(w.windowTitle(), "Home — Boswas Control Center")
+        self.assertEqual(w.crumbs.items(), ["Home"])
 
     def test_every_page_builds(self):
         w = self.window()
@@ -134,35 +144,120 @@ class NavigationTest(UiTestCase):
         for key in shown:
             page = self.show(w, key)
             self.assertEqual(w.current_page(), key)
-            self.assertIs(w.stack.currentWidget(), w.holders[key])
+            category = catalog.category_of(key)
+            self.assertIs(w.stack.currentWidget(), w.holders[category])
+            self.assertIs(w.holders[category].currentWidget(), page)
+            self.assertEqual(w.navigation.current(), category)
             self.assertEqual(page.heading.text(), catalog.BY_KEY[key].heading)
+            self.assertEqual(w.crumbs.items(), list(catalog.path(key)))
         self.assertEqual(set(w.pages), set(shown))
-        # The pages with content of their own, and those of this engineer's sections, are always there.
+        # The places with content of their own, and those of this package's sections, are always there.
         for key in ALWAYS_PAGES:
             self.assertIn(key, shown)
 
+    def test_a_category_lists_its_pages_as_cards(self):
+        w = self.window()
+        page = self.show(w, "system")
+        self.assertEqual(page.subpages.visible_keys(), ["display", "sound", "notifications", "power", "storage",
+                                                        "multitasking", "troubleshoot", "recovery", "about"])
+        # (Install: live sessions only.)
+        card = page.subpages.card("display")
+        self.assertEqual(card.title(), "Display")
+        self.assertEqual(card.description(), catalog.BY_KEY["display"].card_text)
+        self.assertTrue(card.is_clickable())
+        card.click()
+        self.settle(w)
+        self.assertEqual(w.current_page(), "display")
+        self.assertEqual(w.crumbs.items(), ["System", "Display"])
+        self.assertEqual(w.windowTitle(), "Display — Boswas Control Center")
+        for category in catalog.CATEGORIES:
+            page = self.show(w, category.key)
+            if page.subpages is None:
+                continue
+            for key in page.subpages.visible_keys():
+                self.assertEqual(catalog.BY_KEY[key].parent, category.key)
+                self.assertTrue(w.page_available(key), key)
+
+    def test_breadcrumb_and_back(self):
+        w = self.window()
+        self.assertFalse(w.back_button.isEnabled())                      # nothing to go back to
+        self.show(w, "network")
+        self.show(w, "vpn")
+        self.assertEqual(w.crumbs.items(), ["Network & internet", "VPN"])
+        self.assertTrue(w.back_button.isEnabled())
+        w.crumbs.item_clicked.emit(0)                                    # the category's crumb
+        self.settle(w)
+        self.assertEqual(w.current_page(), "network")
+        self.show(w, "display")                                          # another category's page
+        self.assertEqual(w.navigation.current(), "system")
+        w.back_button.click()
+        self.settle(w)
+        self.assertEqual(w.current_page(), "network")
+        w.go_back()
+        self.settle(w)
+        self.assertEqual(w.current_page(), "vpn")
+        w.history.clear()
+        w.go_back()                                                      # no history: a page goes to its category
+        self.settle(w)
+        self.assertEqual(w.current_page(), "network")
+
+    def test_pane_click_returns_to_the_category_page(self):
+        w = self.window()
+        self.show(w, "fonts")
+        item = w.navigation.item("personalization")
+        w.sidebar.itemClicked.emit(item)
+        self.settle(w)
+        self.assertEqual(w.current_page(), "personalization")
+
     def test_pages_are_built_lazily(self):
         w = self.window()
-        self.assertEqual(set(w.pages), {"personalization"})
+        self.assertEqual(set(w.pages), {"home"})
         self.assertEqual(self.rig.commands.ran_program("boswas"), [])          # security not read yet
         self.show(w, "security")
         self.assertEqual(len(self.rig.commands.ran_program("boswas")), 1)
+        self.assertNotIn("privacy-security", w.pages)                   # a page is built without its category
 
     def test_page_option(self):
-        for key in ("security", "applications", "updates", "about"):
+        for key in ("security", "applications", "updates", "about", "vpn", "privacy-security"):
             w = self.window(page=key)
             self.assertEqual(w.current_page(), key, key)
+
+    def test_earlier_page_names_lead_to_the_new_places(self):
+        """Every --page of the shell and the desktop entries still works; sections are found where they moved."""
+        w = self.window()
+        for key, section, place in (("system", "date-time", "date-time"), ("system", "region-language", "region"),
+                                    ("network", "wi-fi", "wifi"), ("network", "proxy", "proxy"),
+                                    ("network", "connection-details", "advanced-network"),
+                                    ("network", "other-connections", "ethernet"), ("devices", "keyboard", "keyboard"),
+                                    ("devices", "mouse", "mouse"), ("security", "lock-screen", "lock-screen"),
+                                    ("personalization", "colour-mode", "colours"),
+                                    ("personalization", "motion", "visual-effects"),
+                                    ("applications", "default-applications", "default-apps"),
+                                    ("applications", "start-up-applications", "startup"),
+                                    ("privacy", "recent-files", "recent-files"), ("display", "night-light", "display"),
+                                    ("network", "no-such-section", "network")):
+            w.handle_arguments(["--page", key, "--section", section])
+            self.settle(w)
+            self.assertEqual(w.current_page(), place, (key, section))
+        for key, place in (("system", "system"), ("network", "network"), ("devices", "devices"),
+                           ("personalization", "personalization"), ("privacy", "privacy"), ("security", "security"),
+                           ("users", "users"), ("updates", "updates"), ("hardware", "hardware"), ("sound", "sound"),
+                           ("bluetooth", "bluetooth"), ("power", "power"), ("storage", "storage"),
+                           ("applications", "applications"), ("windows", "windows"), ("android", "android"),
+                           ("about", "about"), ("display", "display")):
+            w.handle_arguments(["--page", key])
+            self.settle(w)
+            self.assertEqual(w.current_page(), place, key)
 
     def test_keyboard_navigation(self):
         w = self.window()
         w.sidebar.setFocus()
         key_click(w.sidebar, Qt.Key.Key_Down)
         self.settle(w)
-        following = [key for key in catalog.PAGE_KEYS[1:] if w.page_available(key)][0]
-        self.assertEqual(w.current_page(), following)
+        self.assertEqual(w.current_page(), "system")
         key_click(w.sidebar, Qt.Key.Key_End)
         self.settle(w)
-        self.assertEqual(w.current_page(), "about")          # Install is hidden outside a live session
+        self.assertEqual(w.current_page(), "updates")
 
     def test_refresh_reloads_the_current_page(self):
         w = self.window(page="security")
@@ -181,11 +276,116 @@ class NavigationTest(UiTestCase):
         self.assertEqual(w.current_page(), "applications")
         self.assertIs(QApplication.focusWidget() or w.page("applications").search, w.page("applications").search)
 
+    def test_narrow_window_uses_the_compact_pane(self):
+        w = self.window(page="display")
+        w.show()
+        w.resize(640, 720)
+        QCoreApplication.processEvents()
+        self.settle(w)
+        self.assertTrue(w.navigation.is_compact())
+        self.assertEqual(w.crumbs.items(), ["System", "Display"])
+        w.resize(1100, 720)
+        QCoreApplication.processEvents()
+        self.assertFalse(w.navigation.is_compact())
+
+
+class SearchTest(UiTestCase):
+    def search(self, w, text: str) -> list:
+        w.navigation.search_box.setText(text)
+        QCoreApplication.processEvents()
+        return w.results.titles()
+
+    def test_results_list_categories_pages_sections_and_settings(self):
+        w = self.window()
+        titles = self.search(w, "night light")
+        self.assertEqual(titles[0], "Night light")
+        self.assertIs(w.stack.currentWidget(), w.results)
+        self.assertEqual(w.crumbs.items(), ["Search results"])
+        self.assertIn("System", self.search(w, "system"))
+        self.assertIn("Rename this device", self.search(w, "rename"))
+        self.assertIn("VPN", self.search(w, "wireguard"))
+        self.assertIn("Fonts", self.search(w, "font"))
+        self.assertEqual(self.search(w, "zebra crossing"), [])
+        self.assertFalse(w.results.empty.isHidden())
+        self.assertNotIn("Install Boswas OS", self.search(w, "install boswas"))          # live sessions only
+
+    def test_a_result_opens_its_place_and_section(self):
+        w = self.window()
+        self.search(w, "dark mode")
+        w.results.rows[0].click()
+        self.settle(w)
+        self.assertEqual(w.current_page(), "colours")
+        self.assertEqual(w.navigation.search_box.text(), "")
+        self.assertIs(w.stack.currentWidget(), w.holders["personalization"])
+        self.search(w, "date")
+        w._search_submitted("date")                                     # Enter: the best result
+        self.settle(w)
+        self.assertEqual(w.current_page(), "date-time")
+
+    def test_clearing_the_search_returns_to_the_place(self):
+        w = self.window(page="vpn")
+        self.search(w, "printer")
+        self.assertIs(w.stack.currentWidget(), w.results)
+        self.search(w, "")
+        self.assertIs(w.stack.currentWidget(), w.holders["network"])
+        self.assertEqual(w.crumbs.items(), ["Network & internet", "VPN"])
+
+
+class HomeTest(UiTestCase):
+    def test_the_device_and_the_tiles(self):
+        w = self.window()
+        page = w.page("home")
+        self.assertEqual(page.hero.name.text(), "alice-laptop")
+        self.assertIn("Example Computers Example Book 14", page.hero.model.text())
+        self.assertIn("Laptop", page.hero.model.text())
+        self.assertTrue(page.hero.updates.description().startswith("Automatic security updates are on"))
+        self.assertIn("used of", page.storage_text.text())
+        self.assertFalse(page.storage_bar.isHidden())
+        self.assertIn("Theme:", page.look_text.text())
+        self.assertEqual(self.rig.commands.privileged(), [])
+        page.hero.updates.click()
+        self.settle(w)
+        self.assertEqual(w.current_page(), "updates")
+
+    def test_network_and_bluetooth_from_the_bridge(self):
+        from boswas_control_center import servicebridge as sb
+        from boswas_control_center.ui import bridgeclient
+        w = self.window()
+        page = w.page("home")
+        bridge = bridgeclient.for_widget(page)
+        bridge.set_state(sb.NETWORK, sb.NetworkState(available=True, wifi_present=True, wifi_enabled=True,
+                                                     wifi_connected="Home Net", connectivity="full"))
+        bridge.set_state(sb.BLUETOOTH, sb.BluetoothState(available=True, enabled=True, devices=(
+            sb.BluetoothDevice("AA:BB:CC:DD:EE:01", "Headphones", "audio-headphones", True, True, False, 70),)))
+        QCoreApplication.processEvents()
+        self.assertEqual(page.hero.network.title(), "Home Net")
+        self.assertEqual(page.hero.network.key, "wifi")
+        self.assertTrue(page.bluetooth_text.isHidden())
+        bridge.set_state(sb.BLUETOOTH, sb.BluetoothState(available=True, enabled=False))
+        QCoreApplication.processEvents()
+        self.assertEqual(page.bluetooth_text.text(), "Bluetooth is off.")
+        page.bluetooth_card.link.click()
+        self.settle(w)
+        self.assertEqual(w.current_page(), "bluetooth")
+
+    def test_rename_goes_to_about(self):
+        w = self.window()
+        page = w.page("home")
+        page.hero.rename_button.click()
+        self.settle(w)
+        self.assertEqual(w.current_page(), "about")
+        section = w.page("about").section("device-name")
+        self.assertIsNotNone(section.dialog)
+        section.dialog.reject()
+        self.settle(w)
+        self.assertEqual(self.rig.commands.ran_program("hostnamectl"), [])
+
 
 class LiveSessionTest(UiTestCase):
     def test_install_hidden_when_not_live(self):
         w = self.window(page="install")
         self.assertNotIn("install", self.sidebar_keys(w))
+        self.assertNotIn("install", self.show(w, "system").subpages.visible_keys())
         self.assertTrue(w.header.live_badge.isHidden())
         self.assertNotEqual(w.current_page(), "install")
         self.assertIn("only in a live session", w.message.text.text())
@@ -202,7 +402,7 @@ class LiveTest(UiTestCase):
 
     def test_install_shown_when_live(self):
         w = self.window(page="install")
-        self.assertIn("install", self.sidebar_keys(w))
+        self.assertIn("install", w.page("system").subpages.visible_keys())
         self.assertFalse(w.header.live_badge.isHidden())
         self.assertEqual(w.current_page(), "install")
         page = w.page("install")
@@ -239,8 +439,11 @@ class LiveTest(UiTestCase):
 
 
 class PersonalizationTest(UiTestCase):
+    def window(self, page: str | None = "themes"):
+        return super().window(page)
+
     def cards(self, w):
-        return {card.preset.id: card for card in w.page("personalization").cards}
+        return {card.preset.id: card for card in w.page("themes").cards}
 
     def test_gallery(self):
         w = self.window()
@@ -256,7 +459,7 @@ class PersonalizationTest(UiTestCase):
     def test_no_panel_layout_option(self):
         """A preset changes colours and wallpaper; the page offers nothing about panels."""
         w = self.window()
-        page = w.page("personalization")
+        page = w.page("themes")
         self.assertFalse(hasattr(page, "layout_box"))
         texts = [box.text() for box in page.findChildren(QCheckBox)] + \
                 [button.text() for button in page.findChildren(QPushButton)]
@@ -270,7 +473,7 @@ class PersonalizationTest(UiTestCase):
         self.assertEqual(self.rig.commands.ran_program("boswas-preset")[-2],
                          [E["boswas-preset"], "apply", "boswas-light"])
         self.assertEqual(self.questions, [])                               # applying asks nothing
-        self.assertEqual(w.page("personalization").banner.level, "ok")
+        self.assertEqual(w.page("themes").banner.level, "ok")
         self.assertEqual(self.rig.commands.ran_program("boswas-preset")[-1], [E["boswas-preset"], "--json", "list"])
 
     def test_apply_never_passes_a_second_argument(self):
@@ -293,7 +496,7 @@ class PersonalizationTest(UiTestCase):
                 self.rig.environ["XDG_CURRENT_DESKTOP"] = desktop
             with self.subTest(desktop=desktop):
                 w = self.window()
-                page = w.page("personalization")
+                page = w.page("themes")
                 self.assertTrue(page.reset_button.isEnabled())
                 self.assertIn(vm.DEFAULT_LOOK, page.reset_button.toolTip())
                 self.assertIn(vm.DEFAULT_LOOK, page.reset_button.accessibleDescription())
@@ -317,7 +520,7 @@ class PersonalizationTest(UiTestCase):
         self.rig.commands.outputs[(E["boswas-preset"], "reset")] = fx.completed(
             "", 1, "boswas-preset: step 'colours' failed: /home/u/.config/kdeglobals is a symbolic link")
         w = self.window()
-        page = w.page("personalization")
+        page = w.page("themes")
         page.reset_button.click()
         self.settle(w)
         self.assertEqual(page.banner.level, "error")
@@ -328,7 +531,7 @@ class PersonalizationTest(UiTestCase):
     def test_reset_needs_the_preset_tool(self):
         self.rig.commands.outputs[(E["boswas-preset"], "--json", "list")] = fx.completed("", 1, "no presets file")
         w = self.window()
-        page = w.page("personalization")
+        page = w.page("themes")
         self.assertFalse(page.reset_button.isEnabled())
         self.assertIn("not available", page.reset_button.toolTip())
         page.reset_to_default()
@@ -341,7 +544,7 @@ class PersonalizationTest(UiTestCase):
         w = self.window()
         self.cards(w)["classic"].apply.click()
         self.settle(w)
-        banner = w.page("personalization").banner
+        banner = w.page("themes").banner
         self.assertEqual(banner.level, "error")
         self.assertIn("theme missing", banner.text.text())
         self.assertTrue(self.cards(w)["classic"].apply.isEnabled())
@@ -349,7 +552,7 @@ class PersonalizationTest(UiTestCase):
     def test_presets_unavailable(self):
         self.rig.commands.installed.discard(E["boswas-preset"])
         w = self.window()
-        page = w.page("personalization")
+        page = w.page("themes")
         self.assertEqual(page.cards, [])
         self.assertIn("not available", page.status.text())
         self.assertIsNone(page.programs)                                   # no program rows on this page
@@ -416,7 +619,7 @@ class ProgramTest(UiTestCase):
             page = self.show(w, key)
             self.assertEqual([t.program for t in page.programs.tiles], list(info.programs), key)
             offered += len(info.programs)
-        self.assertEqual(offered, 1)
+        self.assertEqual(offered, 2)                         # Files on Storage, the Camera on Cameras
         # The Compatibility Manager is opened by the Windows page's own button.
         page = self.show(w, "windows")
         page.open_button.click()
@@ -556,8 +759,8 @@ class StatusPagesTest(UiTestCase):
         power = self.show(w, "power")
         self.assertFalse(hasattr(power, "battery_rows"))    # the battery is a settings section now (sound_power)
 
-    def test_system_page(self):
-        page = self.show(self.window(), "system")
+    def test_work_page(self):
+        page = self.show(self.window(), "work")
         self.assertEqual(page.grid.value("Device ID"), fx.AGENT["device_id"])
         self.assertIsNone(page.programs)
 
@@ -565,6 +768,8 @@ class StatusPagesTest(UiTestCase):
         w = self.window()
         page = self.show(w, "about")
         self.assertEqual(page.name.text(), "Boswas OS")
+        self.assertEqual(page.grid.value("Device name"), "alice-laptop")
+        self.assertEqual(page.grid.value("Device"), "Example Computers Example Book 14 (Laptop)")
         self.assertEqual(page.grid.value("Version"), "v1 Alpha (1.0~alpha3)")
         self.assertEqual(page.grid.value("Desktop"), "Boswas Desktop 1.0~alpha3")
         self.assertEqual(page.grid.value("Session"), "Installed")

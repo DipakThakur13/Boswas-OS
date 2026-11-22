@@ -105,15 +105,22 @@ def is_navy(r: int, g: int, b: int) -> bool:
 
 
 def is_gold(r: int, g: int, b: int) -> bool:
-    """Boswas gold family (the mark, accents, selections)."""
+    """Warm gold and sun (the dot of the Boswas OS mark)."""
     return r >= 120 and r - b >= 40 and g - b >= 20
+
+
+def is_mark(r: int, g: int, b: int) -> bool:
+    """The colours of the Boswas OS mark and of the artwork that names the
+    product: its azure, sky and iris blues (also the boot menu's selection and
+    the installer banner's rule) and the sun of its dot."""
+    return (b >= 160 and b - r >= 70 and b - g >= 20) or is_gold(r, g, b)
 
 
 def analyse(path: Path, region: tuple[int, int, int, int] | None = None) -> dict:
     """Palette statistics on a sample of pixels (optionally of a region x0, y0, x1, y1)."""
     w, h, px = read_ppm(path)
     x0, y0, x1, y1 = region or (0, 0, w, h)
-    total = black = navy = gold = 0
+    total = black = navy = gold = mark = 0
     luma_sum = 0
     step = 7 if region is None else 1
     for y in range(max(0, y0), min(h, y1)):
@@ -126,9 +133,10 @@ def analyse(path: Path, region: tuple[int, int, int, int] | None = None) -> dict
             black += luma < 8
             navy += is_navy(r, g, b)
             gold += is_gold(r, g, b)
+            mark += is_mark(r, g, b)
     total = total or 1
     return {"w": w, "h": h, "black": black / total, "navy": navy / total, "gold": gold / total,
-            "luma": luma_sum / total}
+            "mark": mark / total, "luma": luma_sum / total}
 
 
 def is_iris(r: int, g: int, b: int) -> bool:
@@ -137,10 +145,10 @@ def is_iris(r: int, g: int, b: int) -> bool:
 
 
 def boswas_screen(stats: dict) -> bool:
-    """A Boswas-branded screen: a dark blue-black background (the boot menu's
-    navy, the boot screen's ink) dominates and the gold of the mark is
-    present."""
-    return stats["navy"] > 0.45 and stats["gold"] > 0.0008 and stats["black"] < 0.5
+    """A Boswas-branded screen: a dark background with a cool tint (the boot
+    menu's and the boot screen's neutral.950) dominates and the colours of the
+    mark are present."""
+    return stats["navy"] > 0.45 and stats["mark"] > 0.0008 and stats["black"] < 0.5
 
 
 def passphrase_prompt(path: Path) -> bool:
@@ -157,11 +165,11 @@ def passphrase_prompt(path: Path) -> bool:
 
 def desktop_screen(path: Path) -> bool:
     """The Boswas desktop: its background plus the panel along the bottom,
-    whose launcher shows the gold Boswas mark (the boot screen has an empty
+    whose launcher shows the Boswas mark (the boot screen has an empty
     bottom edge)."""
     stats = analyse(path)
     panel = analyse(path, (0, stats["h"] - 64, stats["w"], stats["h"]))
-    return stats["black"] < 0.6 and stats["navy"] > 0.3 and panel["gold"] > 0.0015
+    return stats["black"] < 0.6 and stats["navy"] > 0.3 and panel["mark"] > 0.0015
 
 
 def difference(a: Path, b: Path) -> float:
@@ -379,7 +387,7 @@ def scenario_uefi(iso: Path, workdir: Path, outdir: Path, timeout: float) -> Non
         start = time.time()
         menu = None
         log("uefi-secureboot: waiting for the Boswas boot menu")
-        # The Boswas boot menu: navy with gold accents while GRUB counts down.
+        # The Boswas boot menu: dark, with the mark and azure accents while GRUB counts down.
         while time.time() - start < min(timeout, 600) and vm.alive():
             time.sleep(10)
             shot = vm.screendump(f"t{int(time.time() - start):04d}")
@@ -501,10 +509,10 @@ def in_session(cmd: str, background: bool = False) -> str:
 
 
 def installer_banner(path: Path) -> bool:
-    """The Debian Installer screen with the Boswas OS banner: a navy band above the gold rule."""
+    """The Debian Installer screen with the Boswas OS banner: a dark band above the azure-to-iris rule."""
     w, h, _ = read_ppm(path)
     for y in range(20, min(h, 200)):
-        if analyse(path, (0, y, w, y + 1))["gold"] >= 0.4:
+        if analyse(path, (0, y, w, y + 1))["mark"] >= 0.4:
             band = analyse(path, (0, max(0, y - 55), w, max(1, y - 8)))
             if band["navy"] >= 0.4:
                 return True
@@ -670,7 +678,7 @@ def scenario_usb(iso: Path, workdir: Path, outdir: Path, timeout: float) -> None
 
         # The ten presets in the running session: each applies (exit 0, recorded),
         # switches the user's colour scheme to its own, and changes the screen
-        # while the desktop panel (gold Boswas launcher) stays. The colour scheme
+        # while the desktop panel (the Boswas launcher) stays. The colour scheme
         # is read from the user's kdeglobals as a file: no KDE tool is needed
         # (this shell is the live user's).
         rc, out = sh.run(in_session("boswas-preset --json list"))
@@ -695,7 +703,7 @@ def scenario_usb(iso: Path, workdir: Path, outdir: Path, timeout: float) -> None
             w, h, _ = read_ppm(shot)
             panel = analyse(shot, (0, h - 64, w, h))
             changed = difference(shot, previous) > 2
-            check("rc=0" in words and expected in words and words[-1:] == [preset] and changed and panel["gold"] > 0.001,
+            check("rc=0" in words and expected in words and words[-1:] == [preset] and changed and panel["mark"] > 0.001,
                   f"presets: {preset} applies in the live session (colour scheme {expected if expected in words else words[1:2]}; "
                   f"screen changed: {changed}; screenshot usb-live-preset-{preset}.png)")
             shutil.copyfile(shot, previous)

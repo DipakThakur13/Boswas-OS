@@ -11,6 +11,7 @@ Modules
   appearance  the desktop's scheme and reduced-motion setting (no Qt)
   qss, assets the generated style sheet and its generated images
   theming     apply(), theme(), the ThemeManager, fonts, durations
+  animation   Animation: values that move at the refresh rate of the screen
   polish      popups with round corners, the keyboard focus ring
   icons       icon(): Boswas Prism icons, symbolic ones in the text colour
   paint       painting helpers for custom widgets
@@ -39,6 +40,8 @@ _EXPORTS = {
     "apply": "theming", "manager": "theming", "ThemeManager": "theming", "font": "theming", "duration": "theming",
     "easing": "theming", "qcolor": "theming", "repolish": "theming", "ensure_applied": "theming",
     "theme": "theming",
+    # motion
+    "Animation": "animation", "refresh_rate": "animation",
     # icons
     "icon": "icons", "glyph_icon": "icons", "icon_path": "icons", "has_icon": "icons", "pixmap": "icons",
     "missing_icons": "icons",
@@ -65,8 +68,8 @@ _EXPORTS = {
     "state_dir": "desktop", "cache_dir": "desktop", "data_dir": "desktop", "runtime_dir": "desktop",
     "add_shortcut": "shortcuts", "add_shortcuts": "shortcuts",
 }
-_MODULES = ("tokens", "appearance", "qss", "assets", "theming", "polish", "icons", "paint", "app", "worker",
-            "desktop", "shortcuts", "testing", "gallery", "widgets")
+_MODULES = ("tokens", "appearance", "qss", "assets", "theming", "animation", "polish", "icons", "paint", "app",
+            "worker", "desktop", "shortcuts", "testing", "gallery", "widgets")
 
 __all__ = sorted([*_EXPORTS, "__version__"])
 
@@ -87,6 +90,7 @@ def __dir__() -> list[str]:
 
 
 if TYPE_CHECKING:                 # for editors and type checkers; nothing is imported at run time
+    from .animation import Animation, refresh_rate
     from .app import SingleInstance, activate_window, install_signal_handlers, run
     from .appearance import Appearance, appearance_path, read_appearance
     from .desktop import cache_dir, config_dir, data_dir, notify, open_path, open_url, runtime_dir, state_dir

@@ -369,6 +369,22 @@ class ViewerZoomTest(PhotosCase):
         wheel(canvas, QPoint(300, 300), 120, CTRL)
         self.assertAlmostEqual(canvas.zoom(), start * 1.0015 ** 240, places=5)
 
+    def test_zoom_moves_at_the_refresh_rate_of_the_screen(self):
+        from PySide6.QtGui import QScreen
+        window = self.open_large()
+        canvas = window.viewer.canvas
+        fluent.manager().set_reduced_motion(False)
+        zooms = []
+        with mock.patch.object(QScreen, "refreshRate", lambda _screen: 144.0):
+            wheel(canvas, QPoint(300, 300), 120, CTRL)
+            zoom = canvas._animation
+            # The toolkit's animation, stepping once per refresh of the window's screen (Qt's own would step at 60 Hz).
+            self.assertIsInstance(zoom, fluent.Animation)
+            self.assertEqual(zoom.refresh_rate(), 144.0)
+            zoom.valueChanged.connect(zooms.append)
+            self.wait(lambda: canvas._animation is None)
+        self.assertGreater(len(zooms), 3, zooms)
+
     def test_double_click_buttons_and_keys(self):
         window = self.open_large()
         viewer, canvas = window.viewer, window.viewer.canvas

@@ -1,18 +1,20 @@
 """The look of the desktop (colour mode, background, motion) and two rows about time without input.
 
-Personalization page, below the presets:
-  Colour mode   Dark or Light: [appearance] scheme. When the background is a
-                Boswas wallpaper, its artwork for the other mode is chosen
-                with it, as a preset does.
-  Background    the Boswas wallpapers and the pictures of the user's Pictures
-                folder as thumbnails (boswas_control_center.wallpapers), any
-                PNG or JPEG file through "Browse", or the default background:
-                [appearance] wallpaper.
-  Motion        animation effects: [appearance] reduced_motion.
-Security page:
+Category "Personalization":
+  Colour mode   (page colours) Dark or Light: [appearance] scheme. When the
+                background is a Boswas wallpaper, its artwork for the other
+                mode is chosen with it, as a preset does.
+  Background    (page background) the Boswas wallpapers and the pictures of
+                the user's Pictures folder as thumbnails
+                (boswas_control_center.wallpapers), any PNG or JPEG file
+                through "Browse", or the default background: [appearance]
+                wallpaper.
+  Motion        (Accessibility > Visual effects) animation effects:
+                [appearance] reduced_motion.
+Page "lock-screen" (Privacy & security):
   Lock screen   "Lock automatically after": [lock] idle_seconds, limited by
                 the administrator's [policy] lock_idle_max_seconds.
-Power page:
+Page "power":
   Screen        "Turn off the screen after": [power] screen_off_seconds.
 
 Scheme and wallpaper go to appearance.toml, the file boswas-preset writes;
@@ -249,7 +251,7 @@ class TileGrid(QWidget):
 
 
 class ColourModeSection(ConfigSection):
-    page = "personalization"
+    page = "colours"
     title = "Colour mode"
     order = 10
     keywords = ("dark mode", "light mode", "colour mode", "color mode", "theme", "appearance", "night")
@@ -294,7 +296,7 @@ class ColourModeSection(ConfigSection):
 
 
 class BackgroundSection(ConfigSection):
-    page = "personalization"
+    page = "background"
     title = "Background"
     order = 20
     keywords = ("background", "wallpaper", "desktop picture", "photo", "image")
@@ -416,7 +418,7 @@ class BackgroundSection(ConfigSection):
         fluent.run_in_thread(lambda: wallpapers.check_picture(path), on_done=done, on_error=failed)
 
 class MotionSection(ConfigSection):
-    page = "personalization"
+    page = "visual-effects"
     title = "Motion"
     order = 30
     keywords = ("animation", "animations", "motion", "effects", "reduce motion", "transitions")
@@ -461,7 +463,7 @@ class _TimeRow(ConfigSection):
 
 
 class LockScreenSection(_TimeRow):
-    page = "security"
+    page = "lock-screen"
     title = "Lock screen"
     order = 80
     keywords = ("lock", "lock screen", "automatic lock", "screen lock", "idle", "timeout", "away", "password")

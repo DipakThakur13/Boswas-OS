@@ -1,7 +1,7 @@
 //! The nested backend: the compositor in a window of another Wayland or X11
-//! session, for development.
-
-use std::time::Duration;
+//! session, for development. Its output has the refresh rate of the monitor
+//! the window is on (as far as the host tells), and frames follow the host's
+//! redraw requests.
 
 use smithay::{
     backend::{
@@ -22,8 +22,19 @@ use smithay::{
 };
 use tracing::warn;
 
-use super::Backend;
+use super::{output_refresh_interval, Backend, FALLBACK_REFRESH};
 use crate::state::Boswas;
+
+/// The refresh rate of the monitor the window is on, in millihertz.
+fn host_refresh(backend: &WinitGraphicsBackend<GlesRenderer>) -> i32 {
+    backend
+        .window()
+        .current_monitor()
+        .and_then(|monitor| monitor.refresh_rate_millihertz())
+        .and_then(|millihertz| i32::try_from(millihertz).ok())
+        .filter(|millihertz| (1_000..=1_000_000).contains(millihertz))
+        .unwrap_or(FALLBACK_REFRESH)
+}
 
 pub struct Winit {
     backend: WinitGraphicsBackend<GlesRenderer>,
@@ -39,7 +50,7 @@ pub fn init(state: &mut Boswas) -> Result<(), Box<dyn std::error::Error>> {
     state.rounds_corners = true;
     let mode = Mode {
         size: backend.window_size(),
-        refresh: 60_000,
+        refresh: host_refresh(&backend),
     };
     let output = Output::new(
         "WINIT-1".into(),
@@ -87,9 +98,10 @@ pub fn init(state: &mut Boswas) -> Result<(), Box<dyn std::error::Error>> {
     state.loop_handle.insert_source(winit, |event, _, state| match event {
         WinitEvent::Resized { size, .. } => {
             if let Backend::Winit(winit) = &mut state.backend {
+                // A new size; the window may be on another monitor now.
                 let mode = Mode {
                     size,
-                    refresh: 60_000,
+                    refresh: host_refresh(&winit.backend),
                 };
                 winit.output.change_current_state(Some(mode), None, None, None);
                 winit.output.set_preferred(mode);
@@ -141,7 +153,7 @@ impl Winit {
                 Ok(bound) => bound,
                 Err(err) => return warn!("winit: could not bind the window: {err}"),
             };
-            let (elements, clear) = state.output_elements(renderer, &self.output);
+            let (elements, clear) = state.display_elements(renderer, &self.output);
             match self.damage.render_output(renderer, &mut framebuffer, age, &elements, clear) {
                 Ok(result) => {
                     if let Some(damage) = result.damage {
@@ -176,7 +188,7 @@ impl Winit {
         self.sequence += 1;
         feedback.presented::<_, Monotonic>(
             self.clock.now(),
-            Refresh::fixed(Duration::from_micros(16_667)),
+            Refresh::fixed(output_refresh_interval(&self.output)),
             self.sequence,
             wp_presentation_feedback::Kind::Vsync,
         );

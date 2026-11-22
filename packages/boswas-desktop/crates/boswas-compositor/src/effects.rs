@@ -1,4 +1,5 @@
-//! Rendering effects: window content clipped to rounded corners.
+//! Rendering effects: window content clipped to rounded corners, and the
+//! colour filters of the whole picture (Accessibility > Colour filters).
 //!
 //! The frame of a window (title bar, border, shadow) is drawn by the
 //! compositor and has rounded corners of its own. The client's content
@@ -12,7 +13,7 @@ use smithay::{
         element::{surface::WaylandSurfaceRenderElement, Element, Id, Kind, RenderElement, UnderlyingStorage},
         pixman::PixmanRenderer,
         utils::{CommitCounter, DamageSet, OpaqueRegions},
-        ImportAll, ImportMem, Renderer, Texture,
+        Color32F, Frame, ImportAll, ImportMem, Renderer, Texture,
     },
     utils::{Buffer as BufferCoords, Physical, Point, Rectangle, Scale, Size, Transform},
 };
@@ -39,9 +40,187 @@ where
         let _ = clip;
         RenderElement::<Self>::draw(element, frame, src, dst, damage, opaque_regions)
     }
+
+    /// Whether this renderer applies the colour filters: it draws a frame
+    /// into a texture ([`BoswasRenderer::color_filter_frame`]) and that
+    /// texture through the filter ([`BoswasRenderer::draw_filtered`]).
+    const FILTERS_COLOR: bool = false;
+
+    /// Draws `elements` into a texture of `size` (physical pixels, the
+    /// output's own orientation), to be shown through a colour filter.
+    /// `None`: the renderer cannot.
+    fn color_filter_frame<E: RenderElement<Self>>(
+        &mut self,
+        size: Size<i32, Physical>,
+        scale: Scale<f64>,
+        elements: &[E],
+        clear: Color32F,
+    ) -> Option<Self::TextureId> {
+        let _ = (size, scale, elements, clear);
+        None
+    }
+
+    /// Draws a texture of [`BoswasRenderer::color_filter_frame`] through
+    /// the colour matrix.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_filtered(
+        frame: &mut Self::Frame<'_, '_>,
+        texture: &Self::TextureId,
+        filter: &ColorMatrix,
+        src: Rectangle<f64, BufferCoords>,
+        dst: Rectangle<i32, Physical>,
+        damage: &[Rectangle<i32, Physical>],
+        opaque_regions: &[Rectangle<i32, Physical>],
+    ) -> Result<(), Self::Error> {
+        let _ = filter;
+        frame.render_texture_from_to(texture, src, dst, damage, opaque_regions, Transform::Normal, 1.0)
+    }
 }
 
 impl BoswasRenderer for PixmanRenderer {}
+
+/// A colour filter as an affine map of (gamma-encoded) RGB: `matrix` (row
+/// by row) times the colour, plus `offset`, clamped to 0..1.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ColorMatrix {
+    pub matrix: [[f32; 3]; 3],
+    pub offset: [f32; 3],
+}
+
+/// Weights of the channels for the brightness a grey keeps (Rec. 709).
+const LUMA: [f32; 3] = [0.2126, 0.7152, 0.0722];
+
+/// How people with each kind of colour blindness see colours (Machado,
+/// Oliveira and Fernandes 2009, full severity), row by row.
+const PROTANOPIA: [[f32; 3]; 3] = [[0.152_286, 1.052_583, -0.204_868], [0.114_503, 0.786_281, 0.099_216], [-0.003_882, -0.048_116, 1.051_998]];
+const DEUTERANOPIA: [[f32; 3]; 3] = [[0.367_322, 0.860_646, -0.227_968], [0.280_085, 0.672_501, 0.047_413], [-0.011_820, 0.042_940, 0.968_881]];
+const TRITANOPIA: [[f32; 3]; 3] = [[1.255_528, -0.076_749, -0.178_779], [-0.078_411, 0.930_809, 0.147_602], [0.004_733, 0.691_367, 0.303_900]];
+
+impl ColorMatrix {
+    const IDENTITY: [[f32; 3]; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+
+    /// The filter of a name of `[color_filter] filter`; `None` for an
+    /// unknown name.
+    pub fn named(name: &str) -> Option<Self> {
+        let grey = [LUMA, LUMA, LUMA];
+        let negate = |m: [[f32; 3]; 3]| m.map(|row| row.map(|v| -v));
+        Some(match name {
+            "grayscale" => Self { matrix: grey, offset: [0.0; 3] },
+            "inverted" => Self { matrix: negate(Self::IDENTITY), offset: [1.0; 3] },
+            "grayscale_inverted" => Self { matrix: negate(grey), offset: [1.0; 3] },
+            // The three corrections move the colour differences a person
+            // cannot see into channels they can (daltonization): red-green
+            // differences into brightness and blue, blue-yellow ones into
+            // red and green.
+            "protanopia" => Self::correction(PROTANOPIA, [[0.0, 0.0, 0.0], [0.7, 1.0, 0.0], [0.7, 0.0, 1.0]]),
+            "deuteranopia" => Self::correction(DEUTERANOPIA, [[0.0, 0.0, 0.0], [0.7, 1.0, 0.0], [0.7, 0.0, 1.0]]),
+            "tritanopia" => Self::correction(TRITANOPIA, [[1.0, 0.0, 0.7], [0.0, 1.0, 0.7], [0.0, 0.0, 0.0]]),
+            _ => return None,
+        })
+    }
+
+    /// `I + shift * (I - seen)`: the colour plus the part of it that is
+    /// lost, moved where it can be seen.
+    fn correction(seen: [[f32; 3]; 3], shift: [[f32; 3]; 3]) -> Self {
+        let mut lost = [[0.0f32; 3]; 3];
+        for (r, row) in lost.iter_mut().enumerate() {
+            for (c, value) in row.iter_mut().enumerate() {
+                *value = Self::IDENTITY[r][c] - seen[r][c];
+            }
+        }
+        let mut matrix = Self::IDENTITY;
+        for (r, row) in matrix.iter_mut().enumerate() {
+            for (c, value) in row.iter_mut().enumerate() {
+                *value += (0..3).map(|k| shift[r][k] * lost[k][c]).sum::<f32>();
+            }
+        }
+        Self { matrix, offset: [0.0; 3] }
+    }
+
+    /// The filtered colour of `rgb` (each 0..1).
+    pub fn apply(&self, rgb: [f32; 3]) -> [f32; 3] {
+        let mut out = [0.0f32; 3];
+        for (channel, value) in out.iter_mut().enumerate() {
+            let row = self.matrix[channel];
+            *value = (row[0] * rgb[0] + row[1] * rgb[1] + row[2] * rgb[2] + self.offset[channel]).clamp(0.0, 1.0);
+        }
+        out
+    }
+
+    /// The matrix column by column, as GLSL's `mat3` takes it.
+    fn columns(&self) -> [f32; 9] {
+        let m = self.matrix;
+        [m[0][0], m[1][0], m[2][0], m[0][1], m[1][1], m[2][1], m[0][2], m[1][2], m[2][2]]
+    }
+}
+
+/// The whole picture of an output, drawn into a texture by
+/// [`BoswasRenderer::color_filter_frame`], shown through a colour filter.
+pub struct FilteredFrame<R: Renderer> {
+    texture: R::TextureId,
+    filter: ColorMatrix,
+    size: Size<i32, Physical>,
+    id: Id,
+    commit: CommitCounter,
+}
+
+impl<R: Renderer> FilteredFrame<R> {
+    /// `id` stays the same from frame to frame; `commit` counts the frames.
+    pub fn new(texture: R::TextureId, filter: ColorMatrix, size: Size<i32, Physical>, id: Id, commit: CommitCounter) -> Self {
+        Self { texture, filter, size, id, commit }
+    }
+}
+
+impl<R> Element for FilteredFrame<R>
+where
+    R: BoswasRenderer,
+    R::TextureId: Texture + 'static,
+{
+    fn id(&self) -> &Id {
+        &self.id
+    }
+
+    fn current_commit(&self) -> CommitCounter {
+        self.commit
+    }
+
+    fn src(&self) -> Rectangle<f64, BufferCoords> {
+        Rectangle::from_size(Size::from((f64::from(self.size.w), f64::from(self.size.h))))
+    }
+
+    fn geometry(&self, _scale: Scale<f64>) -> Rectangle<i32, Physical> {
+        Rectangle::from_size(self.size)
+    }
+
+    fn opaque_regions(&self, _scale: Scale<f64>) -> OpaqueRegions<i32, Physical> {
+        OpaqueRegions::from_slice(&[Rectangle::from_size(self.size)])
+    }
+
+    fn kind(&self) -> Kind {
+        Kind::Unspecified
+    }
+}
+
+impl<R> RenderElement<R> for FilteredFrame<R>
+where
+    R: BoswasRenderer,
+    R::TextureId: Texture + 'static,
+{
+    fn draw(
+        &self,
+        frame: &mut R::Frame<'_, '_>,
+        src: Rectangle<f64, BufferCoords>,
+        dst: Rectangle<i32, Physical>,
+        damage: &[Rectangle<i32, Physical>],
+        opaque_regions: &[Rectangle<i32, Physical>],
+    ) -> Result<(), R::Error> {
+        R::draw_filtered(frame, &self.texture, &self.filter, src, dst, damage, opaque_regions)
+    }
+
+    fn underlying_storage(&self, _renderer: &mut R) -> Option<UnderlyingStorage<'_>> {
+        None
+    }
+}
 
 /// What the clip shader needs: the size of the rounded rectangle, its
 /// corner radii and the matrix from texture coordinates into it.
@@ -279,13 +458,74 @@ where
 
 #[cfg(any(feature = "udev", feature = "winit"))]
 mod gles {
-    use smithay::backend::renderer::gles::{GlesRenderer, GlesTexProgram, Uniform, UniformName, UniformType, UniformValue};
+    use std::cell::RefCell;
+
+    use smithay::backend::{
+        allocator::Fourcc,
+        renderer::{
+            damage::OutputDamageTracker,
+            gles::{GlesRenderer, GlesTexProgram, GlesTexture, Uniform, UniformName, UniformType, UniformValue},
+            Bind, Offscreen,
+        },
+    };
     use tracing::warn;
 
     use super::*;
 
     /// The compiled clip shader, kept with the GL context it belongs to.
     struct ClipProgram(Option<GlesTexProgram>);
+
+    /// The compiled colour filter shader.
+    struct FilterProgram(Option<GlesTexProgram>);
+
+    /// The texture the last filtered frame was drawn into, reused while
+    /// the output keeps its size.
+    struct FilterTexture(RefCell<Option<GlesTexture>>);
+
+    const FILTER_SHADER: &str = r#"
+#version 100
+
+//_DEFINES_
+
+#if defined(EXTERNAL)
+#extension GL_OES_EGL_image_external : require
+#endif
+
+precision highp float;
+#if defined(EXTERNAL)
+uniform samplerExternalOES tex;
+#else
+uniform sampler2D tex;
+#endif
+
+uniform float alpha;
+varying vec2 v_coords;
+
+#if defined(DEBUG_FLAGS)
+uniform float tint;
+#endif
+
+uniform mat3 color_matrix;
+uniform vec3 color_offset;
+
+void main() {
+    vec4 color = texture2D(tex, v_coords);
+#if defined(NO_ALPHA)
+    color = vec4(color.rgb, 1.0);
+#endif
+    // The filter works on straight colour; the texture is premultiplied.
+    vec3 rgb = color.a > 0.0 ? color.rgb / color.a : vec3(0.0);
+    rgb = clamp(color_matrix * rgb + color_offset, 0.0, 1.0);
+    color = vec4(rgb * color.a, color.a) * alpha;
+
+#if defined(DEBUG_FLAGS)
+    if (tint == 1.0)
+        color = vec4(0.0, 0.2, 0.0, 0.2) + color * 0.8;
+#endif
+
+    gl_FragColor = color;
+}
+"#;
 
     const CLIP_SHADER: &str = r#"
 #version 100
@@ -375,10 +615,72 @@ void main() {
             .map_err(|err| warn!("the rounded-corner shader did not compile ({err}); corners stay square"))
             .ok();
         renderer.egl_context().user_data().insert_if_missing(|| ClipProgram(program));
+        let filter = renderer
+            .compile_custom_texture_shader(
+                FILTER_SHADER,
+                &[UniformName::new("color_matrix", UniformType::Matrix3x3), UniformName::new("color_offset", UniformType::_3f)],
+            )
+            .map_err(|err| warn!("the colour filter shader did not compile ({err}); colour filters are not available"))
+            .ok();
+        renderer.egl_context().user_data().insert_if_missing(|| FilterProgram(filter));
+        renderer.egl_context().user_data().insert_if_missing(|| FilterTexture(RefCell::new(None)));
     }
 
     impl BoswasRenderer for GlesRenderer {
         const ROUNDS_CORNERS: bool = true;
+        const FILTERS_COLOR: bool = true;
+
+        fn color_filter_frame<E: RenderElement<Self>>(
+            &mut self,
+            size: Size<i32, Physical>,
+            scale: Scale<f64>,
+            elements: &[E],
+            clear: Color32F,
+        ) -> Option<GlesTexture> {
+            let compiled = self.egl_context().user_data().get::<FilterProgram>().is_some_and(|p| p.0.is_some());
+            if !compiled || size.w <= 0 || size.h <= 0 {
+                return None;
+            }
+            let kept = self.egl_context().user_data().get::<FilterTexture>().and_then(|t| t.0.borrow_mut().take());
+            let mut texture = match kept.filter(|t| t.size() == Size::from((size.w, size.h))) {
+                Some(texture) => texture,
+                None => Offscreen::<GlesTexture>::create_buffer(self, Fourcc::Abgr8888, Size::from((size.w, size.h)))
+                    .map_err(|err| warn!("no texture for the colour filter: {err}"))
+                    .ok()?,
+            };
+            {
+                let mut framebuffer = self.bind(&mut texture).map_err(|err| warn!("colour filter: {err}")).ok()?;
+                let mut tracker = OutputDamageTracker::new(size, scale, Transform::Normal);
+                tracker.render_output(self, &mut framebuffer, 0, elements, clear).map_err(|err| warn!("colour filter: {err:?}")).ok()?;
+            }
+            if let Some(kept) = self.egl_context().user_data().get::<FilterTexture>() {
+                *kept.0.borrow_mut() = Some(texture.clone());
+            }
+            Some(texture)
+        }
+
+        fn draw_filtered(
+            frame: &mut Self::Frame<'_, '_>,
+            texture: &GlesTexture,
+            filter: &ColorMatrix,
+            src: Rectangle<f64, BufferCoords>,
+            dst: Rectangle<i32, Physical>,
+            damage: &[Rectangle<i32, Physical>],
+            opaque_regions: &[Rectangle<i32, Physical>],
+        ) -> Result<(), Self::Error> {
+            let program = frame.egl_context().user_data().get::<FilterProgram>().and_then(|p| p.0.clone());
+            let uniforms = [
+                Uniform::new(
+                    "color_matrix",
+                    UniformValue::Matrix3x3 {
+                        matrices: vec![filter.columns()],
+                        transpose: false,
+                    },
+                ),
+                Uniform::new("color_offset", filter.offset),
+            ];
+            frame.render_texture_from_to(texture, src, dst, damage, opaque_regions, Transform::Normal, 1.0, program.as_ref(), &uniforms)
+        }
 
         fn draw_clipped(
             frame: &mut Self::Frame<'_, '_>,
@@ -491,5 +793,40 @@ mod tests {
         assert_eq!(squares[0], Rectangle::new(Point::from((201, 111)), Size::from((9, 9))));
         assert_eq!(squares[1], Rectangle::new(Point::from((10, 111)), Size::from((9, 9))));
         assert!(corner_squares(rect(0.0, 0.0, 50.0, 50.0), [0.0; 4]).is_empty());
+    }
+
+    #[test]
+    fn colour_filters_do_what_they_say() {
+        let close = |a: [f32; 3], b: [f32; 3]| a.iter().zip(b).all(|(x, y)| (x - y).abs() < 0.01);
+        let grey = ColorMatrix::named("grayscale").unwrap();
+        let red = grey.apply([1.0, 0.0, 0.0]);
+        assert!(red[0] == red[1] && red[1] == red[2], "{red:?}");
+        assert!(close(grey.apply([1.0; 3]), [1.0; 3]), "white stays white");
+        let inverted = ColorMatrix::named("inverted").unwrap();
+        assert!(close(inverted.apply([1.0; 3]), [0.0; 3]));
+        assert!(close(inverted.apply([0.2, 0.4, 0.6]), [0.8, 0.6, 0.4]));
+        let both = ColorMatrix::named("grayscale_inverted").unwrap();
+        let blue = both.apply([0.0, 0.0, 1.0]);
+        assert!(blue[0] == blue[1] && blue[0] > 0.9, "dark blue becomes a light grey: {blue:?}");
+        for name in ["protanopia", "deuteranopia", "tritanopia"] {
+            let filter = ColorMatrix::named(name).unwrap();
+            // Greys carry no colour difference to move: they stay as they are.
+            for level in [0.0, 0.25, 0.5, 1.0] {
+                assert!(close(filter.apply([level; 3]), [level; 3]), "{name} {level}");
+            }
+            // Red and green, which look alike to a red-green blind person,
+            // come apart; so do blue and yellow for blue-yellow blindness.
+            let (a, b) = if name == "tritanopia" { ([0.0, 0.0, 1.0], [1.0, 1.0, 0.0]) } else { ([1.0, 0.0, 0.0], [0.0, 1.0, 0.0]) };
+            assert_ne!(filter.apply(a), a, "{name} changes the colours it is for");
+            assert!(filter.matrix.iter().flatten().all(|v| v.is_finite()));
+            assert_ne!(filter.apply(a), filter.apply(b));
+        }
+        assert!(ColorMatrix::named("sepia").is_none());
+        for name in crate::config::COLOR_FILTERS {
+            assert!(ColorMatrix::named(name).is_some(), "{name}");
+        }
+        // GLSL takes the matrix column by column.
+        let m = ColorMatrix { matrix: [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]], offset: [0.0; 3] };
+        assert_eq!(m.columns(), [1.0, 4.0, 7.0, 2.0, 5.0, 8.0, 3.0, 6.0, 9.0]);
     }
 }

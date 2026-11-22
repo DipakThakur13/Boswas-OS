@@ -13,6 +13,7 @@ mod focus;
 mod handlers;
 mod input;
 mod ipc;
+mod keyaccess;
 mod render;
 mod shell;
 mod state;
@@ -41,6 +42,8 @@ Options:
   --backend KIND       udev (real hardware), winit (a window) or headless;
                        default: winit inside another session, else udev
   --headless-size WxH  size of the headless output (default 1920x1080)
+  --headless-refresh HZ
+                       refresh rate of the headless output (default 60)
   --socket NAME        Wayland socket name (default: the first free wayland-N)
   --config FILE        read only this configuration file
   --no-shell           do not start the shell
@@ -68,6 +71,8 @@ kept failing; 2 wrong usage; 1 any other error.
 struct Args {
     backend: Option<String>,
     headless_size: Option<(i32, i32)>,
+    /// Millihertz.
+    headless_refresh: Option<i32>,
     socket: Option<String>,
     config: Option<PathBuf>,
     no_shell: bool,
@@ -99,6 +104,15 @@ fn parse_args(mut argv: impl Iterator<Item = String>) -> Result<Option<Args>, St
                     .and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?)))
                     .ok_or_else(|| format!("--headless-size: \"{text}\" is not WIDTHxHEIGHT"))?;
                 args.headless_size = Some(size);
+            }
+            "--headless-refresh" => {
+                let text = value("--headless-refresh")?;
+                let hertz = text
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|hertz| (1.0..=1000.0).contains(hertz))
+                    .ok_or_else(|| format!("--headless-refresh: \"{text}\" is not a rate from 1 to 1000 Hz"))?;
+                args.headless_refresh = Some((hertz * 1000.0).round() as i32);
             }
             "--socket" => args.socket = Some(value("--socket")?),
             "--config" => args.config = Some(PathBuf::from(value("--config")?)),
@@ -209,7 +223,7 @@ fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     match backend.as_str() {
         "headless" => {
             let (w, h) = args.headless_size.unwrap_or((1920, 1080));
-            backend::headless::init(&mut state, w, h)?;
+            backend::headless::init(&mut state, w, h, args.headless_refresh)?;
         }
         #[cfg(feature = "winit")]
         "winit" => backend::winit::init(&mut state)?,
@@ -296,6 +310,9 @@ mod tests {
             .unwrap();
         assert_eq!(args.backend.as_deref(), Some("headless"));
         assert_eq!(args.headless_size, Some((1280, 720)));
+        assert_eq!(args.headless_refresh, None, "60 Hz unless asked");
+        let fast = parse(&["--backend", "headless", "--headless-refresh", "143.856"]).unwrap().unwrap();
+        assert_eq!(fast.headless_refresh, Some(143_856));
         assert!(args.test_input);
         assert_eq!(args.command, ["foot", "-e", "top"]);
     }
@@ -306,6 +323,9 @@ mod tests {
         assert!(parse(&["--backend"]).is_err());
         assert!(parse(&["--headless-size", "big"]).is_err());
         assert!(parse(&["--headless-size", "12xx"]).is_err());
+        for rate in ["0", "1001", "fast", "-60", "NaN"] {
+            assert!(parse(&["--headless-refresh", rate]).is_err(), "{rate}");
+        }
         assert!(parse(&["--send"]).is_err());
     }
 

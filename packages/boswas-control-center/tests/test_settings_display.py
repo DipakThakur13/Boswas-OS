@@ -3,9 +3,12 @@
 FakeCompositor stands in for the control socket: asked to reload, it reads
 the user's file the way boswas-compositor does (through
 compositorconfig.Snapshot) and its ``outputs`` follow: mode, scale,
-rotation, position, monitors turned off. Several monitors exist only in
-this model; the real compositor's headless backend has one (its ``outputs``
-reply is HEADLESS in test_compositorconfig.py).
+rotation, position, variable refresh rate, monitors turned off. Without a
+mode setting a monitor runs at its native size (that of the mode it
+prefers) at the highest rate it offers there, and that mode is the one
+reported as preferred, as boswas-compositor does. Several monitors exist
+only in this model; the real compositor's headless backend has one (its
+``outputs`` reply is HEADLESS in test_compositorconfig.py).
 """
 
 from __future__ import annotations
@@ -39,6 +42,10 @@ BEAMER = {"name": "HDMI-A-1", "make": "EPSON", "model": "EB-U05", "mm": (0, 0),
           "modes": [(1920, 1080, 60000, True), (1280, 720, 60000, False)]}
 HEADLESS = {"name": "HEADLESS-1", "make": "Boswas", "model": "Headless", "mm": (0, 0),
             "modes": [(1920, 1080, 60000, True)]}
+# A fast monitor as it describes itself: its 60 Hz mode is the preferred one. It offers variable refresh rate.
+GAMING = {"name": "DP-2", "make": "AOC", "model": "Q27G2", "mm": (597, 336), "vrr": True,
+          "modes": [(2560, 1440, 59951, True), (2560, 1440, 165000, False), (2560, 1440, 144000, False),
+                    (2560, 1440, 120000, False), (1920, 1080, 240000, False), (1920, 1080, 60000, False)]}
 
 
 class FakeCompositor:
@@ -81,7 +88,10 @@ class FakeCompositor:
             if name in off:
                 placed.append(cc.Output(name, enabled=False))
                 continue
-            modes = tuple(cc.Mode(*mode) for mode in monitor["modes"])
+            native = next((width, height) for width, height, _rate, preferred in monitor["modes"] if preferred)
+            fastest = max(rate for width, height, rate, _preferred in monitor["modes"] if (width, height) == native)
+            modes = tuple(cc.Mode(width, height, rate, (width, height, rate) == (*native, fastest))
+                          for width, height, rate, _preferred in monitor["modes"])
             mode = next(mode for mode in modes if mode.preferred)
             asked = cc.parse_mode(wanted.get("mode"))
             if asked is not None and any(m.size == asked[:2] for m in modes):
@@ -90,8 +100,10 @@ class FakeCompositor:
             scale = wanted.get("scale", snapshot.get("output", "scale"))
             rotation = wanted.get("rotation", "normal")
             width, height = cc.logical_size(mode.width, mode.height, scale, rotation)
+            vrr = monitor.get("vrr", False)
+            sync = cc.AdaptiveSync(vrr, vrr and wanted.get("adaptive_sync") is True)
             output = cc.Output(name, True, monitor["make"], monitor["model"], 0, 0, width, height, scale, rotation,
-                               mode, modes, monitor["mm"])
+                               mode, modes, monitor["mm"], sync)
             (placed if "position" in wanted else waiting).append((output, wanted.get("position")))
         result, right = [], 0
         for entry in placed:
@@ -193,7 +205,7 @@ if HAVE_QT:
             self.assertEqual([section.resolution_box.itemText(i) for i in range(section.resolution_box.count())],
                              ["3840 × 2160 (recommended)", "2560 × 1440", "1920 × 1080"])
             self.assertEqual([section.rate_box.itemText(i) for i in range(section.rate_box.count())],
-                             ["60 Hz", "30 Hz"])
+                             ["60 Hz (default)", "30 Hz"])
             self.assertEqual((section.scale_box.currentText(), section.orientation_box.currentText()),
                              ("100 %", "Landscape"))
             self.assertIn("2 monitors", canvas.accessibleDescription())
@@ -205,7 +217,7 @@ if HAVE_QT:
             self.assertEqual(section.current, "eDP-1")
             self.assertEqual(section.monitor_box.currentData(), "eDP-1")
             self.assertEqual(section.resolution_box.currentText(), "1920 × 1200 (recommended)")
-            self.assertEqual([section.rate_box.itemText(i) for i in range(2)], ["60 Hz", "48 Hz"])
+            self.assertEqual([section.rate_box.itemText(i) for i in range(2)], ["60 Hz (default)", "48 Hz"])
             choose(section.monitor_box, "DP-1")
             self.assertEqual((section.current, section.canvas.current), ("DP-1", "DP-1"))
             testing.key(section.canvas, Qt.Key.Key_Right)
@@ -267,7 +279,8 @@ if HAVE_QT:
             settle(section)
             self.answer(section, "keep")
             self.assertEqual(cc.Settings(dict(os.environ)).snapshot().output("DP-1")["mode"], "2560x1440@59.951")
-            self.assertEqual([section.rate_box.itemText(i) for i in range(section.rate_box.count())], ["59.95 Hz"])
+            self.assertEqual([section.rate_box.itemText(i) for i in range(section.rate_box.count())],
+                             ["59.95 Hz (default)"])
             self.assertFalse(section.rate_box.isEnabled())
             choose(section.resolution_box, (1920, 1080))
             settle(section)
@@ -278,6 +291,56 @@ if HAVE_QT:
             self.assertEqual(cc.Settings(dict(os.environ)).snapshot().output("DP-1")["mode"], "1920x1080@59.94")
             self.assertEqual(self.compositor.current[0].mode, cc.Mode(1920, 1080, 59940))
             self.assertEqual(section.rate_box.currentText(), "59.94 Hz")
+
+        def test_every_refresh_rate_of_a_fast_monitor_and_the_highest_is_the_default(self):
+            section = self.monitors(GAMING)
+            rates = lambda: [section.rate_box.itemText(i) for i in range(section.rate_box.count())]  # noqa: E731
+            # Without a setting the desktop runs it at 165 Hz, not at the 60 Hz of the mode it prefers.
+            self.assertEqual(section.resolution_box.currentText(), "2560 × 1440 (recommended)")
+            self.assertEqual(rates(), ["165 Hz (default)", "144 Hz", "120 Hz", "59.95 Hz"])
+            self.assertEqual(section.rate_box.currentText(), "165 Hz (default)")
+            self.assertTrue(section.rate_box.isEnabled())
+            choose(section.rate_box, 144000)
+            settle(section)
+            self.answer(section, "keep")
+            self.assertEqual(cc.Settings(dict(os.environ)).snapshot().output("DP-2")["mode"], "2560x1440@144")
+            self.assertEqual(self.compositor.current[0].mode, cc.Mode(2560, 1440, 144000))
+            self.assertEqual(section.rate_box.currentText(), "144 Hz")
+            # Another resolution keeps the rate where it can, and lists that size's own rates.
+            choose(section.resolution_box, (1920, 1080))
+            settle(section)
+            self.answer(section, "keep")
+            self.assertEqual(cc.Settings(dict(os.environ)).snapshot().output("DP-2")["mode"], "1920x1080@240")
+            self.assertEqual(rates(), ["240 Hz (default)", "60 Hz"])
+            testing.grab(section, self.tmp / "rates.png")
+
+        def test_variable_refresh_rate_where_the_monitor_offers_it(self):
+            section = self.monitors(GAMING, DELL)
+            section.select_monitor("DP-2")
+            switch = section.vrr_switch
+            self.assertTrue(section.vrr_card.isVisible() and switch.isEnabled())
+            self.assertFalse(switch.isChecked(), "off unless asked for")
+            self.assertEqual(section.vrr_card.description(), display.VRR_ON)
+            testing.click(switch)
+            settle(section)
+            self.assertIsNone(section.keep_dialog, "nothing to confirm: the picture stays")
+            self.assertEqual(cc.Settings(dict(os.environ)).snapshot().output("DP-2"), {"adaptive_sync": True})
+            self.assertEqual(self.compositor.current[1].adaptive_sync, cc.AdaptiveSync(True, True))
+            self.assertTrue(switch.isChecked())
+            testing.grab(section, self.tmp / "vrr-on.png")
+            testing.click(switch)
+            settle(section)
+            self.assertEqual(cc.Settings(dict(os.environ)).snapshot().output("DP-2"), {"adaptive_sync": False})
+            self.assertFalse(switch.isChecked())
+            # A monitor without it: the switch cannot be turned on, and the card says why.
+            section.select_monitor("DP-1")
+            self.assertFalse(switch.isEnabled())
+            self.assertFalse(switch.isChecked())
+            self.assertEqual(section.vrr_card.description(), display.VRR_OFF)
+            testing.click(switch)
+            settle(section)
+            self.assertNotIn("adaptive_sync", cc.Settings(dict(os.environ)).snapshot().output("DP-1"))
+            testing.grab(section, self.tmp / "vrr-unsupported.png")
 
         def test_dragging_a_monitor_to_the_other_side(self):
             section = self.monitors(DELL, LAPTOP)

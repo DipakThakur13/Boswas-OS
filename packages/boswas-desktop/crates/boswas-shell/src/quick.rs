@@ -399,7 +399,7 @@ fn draw_wifi(f: &mut Frame, st: &State, panel: Rect) {
     let net = &st.sys.network;
     let usable = net.available && net.wifi_present;
     let mut y = page_header(f, panel, "Wi-Fi", usable.then_some((net.wifi_enabled, Act::WifiToggle)));
-    let footer = page_footer(f, panel, "More Wi-Fi settings", "network");
+    let footer = page_footer(f, panel, "More Wi-Fi settings", "wifi");
     if usable && net.wifi_enabled {
         f.icon_button(Rect::new(panel.right() - PAD - 32.0, footer.y + 8.0, 32.0, 32.0), "view-refresh-symbolic", "Search for networks", Action::Quick(Act::Scan));
     }

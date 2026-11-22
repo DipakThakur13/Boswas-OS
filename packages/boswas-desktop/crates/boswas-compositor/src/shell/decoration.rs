@@ -74,6 +74,8 @@ struct TitlebarKey {
     pressed: Option<Button>,
     tile: Tile,
     light: bool,
+    /// The desktop's text size in percent (Accessibility > Text size).
+    text_scale: u32,
 }
 
 /// What the cached border strip was drawn for.
@@ -169,6 +171,7 @@ impl Decoration {
         icon: Option<Rc<Pixmap>>,
         text: &mut TextEngine,
         theme: &Theme,
+        text_scale: u32,
     ) -> bool {
         if window.titlebar_height() == 0 {
             let had = self.titlebar.take().is_some() || self.border.take().is_some();
@@ -194,6 +197,7 @@ impl Decoration {
             pressed: self.pressed,
             tile,
             light,
+            text_scale,
         };
         if self.key.as_ref() != Some(&key) || self.titlebar.is_none() {
             self.titlebar = draw_titlebar(&key, icon.as_deref(), text, theme);
@@ -479,6 +483,16 @@ fn opaque_rects(pixels: &[u8], width: u32, height: u32, scale: i32) -> Vec<Recta
     rects
 }
 
+/// The size of the title: the caption size at the desktop's text size, as
+/// far as the title bar's fixed height leaves a line for it.
+fn title_text_size(caption: f32, text_scale: u32, bar: f32) -> f32 {
+    let mut size = (caption * text_scale.clamp(100, 225) as f32 / 100.0).round();
+    while size > caption && TextStyle::new(size, boswas_ui::Rgba::BLACK).line_height() > bar - 2.0 {
+        size -= 1.0;
+    }
+    size
+}
+
 fn draw_titlebar(
     key: &TitlebarKey,
     icon: Option<&Pixmap>,
@@ -503,7 +517,7 @@ fn draw_titlebar(
     }
     let room = w - buttons - x - 8.0;
     if room > 24.0 {
-        let style = TextStyle::new(caption.size, ink).weight(caption.weight);
+        let style = TextStyle::new(title_text_size(caption.size, key.text_scale, h), ink).weight(caption.weight);
         let line = style.line_height();
         text.draw(&mut canvas, &key.title, x, ((h - line) / 2.0).floor(), Some(room), &style);
     }
@@ -702,6 +716,15 @@ mod tests {
     }
 
     #[test]
+    fn the_title_grows_with_the_text_size_as_far_as_the_bar_allows() {
+        assert_eq!(title_text_size(12.0, 100, 32.0), 12.0);
+        assert_eq!(title_text_size(12.0, 150, 32.0), 18.0);
+        let largest = title_text_size(12.0, 225, 32.0);
+        assert!(largest > 18.0 && TextStyle::new(largest, boswas_ui::Rgba::BLACK).line_height() <= 30.0, "{largest}");
+        assert_eq!(title_text_size(12.0, 50, 32.0), 12.0, "never smaller");
+    }
+
+    #[test]
     fn titlebar_is_rendered_at_the_requested_scale() {
         let mut text = TextEngine::new();
         let key = TitlebarKey {
@@ -714,8 +737,11 @@ mod tests {
             pressed: None,
             tile: Tile::Floating,
             light: false,
+            text_scale: 100,
         };
         assert!(draw_titlebar(&key, None, &mut text, Theme::dark()).is_some());
+        let large = TitlebarKey { text_scale: 225, ..key.clone() };
+        assert!(draw_titlebar(&large, None, &mut text, Theme::dark()).is_some());
         let pressed = TitlebarKey { pressed: Some(Button::Maximize), tile: Tile::Maximized, ..key.clone() };
         assert!(draw_titlebar(&pressed, None, &mut text, Theme::light()).is_some());
         let zero = TitlebarKey { width: 0, ..key };

@@ -327,6 +327,20 @@ class NavigationTest(CalculatorTestCase):
         testing.key(navigation, Qt.Key.Key_Escape)
         self.assertFalse(navigation.is_open())
 
+    def test_the_menu_slides_in_at_the_refresh_rate_of_the_screen(self):
+        from unittest import mock
+
+        from PySide6.QtGui import QScreen
+        navigation = self.window.navigation
+        with mock.patch.object(QScreen, "refreshRate", lambda _screen: 144.0):
+            self.window.open_navigation()
+            slide = navigation._animation
+            # The toolkit's animation, stepping once per refresh of the window's screen (Qt's own would step at 60 Hz).
+            self.assertIsInstance(slide, fluent.Animation)
+            self.assertEqual(slide.refresh_rate(), 144.0)
+            self.assertTrue(testing.wait_until(lambda: slide.state() != fluent.Animation.State.Running, 2))
+        self.assertEqual(navigation.pane.x(), 0)
+
     def test_click_beside_the_menu_closes_it(self):
         self.window.open_navigation()
         testing.click(self.window.navigation, QPoint(340, 300))

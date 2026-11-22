@@ -944,17 +944,22 @@ mod tests {
         assert!(ink(canvas, &l.mark) > (l.mark.area() / 6) as usize, "the mark covers a good part of its box");
         assert!(l.mark.h >= 120 && l.mark.h <= 160, "a modest mark: {:?}", l.mark);
         assert!(count(canvas, &l.spinner, assets::TEXT) > SPINNER_DOTS * 6, "the dots of the ring are drawn");
-        // The mark keeps its gold: some pixel is clearly warmer than the background.
-        let mut gold = 0;
+        // The mark keeps its own colours: the blue of its stem and bowl, and
+        // the warm dot in the counter (measured: 5,230 and 251 pixels).
+        let (mut blue, mut warm) = (0, 0);
         for y in l.mark.y..l.mark.bottom() {
             for x in l.mark.x..l.mark.right() {
                 let p = canvas.pixel(x as u32, y as u32);
+                if p.b > 180 && p.b > p.r + 60 {
+                    blue += 1;
+                }
                 if p.r > 180 && p.g > 140 && p.b < 170 && p.r > p.b + 40 {
-                    gold += 1;
+                    warm += 1;
                 }
             }
         }
-        assert!(gold > 200, "gold pixels in the mark: {gold}");
+        assert!(blue > 3000, "blue pixels in the mark: {blue}");
+        assert!(warm > 150, "warm pixels in the dot of the mark: {warm}");
         // Everything else is background: no wordmark, no message, no status.
         assert_eq!(ink(canvas, &canvas.bounds()), ink(canvas, &l.mark) + ink(canvas, &l.spinner));
     }
@@ -978,7 +983,8 @@ mod tests {
         }
         // Ease in and out: several times faster in the sweep than over the top...
         assert!(fastest > slowest * 5.0, "{slowest} to {fastest} degrees a second");
-        // ...and at 30 frames a second no dot moves more than a ninth of a turn in a frame.
+        // ...and even on a display paced to 30 frames a second no dot moves
+        // more than a ninth of a turn in a frame (at 60 or more, far less).
         assert!(fastest / 30.0 < 40.0, "{fastest}");
         assert!(dot_at(-0.1).is_none() && dot_at(DOT_VISIBLE).is_none());
         // It fades in and out.
@@ -1021,7 +1027,7 @@ mod tests {
             let mut moved = 0;
             for step in 1..=130 {
                 let before: Vec<u32> = scene.canvas().pixels().to_vec();
-                view.phase = step as f32 / 126.0; // 30 frames a second, past the end of a cycle
+                view.phase = step as f32 / 126.0; // a slow pace (30 a second), past the end of a cycle
                 let damage = scene.render(&view).to_vec();
                 assert_eq!(damage, [ring], "frame {step}");
                 // No pixel outside the damage changed.

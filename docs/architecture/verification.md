@@ -20,22 +20,22 @@ Python suites, which were run). The numbers move as work lands.
 
 | Suite | Tests | What they cover |
 |-------|-------|-----------------|
-| `boswas-ui` (Rust) | 30 | The token file as the programs read it, drawing, text (also without the font configuration, and without any font), icons, the materials |
-| `boswas-compositor`, unit | 88 | The exit statuses, when a shell that ended is started again and when the login screen is given up, the messages for a missing seat or graphics device, the configuration layers and their rules (a user cannot relax the lock policy, name a trusted program or turn X11 back on; a damaged file is ignored alone), the shortcut table, snapping and the layouts of the window picker, Task View, the snap layouts and the window menu, the frame geometry, the clip geometry, animation timelines, capture regions (also on a rotated output), EDID names |
-| `boswas-compositor`, end to end | 18 | The real binary on its headless back end with real clients and the control socket: a login screen that keeps failing or cannot be started ends the compositor with status 4, and a desktop session stays; without a seat the compositor ends with status 3 and says why; a shell that says `quit` and leaves ends it normally; the login screen runs no X server; ordinary clients get no privileged protocol and a started program does; a configured input method gets its two protocols and nothing else; the limits of the public control socket; a window's life; the window picker, Task View, snap keys and window menu through injected keys; screen capture only after the user's answer and never while locked (with `grim`); an X11 program through Xwayland (with `xclock`); the lock across a crashed lock screen |
+| `boswas-ui` (Rust) | 34 | The token file as the programs read it, drawing, text (also without the font configuration, and without any font), icons, the materials, the contrast rules for every accent colour in both schemes |
+| `boswas-compositor`, unit | 118 | The exit statuses, when a shell that ended is started again and when the login screen is given up, the messages for a missing seat or graphics device, the configuration layers and their rules (a user cannot relax the lock policy, name a trusted program or turn X11 back on; a damaged file is ignored alone), the shortcut table, snapping and the layouts of the window picker, Task View, the snap layouts and the window menu, the frame geometry, the clip geometry, animation timelines, capture regions (also on a rotated output), EDID names; the mode choice and frame pacing at high refresh rates (ADR-0048); the keys of ADR-0049 and their limits, the colour filter matrices, the magnifier's view, sticky and filter keys, snap layouts by dragging to the top, the title's text size |
+| `boswas-compositor`, end to end | 19 | The real binary on its headless back end with real clients and the control socket: a login screen that keeps failing or cannot be started ends the compositor with status 4, and a desktop session stays; without a seat the compositor ends with status 3 and says why; a shell that says `quit` and leaves ends it normally; the login screen runs no X server; ordinary clients get no privileged protocol and a started program does; a configured input method gets its two protocols and nothing else; the limits of the public control socket; a client drawing at its output's refresh rate (60 and 144 Hz); a window's life; the window picker, Task View, snap keys and window menu through injected keys; screen capture only after the user's answer and never while locked (with `grim`); an X11 program through Xwayland (with `xclock`); the lock across a crashed lock screen |
 | `boswas-services`, unit | 60 | Parsers, limits, conversions and policies of the ten services; what the lock screen, the login screen and Settings may each ask for |
 | `boswas-services`, integration | 85 | Every service against two private `dbus-daemon` processes and scripted stand-ins (see below): notifications, tray, media, network, Bluetooth, audio, power, brightness, session, the polkit agent, start-up and shut-down, buses that go away, and that no secret reaches the log |
 | `boswas-services-bridge` | 5 + 1 | The command parser, and the program itself: it reports states, answers bad lines and ends with its input |
-| `boswas-shell` | 90 | Every surface drawn without any font; what is reported when no font is installed; every surface drawn in both schemes and checked for controls inside the surface and reachable by keyboard; the taskbar's grouping and layout, Start's search, toasts and the notification centre, the dialogs (Run without a shell, the polkit dialog, the choice of administrator), the capture mark, pinned applications, the greetd messages, the PAM conversation, the users the greeter lists |
+| `boswas-shell` | 106 | Every surface drawn without any font; what is reported when no font is installed; every surface drawn in both schemes and checked for controls inside the surface and reachable by keyboard; the taskbar's grouping and layout, Start's search, toasts and the notification centre, the dialogs (Run without a shell, the polkit dialog, the choice of administrator), the capture mark, pinned applications, the greetd messages, the PAM conversation, the users the greeter lists; the desktop settings of the `config` event, the taskbar at the left and without Task View, Start's layouts and recommendations, the do-not-disturb schedule over midnight, the least time a toast stays, the list of notification senders and of applications first seen |
 | `boswas-bootsplash` | 126 unit, 18 + 5 + 1 + 1 | Rendering, layout on eleven display sizes, damage, the protocol, both client dialects, the passphrase editor; the whole frame after a mode-set; devices handed over by the supervisor; the console left alone once a graphical session has it; the real programs headless with a pseudo-terminal (a second start, a boot screen that does not answer); the packaged units and initramfs hook; Debian's unmodified `askpass` in a scratch root (needs root and the helper, skipped otherwise); frame cost |
 | `desktop/ui` (Python) | 11 | The token file and the generated KDE colour schemes: references, the fixed values, the Fluent geometry, contrast, staleness |
-| `desktop/ui/qt` (Python) | 131 | The Qt toolkit on Qt's offscreen platform: theme, style sheet, widgets, navigation, contrast, single instance, workers |
+| `desktop/ui/qt` (Python) | 147 | The Qt toolkit on Qt's offscreen platform: theme, style sheet, widgets, navigation, contrast (every accent colour in both schemes), text size, scroll bars, single instance, workers |
 | `desktop/icons` (Python) | 42 | The icon packs: the files match the generator, every required name exists, aliases repeat their design |
 | `desktop/cursors` (Python) | 82 | The pointer theme: the sources match the generator, every CSS, X11 and toolkit name resolves after installation, the XCursor files are read back by libXcursor and match `xcursorgen` byte for byte, hotspots, animation frames, two installations are identical |
 | `desktop/presets` (Python) | 72 (1 skipped here) | The presets and `boswas-preset`: it starts no program and names no KDE tool, writes its three files atomically, and refuses symbolic links |
 | `boswas-compat-manager` (Python) | 111 (1 skipped here: `desktop-file-validate` is not installed) | The Compatibility Manager on the toolkit; the installer entry for Boswas Files and which application stays the default |
-| `boswas-control-center` (Python) | 593 (5 skipped) | The settings framework and every section against stand-ins (a fake bridge, a model of the compositor's files), the file writer against symbolic links and read-only directories, the safety rules (only one module writes files, only one starts programs, no KDE program is named), the Users page against a stand-in for AccountsService and a scripted `passwd`, SHA-512 crypt against the specification's vectors, the earlier pages |
-| `boswas-apps` (Python), one suite per application | Terminal 302, Task Manager 261, Archive Manager 255, Files 229, Photos 204, Calculator 160, Media Player 136, Text Editor 131, Calendar 118, Snipping Tool 114, Reminders 103, Weather 93, Document Viewer 90, Clock 58, Camera 39 | Each application's logic (parsers, file operations, the terminal emulator against hostile input, 78 extraction tests with hand-built hostile archives, the compositor's capture request against a stand-in socket, Open-Meteo answers written from its documentation) and its window through real clicks and keys on Qt's offscreen platform, with stand-ins where the real thing would touch the system |
+| `boswas-control-center` (Python) | 688 (5 skipped) | The categories, pages, deep links of earlier versions and search (ADR-0049); every page added with them in a whole window on a fake root with fake programs, with the exact command or file change of each action; the settings framework and every section against stand-ins (a fake bridge, the real settings files read back as the compositor reads them); the file writer against symbolic links and read-only directories; the safety rules (only one module writes files, only one starts programs, every program in its fixed forms, no KDE program is named, opening any page runs nothing privileged and changes nothing); that every page the shell links to exists; the Users page against a stand-in for AccountsService and a scripted `passwd`, SHA-512 crypt against the specification's vectors |
+| `boswas-apps` (Python), one suite per application | Terminal 303, Task Manager 261, Archive Manager 255, Files 229, Photos 205, Calculator 161, Media Player 136, Text Editor 131, Calendar 118, Snipping Tool 114, Reminders 103, Weather 93, Document Viewer 90, Clock 58, Camera 40 (2,297 in 15 suites) | Each application's logic (parsers, file operations, the terminal emulator against hostile input, 78 extraction tests with hand-built hostile archives, the compositor's capture request against a stand-in socket, Open-Meteo answers written from its documentation) and its window through real clicks and keys on Qt's offscreen platform, with stand-ins where the real thing would touch the system |
 
 One more `#[test]` in the compositor's end-to-end file is a helper
 program for the others and is not counted. Three of the settings tests
@@ -97,6 +97,11 @@ Recorded by the builders; not repeatable from the test suite.
   services (debug builds contain a stand-in).
 - A window's rounded lower corner in a nested run on OpenGL ES with
   Mesa's software driver.
+- The desktop functions of ADR-0049, on the headless back end and nested
+  on OpenGL ES with Mesa's software driver (llvmpipe): the taskbar centred
+  and at the left, the accent colours, the taskbar hiding and coming
+  back, Start at 175 % text, the snap layouts when a window is dragged to
+  the top, the magnifier at 200 and 300 %, and all six colour filters.
 
 - The desktop run from the built packages. The `.deb` files of the final
   build were unpacked (no maintainer script ran) and laid over `/usr` and
@@ -151,6 +156,18 @@ shown with the text login fit a console), each time with its tests, and
 lintian and the package stage were repeated on the final set. The boots
 listed under "Seen on the final packages" ran on the build before the
 change of wording; the `nomodeset` boot was repeated after it.
+
+The run after the Control Center work of ADR-0049 (2026-11-22, version
+3.0~alpha1, the same build environment): the 13 device packages and the
+Control Plane built with all their test suites (428 Rust tests in
+`boswas-desktop`, 154 in `boswas-bootsplash`, 3,929 Python tests in the
+other device packages, 50 in the Control Plane; none failed); lintian
+reported no errors or warnings; the package stage passed 100 checks,
+failed none and skipped the same three; the static stage passed 82
+checks. The unit stage and the boot in the virtual machine were not
+repeated for this run. The first attempt stopped at `boswas-branding`:
+its tests read the boot menu's theme, which the package build did not
+copy; `build-packages.sh` now copies `config/live-build` too.
 
 Qt Multimedia in this environment: the sandbox has PySide6 6.12, whose
 audio back end is PipeWire, and `libpipewire` without its configuration
@@ -308,10 +325,10 @@ environment.
 | X11 | Xwayland on hardware; the clipboard between X11 and Wayland applications; Wine's Wayland driver on Debian 13 (the sandbox gives a Windows application the Wayland socket and no X11 socket, ADR-0034) |
 | Input methods | No input method has been run on the compositor; none is in the image |
 | Applications on the desktop | No run of Firefox, Wine or Waydroid on the native compositor is recorded. Weather has never reached the real Open-Meteo service (the build environment cannot). The Boswas applications and Control Center have not been started in a real session on hardware (window activation, the primary selection, drag and drop between programs, an input method's window); see "Looked at by hand" for the headless run from the built packages. Applying a preset from Settings in a running session was not tried |
-| Applications and devices | See the next section: a camera, removable drives, sound, real documents. Printing was tried to a PDF file only, and the image has no print service (CUPS is not in the manifest) |
-| Settings | Every section that talks to a system service ran against a stand-in: the real bridge reported "not available" here. Arranging several monitors is tested against a model only (the headless back end has one output and ignores a scale change on reload). `timedatectl` and `localectl` changes behind polkit |
+| Applications and devices | See the next section: a camera, removable drives, sound, real documents. Printing was tried to a PDF file only, and the image has no print service (CUPS is not in the manifest); Control Center's "Install printing support" has not run, and may be refused if APT would bring `cups-browsed`, which the image pins out and the system helper excludes |
+| Settings | Every section that talks to a system service ran against a stand-in: the real bridge reported "not available" here. Arranging several monitors is tested against a model only (the headless back end has one output and ignores a scale change on reload). `timedatectl` and `localectl` changes behind polkit. The pages of ADR-0049 against the real NetworkManager (VPN, adapters), CUPS, logind (advanced start-up), systemd-hostnamed (renaming), the Flatpak permission store and fontconfig; the output formats of `nmcli`, `lpstat`, `fc-list`, `dpkg-query` and `flatpak permission-list`, written from their documentation; some package names of Optional features (`gstreamer1.0-plugins-ugly`, `gstreamer1.0-libav`, `printer-driver-cups-pdf`, `fonts-noto-cjk`, `fonts-crosextra-carlito`, `fonts-crosextra-caladea`, `build-essential`, `firefox-esr-l10n-*`, `cups`) against the Debian archive |
 | Performance | Frame times on a real GPU, memory and start-up time of the compositor and the shell. Frame costs were measured on the build machine without a GPU and in the virtual machine only (ADR-0045, below) |
-| Accessibility and review | No screen reader interface exists for the shell or for what the compositor draws. No external security review and no design review have taken place |
+| Accessibility and review | No screen reader interface exists for the shell or for what the compositor draws. The colour-filter pass and the magnifier through the DRM back end are compiled only; sticky and filter keys have unit tests and have not run in the real compositor; not every shell surface was looked at with 225 % text. No external security review and no design review have taken place |
 
 ## The system applications and the settings, one by one
 
@@ -332,7 +349,7 @@ do on purpose or not yet; "not verified" is what could not be tried here.
 | Task Manager | No network column per process; no efficiency mode; no way to disconnect a session. A process that used almost no CPU shows a change of its memory or disk use up to 8 seconds late | A real Wayland session; a real GPU, battery and Wi-Fi adapter (fake sysfs in the tests); the polkit question when a service is started or stopped; "Open file location" against the running Files. Tried live against a real systemd user manager and a real logind on a private bus; its CPU figures were compared with `top` |
 | Clock | No choice of alarm sound | The chime (Qt Multimedia crashes in this environment, see the note on Qt Multimedia above); logind's wake-up signal |
 | Calendar | No accounts and no synchronisation; no printing; resizing by dragging only in the week and day views; it does not notice when another program changes its file; events of a hidden calendar do not remind | Reminders against the real notification service of the shell (tested against a stand-in on a private bus) |
-| Control Center, settings | Editing a proxy; managing VPN connections; a test sound; an automatic suspend time; identifying monitors; a pointer theme; drawing tablets; more than four keyboard layouts; locking an account. Passwords set for other users are SHA-512 crypt, not Debian 13's default scheme, and only the length and character-class rules of `pwquality` are applied to them | See the table above. For the Users page: the shape of `busctl`'s replies, the conversation with `passwd` under real PAM modules, polkit's questions through the shell's agent, signing in as a user it created, removing a user with and without the files, the picture on the login screen |
+| Control Center, settings | Editing a proxy; connecting a VPN that asks for a secret each time; a test sound; an automatic suspend time; identifying monitors; a pointer theme or colour; drawing tablets; more than four keyboard layouts; locking an account; setting the default printer; pausing updates; resetting the device; notifications on the lock screen; contrast themes; underlined access keys; an accent from the wallpaper; functions that need an online service or a phone (ADR-0049). Passwords set for other users are SHA-512 crypt, not Debian 13's default scheme, and only the length and character-class rules of `pwquality` are applied to them | See the table above. For the Users page: the shape of `busctl`'s replies, the conversation with `passwd` under real PAM modules, polkit's questions through the shell's agent, signing in as a user it created, removing a user with and without the files, the picture on the login screen |
 
 Icons: the applications ask for some symbolic icons the Boswas Prism pack
 does not draw (the reports name them). Ten were added; the others fall
@@ -353,8 +370,9 @@ ADR.
   choose, and allows everything or nothing (ADR-0037).
 - Screen sharing through the portal shares the first monitor; there is no
   chooser (ADR-0037).
-- Outputs on a second GPU, HDR, variable refresh rate and the NVIDIA
-  proprietary driver are not supported (ADR-0036).
+- Outputs on a second GPU, HDR and the NVIDIA proprietary driver are not
+  supported (ADR-0036). Variable refresh rate exists (ADR-0048) and has not
+  run on a real monitor.
 - The boot screen's text is ASCII and English (ADR-0038).
 - With `nomodeset` there is no KMS device: the desktop does not start and
   the text login is shown. The boot screen does not draw on a 24-bit
@@ -362,6 +380,11 @@ ADR.
 - Between the boot screen and the login screen the display is an empty
   console for the moment the compositor needs to start (ADR-0044).
 - The shortcuts are fixed; there is no shortcut editor.
+- No contrast themes for the shell; colour filters need OpenGL ES and are
+  not available where the compositor draws with pixman (ADR-0049).
+- A VPN that asks for a password or another secret when it connects
+  cannot be connected from the desktop: there is no secret agent for
+  NetworkManager (ADR-0049).
 - There is no office suite and no mail client in the image, and the
   Document Viewer reads PDF only (ADR-0040).
 - There is no print service in the image: the applications' Print

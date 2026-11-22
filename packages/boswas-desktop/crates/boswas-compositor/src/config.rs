@@ -43,6 +43,17 @@ pub struct Config {
     pub xwayland: Xwayland,
     pub apps: Apps,
     pub appearance: Appearance,
+    /// Text size and scroll bars of every program (the shell, title bars,
+    /// Qt applications).
+    pub accessibility: Accessibility,
+    pub color_filter: ColorFilter,
+    pub magnifier: Magnifier,
+    /// The shell's taskbar, Start and notifications: read here and passed
+    /// on to the shell with the appearance.
+    pub taskbar: Taskbar,
+    pub start: Start,
+    pub notifications: Notifications,
+    pub multitasking: Multitasking,
     pub policy: Policy,
 }
 
@@ -61,6 +72,20 @@ pub struct Keyboard {
     pub repeat_rate: i32,
     /// Num Lock is on when the session starts.
     pub numlock: bool,
+    /// Shift, Ctrl, Alt and Super stay pressed for the next key after they
+    /// are pressed and released alone.
+    pub sticky_keys: bool,
+    /// With sticky keys: a modifier pressed twice in a row stays pressed
+    /// until it is pressed a third time.
+    pub sticky_keys_lock: bool,
+    /// Ignore brief and repeated key strokes (the two times below).
+    pub filter_keys: bool,
+    /// With filter keys: a key counts only after it was held this long
+    /// (milliseconds; 0: at once).
+    pub slow_keys_ms: u32,
+    /// With filter keys: a key pressed again this soon after it was
+    /// released is ignored (milliseconds; 0: never).
+    pub bounce_keys_ms: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -109,13 +134,18 @@ pub struct OutputSettings {
     /// `false` turns the output off.
     pub enabled: Option<bool>,
     /// `WIDTHxHEIGHT` or `WIDTHxHEIGHT@HZ`, one of the modes the output
-    /// offers; anything else keeps the preferred mode.
+    /// offers (without a rate, the highest it offers at that size); anything
+    /// else keeps the default: the monitor's native size at its highest
+    /// refresh rate.
     pub mode: Option<String>,
     pub scale: Option<f64>,
     /// Position of the top-left corner on the desktop, in logical pixels.
     pub position: Option<[i32; 2]>,
     /// `normal`, `90`, `180` or `270`.
     pub rotation: Option<String>,
+    /// Variable refresh rate (adaptive sync) where the monitor and its
+    /// driver offer it. Off unless `true`.
+    pub adaptive_sync: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -200,6 +230,122 @@ pub struct Appearance {
     /// A picture (PNG or JPEG, absolute file name) the shell shows instead
     /// of the default background; empty for the default.
     pub wallpaper: String,
+    /// The accent colour: a hue of the palette ([`ACCENTS`]).
+    pub accent: String,
+    /// The shell's surfaces show the blurred wallpaper through their tint;
+    /// `false` fills them with the tint alone.
+    pub transparency: bool,
+}
+
+/// The palette hues that can be the accent colour; the first is the default.
+pub const ACCENTS: [&str; 8] = ["iris", "azure", "sky", "mint", "sun", "coral", "orchid", "slate"];
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Accessibility {
+    /// Text size in percent of the type ramp, 100 to 225; nothing else of
+    /// the interface grows.
+    pub text_scale: u32,
+    /// Qt applications show full scroll bars instead of thin lines that
+    /// widen under the pointer.
+    pub always_show_scrollbars: bool,
+}
+
+/// The colour filters of the whole picture.
+pub const COLOR_FILTERS: [&str; 6] = ["grayscale", "inverted", "grayscale_inverted", "deuteranopia", "protanopia", "tritanopia"];
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ColorFilter {
+    pub enabled: bool,
+    /// One of [`COLOR_FILTERS`].
+    pub filter: String,
+    /// Super+Ctrl+C turns the filter on and off.
+    pub shortcut: bool,
+}
+
+/// The zoom steps of the magnifier, in percent.
+pub const MAGNIFIER_STEPS: [u32; 6] = [25, 50, 100, 150, 200, 400];
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Magnifier {
+    /// The picture is enlarged around the pointer.
+    pub enabled: bool,
+    /// Zoom in percent, 100 to 1600.
+    pub zoom: u32,
+    /// What Super+Plus and Super+Minus add and take away, in percent.
+    pub step: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Taskbar {
+    /// `center` or `left`: where Start and the applications are.
+    pub alignment: String,
+    /// The taskbar slides away and comes back when the pointer touches the
+    /// bottom edge; windows use the whole screen.
+    pub auto_hide: bool,
+    /// The Task View button.
+    pub task_view: bool,
+    /// The clock shows seconds.
+    pub clock_seconds: bool,
+    /// Taskbar buttons show how many unread notifications their
+    /// application has.
+    pub badges: bool,
+}
+
+/// The folders Start can show next to the power button.
+pub const START_FOLDERS: [&str; 7] = ["settings", "files", "documents", "downloads", "music", "pictures", "videos"];
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Start {
+    /// `default`, `more_pins` or `more_recommendations`.
+    pub layout: String,
+    /// Applications installed lately are recommended.
+    pub recently_added: bool,
+    /// The applications used most are recommended.
+    pub most_used: bool,
+    /// Buttons next to the power button, from [`START_FOLDERS`].
+    pub folders: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Notifications {
+    /// Only critical notifications pop up; the others go to the
+    /// notification centre silently.
+    pub do_not_disturb: bool,
+    /// Do not disturb turns on and off by the clock.
+    pub do_not_disturb_scheduled: bool,
+    /// `HH:MM`, local time.
+    pub do_not_disturb_from: String,
+    pub do_not_disturb_to: String,
+    /// Applications (by the name they send) whose notifications do not pop
+    /// up; they still go to the notification centre.
+    pub banners_off: Vec<String>,
+    /// How long a notification stays on screen at least, in seconds.
+    pub toast_seconds: u32,
+}
+
+/// How long notifications can stay, in seconds.
+pub const TOAST_SECONDS: [u32; 6] = [5, 7, 15, 30, 60, 300];
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Multitasking {
+    /// Dragging a window to an edge and Super+Left/Right snap it.
+    pub snap_windows: bool,
+    /// Resting the pointer on the maximize button offers the snap layouts.
+    pub snap_layouts_on_maximize: bool,
+    /// Dragging a window to the top edge offers the snap layouts.
+    pub snap_layouts_on_drag: bool,
+    /// `desktop`: the taskbar shows the windows of the current desktop;
+    /// `all`: of every desktop.
+    pub taskbar_windows: String,
+    /// The same for Alt+Tab.
+    pub alt_tab_windows: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -230,7 +376,91 @@ impl Default for Config {
             xwayland: Xwayland::default(),
             apps: Apps::default(),
             appearance: Appearance::default(),
+            accessibility: Accessibility::default(),
+            color_filter: ColorFilter::default(),
+            magnifier: Magnifier::default(),
+            taskbar: Taskbar::default(),
+            start: Start::default(),
+            notifications: Notifications::default(),
+            multitasking: Multitasking::default(),
             policy: Policy::default(),
+        }
+    }
+}
+
+impl Default for Accessibility {
+    fn default() -> Self {
+        Self {
+            text_scale: 100,
+            always_show_scrollbars: false,
+        }
+    }
+}
+
+impl Default for ColorFilter {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            filter: "grayscale".into(),
+            shortcut: false,
+        }
+    }
+}
+
+impl Default for Magnifier {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            zoom: 200,
+            step: 100,
+        }
+    }
+}
+
+impl Default for Taskbar {
+    fn default() -> Self {
+        Self {
+            alignment: "center".into(),
+            auto_hide: false,
+            task_view: true,
+            clock_seconds: false,
+            badges: true,
+        }
+    }
+}
+
+impl Default for Start {
+    fn default() -> Self {
+        Self {
+            layout: "default".into(),
+            recently_added: true,
+            most_used: true,
+            folders: vec!["settings".into(), "files".into()],
+        }
+    }
+}
+
+impl Default for Notifications {
+    fn default() -> Self {
+        Self {
+            do_not_disturb: false,
+            do_not_disturb_scheduled: false,
+            do_not_disturb_from: "22:00".into(),
+            do_not_disturb_to: "07:00".into(),
+            banners_off: Vec::new(),
+            toast_seconds: 5,
+        }
+    }
+}
+
+impl Default for Multitasking {
+    fn default() -> Self {
+        Self {
+            snap_windows: true,
+            snap_layouts_on_maximize: true,
+            snap_layouts_on_drag: true,
+            taskbar_windows: "desktop".into(),
+            alt_tab_windows: "desktop".into(),
         }
     }
 }
@@ -245,6 +475,11 @@ impl Default for Keyboard {
             repeat_delay: 400,
             repeat_rate: 30,
             numlock: false,
+            sticky_keys: false,
+            sticky_keys_lock: true,
+            filter_keys: false,
+            slow_keys_ms: 0,
+            bounce_keys_ms: 500,
         }
     }
 }
@@ -332,6 +567,8 @@ impl Default for Appearance {
             scheme: "dark".into(),
             reduced_motion: false,
             wallpaper: String::new(),
+            accent: ACCENTS[0].into(),
+            transparency: true,
         }
     }
 }
@@ -501,6 +738,63 @@ impl Config {
             warnings.push(format!("appearance.scheme \"{}\" is unknown; using dark", self.appearance.scheme));
             self.appearance.scheme = "dark".into();
         }
+        let mut choice = |table: &str, key: &str, value: &mut String, allowed: &[&str]| {
+            if !allowed.contains(&value.as_str()) {
+                warnings.push(format!("{table}.{key} \"{value}\" is unknown; using {}", allowed[0]));
+                *value = allowed[0].into();
+            }
+        };
+        choice("appearance", "accent", &mut self.appearance.accent, &ACCENTS);
+        choice("color_filter", "filter", &mut self.color_filter.filter, &COLOR_FILTERS);
+        choice("taskbar", "alignment", &mut self.taskbar.alignment, &["center", "left"]);
+        choice("start", "layout", &mut self.start.layout, &["default", "more_pins", "more_recommendations"]);
+        choice("multitasking", "taskbar_windows", &mut self.multitasking.taskbar_windows, &["desktop", "all"]);
+        choice("multitasking", "alt_tab_windows", &mut self.multitasking.alt_tab_windows, &["desktop", "all"]);
+        self.accessibility.text_scale = self.accessibility.text_scale.clamp(100, 225);
+        self.magnifier.zoom = self.magnifier.zoom.clamp(100, 1600);
+        if !MAGNIFIER_STEPS.contains(&self.magnifier.step) {
+            warnings.push(format!("magnifier.step {} is not one of 25, 50, 100, 150, 200 or 400; using 100", self.magnifier.step));
+            self.magnifier.step = 100;
+        }
+        for value in [&mut self.keyboard.slow_keys_ms, &mut self.keyboard.bounce_keys_ms] {
+            if *value != 0 {
+                *value = (*value).clamp(100, 5000);
+            }
+        }
+        let mut folders: Vec<String> = Vec::new();
+        for folder in std::mem::take(&mut self.start.folders) {
+            if !START_FOLDERS.contains(&folder.as_str()) {
+                warnings.push(format!("start.folders: \"{folder}\" is not a folder Start can show; ignored"));
+            } else if !folders.contains(&folder) {
+                folders.push(folder);
+            }
+        }
+        self.start.folders = folders;
+        for (key, value, default) in [
+            ("do_not_disturb_from", &mut self.notifications.do_not_disturb_from, "22:00"),
+            ("do_not_disturb_to", &mut self.notifications.do_not_disturb_to, "07:00"),
+        ] {
+            if parse_clock(value).is_none() {
+                warnings.push(format!("notifications.{key} is not HH:MM; using {default}"));
+                *value = default.into();
+            }
+        }
+        // Names as notification senders give them: plain text of a sensible
+        // length, each once.
+        let mut muted: Vec<String> = Vec::new();
+        for name in std::mem::take(&mut self.notifications.banners_off) {
+            let plain = !name.trim().is_empty() && name.chars().count() <= 128 && !name.chars().any(char::is_control);
+            if plain && !muted.contains(&name) && muted.len() < 256 {
+                muted.push(name);
+            }
+        }
+        self.notifications.banners_off = muted;
+        if !TOAST_SECONDS.contains(&self.notifications.toast_seconds) {
+            let wanted = self.notifications.toast_seconds;
+            let nearest = TOAST_SECONDS.iter().copied().min_by_key(|s| s.abs_diff(wanted)).unwrap_or(5);
+            warnings.push(format!("notifications.toast_seconds {wanted} is not offered; using {nearest}"));
+            self.notifications.toast_seconds = nearest;
+        }
         if self.policy.privileged_protocols != "shell" && self.policy.privileged_protocols != "all" {
             warnings.push("policy.privileged_protocols must be \"shell\" or \"all\"; using shell".into());
             self.policy.privileged_protocols = "shell".into();
@@ -561,6 +855,19 @@ pub fn parse_clock(text: &str) -> Option<u32> {
     (h < 24 && m < 60).then_some(h * 60 + m)
 }
 
+/// Whether `minutes` after local midnight lies in the span from `from` to
+/// `to` (`HH:MM`; the end is exclusive, and a span may run over midnight).
+pub fn clock_span_contains(from: &str, to: &str, minutes: u32) -> bool {
+    let (Some(from), Some(to)) = (parse_clock(from), parse_clock(to)) else {
+        return false;
+    };
+    if from <= to {
+        (from..to).contains(&minutes)
+    } else {
+        minutes >= from || minutes < to
+    }
+}
+
 impl NightLight {
     /// Whether night light is on at `minutes` after local midnight.
     pub fn active_at(&self, minutes: u32) -> bool {
@@ -570,15 +877,10 @@ impl NightLight {
         if !self.scheduled {
             return true;
         }
-        let (Some(from), Some(to)) = (parse_clock(&self.from), parse_clock(&self.to)) else {
+        if parse_clock(&self.from).is_none() || parse_clock(&self.to).is_none() {
             return true;
-        };
-        if from <= to {
-            (from..to).contains(&minutes)
-        } else {
-            // Over midnight.
-            minutes >= from || minutes < to
         }
+        clock_span_contains(&self.from, &self.to, minutes)
     }
 }
 
@@ -727,6 +1029,30 @@ mod tests {
         assert_eq!((external.scale, external.mode.clone(), external.rotation.clone(), external.position), (None, None, None, None));
         assert!(!c.outputs.contains_key("bad name!"));
         assert_eq!(warnings.len(), 5, "{warnings:?}");
+    }
+
+    #[test]
+    fn adaptive_sync_is_off_unless_asked_for_and_layers_like_the_other_output_keys() {
+        assert_eq!(Config::default().outputs.get("DP-1").and_then(|o| o.adaptive_sync), None);
+        let parsed = Config::from_toml("[outputs.DP-1]\nadaptive_sync = true\n").unwrap();
+        assert_eq!(parsed.outputs["DP-1"].adaptive_sync, Some(true));
+        assert_eq!(parsed.outputs["DP-1"].mode, None, "nothing else of the output is set by it");
+
+        let dir = tempfile::tempdir().unwrap();
+        // The administrator turns it on for one monitor; the user's file
+        // changes another key of that monitor and turns it off on a second.
+        let admin = file(dir.path(), "admin.toml", "[outputs.DP-1]\nadaptive_sync = true\n[outputs.DP-2]\nadaptive_sync = true\n");
+        let user = file(dir.path(), "user.toml", "[outputs.DP-1]\nscale = 1.25\n[outputs.DP-2]\nadaptive_sync = false\n");
+        let (c, warnings) = Config::load_from(&[&admin], Some(&user));
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!((c.outputs["DP-1"].adaptive_sync, c.outputs["DP-1"].scale), (Some(true), Some(1.25)));
+        assert_eq!(c.outputs["DP-2"].adaptive_sync, Some(false), "the user's file has the last word");
+
+        // A value that is not true or false rejects the file, as any wrong kind does.
+        let wrong = file(dir.path(), "wrong.toml", "[outputs.DP-1]\nadaptive_sync = \"yes\"\nscale = 2.0\n");
+        let (c, warnings) = Config::load_from(&[&admin], Some(&wrong));
+        assert_eq!((c.outputs["DP-1"].adaptive_sync, c.outputs["DP-1"].scale), (Some(true), None));
+        assert!(warnings.iter().any(|w| w.contains("wrong.toml")), "{warnings:?}");
     }
 
     #[test]
@@ -916,6 +1242,78 @@ mod tests {
         let (c, warnings) = Config::load_from(&[&dir.path().join("missing.toml")], None);
         assert_eq!(c, Config::default());
         assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn the_windows_like_settings_have_their_defaults() {
+        let c = Config::default();
+        assert_eq!((c.appearance.accent.as_str(), c.appearance.transparency), ("iris", true));
+        assert_eq!((c.accessibility.text_scale, c.accessibility.always_show_scrollbars), (100, false));
+        assert_eq!((c.color_filter.enabled, c.color_filter.filter.as_str(), c.color_filter.shortcut), (false, "grayscale", false));
+        assert_eq!((c.magnifier.enabled, c.magnifier.zoom, c.magnifier.step), (false, 200, 100));
+        assert_eq!((c.taskbar.alignment.as_str(), c.taskbar.auto_hide, c.taskbar.task_view, c.taskbar.clock_seconds), ("center", false, true, false));
+        assert_eq!((c.start.layout.as_str(), c.start.recently_added, c.start.most_used), ("default", true, true));
+        assert_eq!(c.start.folders, ["settings", "files"]);
+        assert!(c.multitasking.snap_windows && c.multitasking.snap_layouts_on_maximize && c.multitasking.snap_layouts_on_drag);
+        assert_eq!((c.multitasking.taskbar_windows.as_str(), c.multitasking.alt_tab_windows.as_str()), ("desktop", "desktop"));
+        assert!(!c.notifications.do_not_disturb && !c.notifications.do_not_disturb_scheduled);
+        assert_eq!(c.notifications.toast_seconds, 5);
+        assert!(!c.keyboard.sticky_keys && !c.keyboard.filter_keys && c.keyboard.sticky_keys_lock);
+        // The shipped file says the same as the built-in values.
+        let shipped = Config::from_toml(include_str!("../../../config/compositor.toml")).unwrap();
+        assert_eq!(shipped.taskbar, c.taskbar);
+        assert_eq!(shipped.start, c.start);
+        assert_eq!(shipped.multitasking, c.multitasking);
+        assert_eq!(shipped.notifications, c.notifications);
+        assert_eq!(shipped.accessibility, c.accessibility);
+        assert_eq!(shipped.color_filter, c.color_filter);
+        assert_eq!(shipped.magnifier, c.magnifier);
+    }
+
+    #[test]
+    fn the_windows_like_settings_are_checked() {
+        let mut warnings = Vec::new();
+        let mut c: Config = toml::from_str(
+            "[appearance]\naccent = \"teal\"\n[accessibility]\ntext_scale = 400\n[color_filter]\nfilter = \"sepia\"\n\
+             [magnifier]\nzoom = 5000\nstep = 30\n[taskbar]\nalignment = \"right\"\n[start]\nlayout = \"huge\"\n\
+             folders = [\"music\", \"/etc\", \"music\", \"videos\"]\n[multitasking]\ntaskbar_windows = \"some\"\n\
+             [notifications]\ndo_not_disturb_from = \"9pm\"\nbanners_off = [\"Mail\", \"Mail\", \"\", \"a\\u0007b\", \"Chat\"]\n\
+             toast_seconds = 8\n[keyboard]\nslow_keys_ms = 5\nbounce_keys_ms = 0\n",
+        )
+        .unwrap();
+        c.sanitize(&mut warnings);
+        assert_eq!(c.appearance.accent, "iris");
+        assert_eq!(c.accessibility.text_scale, 225);
+        assert_eq!(c.color_filter.filter, "grayscale");
+        assert_eq!((c.magnifier.zoom, c.magnifier.step), (1600, 100));
+        assert_eq!(c.taskbar.alignment, "center");
+        assert_eq!(c.start.layout, "default");
+        assert_eq!(c.start.folders, ["music", "videos"]);
+        assert_eq!(c.multitasking.taskbar_windows, "desktop");
+        assert_eq!(c.notifications.do_not_disturb_from, "22:00");
+        assert_eq!(c.notifications.banners_off, ["Mail", "Chat"]);
+        assert_eq!(c.notifications.toast_seconds, 7, "the nearest time offered");
+        assert_eq!((c.keyboard.slow_keys_ms, c.keyboard.bounce_keys_ms), (100, 0));
+        assert_eq!(warnings.len(), 9, "{warnings:?}");
+        // An unknown key in one of the new tables rejects the file, as anywhere.
+        assert!(Config::from_toml("[taskbar]\nposition = \"top\"\n").is_err());
+        assert!(Config::from_toml("[accessibility]\ntext_scale = \"big\"\n").is_err());
+    }
+
+    #[test]
+    fn the_accents_are_the_hues_the_design_system_derives() {
+        assert_eq!(ACCENTS, boswas_ui::tokens::ACCENT_HUES);
+    }
+
+    #[test]
+    fn clock_spans_run_over_midnight() {
+        assert!(clock_span_contains("22:00", "07:00", 23 * 60));
+        assert!(clock_span_contains("22:00", "07:00", 60));
+        assert!(!clock_span_contains("22:00", "07:00", 7 * 60));
+        assert!(clock_span_contains("09:00", "17:00", 9 * 60));
+        assert!(!clock_span_contains("09:00", "17:00", 17 * 60));
+        assert!(!clock_span_contains("09:00", "09:00", 9 * 60), "an empty span");
+        assert!(!clock_span_contains("x", "07:00", 60));
     }
 
     #[test]

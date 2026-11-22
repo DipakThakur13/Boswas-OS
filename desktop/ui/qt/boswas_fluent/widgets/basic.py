@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import hashlib
 
-from PySide6.QtCore import QPointF, QRectF, QSize, Qt, QTimer, QVariantAnimation, Signal
+from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QFontMetrics, QIcon, QImage, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import QAbstractButton, QLabel, QPushButton, QSizePolicy, QToolButton, QWidget
 
 from .. import icons, paint
+from ..animation import Animation
 from ..theming import current_theme, duration, easing, font, manager, qcolor, repolish
 
 TONES = ("secondary", "muted", "accent", "success", "warning", "danger", "info", "on-accent")
@@ -215,7 +216,7 @@ class ToggleSwitch(QAbstractButton):
             self.setAccessibleName(name)
         self._on_text, self._off_text, self._show_state = on_text, off_text, show_state
         self._position = 1.0 if checked else 0.0
-        self._animation: QVariantAnimation | None = None
+        self._animation: Animation | None = None
         self.setAttribute(Qt.WidgetAttribute.WA_Hover)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setCursor(Qt.CursorShape.ArrowCursor)
@@ -268,7 +269,7 @@ class ToggleSwitch(QAbstractButton):
             self._position = end
             self.update()
             return
-        animation = QVariantAnimation(self)
+        animation = Animation(self)
         animation.setStartValue(float(self._position))
         animation.setEndValue(end)
         animation.setDuration(time)
@@ -290,7 +291,7 @@ class ToggleSwitch(QAbstractButton):
         # setChecked() with signals blocked (a page that shows the real
         # state without announcing a change) starts no animation: the knob
         # then simply stands where the state says.
-        running = self._animation is not None and self._animation.state() == QVariantAnimation.State.Running
+        running = self._animation is not None and self._animation.state() == Animation.State.Running
         if not running:
             self._position = 1.0 if self.isChecked() else 0.0
 
@@ -343,12 +344,12 @@ class ToggleSwitch(QAbstractButton):
 class ProgressRing(QWidget):
     """A circular progress indicator, spinning (indeterminate) or showing ``value`` out of 100.
 
-    The spin runs only while the ring is visible, and not at all when the
-    desktop asks for reduced motion (a still three-quarter ring is shown).
+    The spin runs only while the ring is visible, at the refresh rate of its
+    screen, and not at all when the desktop asks for reduced motion (a still
+    three-quarter ring is shown).
     """
 
     _CYCLE_MS = 1600
-    _TICK_MS = 16
 
     def __init__(self, parent: QWidget | None = None, *, size: int = 32, stroke: float | None = None,
                  indeterminate: bool = True) -> None:
@@ -358,9 +359,12 @@ class ProgressRing(QWidget):
         self._indeterminate = indeterminate
         self._value = 0.0
         self._phase = 0.0
-        self._timer = QTimer(self)
-        self._timer.setInterval(self._TICK_MS)
-        self._timer.timeout.connect(self._tick)
+        self._spin = Animation(self)              # the phase of the spin, 0 to 1 in a cycle, over and over
+        self._spin.setStartValue(0.0)
+        self._spin.setEndValue(1.0)
+        self._spin.setDuration(self._CYCLE_MS)
+        self._spin.setLoopCount(-1)
+        self._spin.valueChanged.connect(self._set_phase)
         self.setFixedSize(size, size)
         self.setAccessibleName("Working")
 
@@ -383,14 +387,14 @@ class ProgressRing(QWidget):
         self.update()
 
     def is_animating(self) -> bool:
-        return self._timer.isActive()
+        return self._spin.state() == Animation.State.Running
 
     def _sync_timer(self) -> None:
         wanted = self._indeterminate and self.isVisible() and not manager().reduced_motion
-        if wanted and not self._timer.isActive():
-            self._timer.start()
-        elif not wanted and self._timer.isActive():
-            self._timer.stop()
+        if wanted and not self.is_animating():
+            self._spin.start()
+        elif not wanted and self.is_animating():
+            self._spin.stop()
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
@@ -398,10 +402,10 @@ class ProgressRing(QWidget):
 
     def hideEvent(self, event) -> None:
         super().hideEvent(event)
-        self._timer.stop()
+        self._spin.stop()
 
-    def _tick(self) -> None:
-        self._phase = (self._phase + self._TICK_MS / self._CYCLE_MS) % 1.0
+    def _set_phase(self, phase: float) -> None:
+        self._phase = float(phase) % 1.0
         self.update()
 
     def paintEvent(self, _event) -> None:
@@ -729,7 +733,7 @@ class Skeleton(QWidget):
         super().__init__(parent)
         self._radius = radius
         self._level = 1.0
-        self._animation = QVariantAnimation(self)
+        self._animation = Animation(self)
         self._animation.setStartValue(1.0)
         self._animation.setKeyValueAt(0.5, 0.45)
         self._animation.setEndValue(1.0)
@@ -744,7 +748,7 @@ class Skeleton(QWidget):
         self.setAccessibleName("Loading")
 
     def is_animating(self) -> bool:
-        return self._animation.state() == QVariantAnimation.State.Running
+        return self._animation.state() == Animation.State.Running
 
     def _set_level(self, value) -> None:
         self._level = float(value)

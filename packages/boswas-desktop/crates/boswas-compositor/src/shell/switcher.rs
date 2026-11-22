@@ -163,9 +163,12 @@ impl Boswas {
     /// The windows the switcher steps through: those of this desktop,
     /// minimized ones too, most recently used first.
     fn switcher_order(&self) -> Vec<u64> {
+        // Multitasking > Alt+Tab shows the windows of every desktop, or of
+        // the current one.
+        let every_desktop = self.config.multitasking.alt_tab_windows == "all";
         let here = |window: &WindowElement| {
             let data = window.data();
-            data.mapped.get() && data.workspace.get() == self.workspace && !window.is_override_redirect()
+            data.mapped.get() && (every_desktop || data.workspace.get() == self.workspace) && !window.is_override_redirect()
         };
         let mut order: Vec<u64> = self
             .focus_history

@@ -18,7 +18,10 @@ Placeholders
 * ``@sp-1`` ... ``@sp-12``: multiples of the spacing unit; ``@control-h`` the inner
   height of a control (8 units minus its two border pixels);
 * ``@font-caption``, ``@font-body``, ``@font-subtitle``; ``@weight-strong``;
-* ``@img-<name>``: ``url(...)`` of a generated image (``assets.sources``).
+* ``@img-<name>``: ``url(...)`` of a generated image (``assets.sources``);
+* ``@scrollbar-margin-v``, ``@scrollbar-margin-h``, ``@scrollbar-radius``: a scroll bar's handle at
+  rest: a thin line that widens under the pointer, or (Accessibility > "Always show scroll bars")
+  as wide as under the pointer.
 
 The fixed numbers left in the template are stroke widths (1 px outlines,
 the 2 px accent line of a focused text box, the 3 px selection pill).
@@ -423,14 +426,14 @@ QScrollBar:horizontal { height: @sp-3; margin: 0; }
 QScrollBar::handle:vertical {
     background: @stroke-strong;
     min-height: @sp-8;
-    border-radius: 1px;
-    margin: 3px 5px 3px 5px;
+    border-radius: @scrollbar-radius;
+    margin: @scrollbar-margin-v;
 }
 QScrollBar::handle:horizontal {
     background: @stroke-strong;
     min-width: @sp-8;
-    border-radius: 1px;
-    margin: 5px 3px 5px 3px;
+    border-radius: @scrollbar-radius;
+    margin: @scrollbar-margin-h;
 }
 QScrollBar::handle:vertical:hover, QScrollBar::handle:vertical:pressed {
     margin: 3px 3px 3px 3px;
@@ -731,7 +734,7 @@ QCalendarWidget QTableView::item { padding: 0; }
 """
 
 
-def values(theme: Theme, image_dir: str) -> dict[str, str]:
+def values(theme: Theme, image_dir: str, always_show_scrollbars: bool = False) -> dict[str, str]:
     """Every placeholder of the template and its value for ``theme``."""
     table: dict[str, str] = {}
     for role in ROLES + DERIVED_COLOURS:
@@ -754,6 +757,12 @@ def values(theme: Theme, image_dir: str) -> dict[str, str]:
     for name in ("caption", "body", "subtitle"):
         table[f"font-{name}"] = f"{theme.type(name).size}px"
     table["weight-strong"] = str(theme.type("body-strong").weight)
+    if always_show_scrollbars:
+        table["scrollbar-margin-v"] = table["scrollbar-margin-h"] = "3px 3px 3px 3px"
+        table["scrollbar-radius"] = "3px"
+    else:
+        table["scrollbar-margin-v"], table["scrollbar-margin-h"] = "3px 5px 3px 5px", "5px 3px 5px 3px"
+        table["scrollbar-radius"] = "1px"
     directory = image_dir.rstrip("/")
     if '"' in directory or "\\" in directory or "\n" in directory:
         raise TokenError(f"the image directory cannot be named in a style sheet: {directory!r}")
@@ -777,6 +786,7 @@ def render(template: str, table: dict[str, str]) -> str:
     return _PLACEHOLDER.sub(substitute, template)
 
 
-def build(theme: Theme, image_dir: str) -> str:
-    """The application style sheet for ``theme``; images are named inside ``image_dir``."""
-    return render(TEMPLATE, values(theme, image_dir))
+def build(theme: Theme, image_dir: str, always_show_scrollbars: bool = False) -> str:
+    """The application style sheet for ``theme``; images are named inside ``image_dir``. With
+    ``always_show_scrollbars`` scroll bars are full width at rest (Accessibility > Visual effects)."""
+    return render(TEMPLATE, values(theme, image_dir, always_show_scrollbars))

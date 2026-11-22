@@ -92,7 +92,7 @@
   <rect x="1164" y="787.5" width="70" height="9" rx="4.5" fill="#E5EEF8" fill-opacity="0.9"/>
   </g>
   <rect x="10" y="1024" width="1900" height="46" rx="10" fill="#0E1D33" fill-opacity="0.96" stroke="#E5EEF8" stroke-opacity="0.10" stroke-width="1.5"/>
-  <image x="27.63" y="1029.16" width="24.14" height="30" href="../../branding/boswas-os-mark.svg" opacity="1"/>
+  <image x="25" y="1028.25" width="30" height="30" href="../../branding/boswas-os-mark.svg" opacity="1"/>
   <rect x="68" y="1037" width="24" height="20" rx="3" fill="#A0B4CC" fill-opacity="0.5"/>
   <rect x="98" y="1037" width="24" height="20" rx="3" fill="#A0B4CC" fill-opacity="0.25"/>
   <rect x="140" y="1032" width="30" height="30" rx="8" fill="#57A8EA" fill-opacity="0.9"/>

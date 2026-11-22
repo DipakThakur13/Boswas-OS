@@ -11,9 +11,13 @@ earlier ones key by key:
 4. ``$XDG_CONFIG_HOME/boswas/appearance.toml`` (written by boswas-preset; used
    only when it holds nothing but the ``[appearance]`` table)
 
-Keys read: ``scheme`` (``"dark"`` or ``"light"``) and ``reduced_motion``
-(a boolean). A file that is missing, too large, not TOML or has a value of
-the wrong type is skipped; the defaults are dark and motion on.
+Keys read: ``scheme`` (``"dark"`` or ``"light"``), ``reduced_motion`` (a
+boolean) and ``accent`` (a hue of ``tokens.ACCENTS``) of ``[appearance]``;
+``text_scale`` (percent, 100 to 225) and ``always_show_scrollbars`` (a
+boolean) of ``[accessibility]``, which only the three ``compositor.toml``
+files hold. A file that is missing, too large or not TOML is skipped, and so
+is a value of the wrong type or out of range; the defaults are dark, motion
+on, the iris accent, text at 100 % and thin scroll bars.
 """
 
 from __future__ import annotations
@@ -23,7 +27,7 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-from .tokens import DEFAULT_SCHEME, SCHEMES
+from .tokens import ACCENTS, DEFAULT_ACCENT, DEFAULT_SCHEME, SCHEMES, TEXT_SCALE_RANGE
 
 SYSTEM_FILES = (Path("/usr/share/boswas/compositor/compositor.toml"), Path("/etc/boswas/compositor.toml"))
 _MAX_BYTES = 256 * 1024
@@ -33,6 +37,9 @@ _MAX_BYTES = 256 * 1024
 class Appearance:
     scheme: str = DEFAULT_SCHEME
     reduced_motion: bool = False
+    accent: str = DEFAULT_ACCENT
+    text_scale: int = 100
+    always_show_scrollbars: bool = False
 
 
 def config_home() -> Path:
@@ -50,7 +57,7 @@ def appearance_path() -> Path:
     return user_dir() / "appearance.toml"
 
 
-def _table(path: Path, only_appearance: bool = False) -> dict | None:
+def _document(path: Path, only_appearance: bool = False) -> dict | None:
     try:
         with open(path, "rb") as handle:
             raw = handle.read(_MAX_BYTES + 1)
@@ -62,10 +69,14 @@ def _table(path: Path, only_appearance: bool = False) -> dict | None:
         document = tomllib.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, tomllib.TOMLDecodeError):
         return None
-    table = document.get("appearance")
-    if not isinstance(table, dict) or (only_appearance and len(document) != 1):
+    if only_appearance and (len(document) != 1 or not isinstance(document.get("appearance"), dict)):
         return None
-    return table
+    return document
+
+
+def _table(document: dict, name: str) -> dict:
+    table = document.get(name)
+    return table if isinstance(table, dict) else {}
 
 
 def read_appearance(system_files: tuple[Path, ...] | None = None, user: Path | None = None) -> Appearance:
@@ -73,13 +84,21 @@ def read_appearance(system_files: tuple[Path, ...] | None = None, user: Path | N
     directory = user if user is not None else user_dir()
     layers = [(path, False) for path in (SYSTEM_FILES if system_files is None else system_files)]
     layers += [(directory / "compositor.toml", False), (directory / "appearance.toml", True)]
-    scheme, reduced = DEFAULT_SCHEME, False
+    scheme, reduced, accent, text_scale, scrollbars = DEFAULT_SCHEME, False, DEFAULT_ACCENT, 100, False
     for path, only in layers:
-        table = _table(path, only)
-        if table is None:
+        document = _document(path, only)
+        if document is None:
             continue
-        if table.get("scheme") in SCHEMES:
-            scheme = table["scheme"]
-        if isinstance(table.get("reduced_motion"), bool):
-            reduced = table["reduced_motion"]
-    return Appearance(scheme, reduced)
+        look, access = _table(document, "appearance"), _table(document, "accessibility")
+        if look.get("scheme") in SCHEMES:
+            scheme = look["scheme"]
+        if isinstance(look.get("reduced_motion"), bool):
+            reduced = look["reduced_motion"]
+        if look.get("accent") in ACCENTS:
+            accent = look["accent"]
+        size = access.get("text_scale")
+        if isinstance(size, int) and not isinstance(size, bool):
+            text_scale = max(TEXT_SCALE_RANGE[0], min(TEXT_SCALE_RANGE[1], size))     # clamped, as the compositor does
+        if isinstance(access.get("always_show_scrollbars"), bool):
+            scrollbars = access["always_show_scrollbars"]
+    return Appearance(scheme, reduced, accent, text_scale, scrollbars)

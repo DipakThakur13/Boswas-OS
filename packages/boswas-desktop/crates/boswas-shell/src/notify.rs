@@ -46,8 +46,9 @@ pub const MAX_HISTORY: usize = 100;
 pub const MAX_TOASTS: usize = 3;
 /// Notifications waiting for a free toast slot.
 const MAX_WAITING: usize = 20;
-/// How long a toast stays when the application does not say.
-const DEFAULT_TIMEOUT: Duration = Duration::from_secs(6);
+/// How long a toast stays when the application does not say, unless the
+/// user chose longer (Accessibility > Visual effects).
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
 const MIN_TIMEOUT: Duration = Duration::from_secs(3);
 const MAX_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -60,8 +61,9 @@ pub struct Toast {
     pub anim: Anim,
 }
 
-#[derive(Default)]
 pub struct Notes {
+    /// How long a toast stays at least ("Dismiss notifications after").
+    pub toast_time: Duration,
     /// The notification centre's content, oldest first.
     pub history: Vec<Notification>,
     /// The toasts on screen, oldest first.
@@ -79,14 +81,33 @@ pub struct Notes {
     hovered: bool,
 }
 
-fn timeout(note: &Notification) -> Option<Duration> {
+/// How long a toast stays: what the application asks for, within limits,
+/// but never less than `least`, the time the user chose.
+fn timeout(note: &Notification, least: Duration) -> Option<Duration> {
     if note.urgency == Urgency::Critical {
         return None;
     }
     Some(match note.timeout_ms {
-        Some(ms) if ms > 0 => Duration::from_millis(u64::from(ms)).clamp(MIN_TIMEOUT, MAX_TIMEOUT),
-        _ => DEFAULT_TIMEOUT,
+        Some(ms) if ms > 0 => Duration::from_millis(u64::from(ms)).clamp(MIN_TIMEOUT, MAX_TIMEOUT).max(least),
+        _ => least,
     })
+}
+
+impl Default for Notes {
+    fn default() -> Self {
+        Self {
+            toast_time: DEFAULT_TIMEOUT,
+            history: Vec::new(),
+            toasts: Vec::new(),
+            waiting: VecDeque::new(),
+            dnd: false,
+            unread: 0,
+            month: 0,
+            expanded: Vec::new(),
+            scroll: 0,
+            hovered: false,
+        }
+    }
 }
 
 impl Notes {
@@ -105,7 +126,7 @@ impl Notes {
         }
         // A replacement updates its toast in place and restarts its time.
         if let Some(toast) = self.toasts.iter_mut().find(|t| t.note.id == note.id) {
-            toast.deadline = timeout(&note).map(|d| now + d);
+            toast.deadline = timeout(&note, self.toast_time).map(|d| now + d);
             toast.paused = None;
             toast.note = note;
             return;
@@ -128,7 +149,7 @@ impl Notes {
 
     fn show(&mut self, note: Notification, now: Instant, reduced_motion: bool) {
         self.toasts.push(Toast {
-            deadline: timeout(&note).map(|d| now + d),
+            deadline: timeout(&note, self.toast_time).map(|d| now + d),
             paused: None,
             anim: Anim::opening(now, reduced_motion),
             note,
@@ -667,11 +688,21 @@ mod tests {
     }
 
     #[test]
+    fn the_users_toast_time_is_the_least_a_toast_stays() {
+        let now = Instant::now();
+        let mut notes = Notes::default();
+        notes.toast_time = Duration::from_secs(30);
+        notes.receive(note(1, "App", Urgency::Normal), now, false, true);
+        assert!(!notes.tick(now + Duration::from_secs(29), true));
+        assert!(notes.tick(now + Duration::from_secs(31), true));
+    }
+
+    #[test]
     fn hovering_pauses_the_timeouts() {
         let now = Instant::now();
         let mut notes = Notes::default();
         notes.receive(note(1, "App", Urgency::Normal), now, false, true);
-        notes.hover(true, now + Duration::from_secs(4));
+        notes.hover(true, now + Duration::from_secs(3));
         assert!(!notes.tick(now + Duration::from_secs(60), true), "paused");
         assert_eq!(notes.next_deadline(now + Duration::from_secs(60)), None);
         notes.hover(false, now + Duration::from_secs(60));
@@ -700,13 +731,15 @@ mod tests {
         assert_eq!(relative_time(100_000, 100_000 - 7300), "2 h");
         assert_eq!(relative_time(1_000_000, 1_000_000 - 90_000), "Yesterday");
         let mut n = note(1, "A", Urgency::Normal);
-        assert_eq!(timeout(&n), Some(DEFAULT_TIMEOUT));
+        assert_eq!(timeout(&n, DEFAULT_TIMEOUT), Some(DEFAULT_TIMEOUT));
         n.timeout_ms = Some(1);
-        assert_eq!(timeout(&n), Some(MIN_TIMEOUT));
+        assert_eq!(timeout(&n, Duration::ZERO), Some(MIN_TIMEOUT));
+        assert_eq!(timeout(&n, DEFAULT_TIMEOUT), Some(DEFAULT_TIMEOUT), "never shorter than the user's time");
         n.timeout_ms = Some(u32::MAX);
-        assert_eq!(timeout(&n), Some(MAX_TIMEOUT));
+        assert_eq!(timeout(&n, DEFAULT_TIMEOUT), Some(MAX_TIMEOUT));
+        assert_eq!(timeout(&n, Duration::from_secs(300)), Some(Duration::from_secs(300)), "the user's longer time wins");
         n.urgency = Urgency::Critical;
-        assert_eq!(timeout(&n), None);
+        assert_eq!(timeout(&n, DEFAULT_TIMEOUT), None);
     }
 
     #[test]

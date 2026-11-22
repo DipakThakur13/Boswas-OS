@@ -31,6 +31,7 @@ mod notify;
 mod osd;
 mod pam;
 mod quick;
+mod settings;
 mod start;
 mod state;
 mod status;
@@ -306,6 +307,14 @@ pub(crate) struct Shell {
     /// Files behind the shell's own notifications (captured pictures).
     pub shell_notes: HashMap<u32, PathBuf>,
     pub next_note_id: u32,
+    /// The taskbars were made to hide themselves (Personalization >
+    /// Taskbar > Automatically hide the taskbar).
+    pub taskbar_auto_hide: bool,
+    /// The auto-hiding taskbar is out of sight but for a sliver at the
+    /// bottom edge.
+    pub taskbar_hidden: bool,
+    /// When the auto-hiding taskbar goes, unless something keeps it.
+    pub taskbar_hide_at: Option<Instant>,
     pub exit: Option<i32>,
 }
 
@@ -425,7 +434,7 @@ fn run(mode: Mode) -> Result<i32, Box<dyn std::error::Error>> {
         run_history: if mode == Mode::Desktop { RunHistory::load() } else { RunHistory::default() },
         windows: Vec::new(),
         workspace: 0,
-        status: Status::read(),
+        status: Status::read(false),
         sys: Sys::default(),
         locked: false,
         user,
@@ -448,6 +457,11 @@ fn run(mode: Mode) -> Result<i32, Box<dyn std::error::Error>> {
         layout: 0,
         thumbnails: HashMap::new(),
         auth,
+        desktop: settings::Desktop::default(),
+        desktop_known: false,
+        dnd_schedule: None,
+        senders: if mode == Mode::Desktop { config::Senders::load() } else { config::Senders::default() },
+        seen: if mode == Mode::Desktop { config::SeenApps::load() } else { config::SeenApps::default() },
     };
 
     let mut shell = Shell {
@@ -492,6 +506,9 @@ fn run(mode: Mode) -> Result<i32, Box<dyn std::error::Error>> {
         tray_menu: None,
         shell_notes: HashMap::new(),
         next_note_id: u32::MAX,
+        taskbar_auto_hide: false,
+        taskbar_hidden: false,
+        taskbar_hide_at: None,
         exit: None,
     };
 
@@ -719,23 +736,7 @@ impl Shell {
         match self.st.mode {
             Mode::Desktop => {
                 self.create_layer(Role::Wallpaper, output, Self::full_screen(Layer::Background, "boswas-wallpaper", KeyboardInteractivity::None, -1));
-                let height = tokens().shell("taskbar-height") as u32;
-                self.create_layer(
-                    Role::Taskbar,
-                    output,
-                    Spec {
-                        layer: Layer::Top,
-                        namespace: "boswas-taskbar",
-                        anchor: Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
-                        size: (0, height),
-                        margin: (0, 0, 0, 0),
-                        exclusive: height as i32,
-                        keyboard: KeyboardInteractivity::None,
-                        input: true,
-                        origin: (0.0, 0.0),
-                        animate: false,
-                    },
-                );
+                self.create_taskbar(output);
             }
             Mode::Greeter => {
                 self.create_layer(Role::Auth, output, Self::full_screen(Layer::Overlay, "boswas-greeter", KeyboardInteractivity::Exclusive, -1));
@@ -748,6 +749,31 @@ impl Shell {
                 }
             }
         }
+    }
+
+    /// The taskbar of an output. An auto-hiding one reserves no room, so
+    /// windows use the whole screen, and starts out of sight.
+    pub fn create_taskbar(&mut self, output: &wl_output::WlOutput) {
+        let height = tokens().shell("taskbar-height") as u32;
+        let auto_hide = self.st.desktop.taskbar.auto_hide;
+        self.taskbar_auto_hide = auto_hide;
+        self.taskbar_hidden = auto_hide;
+        self.create_layer(
+            Role::Taskbar,
+            output,
+            Spec {
+                layer: Layer::Top,
+                namespace: "boswas-taskbar",
+                anchor: Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
+                size: (0, height),
+                margin: (0, 0, if auto_hide { -desk::taskbar_hidden_offset() } else { 0 }, 0),
+                exclusive: if auto_hide { 0 } else { height as i32 },
+                keyboard: KeyboardInteractivity::None,
+                input: true,
+                origin: (0.0, 0.0),
+                animate: false,
+            },
+        );
     }
 
     pub fn mark(&mut self, role: Role) {
@@ -814,8 +840,9 @@ impl Shell {
         let Some(mut canvas) = Canvas::new(cw, ch, scale) else {
             return;
         };
-        let presence = surface.anim.as_ref().map_or(1.0, |anim| anim.presence(now));
-        let animating = surface.anim.as_ref().is_some_and(|anim| !anim.done(now)) && presence < 0.999;
+        let transition = surface.anim.as_ref().and_then(|anim| anim.frame(now));
+        let presence = transition.unwrap_or(1.0);
+        let animating = transition.is_some();
         let reuse = animating && surface.snapshot.as_ref().is_some_and(|s| (s.width(), s.height()) == canvas.pixel_size());
         if !reuse {
             let mut hits = Vec::new();
@@ -1068,6 +1095,7 @@ impl Shell {
         consider(self.st.notes.next_deadline(now));
         consider(self.st.preview.as_ref().and_then(|p| p.left_at).map(|at| at + desk::PREVIEW_GRACE));
         consider(self.slider_pending.as_ref().map(|_| self.slider_sent + desk::SLIDER_INTERVAL));
+        consider(self.taskbar_hide_at);
         // Finished transitions are cleaned up promptly.
         if self.surfaces.iter().any(|s| s.anim.is_some()) {
             consider(Some(now + Duration::from_millis(16)));

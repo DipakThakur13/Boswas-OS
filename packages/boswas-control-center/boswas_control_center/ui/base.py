@@ -10,7 +10,8 @@ a second time.
 The native settings sections of the page (ui/settings) are placed where the
 page calls add_settings(): each under its title, in the order the sections
 declare. They are activated when the page becomes the current one and
-deactivated when it is left or the window closes.
+deactivated when it is left or the window closes. A category puts the cards
+of its pages where it calls add_subpages().
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ from PySide6.QtWidgets import QFrame, QHBoxLayout, QScrollArea, QSizePolicy, QVB
 from ..catalog import PageInfo
 from . import settings
 from .common import heading, muted_label
-from .tiles import ProgramGroup, SectionGroup
+from .tiles import ProgramGroup, SectionGroup, SubpageCards
 
 CONTENT_MAX_WIDTH = 1000
 
@@ -61,6 +62,7 @@ class Page(QWidget):
         self.description = muted_label(info.description, parent=self.content)
         self.body.addWidget(self.description)
         self.programs: ProgramGroup | None = None
+        self.subpages: SubpageCards | None = None
         self.section_groups: list[SectionGroup] = []
         self.active = False
         self.build()
@@ -93,6 +95,17 @@ class Page(QWidget):
             self.section_groups.append(group)
             added.append(group)
         return added
+
+    def add_subpages(self, title: str = "") -> SubpageCards:
+        """Put the cards of this category's pages here (under ``title``, if any)."""
+        self.subpages = SubpageCards(self.info.key, self.window_, self.content, title)
+        self.body.addWidget(self.subpages)
+        return self.subpages
+
+    def places_changed(self) -> None:
+        """Which pages can be shown changed (the live check answered): show the cards that lead to them."""
+        if self.subpages is not None:
+            self.subpages.sync()
 
     def add_programs(self, title: str | None = None) -> ProgramGroup | None:
         if not self.info.programs:

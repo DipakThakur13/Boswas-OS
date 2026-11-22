@@ -1,8 +1,10 @@
-"""System, About Boswas OS and Install Boswas OS.
+"""About and Install Boswas OS (both on System).
 
 About reads the release identity (/usr/lib/boswas/release, image-info),
 the kernel, processor, memory, storage, the desktop version, and the
-summaries of the Security and Windows Compatibility pages. Its System
+summaries of the Security and Windows Compatibility pages; its Device name
+section (ui/settings/maintenance.py) renames the device, and Copy puts the
+device specifications on the clipboard. Its System
 Overview adds the current load, the network state, and what other pages
 already found in this window (pending updates, missing firmware) plus the
 Android runtime's status; it starts no operation itself. Install is shown
@@ -24,25 +26,9 @@ from .common import (SP, Card, Collapsible, InfoGrid, StatusIcon, heading, icon,
                      plain_label, title_label)
 
 
-class SystemPage(Page):
-    data_keys = ("agent",)
-
-    def build(self) -> None:
-        self.add_settings()
-        self.device = Card("Device management", self.content)
-        self.grid = InfoGrid(self.device)
-        self.device.addWidget(self.grid)
-        self.body.addWidget(self.device)
-
-    def render(self) -> None:
-        agent = self.store.get("agent")
-        self.grid.set_rows(vm.agent_rows(self.store.value("agent"),
-                                         agent.error if agent is not None and not agent.ok else None))
-
-
 class AboutPage(Page):
     data_keys = ("release", "hardware", "storage", "desktop", "live", "security", "session_system", "windows_apps",
-                 "agent", "agent_runtime", "load", "network", "android")
+                 "agent", "agent_runtime", "load", "network", "android", "device")
     # Shown when another page has loaded them, never requested from here.
     passive_keys = ("upgradable", "firmware")
 
@@ -65,14 +51,17 @@ class AboutPage(Page):
         text.addStretch(1)
         hero.addWidget(self.mark)
         hero.addLayout(text, 1)
-        self.copy_button = QPushButton("Copy to Clipboard", self.content)
-        self.copy_button.setIcon(icon("edit-copy", fallback=SP.SP_FileDialogDetailedView))
+        self.copy_button = QPushButton("Copy", self.content)
+        self.copy_button.setIcon(icon("edit-copy-symbolic", "edit-copy", fallback=SP.SP_FileDialogDetailedView))
+        self.copy_button.setToolTip("Copy the device specifications")
+        self.copy_button.setAccessibleName("Copy the device specifications")
         self.copy_button.setAccessibleDescription("Copies this information as text, for example for a support request")
         self.copy_button.clicked.connect(self.copy)
         hero.addWidget(self.copy_button, 0, Qt.AlignmentFlag.AlignVCenter)
         self.body.addLayout(hero)
+        self.add_sections()
 
-        self.card = Card("This device", self.content)
+        self.card = Card("Device specifications", self.content)
         self.grid = InfoGrid(self.card)
         self.card.addWidget(self.grid)
         self.body.addWidget(self.card)
@@ -123,6 +112,10 @@ class AboutPage(Page):
                                   agent.error if agent is not None and not agent.ok else None)
         if self.store.get("desktop") is None:
             self.rows = [(k, "Checking…" if k == "Desktop" else v) for k, v in self.rows]
+        device = self.store.value("device")
+        if device is not None:
+            self.rows = [("Device name", device.name), ("Device", f"{device.model_text} ({device.kind_label})"
+                          if device.model_text != device.kind_label else device.kind_label), *self.rows]
         self.grid.set_rows(self.rows)
         self.technical_rows = vm.technical_rows(release, self.store.value("hardware"))
         self.technical_grid.set_rows(self.technical_rows)

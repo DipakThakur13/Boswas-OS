@@ -337,3 +337,39 @@ def set_value(slider, value: int) -> None:
         blocked = slider.blockSignals(True)
         slider.setValue(value)
         slider.blockSignals(blocked)
+
+
+# --- what a section asks of the window it is shown in -----------------------------------------------------------
+
+def window_of(widget: QWidget):
+    """The Control Center window that shows ``widget`` (it has ``jobs``, ``ask`` and ``show_page``), else None."""
+    window = widget.window()
+    return window if hasattr(window, "jobs") and hasattr(window, "show_page") else None
+
+
+def go(widget: QWidget, key: str, section: str | None = None) -> None:
+    """Show a place of the window that holds ``widget``."""
+    window = window_of(widget)
+    if window is not None:
+        window.show_page(key, section)
+
+
+def ask(widget: QWidget, title: str, text: str, confirm: str) -> bool:
+    """A confirmation through the window (whose ``ask`` the tests answer), else a dialog of the toolkit."""
+    window = window_of(widget)
+    if window is not None:
+        return bool(window.ask(title, text, confirm))
+    return fluent.ask(widget, title, text, confirm, "Cancel", default="cancel")
+
+
+STEP_KINDS = {"ok": "success", "problem": "attention", "note": "info"}
+
+
+def step_card(state: str, title: str, detail: str = "", parent: QWidget | None = None) -> fluent.SettingsCard:
+    """A row with a status shape (check, !, i) and its state in words for assistive technology."""
+    card = fluent.SettingsCard(title, detail, None, None, parent)
+    mark = fluent.StatusIcon(STEP_KINDS.get(state, "neutral"), 16, card)
+    mark.setAccessibleName({"ok": "Fine", "problem": "Problem", "note": "Note"}.get(state, ""))
+    card.add_control(mark)
+    card.setAccessibleName(f"{title}: {mark.accessibleName()}")
+    return card

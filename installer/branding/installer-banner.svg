@@ -1,15 +1,26 @@
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="800" height="75" viewBox="0 0 800 75">
   <title>Boswas OS installer banner (Debian Installer, graphical frontend)</title>
+  <!-- Colours: Boswas UI tokens (neutral.950 to neutral.900, white lettering,
+       neutral.300 text, an azure.500 to iris.500 rule along the bottom). -->
   <defs>
-    <linearGradient id="bar" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#0B1220"/>
-      <stop offset="1" stop-color="#141D2E"/>
+    <linearGradient id="bar" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="800" y2="0">
+      <stop offset="0" stop-color="#18171C"/>
+      <stop offset="1" stop-color="#201F25"/>
+    </linearGradient>
+    <radialGradient id="bloom" gradientUnits="userSpaceOnUse" cx="40" cy="37" r="260">
+      <stop offset="0" stop-color="#2F7FF0" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#2F7FF0" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="rule" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="800" y2="0">
+      <stop offset="0" stop-color="#2F7FF0"/>
+      <stop offset="1" stop-color="#7C5CFF"/>
     </linearGradient>
   </defs>
   <rect width="800" height="75" fill="url(#bar)"/>
-  <rect y="72" width="800" height="3" fill="#D9B26E"/>
-  <image x="20" y="9" width="44" height="55" href="../../desktop/branding/boswas-os-mark.svg"/>
-  <image x="80" y="27" width="230" height="20" preserveAspectRatio="xMinYMid"
-         href="../../desktop/branding/wordmark-boswas-os.svg" data-fill="#E8EEF6"/>
-  <text x="326" y="46" font-family="Lato" font-size="22" font-weight="400" fill="#EBC786">Installer</text>
+  <rect width="800" height="72" fill="url(#bloom)"/>
+  <rect y="72" width="800" height="3" fill="url(#rule)"/>
+  <image x="14" y="9.5" width="56" height="56" href="../../desktop/branding/boswas-os-mark.svg"/>
+  <image x="73.2" y="27" width="147.28" height="21"
+         href="../../desktop/branding/wordmark-boswas-os.svg" data-fill="#FFFFFF"/>
+  <text x="232" y="47.69" font-family="Inter, Lato, sans-serif" font-size="22" font-weight="400" fill="#BDBCC6">Installer</text>
 </svg>

@@ -24,6 +24,13 @@ pub trait Output {
     /// Size in pixels of each head.
     fn sizes(&self) -> Vec<(u32, u32)>;
 
+    /// How often the display refreshes, in millihertz (the fastest head),
+    /// when the output knows: the animation is paced to it. `None` for the
+    /// legacy frame buffer, which does not say.
+    fn refresh_millihertz(&self) -> Option<u32> {
+        None
+    }
+
     /// Copy the damaged parts of `canvas` to head `index` and flush them.
     /// An error means the device is gone and the output must be reopened.
     fn present(&mut self, index: usize, canvas: &Canvas, damage: &[Rect]) -> io::Result<()>;

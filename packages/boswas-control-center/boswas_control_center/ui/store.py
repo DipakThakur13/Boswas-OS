@@ -34,6 +34,8 @@ class Store(QObject):
         self.backend, self.runner = backend, runner
         self.loaders = {
             "live": backend.live_session,
+            "device": backend.device_info,
+            "account": backend.account,
             "release": backend.release,
             "hardware": backend.hardware,
             "desktop": backend.desktop,

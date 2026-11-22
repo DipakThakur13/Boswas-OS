@@ -12,7 +12,7 @@ import unittest
 
 import support  # noqa: F401
 
-from boswas_fluent.tokens import SCHEMES, TEXT_CONTRAST, Theme, contrast
+from boswas_fluent.tokens import ACCENTS, SCHEMES, TEXT_CONTRAST, Theme, contrast
 
 PAGE = ("background", "layer", "surface")                     # what a page is made of
 SURFACES = PAGE + ("surface-raised", "flyout", "tooltip", "input-active", "card")
@@ -21,10 +21,15 @@ STATE_LAYERS = ("fill-control", "fill-control-hover", "fill-control-pressed", "f
 STATUSES = ("info", "success", "warning", "danger")
 
 
+def themes():
+    """Both schemes with every accent colour the desktop offers (Personalization > Colours)."""
+    return [Theme(scheme, accent=accent) for scheme in SCHEMES for accent in ACCENTS]
+
+
 class ContrastTest(unittest.TestCase):
     def check(self, theme: Theme, foreground: str, background: str, minimum: float, what: str) -> None:
         ratio = contrast(foreground, background)
-        self.assertGreaterEqual(ratio, minimum, f"{theme.scheme}: {what}: {foreground} on {background} is "
+        self.assertGreaterEqual(ratio, minimum, f"{theme!r}: {what}: {foreground} on {background} is "
                                                  f"{ratio:.2f}:1, needs {minimum}:1")
 
     def controls(self, theme: Theme) -> dict[str, str]:
@@ -33,8 +38,7 @@ class ContrastTest(unittest.TestCase):
                 for base in PAGE + ("flyout",)}
 
     def test_body_text_on_every_surface_and_state(self):
-        for scheme in SCHEMES:
-            theme = Theme(scheme)
+        for theme in themes():
             backgrounds = {name: theme.color(name) for name in SURFACES} | self.controls(theme)
             backgrounds |= {f"{status}-tint": theme.color(f"{status}-tint") for status in STATUSES}
             for text in ("text", "text-secondary"):
@@ -42,8 +46,7 @@ class ContrastTest(unittest.TestCase):
                     self.check(theme, theme.color(text), colour, TEXT_CONTRAST, f"{text} on {name}")
 
     def test_muted_text(self):
-        for scheme in SCHEMES:
-            theme = Theme(scheme)
+        for theme in themes():
             for name in SURFACES:
                 self.check(theme, theme.color("text-muted"), theme.color(name), TEXT_CONTRAST, f"muted on {name}")
             # Placeholder text in a text box (rest, hover, focused): the documented exemption, held to 3:1.
@@ -53,8 +56,7 @@ class ContrastTest(unittest.TestCase):
                                f"placeholder on {layer} on {base}")
 
     def test_text_on_the_accent(self):
-        for scheme in SCHEMES:
-            theme = Theme(scheme)
+        for theme in themes():
             for fill in ("accent", "accent-fill-hover", "accent-fill-pressed"):
                 self.check(theme, theme.color("on-accent"), theme.color(fill), TEXT_CONTRAST, f"on-accent on {fill}")
             for status in STATUSES:
@@ -62,8 +64,7 @@ class ContrastTest(unittest.TestCase):
                            f"badge text on {status}-fill")
 
     def test_coloured_text(self):
-        for scheme in SCHEMES:
-            theme = Theme(scheme)
+        for theme in themes():
             for name in ("accent-text", "info-text", "success-text", "warning-text", "danger-text"):
                 for surface in PAGE:
                     self.check(theme, theme.color(name), theme.color(surface), TEXT_CONTRAST, f"{name} on {surface}")
@@ -74,8 +75,7 @@ class ContrastTest(unittest.TestCase):
                                f"link on {layer} on {base}")
 
     def test_control_boundaries_and_marks(self):
-        for scheme in SCHEMES:
-            theme = Theme(scheme)
+        for theme in themes():
             for base in PAGE:
                 surface = theme.color(base)
                 self.check(theme, theme.over("stroke-strong", base), surface, 3.0, f"strong stroke on {base}")
@@ -91,10 +91,17 @@ class ContrastTest(unittest.TestCase):
 
     def test_disabled_text_stays_visible(self):
         """Exempt from the 4.5:1 rule, but it must not vanish."""
-        for scheme in SCHEMES:
-            theme = Theme(scheme)
+        for theme in themes():
             for base in PAGE:
                 self.check(theme, theme.over("text-disabled", base), theme.color(base), 2.0, f"disabled on {base}")
+
+
+    def test_every_accent_has_a_colour_of_its_own(self):
+        for scheme in SCHEMES:
+            accents = [Theme(scheme, accent=accent).color("accent") for accent in ACCENTS]
+            self.assertEqual(len(set(accents)), len(ACCENTS), f"{scheme}: {accents}")
+            self.assertEqual(Theme(scheme, accent="iris").color("accent"), Theme(scheme).color("accent"),
+                             "the default hue is the token file's accent")
 
 
 if __name__ == "__main__":

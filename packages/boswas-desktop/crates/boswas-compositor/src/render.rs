@@ -39,7 +39,7 @@ use smithay::{
 };
 
 use crate::{
-    effects::BoswasRenderer,
+    effects::{BoswasRenderer, ColorMatrix, FilteredFrame},
     shell::element::{WindowElement, WindowRenderElement},
     state::Boswas,
 };
@@ -58,6 +58,42 @@ render_elements! {
 
 /// The elements of one output.
 pub type OutputRenderElement<R> = OutputElement<R, WindowRenderElement<R>>;
+
+render_elements! {
+    /// What goes on screen: the scene, enlarged by the magnifier, or the
+    /// whole of it drawn through a colour filter.
+    pub DisplayElement<R, E> where R: BoswasRenderer;
+    Scene=Wrap<E>,
+    Zoomed=MovedElement<E>,
+    Filtered=FilteredFrame<R>,
+}
+
+/// The elements a backend shows on an output.
+pub type DisplayRenderElement<R> = DisplayElement<R, OutputRenderElement<R>>;
+
+impl<R: Renderer + BoswasRenderer, E: RenderElement<R>> std::fmt::Debug for DisplayElement<R, E>
+where
+    R::TextureId: Texture + 'static,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Scene(_) => "Scene",
+            Self::Zoomed(_) => "Zoomed",
+            Self::Filtered(_) => "Filtered",
+            Self::_GenericCatcher(_) => "_GenericCatcher",
+        })
+    }
+}
+
+/// Where the magnifier shows an output: the picture enlarged `zoom` times
+/// about the pointer, which stays where it is on the screen (so the view
+/// never leaves the screen's edges). Returns the offset that moves the
+/// enlarged picture into place, in physical pixels.
+pub fn magnifier_offset(pointer: Point<f64, Physical>, size: Size<i32, Physical>, zoom: f64) -> Point<i32, Physical> {
+    let x = pointer.x.clamp(0.0, f64::from(size.w));
+    let y = pointer.y.clamp(0.0, f64::from(size.h));
+    Point::from((-(x * (zoom - 1.0)).round() as i32, -(y * (zoom - 1.0)).round() as i32))
+}
 
 impl<R: Renderer + BoswasRenderer, E: RenderElement<R>> std::fmt::Debug for OutputElement<R, E>
 where
@@ -96,6 +132,51 @@ impl Boswas {
     /// Whether animations are switched off.
     pub fn reduced_motion(&self) -> bool {
         self.config.appearance.reduced_motion
+    }
+
+    /// The colour filter in use, if any.
+    pub fn active_color_filter(&self) -> Option<ColorMatrix> {
+        self.color_filter_on.then(|| ColorMatrix::named(&self.config.color_filter.filter)).flatten()
+    }
+
+    /// What a backend shows on an output: [`Boswas::output_elements`],
+    /// enlarged around the pointer while the magnifier is on, and drawn
+    /// through the colour filter where the renderer can. Pictures taken of
+    /// the screen (screenshots, screen capture) use the scene itself, as
+    /// the filters and the magnifier are for the person in front of it.
+    pub fn display_elements<R>(&mut self, renderer: &mut R, output: &Output) -> (Vec<DisplayRenderElement<R>>, Color32F)
+    where
+        R: BoswasRenderer,
+        R::TextureId: Clone + Send + Texture + 'static,
+    {
+        let (scene, clear) = self.output_elements(renderer, output);
+        let scale = output.current_scale().fractional_scale();
+        let size = output.current_mode().map(|mode| output.current_transform().transform_size(mode.size)).unwrap_or_default();
+        let pointer = self.pointer.current_location();
+        let geo = self.space.output_geometry(output);
+        let zoom = self.magnifier_zoom;
+        let elements: Vec<DisplayRenderElement<R>> = match geo.filter(|geo| zoom > 1.0 && geo.to_f64().contains(pointer)) {
+            Some(geo) => {
+                let local = (pointer - geo.loc.to_f64()).to_physical(scale);
+                let offset = magnifier_offset(local, size, zoom);
+                scene
+                    .into_iter()
+                    .map(|element| {
+                        let enlarged = RescaleRenderElement::from_element(element, Point::from((0, 0)), zoom);
+                        DisplayElement::Zoomed(RelocateRenderElement::from_element(enlarged, offset, Relocate::Relative))
+                    })
+                    .collect()
+            }
+            None => scene.into_iter().map(|element| DisplayElement::Scene(Wrap::from(element))).collect(),
+        };
+        if let Some(filter) = self.active_color_filter().filter(|_| R::FILTERS_COLOR) {
+            if let Some(texture) = renderer.color_filter_frame(size, Scale::from(scale), &elements, clear) {
+                self.filter_commit.increment();
+                let frame = FilteredFrame::new(texture, filter, size, self.filter_id.clone(), self.filter_commit);
+                return (vec![DisplayElement::Filtered(frame)], clear);
+            }
+        }
+        (elements, clear)
     }
 
     /// The render elements of an output, front to back, and its clear
@@ -592,4 +673,28 @@ fn send_frames_surface_tree(surface: &WlSurface, output: &Output, time: Duration
         },
         |_, _, _| true,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_magnifier_keeps_the_pointer_where_it_is() {
+        let size = Size::from((1920, 1080));
+        for (x, y) in [(0.0, 0.0), (960.0, 540.0), (1919.0, 1079.0), (300.0, 900.0)] {
+            for zoom in [1.5, 2.0, 16.0] {
+                let offset = magnifier_offset(Point::from((x, y)), size, zoom);
+                // The point under the pointer is drawn under the pointer.
+                assert!((x * zoom + f64::from(offset.x) - x).abs() <= 0.5, "{x} {zoom} {offset:?}");
+                assert!((y * zoom + f64::from(offset.y) - y).abs() <= 0.5, "{y} {zoom} {offset:?}");
+                // The enlarged picture still covers the whole screen.
+                assert!(offset.x <= 0 && offset.y <= 0);
+                assert!(f64::from(size.w) * zoom + f64::from(offset.x) >= f64::from(size.w) - 0.5);
+                assert!(f64::from(size.h) * zoom + f64::from(offset.y) >= f64::from(size.h) - 0.5);
+            }
+        }
+        assert_eq!(magnifier_offset(Point::from((5000.0, -40.0)), size, 2.0), Point::from((-1920, 0)), "kept on the screen");
+        assert_eq!(magnifier_offset(Point::from((500.0, 500.0)), size, 1.0), Point::from((0, 0)));
+    }
 }

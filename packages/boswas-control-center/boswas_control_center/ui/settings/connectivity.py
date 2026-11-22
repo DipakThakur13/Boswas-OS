@@ -1,20 +1,23 @@
 """Network and Bluetooth settings.
 
-Page "network":
-  Wi-Fi               the master switch, the connected network, the visible
-                      networks (strongest first) with Connect, Forget and a
-                      passphrase dialog, and Scan
-  Other connections   Ethernet (connected or not), VPN (status only) and the
-                      airplane mode switch
-  Connection details  per interface: addresses, gateways, DNS, MAC, link
-                      speed (ip -j, /etc/resolv.conf, /sys/class/net), with Copy
-  Proxy               the proxy variables of this session, read-only
+Category "Network & internet":
+  Wi-Fi               (page wifi) the master switch, the connected network,
+                      the visible networks (strongest first) with Connect,
+                      Forget and a passphrase dialog, and Scan
+  Ethernet            (page ethernet) the wired connection, connected or not
+  Airplane mode       (page airplane) the switch for every radio
+  Connection details  (page advanced-network) per interface: addresses,
+                      gateways, DNS, MAC, link speed (ip -j, /etc/resolv.conf,
+                      /sys/class/net), with Copy
+  Proxy               (page proxy) the proxy variables of this session,
+                      read-only
+VPN connections and the network adapters are in netadmin.py.
 Page "bluetooth":
   Bluetooth           the master switch, Add device (discovery), paired
                       devices with Connect / Disconnect / Remove, and the
                       devices found with Pair
 
-Wi-Fi, the other connections and Bluetooth show the services bridge's state
+Wi-Fi, Ethernet, airplane mode and Bluetooth show the services bridge's state
 (ui/bridgeclient.py) and change things by its commands, so they always agree
 with the shell's quick settings. A Wi-Fi passphrase goes from the password
 box into the command for the bridge and nowhere else; the box is emptied
@@ -182,7 +185,7 @@ class NetworkRow(fluent.SettingsCard):
 
 
 class WifiSection(BridgeSection):
-    page = "network"
+    page = "wifi"
     title = "Wi-Fi"
     order = 10
     keywords = ("wifi", "wi-fi", "wlan", "wireless", "network", "password", "ssid", "hotspot", "scan", "internet")
@@ -384,36 +387,43 @@ class WifiSection(BridgeSection):
         super().deactivate()
 
 
-class ConnectionsSection(BridgeSection):
-    page = "network"
-    title = "Other connections"
-    order = 20
-    keywords = ("ethernet", "wired", "cable", "lan", "vpn", "airplane", "flight mode", "aeroplane", "radio")
+class EthernetSection(BridgeSection):
+    page = "ethernet"
+    title = "Ethernet"
+    order = 10
+    keywords = ("ethernet", "wired", "cable", "lan", "network cable")
     service = sb.NETWORK
     missing = "NetworkManager is not running."
 
     def __init__(self, parent: QWidget | None = None, *, bridge=None):
         super().__init__(parent, bridge=bridge)
         self.ethernet = self.add(fluent.SettingsCard("Ethernet", "", fluent.icon("network-wired-symbolic"), None, self))
-        self.vpn = self.add(fluent.SettingsCard("VPN", "", fluent.icon("network-vpn-symbolic"), None, self))
+
+    def render(self, state: sb.NetworkState) -> None:
+        self.ethernet.set_description("Connected" if state.wired else
+                                      "Not connected: no cable, or no wired network adapter" if self.usable() else
+                                      "Not available")
+
+
+class AirplaneSection(BridgeSection):
+    page = "airplane"
+    title = "Airplane mode"
+    order = 10
+    keywords = ("airplane", "flight mode", "aeroplane", "radio", "wireless off")
+    service = sb.NETWORK
+    missing = "NetworkManager is not running."
+
+    def __init__(self, parent: QWidget | None = None, *, bridge=None):
+        super().__init__(parent, bridge=bridge)
         self.airplane_toggle = fluent.ToggleSwitch()
         self.airplane = self.add(fluent.SettingsCard("Airplane mode", "Turns off Wi-Fi, Bluetooth and every other "
                                                      "radio", fluent.icon("airplane-mode-symbolic"),
                                                      self.airplane_toggle, self))
         self.airplane_toggle.toggled.connect(self._airplane_toggled)
 
-    def show_notice(self, text: str, severity: str = "info") -> None:
-        pass                                   # the Wi-Fi section above says once that the service is missing
-
     def render(self, state: sb.NetworkState) -> None:
-        usable = self.usable()
-        self.ethernet.set_description("Connected" if state.wired else
-                                      "Not connected: no cable, or no wired network adapter" if usable else "")
-        self.vpn.set_description(("A VPN connection is active." if state.vpn else "No VPN connection is active.")
-                                 + " VPN profiles are added with NetworkManager's own tools (nmcli connection "
-                                 "import), not here.")
         set_checked(self.airplane_toggle, bool(self.shown("airplane", state.airplane)))
-        self.airplane_toggle.setEnabled(usable)
+        self.airplane_toggle.setEnabled(self.usable())
 
     def _airplane_toggled(self, checked: bool) -> None:
         if self.rendering:
@@ -469,7 +479,7 @@ def read_details() -> netinfo.Details:
 
 
 class DetailsSection(Section):
-    page = "network"
+    page = "advanced-network"
     title = "Connection details"
     order = 30
     keywords = ("ip address", "ipv4", "ipv6", "gateway", "dns", "mac address", "link speed", "properties")
@@ -562,9 +572,9 @@ class DetailsSection(Section):
 
 
 class ProxySection(Section):
-    page = "network"
+    page = "proxy"
     title = "Proxy"
-    order = 40
+    order = 10
     keywords = ("proxy", "http_proxy", "https_proxy", "no_proxy")
 
     def __init__(self, parent: QWidget | None = None, *, environ=None):
@@ -801,4 +811,4 @@ class BluetoothSection(BridgeSection):
         super().deactivate()
 
 
-SECTIONS = (WifiSection, ConnectionsSection, DetailsSection, ProxySection, BluetoothSection)
+SECTIONS = (WifiSection, EthernetSection, AirplaneSection, DetailsSection, ProxySection, BluetoothSection)

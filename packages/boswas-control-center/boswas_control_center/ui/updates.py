@@ -1,4 +1,5 @@
-"""Boswas Update Center: automatic updates, pending updates, check and install now.
+"""Boswas Update: automatic updates, pending updates, check and install now; then Update history and Advanced
+options as cards (their sections are in ui/settings/updates.py).
 
 Pending updates are simulated by APT as the desktop user from the package
 lists already on the device (an APT simulation, read-only). Checking
@@ -60,6 +61,7 @@ class UpdatesPage(Page):
         self.body.addWidget(self.summary)
         self.panel = JobPanel(self.info.key, jobs_, self.content)
         self.body.addWidget(self.panel)
+        self.add_subpages("More options")
 
         self.pending = Card("Pending updates", self.content)
         self.pending_text = plain_label("", wrap=True, parent=self.pending)

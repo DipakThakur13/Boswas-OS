@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRect, QRectF, QSize, Qt, QVariantAnimation, Signal
+from PySide6.QtCore import QRect, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QIcon, QPainter, QPainterPath
 from PySide6.QtWidgets import (QAbstractButton, QFrame, QHBoxLayout, QLayout, QPushButton, QSizePolicy, QVBoxLayout,
                                QWidget)
 
 from .. import icons, paint
+from ..animation import Animation
 from ..theming import current_theme, duration, easing, qcolor
 from .basic import Button, IconButton, IconWidget, Label, StatusIcon, to_icon
 
@@ -297,7 +298,7 @@ class Expander(QFrame):
         super().__init__(parent)
         self.setFrameShape(QFrame.Shape.NoFrame)
         self._expanded = False
-        self._animation: QVariantAnimation | None = None
+        self._animation: Animation | None = None
         outer = QVBoxLayout(self)
         outer.setContentsMargins(1, 1, 1, 1)
         outer.setSpacing(0)
@@ -367,7 +368,7 @@ class Expander(QFrame):
             start = min(self.content.height(), full) if not expanded else 0
             end = full if expanded else 0
             self.content.setMaximumHeight(start)
-            animation = QVariantAnimation(self)
+            animation = Animation(self)
             animation.setStartValue(float(start))
             animation.setEndValue(float(end))
             animation.setDuration(time)

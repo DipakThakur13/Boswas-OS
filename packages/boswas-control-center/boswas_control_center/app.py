@@ -1,8 +1,11 @@
 """boswas-control-center: entry point of Boswas Control Center.
 
   boswas-control-center                    open the window
-  boswas-control-center --page PAGE        open the window at PAGE (network,
-                                           display, security, updates, ...)
+  boswas-control-center --page PAGE        open the window at PAGE, a category
+                                           (system, network, ...) or a page
+                                           (display, wifi, storage, ...);
+                                           the keys of earlier versions lead to
+                                           where their settings are now
   boswas-control-center --page PAGE --section SECTION
                                            and scroll to that settings section
                                            of the page (wi-fi, night-light, ...)
@@ -19,6 +22,7 @@ import argparse
 import os
 import re
 import sys
+import textwrap
 
 from . import __version__
 from .catalog import PAGE_KEYS
@@ -37,11 +41,18 @@ def section_name(value: str) -> str:
     return name
 
 
+class _Help(argparse.HelpFormatter):
+    """Help text that never breaks a page name at its hyphen."""
+
+    def _split_lines(self, text, width):
+        return textwrap.wrap(text, width, break_on_hyphens=False, break_long_words=False)
+
+
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="boswas-control-center",
+    parser = argparse.ArgumentParser(prog="boswas-control-center", formatter_class=_Help,
                                      description="Boswas Control Center: the settings hub of Boswas OS.")
     parser.add_argument("--page", choices=PAGE_KEYS, metavar="PAGE",
-                        help="open this page: " + ", ".join(PAGE_KEYS))
+                        help="open this category or page: " + ", ".join(PAGE_KEYS))
     parser.add_argument("--section", type=section_name, metavar="SECTION",
                         help="with --page: scroll to this settings section of the page, named by its title in "
                              "lower case with dashes (wi-fi, night-light, date-time)")

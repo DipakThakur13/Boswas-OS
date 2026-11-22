@@ -141,6 +141,33 @@ class ApplyTest(Base):
         self.assertTrue(testing.wait_until(lambda: not manager.reduced_motion), "the removal was not noticed")
         self.assertEqual(fluent.duration("normal"), fluent.theme().duration("normal"))
 
+    def test_accent_text_size_and_scroll_bars_follow_the_desktop(self):
+        config = Path(os.environ["XDG_CONFIG_HOME"])
+        manager = fluent.manager()
+        manager.set_scheme(None)
+        manager.apply(self.app, watch=True)
+        self.addCleanup(manager.reload)
+        (config / "boswas").mkdir(exist_ok=True)
+        target = config / "boswas" / "compositor.toml"
+        self.addCleanup(lambda: target.unlink(missing_ok=True))
+        body = fluent.font("body").pixelSize()
+        switch = self.show(fluent.ToggleSwitch(checked=True), 80, 40)
+        target.write_text('[appearance]\naccent = "coral"\n[accessibility]\ntext_scale = 150\n'
+                          'always_show_scrollbars = true\n')
+        self.assertTrue(testing.wait_until(lambda: manager.theme.accent == "coral"), "the accent was not noticed")
+        self.assertEqual(manager.theme.text_scale, 150)
+        self.assertTrue(manager.always_show_scrollbars)
+        self.assertEqual(fluent.font("body").pixelSize(), round(body * 1.5))
+        self.assertEqual(self.app.font().pixelSize(), round(body * 1.5), "the application font follows")
+        coral = {fluent.theme().color(name).lower() for name in ("accent", "accent-hover", "accent-fill-hover")}
+        self.assertTrue(coral & colours_of(switch.grab().toImage()), "the switch is drawn in the new accent")
+        self.assertIn("margin: 3px 3px 3px 3px;\n}\nQScrollBar::handle:horizontal", self.app.styleSheet())
+        target.write_text('[appearance]\naccent = "iris"\n')
+        self.assertTrue(testing.wait_until(lambda: manager.theme.accent == "iris"))
+        self.assertFalse(manager.always_show_scrollbars)
+        self.assertEqual(fluent.font("body").pixelSize(), body)
+        self.assertIn("margin: 3px 5px 3px 5px;", self.app.styleSheet())
+
     def test_reduced_motion_and_fixed_scheme(self):
         manager = fluent.manager()
         manager.set_reduced_motion(True)

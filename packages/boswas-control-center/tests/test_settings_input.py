@@ -323,9 +323,10 @@ if HAVE_QT:
 
     class ContractTest(testing.FluentTestCase):
         def test_sections_follow_the_contract(self):
-            self.assertEqual([cls.title for cls in sections.SECTIONS], ["Mouse", "Touchpad", "Keyboard"])
+            self.assertEqual([(cls.title, cls.page) for cls in sections.SECTIONS],
+                             [("Mouse", "mouse"), ("Mouse pointer", "mouse-pointer"), ("Touchpad", "touchpad"),
+                              ("Keyboard", "keyboard")])
             for cls in sections.SECTIONS:
-                self.assertEqual(cls.page, "devices")
                 self.assertTrue(isinstance(cls.order, int) and cls.keywords)
                 section = self.keep(cls())
                 self.assertIsInstance(section.config, cc.Settings)

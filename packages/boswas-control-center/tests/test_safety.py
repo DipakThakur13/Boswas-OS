@@ -9,7 +9,12 @@ agent and session agent are used read-only. Privileged work goes only
 through `pkexec /usr/libexec/boswas/sysops <operation>` with an operation of
 a fixed set and validated arguments; apt-get only ever simulates;
 timedatectl, localectl, ip, locale, gio, nmcli and busctl only with their
-fixed argument forms (busctl: AccountsService calls without any secret);
+fixed argument forms (busctl: AccountsService calls without any secret and
+logind's two read-only questions); hostnamectl only for the static host
+name, systemctl only to restart and to ask whether Bluetooth runs, nmcli
+changes only in the forms of nmcli_change_argv, fc-cache only for the user's
+font folder, lp only for CUPS's own test page, dpkg-query only to read, the
+flatpak permission store only to list and to remove one decision;
 passwd only without arguments on a pseudo-terminal, the one new way a
 program is started (commands.CommandRunner.converse); only userfiles.py
 writes or deletes files. The desktop entries are valid and there is no
@@ -43,7 +48,8 @@ DATA = sorted((PACKAGE / "data").iterdir())
 SHIPPED = ALL + DATA + [PACKAGE / "man" / "boswas-control-center.1"]
 PURE = ("__init__.py", "app.py", "backend.py", "catalog.py", "commands.py", "errors.py", "probes.py", "viewmodel.py",
         "jobs.py", "software.py", "android.py", "hardware.py", "sysinfo.py", "filetypes.py", "userfiles.py",
-        "overview.py", "servicebridge.py")
+        "overview.py", "servicebridge.py", "device.py", "cleanup.py", "troubleshoot.py", "peripherals.py",
+        "netconfig.py", "fonts.py", "installed.py", "features.py", "permissions.py", "updatelog.py")
 # Every module directly in the package is Qt-free unless it is listed here (none is: Qt lives in ui/).
 QT_MODULES: tuple[str, ...] = ()
 
@@ -56,13 +62,17 @@ EXPECTED_EXECUTABLES = {
     "apt-config": "/usr/bin/apt-config", "systemctl": "/usr/bin/systemctl",
     "boswas-android": "/usr/bin/boswas-android", "apt-get": "/usr/bin/apt-get", "apt-cache": "/usr/bin/apt-cache",
     "flatpak": "/usr/bin/flatpak", "nmcli": "/usr/bin/nmcli", "lsblk": "/usr/bin/lsblk", "pkexec": "/usr/bin/pkexec",
+    "hostnamectl": "/usr/bin/hostnamectl", "fc-list": "/usr/bin/fc-list", "fc-cache": "/usr/bin/fc-cache",
+    "lpstat": "/usr/bin/lpstat", "lp": "/usr/bin/lp", "dpkg-query": "/usr/bin/dpkg-query",
+    "boswas-camera": "/usr/bin/boswas-camera",
 }
 EXPECTED_SYSOPS = {"apt-refresh", "apt-upgrade", "apt-install", "apt-remove", "apt-install-local", "apt-clean",
                    "journal-vacuum", "firmware-report", "flatpak-remote-enable", "flatpak-remote-disable"}
 # Changing files is allowed only in userfiles.py: AppImages, their menu entries, the thumbnail cache, the
 # settings files of write_config()/remove_config() (boswas/compositor.toml and its .bak, boswas/appearance.toml,
-# mimeapps.list, autostart/<id>.desktop in the user's config directory), the account picture ~/.face and the
-# list of recently used files (recently-used.xbel, emptied).
+# mimeapps.list, autostart/<id>.desktop in the user's config directory), the account picture ~/.face, the
+# list of recently used files (recently-used.xbel, emptied), the items of the cache folder and of Downloads the
+# user picked (deleted; moved to the Trash), the Trash (emptied) and the fonts the user installs.
 FILE_CHANGING_OS = {"remove", "unlink", "rename", "replace", "makedirs", "mkdir", "chmod"}
 FILE_WRITER = "boswas_control_center/userfiles.py"
 FORBIDDEN_MODULES = {"multiprocessing", "pty", "pexpect", "webbrowser", "ctypes", "pickle", "shelve", "marshal",
@@ -231,9 +241,10 @@ class ProcessTest(unittest.TestCase):
             text = path.read_text(encoding="utf-8")
             for token in KDE_PROGRAMS:
                 self.assertNotIn(token, text, f"{rel(path)} names {token}")
-        self.assertEqual(set(catalog.PROGRAMS), {"files", "compat-manager"})
+        self.assertEqual(set(catalog.PROGRAMS), {"files", "compat-manager", "camera"})
         self.assertEqual(catalog.PROGRAMS["files"], ("boswas-files", ("/",)))
         self.assertEqual(catalog.PROGRAMS["compat-manager"], ("boswas-compat-manager", ()))
+        self.assertEqual(catalog.PROGRAMS["camera"], ("boswas-camera", ()))
         for page in catalog.PAGES:
             for program in page.programs:
                 self.assertIn(program.id, catalog.PROGRAMS, page.key)
@@ -382,6 +393,79 @@ class ProcessTest(unittest.TestCase):
         self.assertEqual(commands.argv("locale", "-a"), ["/usr/bin/locale", "-a"])
         self.assertEqual(commands.argv("gio", "launch", "/usr/share/applications/org.example.App.desktop"),
                          ["/usr/bin/gio", "launch", "/usr/share/applications/org.example.App.desktop"])
+
+    def test_the_changes_of_the_new_pages_have_fixed_forms(self):
+        """Renaming, restarting, VPN and adapters, fonts, printing, packages and portal permissions: exact forms only."""
+        self.assertEqual(commands.hostnamectl_argv("my-laptop"),
+                         ["/usr/bin/hostnamectl", "--static", "set-hostname", "my-laptop"])
+        for bad in ("", "-x", "x-", "a b", "a" * 64, "name;reboot", "über", "--pretty", "a.b"):
+            with self.assertRaises(ValueError, msg=bad):
+                commands.hostnamectl_argv(bad)
+        uuid = "5b2c7f2e-1d3a-4c55-9e0b-3f6a7d8e9a10"
+        self.assertEqual(commands.nmcli_change_argv("connection", "up", "uuid", uuid),
+                         ["/usr/bin/nmcli", "-t", "connection", "up", "uuid", uuid])
+        self.assertEqual(commands.nmcli_change_argv("connection", "import", "type", "wireguard", "file",
+                                                    "/home/a/wg0.conf")[-2:], ["file", "/home/a/wg0.conf"])
+        self.assertEqual(commands.nmcli_change_argv("device", "disconnect", "wlp2s0")[-1], "wlp2s0")
+        for bad in (("connection", "up", "id", "Office"), ("connection", "up", "uuid", "x"),
+                    ("connection", "modify", "uuid", uuid, "vpn.secrets", "password=x"),
+                    ("connection", "import", "type", "vpnc", "file", "/a.conf"),
+                    ("connection", "import", "type", "openvpn", "file", "relative.ovpn"),
+                    ("connection", "import", "type", "openvpn", "file", "/a/../b.ovpn"),
+                    ("connection", "up", "uuid", uuid, "--ask"), ("radio", "all", "off"),
+                    ("device", "disconnect", "wlp2s0;x"), ("device", "delete", "wlp2s0"),
+                    ("connection", "show", "--show-secrets", uuid)):
+            with self.assertRaises(ValueError, msg=bad):
+                commands.nmcli_change_argv(*bad)
+        for bad in (("nmcli", "-t", "connection", "up", "uuid", uuid), ("nmcli", "-t", "radio", "wifi", "off"),
+                    ("nmcli", "-t", "-s", "connection", "show"), ("nmcli", "-t", "--show-secrets", "connection"),
+                    ("systemctl", "poweroff"), ("systemctl", "reboot", "--force"), ("systemctl", "start", "x"),
+                    ("fc-list",), ("lpstat", "-a", "-l"), ("hostnamectl", "set-hostname", "x"),
+                    ("lp", "/etc/shadow"), ("dpkg-query", "-L", "bash"), ("fc-cache", "-f", "/")):
+            with self.assertRaises(ValueError, msg=bad):
+                commands.argv(*bad)
+        self.assertEqual(commands.argv("systemctl", "reboot", "--firmware-setup")[1:], ["reboot", "--firmware-setup"])
+        self.assertEqual(commands.fc_cache_argv("/home/a/.local/share/fonts"),
+                         ["/usr/bin/fc-cache", "-f", "/home/a/.local/share/fonts"])
+        for bad in ("/", "/home/a", "relative/fonts", "/home/a/../fonts", "/usr/share/fonts/../../etc"):
+            with self.assertRaises(ValueError, msg=bad):
+                commands.fc_cache_argv(bad)
+        self.assertEqual(commands.lp_test_page_argv("Office_Laser"),
+                         ["/usr/bin/lp", "-d", "Office_Laser", "/usr/share/cups/data/testprint"])
+        for bad in ("", "-o", "a b", "x/y", "a#b"):
+            with self.assertRaises(ValueError, msg=bad):
+                commands.lp_test_page_argv(bad)
+        self.assertEqual(commands.dpkg_query_argv("owners", "/usr/share/applications/x.desktop")[1], "-S")
+        self.assertEqual(commands.dpkg_query_argv("status", "vlc")[1:3], ["-W", commands.DPKG_STATUS_FORMAT])
+        for bad in (("owners", "relative"), ("status", "Bad Name"), ("purge", "vlc"), ("status",)):
+            with self.assertRaises(ValueError, msg=bad):
+                commands.dpkg_query_argv(*bad)
+        self.assertEqual(commands.permission_remove_argv("devices", "camera", "org.example.Meet"),
+                         ["/usr/bin/flatpak", "permission-remove", "devices", "camera", "org.example.Meet"])
+        for bad in (("devices", "camera", "notanapp"), ("../x", "camera", "org.a.B"), ("devices", "", "org.a.B")):
+            with self.assertRaises(ValueError, msg=bad):
+                commands.permission_remove_argv(*bad)
+        self.assertEqual(commands.logind_argv("CanRebootToFirmwareSetup")[6:],
+                         ["org.freedesktop.login1", "/org/freedesktop/login1", "org.freedesktop.login1.Manager",
+                          "CanRebootToFirmwareSetup"])
+        for bad in ("PowerOff", "Reboot", "SetRebootToFirmwareSetup", "KillUser"):
+            with self.assertRaises(ValueError, msg=bad):
+                commands.logind_argv(bad)
+        # The runner checks every one of them again before anything starts.
+        for command in (["/usr/bin/hostnamectl", "set-hostname", "x"], ["/usr/bin/hostnamectl", "--static",
+                                                                       "set-hostname", "-x"],
+                        ["/usr/bin/nmcli", "-t", "connection", "delete", "id", "x"], ["/usr/bin/lp", "-d", "p", "/x"],
+                        ["/usr/bin/fc-cache", "-r"], ["/usr/bin/dpkg-query", "--purge", "x"],
+                        ["/usr/bin/flatpak", "permission-remove", "devices"], ["/usr/bin/systemctl", "halt"],
+                        commands.logind_argv("CanRebootToFirmwareSetup")[:-1] + ["PowerOff"]):
+            with self.assertRaises(ValueError, msg=command):
+                commands._check(command)
+        for command in (commands.hostnamectl_argv("pc"), commands.nmcli_change_argv("device", "connect", "eth0"),
+                        commands.fc_cache_argv("/h/.local/share/fonts"), commands.lp_test_page_argv("P"),
+                        commands.dpkg_query_argv("status", "a", "b"), commands.permission_remove_argv("a", "b", "c.d.E"),
+                        commands.logind_argv("CanRebootToBootLoaderMenu"), commands.argv("systemctl", "is-active",
+                                                                                         "bluetooth.service")):
+            commands._check(command)
 
     def test_operations_named_by_the_ui_are_allowed(self):
         """Every JobSpec in the code names an allowed operation (checked from the source, not at run time)."""
@@ -564,7 +648,7 @@ class SourceHygieneTest(unittest.TestCase):
                     self.assertFalse(hidden, f"{rel(path)}:{number} contains U+{ord(ch):04X}")
 
     def test_man_page_lists_every_page(self):
-        man = (PACKAGE / "man" / "boswas-control-center.1").read_text(encoding="utf-8")
+        man = (PACKAGE / "man" / "boswas-control-center.1").read_text(encoding="utf-8").replace("\\-", "-")
         for key in catalog.PAGE_KEYS:
             self.assertIn(key, man)
 

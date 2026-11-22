@@ -469,15 +469,13 @@ class WifiTest(SectionCase if PYSIDE else unittest.TestCase):
 class OtherConnectionsTest(SectionCase if PYSIDE else unittest.TestCase):
     states = {sb.NETWORK: NETWORK} if PYSIDE else {}
 
-    def test_ethernet_vpn_and_airplane_mode(self):
-        section = self.section(connectivity.ConnectionsSection)
-        self.assertEqual(section.ethernet.description(), "Connected")
-        self.assertIn("No VPN connection is active.", section.vpn.description())
-        self.assertIn("NetworkManager's own tools", section.vpn.description())
-        self.assertFalse(section.airplane_toggle.isChecked())
+    def test_ethernet_and_airplane_mode(self):
+        ethernet = self.section(connectivity.EthernetSection)
+        self.assertEqual(ethernet.ethernet.description(), "Connected")
         self.bridge.set_state(sb.NETWORK, wired=False, vpn=True)
-        self.assertIn("Not connected", section.ethernet.description())
-        self.assertIn("A VPN connection is active.", section.vpn.description())
+        self.assertIn("Not connected", ethernet.ethernet.description())
+        section = self.section(connectivity.AirplaneSection)
+        self.assertFalse(section.airplane_toggle.isChecked())
         testing.click(section.airplane_toggle)
         self.assertEqual(self.last(), {"cmd": "airplane-mode", "enabled": True})
         self.bridge.set_state(sb.NETWORK, airplane=True, wifi_enabled=False)
@@ -700,12 +698,15 @@ class BluetoothTest(SectionCase if PYSIDE else unittest.TestCase):
 class RegistrationTest(unittest.TestCase):
     def test_sections_are_registered(self):
         from boswas_control_center.ui import settings
-        self.assertEqual([cls.__name__ for cls in settings.sections_for("network")],
-                         ["WifiSection", "ConnectionsSection", "DetailsSection", "ProxySection"])
+        pages = {cls.__name__: cls.page for cls in connectivity.SECTIONS}
+        self.assertEqual(pages, {"WifiSection": "wifi", "EthernetSection": "ethernet", "AirplaneSection": "airplane",
+                                 "DetailsSection": "advanced-network", "ProxySection": "proxy",
+                                 "BluetoothSection": "bluetooth"})
+        self.assertEqual([cls.__name__ for cls in settings.sections_for("network")], [])     # a category: cards
         self.assertEqual([cls.__name__ for cls in settings.sections_for("bluetooth")], ["BluetoothSection"])
         self.assertEqual(settings.section_id(connectivity.WifiSection), "wi-fi")
         self.assertEqual(settings.find("wifi")[0], connectivity.WifiSection)
-        self.assertEqual(settings.find("airplane")[0], connectivity.ConnectionsSection)
+        self.assertEqual(settings.find("airplane")[0], connectivity.AirplaneSection)
         self.assertEqual(settings.find("pair")[0], connectivity.BluetoothSection)
 
 

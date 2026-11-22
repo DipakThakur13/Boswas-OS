@@ -140,19 +140,30 @@ been verified, is in ADR-0040 and [verification.md](verification.md).
 ## Settings
 
 Settings are sections inside the pages of Control Center (ADR-0041), not
-programs of another desktop. A section is a widget with a small contract
-(page, title, order, keywords, `activate`, `deactivate`), found through a
+programs of another desktop. The window is laid out like the Settings of
+Windows 11 (ADR-0049): eleven categories (Home, System, Bluetooth &
+devices, Network & internet, Personalization, Apps, Accounts, Time &
+language, Accessibility, Privacy & security, Boswas Update), their pages
+as cards, a path above the page, and search through pages, sections and
+single settings. A section is a widget with a small contract (page,
+title, order, keywords, `activate`, `deactivate`), found through a
 registry. There are two backends:
 
 | Backend | Used for | How |
 |---------|----------|-----|
 | `boswas-services-bridge` | Wi-Fi and other connections, Bluetooth, sound, battery, power mode, brightness | The shell's own service backends as a child process of the window, JSON lines on its pipes (ADR-0035). Quick settings and Settings show the same state |
-| The compositor's user configuration | Monitors, night light, mouse, touchpad, keyboard, colour mode, background, motion, lock and screen-off timeouts | Control Center writes `~/.config/boswas/compositor.toml` and `appearance.toml` through its one file writer (`userfiles.py`) and sends `reload-config` to the public control socket (ADR-0036) |
+| The compositor's user configuration | Monitors, night light, mouse, touchpad, keyboard, colour mode, accent colour, transparency, background, motion, lock and screen-off timeouts; the taskbar, Start, multitasking and notifications; text size, scroll bars, magnifier, colour filters, sticky and filter keys | Control Center writes `~/.config/boswas/compositor.toml` and (colour mode and background only) `appearance.toml` through its one file writer (`userfiles.py`) and sends `reload-config` to the public control socket (ADR-0036); the compositor passes the shell's part on in its `config` event |
 
 Date and time and region use `timedatectl` and `localectl`; default and
 start-up applications are files in the user's configuration directory.
 User accounts go through AccountsService and polkit (the own password
-through `passwd`). `[policy]` and the trusted programs stay the
+through `passwd`). The pages of ADR-0049 use the system's own tools, each
+in fixed, validated forms: `hostnamectl` (the device name), NetworkManager
+through `nmcli` (VPN connections, adapters), CUPS (`lpstat`, `lp`),
+fontconfig (`fc-list`, `fc-cache`), `dpkg-query`, Flatpak's permission
+store, logind (restart into the firmware settings or the boot menu) and
+APT's history log; installing and removing packages goes through
+`boswas-sysops`. `[policy]` and the trusted programs stay the
 administrator's: Settings never writes them and shows a limit set by
 policy as the organisation's. `docs/experience/control-center.md`
 describes every page.
@@ -176,7 +187,7 @@ Licences: Debian components keep their own (see
 | Blueprint component | v1 alpha state |
 |---------------------|----------------|
 | Debian 13 base | **Implemented** |
-| Desktop | **Native Boswas desktop implemented** (`boswas-desktop`; ADR-0026 to ADR-0028, ADR-0030, ADR-0033 to ADR-0037): compositor with Fluent window frames, animations, Task View, snap layouts, per-monitor settings, night light and Xwayland; shell with taskbar, Start, quick settings, notifications, tray, the polkit dialog and screen capture; lock screen and greeter. It replaces KDE Plasma, which shipped up to 1.0~alpha3. **Not yet boot-tested, and not run against real system services.** Open: a second GPU, HDR and variable refresh rate, live blur, a screen reader interface, an input method in the image (see the roadmap) |
+| Desktop | **Native Boswas desktop implemented** (`boswas-desktop`; ADR-0026 to ADR-0028, ADR-0030, ADR-0033 to ADR-0037): compositor with Fluent window frames, animations, Task View, snap layouts, per-monitor settings, night light and Xwayland; shell with taskbar, Start, quick settings, notifications, tray, the polkit dialog and screen capture; lock screen and greeter. It replaces KDE Plasma, which shipped up to 1.0~alpha3. **Not yet boot-tested, and not run against real system services.** Open: a second GPU, HDR, live blur, a screen reader interface, contrast themes, an input method in the image (see the roadmap) |
 | System applications | **Implemented** (`boswas-apps`, ADR-0040): Files, Terminal, Text Editor, Calculator, Photos, Document Viewer, Archive Manager, Media Player, Camera, Clock, Calendar, Task Manager and a reminders service, in place of KDE's applications. Firefox ESR is the browser. **Not run on the desktop yet** |
 | Boot screen | **Implemented** (`boswas-bootsplash`, ADR-0029, in the Boswas UI look since ADR-0038), replaces Plymouth. Booted in a virtual machine from the packages (ADR-0044); **not yet on the image or on hardware** |
 | Boswas branding (boot menu, installer, boot screen, login, lock, desktop, icons, pointer, About) | **Implemented**; Boswas UI v3 tokens (ADR-0033), the Prism icon pack (ADR-0031), the Boswas-Cursors pointer theme (ADR-0043) and the Qt toolkit `boswas_fluent` (ADR-0039) |
@@ -187,7 +198,7 @@ Licences: Debian components keep their own (see
 | `boswas`, `boswas-info`, `boswas-status` | **Implemented**: read-only, `--json` |
 | WinCompat (`boswas-winapp`, per-app prefixes, sandbox, AppArmor profile, manifests, catalog, policy) | **Implemented** (`boswas-compat`). 64-bit and 32-bit Windows applications (ADR-0022, which supersedes ADR-0014) |
 | Compatibility Manager | **Implemented** (`boswas-compat-manager`, PySide6 on `boswas_fluent`), a client of the user's session agent |
-| Control Center | **Implemented** (`boswas-control-center`, PySide6 on `boswas_fluent`): native settings sections in place of the Plasma modules (ADR-0041), user accounts included, and the Security, Software and Update Centers. **Its settings have run against stand-ins of the system services only** |
+| Control Center | **Implemented** (`boswas-control-center`, PySide6 on `boswas_fluent`): laid out like Windows 11's Settings in eleven categories (ADR-0049), native settings sections in place of the Plasma modules (ADR-0041), user accounts included, the desktop's taskbar, Start, multitasking, notification, colour and accessibility settings, and the Security, Software and Update Centers. **Its settings have run against stand-ins of the system services only** |
 | Device agent, enrollment, heartbeat | **Implemented** (`boswas-device-agent`: system service, per-user session agent, `boswas-device`). Standalone unless a Control Plane is configured |
 | Control Plane, signed policy, fleet dashboard | **Implemented** as a separate server package (`boswas-control-plane`, not on devices); policy hierarchy and organisation model open |
 | Boswas Store, app policy | Milestone 6. `boswas app` reserved |
@@ -219,10 +230,10 @@ are bounded and stay on the device. See `docs/security/privacy.md`.
 | `/usr/lib/boswas/python/boswas_fluent/` | boswas-branding | The Qt toolkit of the Boswas applications (ADR-0039) |
 | `/usr/share/boswas/compositor/` | boswas-desktop | Compositor defaults (`compositor.toml`), the login screen's configuration (`greeter.toml`), `version` |
 | `/etc/boswas/compositor.toml` | administrator (not shipped) | Compositor settings for this device, `[policy]` and the trusted programs (`[shell]`, `[lock]`, `[input_method]` `command`) |
-| `~/.config/boswas/compositor.toml`, `appearance.toml` | user, Control Center, `boswas-preset` | The user's compositor settings (never `[policy]` or a trusted program), written by Settings; the look chosen with a preset |
+| `~/.config/boswas/compositor.toml`, `appearance.toml` | user, Control Center, `boswas-preset` | The user's compositor settings (never `[policy]` or a trusted program), written by Settings; the colour mode and wallpaper chosen with a preset or in Settings |
 | `~/.config/<application id>/`, `~/.local/state/<application id>/` | the Boswas applications | Each application's settings and state (for example `com.boswas.Terminal/settings.json`) |
 | `~/.config/boswas/shell.toml` | boswas-shell | The applications pinned to the taskbar and to Start |
-| `~/.local/state/boswas/launcher-usage.json`, `run-history.json` | boswas-shell | How often each application was started (ranks search); the last commands typed into Run. Local only |
+| `~/.local/state/boswas/launcher-usage.json`, `run-history.json`, `notification-senders.json`, `apps-seen.json` | boswas-shell | How often each application was started (ranks search); the last commands typed into Run; the applications that sent notifications (Settings reads it to turn banners off); when each application was first seen (Start's "Recently added"). Local only |
 | `/usr/libexec/boswas/boswas-shell`, `boswas-services-bridge` | boswas-desktop | The shell; the service backends for Settings |
 | `/usr/share/xdg-desktop-portal/boswas-portals.conf`, `/etc/xdg/xdg-desktop-portal-wlr/Boswas` | boswas-desktop | Which portal back end serves what (GTK; wlroots for screen sharing and screenshots, ADR-0037) |
 | `/etc/boswas/greetd.toml` | boswas-desktop | Login configuration read by greetd (drop-in, ADR-0030) |

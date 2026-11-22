@@ -1,6 +1,6 @@
 [Icon Theme]
 Name=Boswas Prism
-Comment=Boswas OS icons in the Prism palette, for dark panels: colour tiles for applications, folders, devices and file types, light symbolic icons; Breeze Dark for everything else
+Comment=Boswas OS icons in the Prism palette, for dark panels: coloured objects lit from the top for applications, folders, devices and file types, light line icons for status and actions; Breeze Dark for everything else
 Inherits=breeze-dark,breeze,Adwaita,hicolor
 Example=boswas-logo
 

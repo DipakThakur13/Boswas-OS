@@ -52,9 +52,14 @@ class Tokens(unittest.TestCase):
         for scheme in ("dark", "light"):
             for name, reference in self.tokens["semantic"][scheme].items():
                 self.assertRegex(self.generator.resolve(self.tokens, scheme, "@" + name), HEX, f"{scheme}.{name}")
-        for hue, parts in self.tokens["icon"]["hues"].items():
-            for key in ("from", "to", "glyph", "accent"):
-                self.assertRegex(self.generator.resolve(self.tokens, "dark", parts[key]), HEX, f"{hue}.{key}")
+        icon = self.tokens["icon"]
+        for group in ("hues", "materials"):
+            for name, parts in icon[group].items():
+                for key in ("from", "to", "light", "deep", "glyph", "accent"):
+                    self.assertRegex(self.generator.resolve(self.tokens, "dark", parts[key]), HEX,
+                                     f"icon.{group}.{name}.{key}")
+        for key in ("highlight", "shade", "shadow"):
+            self.assertRegex(self.generator.resolve(self.tokens, "dark", icon["light"][key]), HEX, f"icon.light.{key}")
 
     def test_the_specification_values(self):
         """The fixed values of the Boswas UI specification."""
@@ -88,12 +93,19 @@ class Tokens(unittest.TestCase):
             self.assertTrue(0 < material["tint-opacity"] <= 1, name)
             self.assertRegex(self.generator.resolve(self.tokens, "dark", material["tint"]), HEX, name)
 
-    def test_icon_tiles_keep_their_glyphs_readable(self):
-        for hue, parts in self.tokens["icon"]["hues"].items():
-            glyph = self.generator.resolve(self.tokens, "dark", parts["glyph"])
-            for stop in ("from", "to"):
-                tile = self.generator.resolve(self.tokens, "dark", parts[stop])
-                self.assertGreaterEqual(contrast(glyph, tile), 3.0, f"{hue}: glyph on {stop}")
+    def test_icon_colours_are_lit_from_the_top_and_keep_symbols_readable(self):
+        """The icon pack's colour roles: every family runs from light to deep
+        (light >= from >= to >= deep), a symbol drawn on it ('glyph') has
+        3:1 against its deeper end, and the light's opacities are fractions."""
+        icon = self.tokens["icon"]
+        for group in ("hues", "materials"):
+            for name, parts in icon[group].items():
+                resolve = lambda key: self.generator.resolve(self.tokens, "dark", parts[key])  # noqa: E731
+                steps = [luminance(resolve(key)) for key in ("light", "from", "to", "deep")]
+                self.assertEqual(steps, sorted(steps, reverse=True), f"{name}: light, from, to, deep")
+                self.assertGreaterEqual(contrast(resolve("glyph"), resolve("to")), 3.0, f"{name}: glyph on to")
+        for key in ("highlight", "shade", "shadow"):
+            self.assertTrue(0 < icon["light"][f"{key}-opacity"] <= 1, key)
 
 
 class KdeColourSchemes(unittest.TestCase):

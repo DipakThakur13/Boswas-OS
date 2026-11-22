@@ -219,9 +219,9 @@ for d in "$debs"/*.deb "$server_deb"; do dpkg-deb -x "$d" "$extract"; done
 check_not "no private keys in packages" grep -rqE -- '-----BEGIN ([A-Z]+ )?PRIVATE KEY-----' "$extract"
 check "KDE icon is self-contained (no external <image> references)" \
 	bash -c "! grep -q '<image' '$extract/usr/share/icons/hicolor/scalable/apps/boswas-logo.svg'"
-check "branding: the Boswas OS mark (gold and silver gradients) is the launcher icon and About logo" \
+check "branding: the Boswas OS mark (stem, bowl and dot gradients) is the launcher icon and About logo" \
 	bash -c "for f in usr/share/icons/hicolor/scalable/apps/boswas-logo.svg usr/share/boswas/branding/boswas-about-logo.svg \
-		usr/share/boswas/branding/boswas-os-mark.svg; do grep -q 'boswas-mark-gold' '$extract/'\$f && grep -q 'boswas-mark-silver' '$extract/'\$f || exit 1; done"
+		usr/share/boswas/branding/boswas-os-mark.svg; do for g in stem bowl dot; do grep -q \"boswas-mark-\$g\" '$extract/'\$f || exit 1; done; done"
 check "branding: Orbitron brand typeface shipped (6 static weights, 0644) with its SIL OFL 1.1 licence" \
 	bash -c "test \$(grep -cE '^-rw-r--r-- root/root .* \./usr/share/fonts/truetype/orbitron/Orbitron-(Regular|Medium|SemiBold|Bold|ExtraBold|Black)\.ttf$' <\"\$1\") -eq 6 &&
 		grep -q 'SIL OPEN FONT LICENSE Version 1.1' '$extract/usr/share/doc/boswas-branding/copyright' &&

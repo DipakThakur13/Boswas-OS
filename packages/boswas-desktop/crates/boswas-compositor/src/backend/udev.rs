@@ -44,7 +44,7 @@ use smithay::{
             compositor::{FrameFlags, PrimaryPlaneElement},
             exporter::gbm::GbmFramebufferExporter,
             output::{DrmOutput, DrmOutputManager, DrmOutputRenderElements},
-            DrmDevice, DrmDeviceFd, DrmEvent, DrmEventMetadata, DrmEventTime, DrmNode, NodeType,
+            DrmDevice, DrmDeviceFd, DrmEvent, DrmEventMetadata, DrmEventTime, DrmNode, NodeType, VrrSupport,
         },
         egl::{context::ContextPriority, EGLContext, EGLDevice, EGLDisplay},
         input::InputEvent,
@@ -68,7 +68,7 @@ use smithay::{
         },
         drm::{
             self,
-            control::{connector, crtc, Device as ControlDevice, ModeTypeFlags},
+            control::{connector, crtc, Device as ControlDevice, ModeFlags, ModeTypeFlags},
         },
         input::{DeviceCapability, Libinput},
         pixman::Image,
@@ -81,8 +81,8 @@ use smithay::{
 };
 use tracing::{debug, error, info, warn};
 
-use super::{seatlog, Backend};
-use crate::{exit::Failure, render::OutputRenderElement, state::Boswas};
+use super::{output_refresh_interval, seatlog, AdaptiveSync, Backend};
+use crate::{exit::Failure, render::DisplayRenderElement, state::Boswas};
 
 /// Scan-out formats tried in order.
 const COLOR_FORMATS: &[Fourcc] = &[Fourcc::Argb8888, Fourcc::Xrgb8888, Fourcc::Abgr8888];
@@ -217,6 +217,14 @@ impl RendererChoice {
             Some("pixman" | "software") => RendererChoice::Pixman,
             _ => RendererChoice::Auto,
         }
+    }
+}
+
+impl Udev {
+    /// Whether the device draws with OpenGL ES (and so can apply colour
+    /// filters).
+    pub fn draws_with_gles(&self) -> bool {
+        self.device.as_ref().is_some_and(|device| matches!(device.gpu, Gpu::Gles(_)))
     }
 }
 
@@ -561,6 +569,10 @@ impl Udev {
                 for surface in device.surfaces.values_mut() {
                     surface.pending = false;
                 }
+                // The device's state was read back from the hardware: the
+                // variable refresh rate a program on another virtual terminal
+                // left there is set to the configuration again.
+                self.outputs_changed = true;
             }
             // A device that appeared while the seat was away.
             None => self.find_device(state),
@@ -973,8 +985,8 @@ impl Udev {
     }
 
     /// Brings the outputs in line with a changed configuration: turns
-    /// monitors on and off, and sets mode, scale, rotation and position of
-    /// the ones that stay.
+    /// monitors on and off, and sets mode, variable refresh rate, scale,
+    /// rotation and position of the ones that stay.
     fn apply_output_settings(&mut self, state: &mut Boswas) {
         if let Some(device) = &mut self.device {
             let crtcs: Vec<crtc::Handle> = device.surfaces.keys().copied().collect();
@@ -985,18 +997,12 @@ impl Udev {
                 let name = surface.output.name();
                 let settings = state.config.outputs.get(&name).cloned().unwrap_or_default();
                 // Mode.
-                let wanted = settings
-                    .mode
-                    .as_deref()
-                    .and_then(crate::config::parse_mode)
-                    .and_then(|wanted| pick_mode(&surface.modes, wanted))
-                    .or_else(|| preferred_mode(&surface.modes));
-                if let Some(mode) = wanted {
+                if let Some(mode) = configured_mode(&surface.modes, &settings) {
                     if surface.output.current_mode() != Some(OutputMode::from(mode)) {
                         let result: Result<(), String> = match &mut device.gpu {
                             Gpu::Gles(stack) => match stack.outputs.get_mut(&crtc) {
                                 Some(output) => output
-                                    .use_mode::<_, OutputRenderElement<GlesRenderer>>(
+                                    .use_mode::<_, DisplayRenderElement<GlesRenderer>>(
                                         mode,
                                         &mut stack.renderer,
                                         &DrmOutputRenderElements::default(),
@@ -1006,7 +1012,7 @@ impl Udev {
                             },
                             Gpu::Pixman(stack) => match stack.outputs.get_mut(&crtc) {
                                 Some(output) => output
-                                    .use_mode::<_, OutputRenderElement<PixmanRenderer>>(
+                                    .use_mode::<_, DisplayRenderElement<PixmanRenderer>>(
                                         mode,
                                         &mut stack.renderer,
                                         &DrmOutputRenderElements::default(),
@@ -1019,12 +1025,15 @@ impl Udev {
                             Ok(()) => {
                                 surface.pending = false;
                                 surface.output.change_current_state(Some(OutputMode::from(mode)), None, None, None);
-                                info!("output {name}: mode {}x{}", mode.size().0, mode.size().1);
+                                info!("output {name}: mode {}", describe(&mode));
                             }
-                            Err(err) => warn!("output {name}: could not set the mode: {err}"),
+                            Err(err) => warn!("output {name}: could not set the mode {}: {err}", describe(&mode)),
                         }
                     }
                 }
+                // Variable refresh rate.
+                let sync = apply_adaptive_sync(&device.gpu, crtc, surface.connector, &name, settings.adaptive_sync.unwrap_or(false));
+                sync.record(&surface.output);
                 // Scale and rotation.
                 let scale = settings.scale.unwrap_or(state.config.output.scale);
                 let transform = rotation(settings.rotation.as_deref());
@@ -1051,7 +1060,7 @@ impl Udev {
         let started = Instant::now();
         state.prepare_frame();
         let drawn: Drawn = with_stack!(&mut device.gpu, stack => {
-            let (elements, clear) = state.output_elements(&mut stack.renderer, &output);
+            let (elements, clear) = state.display_elements(&mut stack.renderer, &output);
             match stack.outputs.get_mut(&crtc) {
                 None => Drawn::Failed("the output is not set up".into()),
                 Some(drm_output) => match drm_output.render_frame(&mut stack.renderer, &elements, clear, FrameFlags::DEFAULT) {
@@ -1119,9 +1128,7 @@ impl Udev {
                 // callback still get one, at the display's pace, so a client
                 // that commits without damage cannot spin the compositor.
                 surface.idle_callback_armed = true;
-                let refresh = output.current_mode().map_or(60_000, |mode| mode.refresh.max(1));
-                let delay = Duration::from_micros(1_000_000_000 / refresh as u64);
-                let timer = Timer::from_duration(delay);
+                let timer = Timer::from_duration(output_refresh_interval(&output));
                 let inserted = state.loop_handle.insert_source(timer, move |_, _, state| {
                     if let Backend::Udev(udev) = &mut state.backend {
                         if let Some(surface) = udev.device.as_mut().and_then(|d| d.surfaces.get_mut(&crtc)) {
@@ -1148,8 +1155,9 @@ impl Udev {
         let Some(surface) = device.surfaces.get_mut(&crtc) else {
             return;
         };
-        let refresh = surface.output.current_mode().map_or(60_000, |mode| mode.refresh.max(1));
-        let frame = Duration::from_micros(1_000_000_000 / refresh as u64);
+        // One refresh of the mode in use (with variable refresh: of its
+        // highest rate, which is also the soonest the next frame can come).
+        let frame = output_refresh_interval(&surface.output);
         // Devices without a vertical blank (the virtual graphics of most
         // virtual machines, the firmware framebuffer) report a frame as
         // shown the moment it is queued. Drawing the next one at once would
@@ -1194,7 +1202,12 @@ impl Udev {
                     ),
                     None => (self.clock.now(), wp_presentation_feedback::Kind::Vsync),
                 };
-                feedback.presented::<_, Monotonic>(time, Refresh::fixed(frame), sequence, flags);
+                let refresh = if AdaptiveSync::of(&surface.output).enabled {
+                    Refresh::variable(frame)
+                } else {
+                    Refresh::fixed(frame)
+                };
+                feedback.presented::<_, Monotonic>(time, refresh, sequence, flags);
             }
             Ok(_) => {}
             Err(err) => debug!("frame not submitted: {err}"),
@@ -1360,13 +1373,7 @@ fn connect(
     let name = connector_name(info);
     let settings = state.config.outputs.get(&name).cloned().unwrap_or_default();
     let modes: Vec<drm::control::Mode> = info.modes().to_vec();
-    let mode = settings
-        .mode
-        .as_deref()
-        .and_then(crate::config::parse_mode)
-        .and_then(|wanted| pick_mode(&modes, wanted))
-        .or_else(|| preferred_mode(&modes))
-        .ok_or("the monitor reports no mode")?;
+    let chosen = configured_mode(&modes, &settings).ok_or("the monitor reports no mode")?;
     let (width_mm, height_mm) = info.size().unwrap_or((0, 0));
     let (make, model) = read_edid(device.gpu.drm(), info)
         .map(|edid| super::edid::make_and_model(&edid))
@@ -1380,58 +1387,96 @@ fn connect(
             model: model.unwrap_or_else(|| "Unknown".into()),
         },
     );
-    for offered in &modes {
+    // The modes Settings may offer: every one that can be chosen.
+    for offered in modes.iter().filter(|mode| usable(mode)) {
         output.add_mode(OutputMode::from(*offered));
     }
-    let output_mode = OutputMode::from(mode);
-    if let Some(preferred) = preferred_mode(&modes) {
-        output.set_preferred(OutputMode::from(preferred));
+    // "Preferred" is what the compositor uses without a setting.
+    if let Some(default) = default_mode(&modes) {
+        output.set_preferred(OutputMode::from(default));
     }
-    output.change_current_state(
-        Some(output_mode),
-        Some(rotation(settings.rotation.as_deref())),
-        Some(Scale::Fractional(settings.scale.unwrap_or(state.config.output.scale))),
-        None,
-    );
 
+    // The chosen mode first; should the driver refuse it (a cable or link
+    // that cannot carry the highest rate the monitor lists), the mode the
+    // monitor prefers.
+    let mut candidates = vec![chosen];
+    if let Some(preferred) = preferred_mode(&modes).filter(|preferred| *preferred != chosen) {
+        candidates.push(preferred);
+    }
     let planes = device.gpu.drm().planes(&crtc).ok();
-    match &mut device.gpu {
-        Gpu::Gles(stack) => {
-            let drm_output = stack
-                .manager
-                .initialize_output::<GlesRenderer, OutputRenderElement<GlesRenderer>>(
-                    crtc,
-                    mode,
-                    &[info.handle()],
-                    &output,
-                    planes,
-                    &mut stack.renderer,
-                    &DrmOutputRenderElements::default(),
-                )
-                .map_err(|err| format!("{err}"))?;
-            stack.outputs.insert(crtc, drm_output);
+    let mut refused: Option<(drm::control::Mode, String)> = None;
+    let mut mode = None;
+    for candidate in candidates {
+        if let Some((previous, why)) = &refused {
+            warn!("output {name}: {} could not be set ({why}); using the mode the monitor prefers", describe(previous));
         }
-        Gpu::Pixman(stack) => {
-            let drm_output = stack
+        output.change_current_state(
+            Some(OutputMode::from(candidate)),
+            Some(rotation(settings.rotation.as_deref())),
+            Some(Scale::Fractional(settings.scale.unwrap_or(state.config.output.scale))),
+            None,
+        );
+        let initialized: Result<(), String> = match &mut device.gpu {
+            Gpu::Gles(stack) => stack
                 .manager
-                .initialize_output::<PixmanRenderer, OutputRenderElement<PixmanRenderer>>(
+                .initialize_output::<GlesRenderer, DisplayRenderElement<GlesRenderer>>(
                     crtc,
-                    mode,
+                    candidate,
                     &[info.handle()],
                     &output,
-                    planes,
+                    planes.clone(),
                     &mut stack.renderer,
                     &DrmOutputRenderElements::default(),
                 )
-                .map_err(|err| format!("{err}"))?;
-            stack.outputs.insert(crtc, drm_output);
+                .map(|drm_output| {
+                    stack.outputs.insert(crtc, drm_output);
+                })
+                .map_err(|err| format!("{err}")),
+            Gpu::Pixman(stack) => stack
+                .manager
+                .initialize_output::<PixmanRenderer, DisplayRenderElement<PixmanRenderer>>(
+                    crtc,
+                    candidate,
+                    &[info.handle()],
+                    &output,
+                    planes.clone(),
+                    &mut stack.renderer,
+                    &DrmOutputRenderElements::default(),
+                )
+                .map(|drm_output| {
+                    stack.outputs.insert(crtc, drm_output);
+                })
+                .map_err(|err| format!("{err}")),
+        };
+        match initialized {
+            Ok(()) => {
+                mode = Some(candidate);
+                break;
+            }
+            Err(err) => refused = Some((candidate, err)),
         }
     }
+    let Some(mode) = mode else {
+        return Err(refused.map_or_else(|| "no mode could be set".into(), |(_, why)| why).into());
+    };
+    let output_mode = OutputMode::from(mode);
     let global = output.create_global::<Boswas>(&state.display_handle);
     if state.night_light_applied.is_some() {
         load_gamma(device.gpu.drm(), crtc, state.night_light_applied);
     }
-    info!("output {name}: {}x{} @ {} mHz", output_mode.size.w, output_mode.size.h, output_mode.refresh);
+    let sync = apply_adaptive_sync(&device.gpu, crtc, info.handle(), &name, settings.adaptive_sync.unwrap_or(false));
+    sync.record(&output);
+    info!(
+        "output {name}: {}x{} @ {} mHz{}",
+        output_mode.size.w,
+        output_mode.size.h,
+        output_mode.refresh,
+        match (sync.supported, sync.enabled) {
+            (_, true) => ", variable refresh rate on",
+            (true, false) => ", variable refresh rate offered (off)",
+            (false, _) => "",
+        }
+    );
     device.surfaces.insert(
         crtc,
         Surface {
@@ -1447,12 +1492,46 @@ fn connect(
     Ok(())
 }
 
+/// Turns variable refresh rate on or off (`wanted`, from `[outputs.NAME]
+/// adaptive_sync`) where the monitor and its driver offer it, and returns
+/// what the output then does. With pixman it is never offered: its dumb
+/// buffers are written by the processor and the display gains nothing from
+/// waiting for them. A monitor that needs a mode set to change it (HDMI)
+/// gets one with its next frame.
+fn apply_adaptive_sync(gpu: &Gpu, crtc: crtc::Handle, connector: connector::Handle, name: &str, wanted: bool) -> AdaptiveSync {
+    let Gpu::Gles(stack) = gpu else {
+        return AdaptiveSync::default();
+    };
+    let Some(drm_output) = stack.outputs.get(&crtc) else {
+        return AdaptiveSync::default();
+    };
+    drm_output.with_compositor(|compositor| {
+        let supported = matches!(
+            compositor.vrr_supported(connector),
+            Ok(VrrSupport::Supported | VrrSupport::RequiresModeset)
+        );
+        let wanted = wanted && supported;
+        if compositor.vrr_enabled() != wanted {
+            match compositor.use_vrr(wanted) {
+                Ok(()) => info!("output {name}: variable refresh rate {}", if wanted { "on" } else { "off" }),
+                Err(err) => warn!("output {name}: could not turn variable refresh rate {}: {err}", if wanted { "on" } else { "off" }),
+            }
+        }
+        AdaptiveSync {
+            supported,
+            enabled: compositor.vrr_enabled(),
+        }
+    })
+}
+
 /// The connector's name as the desktop knows the output: `eDP-1`.
 fn connector_name(info: &connector::Info) -> String {
     format!("{}-{}", info.interface().as_str(), info.interface_id())
 }
 
-/// The mode a monitor prefers, else its first.
+/// The mode a monitor flags as preferred, else its first. On almost every
+/// monitor with a high refresh rate this is its 60 Hz mode: it is the
+/// monitor's native size, not the mode to use (see [`default_mode`]).
 fn preferred_mode(modes: &[drm::control::Mode]) -> Option<drm::control::Mode> {
     modes
         .iter()
@@ -1461,21 +1540,87 @@ fn preferred_mode(modes: &[drm::control::Mode]) -> Option<drm::control::Mode> {
         .copied()
 }
 
-/// The offered mode of the wanted size whose refresh rate is nearest the
+/// The refresh rate of a mode in millihertz, from its own timings (pixel
+/// clock and totals, as `OutputMode::from` computes it). `None` for timings
+/// that make no sense and for rates outside 1 to 1000 Hz, the range the
+/// configuration accepts: such a mode is never chosen, and nothing is ever
+/// paced faster than the mode really refreshes.
+fn refresh_millihertz(mode: &drm::control::Mode) -> Option<i32> {
+    let (_, _, htotal) = mode.hsync();
+    let (_, _, vtotal) = mode.vsync();
+    if mode.clock() == 0 || htotal == 0 || vtotal == 0 {
+        return None;
+    }
+    let millihertz = OutputMode::from(*mode).refresh;
+    (1_000..=1_000_000).contains(&millihertz).then_some(millihertz)
+}
+
+/// Whether a mode may be chosen: progressive (interlaced modes are never
+/// used) and with a sensible refresh rate.
+fn usable(mode: &drm::control::Mode) -> bool {
+    !mode.flags().contains(ModeFlags::INTERLACE) && refresh_millihertz(mode).is_some()
+}
+
+/// Of `modes`, the usable one with the highest refresh rate; between equal
+/// rates the one the monitor prefers, then the first (the kernel's order).
+fn fastest<'a>(modes: impl Iterator<Item = &'a drm::control::Mode>) -> Option<drm::control::Mode> {
+    modes
+        .filter(|mode| usable(mode))
+        .min_by_key(|mode| {
+            let preferred = mode.mode_type().contains(ModeTypeFlags::PREFERRED);
+            (std::cmp::Reverse(refresh_millihertz(mode)), !preferred)
+        })
+        .copied()
+}
+
+/// The mode of a monitor without a `mode` setting: its native size (that of
+/// the mode it prefers) at the highest refresh rate it offers there, so a
+/// 144 Hz monitor runs at 144 Hz and not at the 60 Hz its preferred mode
+/// usually has. Only modes the monitor reports are considered, never one
+/// made up. Without a usable mode at the native size: the largest size
+/// that has one; without any: the preferred mode, whatever it is.
+fn default_mode(modes: &[drm::control::Mode]) -> Option<drm::control::Mode> {
+    let native = preferred_mode(modes)?.size();
+    fastest(modes.iter().filter(|mode| mode.size() == native))
+        .or_else(|| {
+            let area = |mode: &drm::control::Mode| u32::from(mode.size().0) * u32::from(mode.size().1);
+            let largest = modes.iter().filter(|mode| usable(mode)).map(area).max()?;
+            fastest(modes.iter().filter(|mode| area(mode) == largest))
+        })
+        .or_else(|| preferred_mode(modes))
+}
+
+/// The usable mode of the wanted size whose refresh rate is nearest the
 /// wanted one (the highest, when none is asked for).
 fn pick_mode(modes: &[drm::control::Mode], wanted: (i32, i32, Option<i32>)) -> Option<drm::control::Mode> {
     let (width, height, refresh) = wanted;
-    modes
+    let sized = modes
         .iter()
-        .filter(|mode| (i32::from(mode.size().0), i32::from(mode.size().1)) == (width, height))
-        .min_by_key(|mode| {
-            let millihertz = OutputMode::from(**mode).refresh;
-            match refresh {
-                Some(wanted) => (millihertz - wanted).abs(),
-                None => -millihertz,
-            }
-        })
-        .copied()
+        .filter(|mode| (i32::from(mode.size().0), i32::from(mode.size().1)) == (width, height));
+    match refresh {
+        None => fastest(sized),
+        Some(wanted) => sized
+            .filter(|mode| usable(mode))
+            .min_by_key(|mode| refresh_millihertz(mode).map_or(i32::MAX, |millihertz| (millihertz - wanted).abs()))
+            .copied(),
+    }
+}
+
+/// A mode for the log: `2560x1440 at 143.999 Hz`.
+fn describe(mode: &drm::control::Mode) -> String {
+    let (width, height) = mode.size();
+    let rate = refresh_millihertz(mode).unwrap_or_default();
+    format!("{width}x{height} at {}.{:03} Hz", rate / 1000, rate % 1000)
+}
+
+/// The mode an output's settings ask for, else its default.
+fn configured_mode(modes: &[drm::control::Mode], settings: &crate::config::OutputSettings) -> Option<drm::control::Mode> {
+    settings
+        .mode
+        .as_deref()
+        .and_then(crate::config::parse_mode)
+        .and_then(|wanted| pick_mode(modes, wanted))
+        .or_else(|| default_mode(modes))
 }
 
 /// The output transform of a configured rotation.
@@ -1573,6 +1718,149 @@ mod tests {
         assert_eq!(early_until(Some(start), start + Duration::from_millis(2), frame), Some(start + frame));
         // After a pause, nothing is held back.
         assert_eq!(early_until(Some(start), start + Duration::from_secs(5), frame), None);
+        // At 144 Hz a frame a 144th of a second after the last is on time,
+        // and one sooner is held back to that moment, not to a 60th.
+        let fast = super::super::refresh_interval(144_000);
+        assert_eq!(early_until(Some(start), start + fast, fast), None);
+        assert_eq!(early_until(Some(start), start + Duration::from_millis(1), fast), Some(start + fast));
+        assert!(fast < Duration::from_millis(7));
+    }
+
+    /// The kernel's `struct drm_mode_modeinfo` (include/uapi/drm/drm_mode.h),
+    /// which `drm::control::Mode` wraps: a monitor's modes are built here as
+    /// the kernel would report them.
+    #[repr(C)]
+    struct ModeInfo {
+        clock: u32,
+        hdisplay: u16,
+        hsync_start: u16,
+        hsync_end: u16,
+        htotal: u16,
+        hskew: u16,
+        vdisplay: u16,
+        vsync_start: u16,
+        vsync_end: u16,
+        vtotal: u16,
+        vscan: u16,
+        vrefresh: u32,
+        flags: u32,
+        type_: u32,
+        name: [u8; 32],
+    }
+
+    /// The timings of a mode of `width` by `height` refreshing `hz` times a
+    /// second: a pixel clock for blanking of 160 by 40 pixels.
+    fn info(width: u16, height: u16, hz: f64, preferred: bool, interlaced: bool) -> ModeInfo {
+        let (htotal, vtotal) = (width + 160, height + 40);
+        let frames = if interlaced { hz / 2.0 } else { hz };
+        ModeInfo {
+            clock: (f64::from(htotal) * f64::from(vtotal) * frames / 1000.0).round() as u32,
+            hdisplay: width,
+            hsync_start: width + 48,
+            hsync_end: width + 80,
+            htotal,
+            hskew: 0,
+            vdisplay: height,
+            vsync_start: height + 3,
+            vsync_end: height + 8,
+            vtotal,
+            vscan: 0,
+            vrefresh: hz.round() as u32,
+            flags: if interlaced { ModeFlags::INTERLACE.bits() } else { 0 },
+            type_: ModeTypeFlags::DRIVER.bits() | if preferred { ModeTypeFlags::PREFERRED.bits() } else { 0 },
+            name: [0; 32],
+        }
+    }
+
+    fn from_info(info: ModeInfo) -> drm::control::Mode {
+        // SAFETY: `Mode` is `#[repr(transparent)]` over the kernel's
+        // `drm_mode_modeinfo`, whose fields `ModeInfo` repeats in order;
+        // `transmute` refuses to compile if the sizes differ.
+        unsafe { std::mem::transmute::<ModeInfo, drm::control::Mode>(info) }
+    }
+
+    fn mode(width: u16, height: u16, hz: f64, preferred: bool, interlaced: bool) -> drm::control::Mode {
+        from_info(info(width, height, hz, preferred, interlaced))
+    }
+
+    fn shown(mode: Option<drm::control::Mode>) -> Option<(u16, u16, i32)> {
+        mode.map(|mode| (mode.size().0, mode.size().1, (f64::from(refresh_millihertz(&mode).unwrap()) / 1000.0).round() as i32))
+    }
+
+    #[test]
+    fn a_monitor_runs_at_its_native_size_and_highest_refresh_rate() {
+        // A 1440p 165 Hz monitor as it reports itself: the 60 Hz mode is the
+        // preferred one, the faster ones are listed after it.
+        let monitor = [
+            mode(2560, 1440, 59.951, true, false),
+            mode(2560, 1440, 165.0, false, false),
+            mode(2560, 1440, 144.0, false, false),
+            mode(2560, 1440, 120.0, false, false),
+            mode(1920, 1080, 240.0, false, false),
+            mode(1920, 1080, 60.0, false, false),
+            mode(1280, 720, 60.0, false, false),
+        ];
+        assert_eq!(shown(preferred_mode(&monitor)), Some((2560, 1440, 60)), "what the monitor flags");
+        assert_eq!(shown(default_mode(&monitor)), Some((2560, 1440, 165)), "the default: native size, highest rate");
+        assert_eq!(shown(configured_mode(&monitor, &Default::default())), Some((2560, 1440, 165)));
+        // A faster mode at a smaller size does not move the default off the native size.
+        assert_ne!(shown(default_mode(&monitor)), Some((1920, 1080, 240)));
+
+        // `mode` in the configuration still decides; without a rate it is the highest at that size.
+        let set = |mode: &str| crate::config::OutputSettings { mode: Some(mode.into()), ..Default::default() };
+        assert_eq!(shown(configured_mode(&monitor, &set("2560x1440@60"))), Some((2560, 1440, 60)));
+        assert_eq!(shown(configured_mode(&monitor, &set("2560x1440@144"))), Some((2560, 1440, 144)));
+        assert_eq!(shown(configured_mode(&monitor, &set("2560x1440@100"))), Some((2560, 1440, 120)), "the nearest");
+        assert_eq!(shown(configured_mode(&monitor, &set("1920x1080"))), Some((1920, 1080, 240)));
+        assert_eq!(shown(configured_mode(&monitor, &set("3840x2160"))), Some((2560, 1440, 165)), "not offered: the default");
+
+        // An ordinary 60 Hz monitor keeps its 60 Hz mode.
+        let office = [mode(1920, 1080, 60.0, true, false), mode(1920, 1080, 50.0, false, false), mode(1680, 1050, 60.0, false, false)];
+        assert_eq!(shown(default_mode(&office)), Some((1920, 1080, 60)));
+        // Between equal rates, the mode the monitor prefers.
+        let twins = [mode(1920, 1080, 144.0, false, false), mode(1920, 1080, 144.0, true, false)];
+        assert!(default_mode(&twins).unwrap().mode_type().contains(ModeTypeFlags::PREFERRED));
+        // No preferred mode: the first one's size, as the kernel lists the largest first.
+        let unflagged = [mode(3840, 2160, 60.0, false, false), mode(3840, 2160, 120.0, false, false), mode(1920, 1080, 240.0, false, false)];
+        assert_eq!(shown(default_mode(&unflagged)), Some((3840, 2160, 120)));
+        assert_eq!(default_mode(&[]), None);
+    }
+
+    #[test]
+    fn interlaced_and_impossible_modes_are_never_chosen() {
+        // A television: its preferred mode is interlaced, and so is the
+        // "120 Hz" one (60 frames a second, two fields each).
+        let television = [
+            mode(1920, 1080, 60.0, true, true),
+            mode(1920, 1080, 120.0, false, true),
+            mode(1920, 1080, 50.0, false, false),
+            mode(1280, 720, 60.0, false, false),
+        ];
+        assert_eq!(shown(default_mode(&television)), Some((1920, 1080, 50)), "the progressive mode at the native size");
+        let set = |mode: &str| crate::config::OutputSettings { mode: Some(mode.into()), ..Default::default() };
+        assert_eq!(shown(configured_mode(&television, &set("1920x1080@120"))), Some((1920, 1080, 50)), "not the interlaced one");
+        // Only interlaced at the native size: the largest progressive size.
+        let old = [mode(1920, 1080, 60.0, true, true), mode(1280, 720, 60.0, false, false), mode(720, 480, 60.0, false, false)];
+        assert_eq!(shown(default_mode(&old)), Some((1280, 720, 60)));
+        // Nothing but interlaced modes: the monitor's own choice, rather than no picture.
+        let only = [mode(1920, 1080, 60.0, true, true)];
+        assert!(default_mode(&only).unwrap().flags().contains(ModeFlags::INTERLACE));
+
+        // Timings that give no rate, or one no display has, are never taken
+        // as the fastest mode: frames would be paced to that rate. The rate
+        // is the one the timings give, not the number the mode claims.
+        let no_total = from_info(ModeInfo { htotal: 0, ..info(2560, 1440, 144.0, false, false) });
+        let no_clock = from_info(ModeInfo { clock: 0, ..info(2560, 1440, 144.0, false, false) });
+        let absurd = mode(2560, 1440, 1500.0, false, false);
+        let boasting = from_info(ModeInfo { vrefresh: 240, ..info(2560, 1440, 75.0, false, false) });
+        for impossible in [no_total, no_clock, absurd] {
+            assert_eq!(refresh_millihertz(&impossible), None);
+        }
+        assert_eq!(shown(Some(boasting)), Some((2560, 1440, 75)));
+        let monitor = [mode(2560, 1440, 60.0, true, false), no_total, no_clock, absurd, boasting];
+        assert_eq!(shown(default_mode(&monitor)), Some((2560, 1440, 75)));
+        let monitor = [mode(2560, 1440, 60.0, true, false), no_total, no_clock, absurd];
+        assert_eq!(shown(default_mode(&monitor)), Some((2560, 1440, 60)));
     }
 
     #[test]

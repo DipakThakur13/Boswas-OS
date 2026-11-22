@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import bisect
 
-from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, QSize, Qt, QTimer, QVariantAnimation, Signal
+from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QFontMetrics, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import QScrollBar, QSizePolicy, QToolTip, QWidget
 
@@ -69,7 +69,7 @@ class Filmstrip(QWidget):
         self._scroll = 0.0
         self._hover = -1
         self._visible: dict[str, int] = {}
-        self._animation: QVariantAnimation | None = None
+        self._animation: fluent.Animation | None = None
         self.setFixedHeight(self.CELL.height() + 2 * self.PADDING)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setMouseTracking(True)
@@ -109,7 +109,7 @@ class Filmstrip(QWidget):
             self._scroll = target
             self._want()
         else:
-            animation = QVariantAnimation(self)
+            animation = fluent.Animation(self)
             animation.setStartValue(float(self._scroll))
             animation.setEndValue(float(target))
             animation.setDuration(time)

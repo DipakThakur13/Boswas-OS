@@ -37,9 +37,9 @@ pub enum ControlEvent {
     /// The Super key was tapped.
     Launcher,
     Lock(bool),
-    /// The session's look: sent at start and when the configuration is
-    /// reloaded.
-    Appearance { light: bool, wallpaper: String, reduced_motion: bool },
+    /// The session's look and the shell's settings: sent at start and when
+    /// the configuration is reloaded.
+    Config(Box<crate::settings::Desktop>),
     /// Super+A.
     QuickSettings,
     /// Super+N.
@@ -191,11 +191,7 @@ fn parse_workspace(value: &Value) -> Option<ControlEvent> {
 }
 
 fn parse_appearance(value: &Value) -> Option<ControlEvent> {
-    Some(ControlEvent::Appearance {
-        light: value.get("scheme")?.as_str()? == "light",
-        wallpaper: value.get("wallpaper").and_then(Value::as_str).unwrap_or_default().to_owned(),
-        reduced_motion: value.get("reduced_motion").and_then(Value::as_bool).unwrap_or(false),
-    })
+    crate::settings::Desktop::parse(value).map(|desktop| ControlEvent::Config(Box::new(desktop)))
 }
 
 fn parse_night_light(value: &Value) -> Option<ControlEvent> {
@@ -341,7 +337,11 @@ mod tests {
         );
         assert_eq!(
             parse_message(&json!({"event": "config", "data": {"scheme": "light", "wallpaper": "/usr/share/x.png"}})),
-            [ControlEvent::Appearance { light: true, wallpaper: "/usr/share/x.png".into(), reduced_motion: false }]
+            [ControlEvent::Config(Box::new(crate::settings::Desktop {
+                light: true,
+                wallpaper: "/usr/share/x.png".into(),
+                ..crate::settings::Desktop::default()
+            }))]
         );
         assert_eq!(parse_message(&json!({"event": "config", "data": {"wallpaper": 3}})), []);
         assert_eq!(parse_message(&json!({"event": "launcher", "data": {}})), [ControlEvent::Launcher]);

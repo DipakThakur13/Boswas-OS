@@ -27,8 +27,12 @@ use crate::scene::{self, Mode, PromptView, Scene, Tone, View};
 use crate::sys;
 use crate::tty::{Console, DEFAULT_TTY};
 
-/// Time between animation frames (30 frames a second at most).
-const FRAME: Duration = Duration::from_millis(33);
+/// Animation frames a second at most, however fast the display refreshes:
+/// a frame costs microseconds, but the machine is busy starting up.
+pub const MAX_FPS: u32 = 240;
+/// Animation frames a second where the display does not tell its refresh
+/// rate (the legacy frame buffer).
+pub const FALLBACK_FPS: u32 = 60;
 /// How often the loop looks at slow things while nothing moves: the Caps
 /// Lock state during a prompt, a display that went away.
 const POLL: Duration = Duration::from_millis(250);
@@ -267,7 +271,8 @@ pub struct Daemon {
     auto_hidden: bool,
     lost_since: Option<Instant>,
     started: Instant,
-    last_frame: Instant,
+    /// When the next animation frame is due.
+    next_frame: Instant,
     /// When the console's terminal settings are looked at next.
     next_console_check: Instant,
     /// When the caret last started a blink: the prompt appeared or a key
@@ -280,6 +285,31 @@ pub struct Daemon {
     /// Held while this process is the boot screen and no supervisor holds
     /// it (a worker in the foreground).
     lock: Option<Lock>,
+}
+
+/// The time between animation frames on a display that refreshes
+/// `millihertz` times a thousand seconds: one frame per refresh, at most
+/// [`MAX_FPS`]; [`FALLBACK_FPS`] where the display does not say (`None`) or
+/// reports a rate no display has.
+pub fn frame_interval(millihertz: Option<u32>) -> Duration {
+    let millihertz = millihertz
+        .filter(|rate| (10_000..=1_000_000).contains(rate))
+        .unwrap_or(FALLBACK_FPS * 1000)
+        .min(MAX_FPS * 1000);
+    Duration::from_nanos(1_000_000_000_000 / u64::from(millihertz))
+}
+
+/// When the animation frame after one drawn at `now` is due, `due` being
+/// when that one was due. Frames keep to a fixed pace, so the time spent
+/// drawing and waking up does not slow the animation down, and frames
+/// missed while the machine was busy are skipped rather than caught up
+/// with. A frame drawn early (a key, a message) leaves the pace alone.
+fn next_frame(due: Instant, now: Instant, frame: Duration) -> Instant {
+    if due > now {
+        return due;
+    }
+    let missed = now.duration_since(due).as_nanos() / frame.as_nanos().max(1) + 1;
+    due + frame * u32::try_from(missed).unwrap_or(u32::MAX)
 }
 
 /// Whether a boot screen answers connections on this socket.
@@ -451,7 +481,7 @@ impl Daemon {
             auto_hidden: false,
             lost_since: None,
             started: now,
-            last_frame: now,
+            next_frame: now,
             next_console_check: now,
             caret_from: now,
             shake_from: None,
@@ -514,7 +544,7 @@ impl Daemon {
                 break;
             }
         }
-        self.last_frame = Instant::now();
+        self.next_frame = next_frame(self.next_frame, Instant::now(), self.frame_interval());
         if lost {
             self.lose_output();
         }
@@ -568,7 +598,7 @@ impl Daemon {
                 return POLL;
             }
             if self.shake_from.is_some() {
-                return FRAME.saturating_sub(self.last_frame.elapsed());
+                return self.next_frame.saturating_duration_since(Instant::now());
             }
             // The caret changes every CARET_BLINK; nothing else moves.
             let blink = scene::CARET_BLINK.as_nanos();
@@ -578,7 +608,12 @@ impl Daemon {
         if !moving {
             return Duration::from_millis(500);
         }
-        FRAME.saturating_sub(self.last_frame.elapsed())
+        self.next_frame.saturating_duration_since(Instant::now())
+    }
+
+    /// The time between animation frames on the display in use.
+    fn frame_interval(&self) -> Duration {
+        frame_interval(self.output.as_ref().and_then(|output| output.refresh_millihertz()))
     }
 
     /// Run until asked to quit; then leave the screen as requested.
@@ -1117,6 +1152,8 @@ mod tests {
         presents: usize,
         /// The rectangles of the last frame presented.
         damage: Vec<crate::gfx::Rect>,
+        /// The display's refresh rate (millihertz), if it tells.
+        refresh: Option<u32>,
     }
 
     struct Mock(Arc<Mutex<Shared>>);
@@ -1127,6 +1164,9 @@ mod tests {
         }
         fn sizes(&self) -> Vec<(u32, u32)> {
             vec![(640, 480)]
+        }
+        fn refresh_millihertz(&self) -> Option<u32> {
+            self.0.lock().unwrap().refresh
         }
         fn present(
             &mut self,
@@ -1420,13 +1460,60 @@ mod tests {
         let layout = crate::scene::Layout::new(640, 480);
         daemon.render();
         assert_eq!(shared.lock().unwrap().damage, [crate::gfx::Rect::new(0, 0, 640, 480)]);
-        assert!(daemon.timeout() <= FRAME, "the next frame is due within a thirtieth of a second");
+        assert!(daemon.timeout() <= frame_interval(None), "the next frame is due within a sixtieth of a second");
         std::thread::sleep(Duration::from_millis(40));
         daemon.render();
         assert_eq!(shared.lock().unwrap().damage, [layout.spinner]);
         assert_eq!(shared.lock().unwrap().presents, 2);
         drop(daemon);
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn frames_are_paced_to_the_refresh_rate_of_the_display() {
+        let hz = |interval: Duration| (1.0 / interval.as_secs_f64()).round() as u32;
+        assert_eq!(hz(frame_interval(Some(144_000))), 144);
+        assert_eq!(hz(frame_interval(Some(59_940))), 60);
+        assert_eq!(hz(frame_interval(Some(165_000))), 165);
+        assert_eq!(hz(frame_interval(Some(240_000))), 240);
+        assert_eq!(hz(frame_interval(Some(24_000))), 24, "a slow display: one frame per refresh");
+        // Faster displays: the ring is not drawn more than 240 times a second.
+        assert_eq!(hz(frame_interval(Some(360_000))), MAX_FPS);
+        // A display that does not say (the legacy frame buffer), or says nonsense: 60.
+        for unknown in [None, Some(0), Some(500), Some(5_000_000)] {
+            assert_eq!(hz(frame_interval(unknown)), FALLBACK_FPS, "{unknown:?}");
+        }
+
+        // Frames keep their pace: the next one is a frame after the one that
+        // was due, not after the moment the last one was drawn.
+        let frame = frame_interval(Some(144_000));
+        let start = Instant::now();
+        assert_eq!(next_frame(start, start, frame), start + frame);
+        assert_eq!(next_frame(start, start + Duration::from_millis(2), frame), start + frame);
+        // Drawn early (a key was pressed): the pace stays.
+        assert_eq!(next_frame(start + frame, start, frame), start + frame);
+        // Late by more than a frame: the missed ones are skipped.
+        assert_eq!(next_frame(start, start + frame * 3 + Duration::from_micros(10), frame), start + frame * 4);
+    }
+
+    #[test]
+    fn the_ring_turns_once_per_refresh() {
+        // Turns of the loop as the daemon runs them, for a third of a second
+        // each. (The console stays open: a hung-up one would wake the loop.)
+        for (refresh, fps) in [(None, 60.0), (Some(144_000), 144.0), (Some(360_000), 240.0)] {
+            let Rig { mut daemon, shared, dir, master: _console } = rig_with("pace", true);
+            shared.lock().unwrap().refresh = refresh;
+            daemon.render();
+            let first = shared.lock().unwrap().presents;
+            let begun = Instant::now();
+            while begun.elapsed() < Duration::from_millis(330) {
+                daemon.turn();
+            }
+            let rate = (shared.lock().unwrap().presents - first) as f64 / begun.elapsed().as_secs_f64();
+            assert!(rate > fps * 0.8 && rate < fps * 1.05, "{rate:.0} frames a second on a display of {refresh:?} mHz");
+            drop(daemon);
+            let _ = std::fs::remove_dir_all(dir);
+        }
     }
 
     #[test]
@@ -1493,7 +1580,7 @@ mod tests {
         assert!(daemon.shake_from.is_none(), "nothing shakes while no prompt is open");
         ask(&mut daemon, 9);
         assert!(daemon.shake_from.is_some(), "the prompt that follows a rejection opens with a shake");
-        assert!(daemon.timeout() <= FRAME);
+        assert!(daemon.timeout() <= frame_interval(None));
         daemon.render();
         // Mid-swing the box is redrawn, and nothing but the box.
         daemon.shake_from = Some(Instant::now() - scene::SHAKE / 12);

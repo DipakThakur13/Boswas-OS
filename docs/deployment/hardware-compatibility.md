@@ -76,15 +76,20 @@ Plymouth:
   renders with OpenGL ES 2 through GBM and EGL (Mesa). Outputs of the
   primary GPU are used; displays connected to a second GPU are not driven
   yet. Each display has its own mode, scale, position and rotation
-  (Control Center > Display). No HDR, no variable refresh rate. The
-  proprietary NVIDIA driver is not supported. Night light needs a driver
-  with gamma tables. X11 applications run through Xwayland and are drawn
-  at scale 1.
+  (Control Center > System > Display). A monitor runs at the fastest
+  refresh rate it offers at its native size (120, 144, 165 Hz...) unless
+  another mode is chosen; variable refresh rate (adaptive sync) can be
+  turned on per monitor where the monitor and driver support it
+  (ADR-0048). No HDR. The proprietary NVIDIA driver is not supported.
+  Night light needs a driver with gamma tables. X11 applications run
+  through Xwayland and are drawn at scale 1.
 - **Software rendering:** where Mesa has no hardware driver (virtual
   machines without 3D acceleration, the firmware frame buffer) the
   compositor draws with pixman instead of Mesa's software OpenGL
   (llvmpipe), which was too slow to move a window smoothly (ADR-0045).
-  Windows then have square corners. `BOSWAS_RENDERER=gles` or `pixman` in
+  Windows then have square corners, and the colour filters of
+  Accessibility are not available (the magnifier is; ADR-0049).
+  `BOSWAS_RENDERER=gles` or `pixman` in
   the session's environment overrides the choice. Under `nomodeset` there
   is no KMS device at all: the compositor cannot start and the text login
   is shown. In a virtual machine, give it 3D acceleration where the

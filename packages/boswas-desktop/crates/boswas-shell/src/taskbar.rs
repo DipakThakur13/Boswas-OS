@@ -60,8 +60,9 @@ pub struct Task {
 }
 
 /// The buttons of the application group: the pinned applications in their
-/// order, then other applications with windows on this desktop.
-pub fn tasks(apps: &[App], pinned: &[String], windows: &[WindowInfo], workspace: usize) -> Vec<Task> {
+/// order, then other applications with windows on this desktop (`None`: on
+/// any desktop).
+pub fn tasks(apps: &[App], pinned: &[String], windows: &[WindowInfo], workspace: Option<usize>) -> Vec<Task> {
     let mut out: Vec<Task> = pinned
         .iter()
         .filter_map(|id| apps.iter().position(|a| &a.id == id))
@@ -76,7 +77,7 @@ pub fn tasks(apps: &[App], pinned: &[String], windows: &[WindowInfo], workspace:
             pinned: true,
         })
         .collect();
-    for window in windows.iter().filter(|w| w.workspace == workspace || w.urgent) {
+    for window in windows.iter().filter(|w| workspace.is_none_or(|current| w.workspace == current) || w.urgent) {
         let owner = apps.iter().position(|a| a.owns_window(&window.app_id));
         let slot = out.iter().position(|t| match owner {
             Some(index) => t.app == Some(index),
@@ -129,7 +130,8 @@ pub fn click_target(task: &Task, windows: &[WindowInfo]) -> Option<u64> {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Layout {
     pub start: Rect,
-    pub task_view: Rect,
+    /// `None` when the Task View button is turned off.
+    pub task_view: Option<Rect>,
     /// One rectangle per task that fits.
     pub tasks: Vec<Rect>,
     pub overflow: Option<Rect>,
@@ -140,9 +142,35 @@ pub struct Layout {
     pub show_desktop: Rect,
 }
 
+/// How the application group is arranged (Personalization > Taskbar).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct Arrangement {
+    /// At the left edge instead of centred.
+    pub left: bool,
+    pub task_view: bool,
+}
+
+impl Arrangement {
+    pub fn of(st: &State) -> Self {
+        Self {
+            left: st.desktop.taskbar.left,
+            task_view: st.desktop.taskbar.task_view,
+        }
+    }
+}
+
 /// Lays the taskbar out. `status_icons` is 2 or 3 (with a battery).
 #[allow(clippy::too_many_arguments)]
-pub fn layout(width: f32, task_count: usize, tray_inline: usize, tray_overflow: bool, has_layout: bool, status_icons: usize, clock_width: f32) -> Layout {
+pub fn layout(
+    width: f32,
+    task_count: usize,
+    tray_inline: usize,
+    tray_overflow: bool,
+    has_layout: bool,
+    status_icons: usize,
+    clock_width: f32,
+    arrangement: Arrangement,
+) -> Layout {
     let t = tokens();
     let height = t.shell("taskbar-height");
     let button = t.shell("taskbar-button");
@@ -172,16 +200,21 @@ pub fn layout(width: f32, task_count: usize, tray_inline: usize, tray_overflow: 
         rect
     });
     let right_edge = x - 8.0;
-    // The centred group: Start, Task View, then the applications that fit.
+    // The group: Start, Task View, then the applications that fit; centred,
+    // or at the left edge.
     let slot = button + GAP;
+    let fixed = if arrangement.task_view { 2 } else { 1 };
     let available = (right_edge - 8.0).max(0.0);
-    let fit = ((available / slot).floor() as usize).saturating_sub(2).min(task_count);
-    let group = (fit + 2) as f32 * slot - GAP;
-    let mut gx = ((width - group) / 2.0).min(right_edge - group).max(8.0).round();
+    let fit = ((available / slot).floor() as usize).saturating_sub(fixed).min(task_count);
+    let group = (fit + fixed) as f32 * slot - GAP;
+    let mut gx = if arrangement.left { 12.0 } else { ((width - group) / 2.0).min(right_edge - group).max(8.0).round() };
     let start = Rect::new(gx, y, button, button);
     gx += slot;
-    let task_view = Rect::new(gx, y, button, button);
-    gx += slot;
+    let task_view = arrangement.task_view.then(|| {
+        let rect = Rect::new(gx, y, button, button);
+        gx += slot;
+        rect
+    });
     let tasks = (0..fit).map(|i| Rect::new(gx + i as f32 * slot, y, button, button)).collect();
     Layout {
         start,
@@ -259,9 +292,15 @@ pub fn pixmap_from_rgba(width: u32, height: u32, rgba: &[u8]) -> Option<tiny_ski
     Some(pixmap)
 }
 
+/// The clock's two lines, at the text size as far as the taskbar allows.
+fn clock_style(color: boswas_ui::Rgba) -> boswas_ui::text::TextStyle {
+    let room = (tokens().shell("taskbar-button") - 4.0) / 2.0;
+    crate::ui::ramp_within("caption", color, room)
+}
+
 /// Width of the clock button for the given time and date strings.
 pub fn clock_width(f: &mut Frame, st: &State) -> f32 {
-    let style = ramp("caption", f.theme().text);
+    let style = clock_style(f.theme().text);
     let widest = f.res.text.measure(&st.status.time, &style).0.max(f.res.text.measure(&st.status.date, &style).0);
     let bell = if st.notes.dnd || st.notes.unread > 0 { 22.0 } else { 0.0 };
     (widest + 20.0 + bell).round()
@@ -276,14 +315,14 @@ pub fn draw(f: &mut Frame, st: &State) {
     f.divider(0.0, 0.0, w);
     f.area(Rect::new(0.0, 0.0, w, h), Action::None);
 
-    let list = tasks(&st.apps, &st.config.taskbar, &st.windows, st.workspace);
+    let list = st.tasks();
     let (inline, hidden) = split_tray(&st.sys.tray);
     let status_icons = if st.sys.power.battery.is_some() { 3 } else { 2 };
     let clock_w = clock_width(f, st);
     // While a program may capture the screen, its mark takes the tray's
     // first place.
     let marks = capture_marks(st);
-    let lay = layout(w, list.len(), inline.len() + marks, !hidden.is_empty(), st.keyboard_layout().is_some(), status_icons, clock_w);
+    let lay = layout(w, list.len(), inline.len() + marks, !hidden.is_empty(), st.keyboard_layout().is_some(), status_icons, clock_w, Arrangement::of(st));
 
     // Start.
     let touch = f.hit(lay.start, Action::Taskbar(Act::Start));
@@ -296,11 +335,13 @@ pub fn draw(f: &mut Frame, st: &State) {
     }
 
     // Task View.
-    let touch = f.hit(lay.task_view, Action::Taskbar(Act::TaskView));
-    f.tip("Task View");
-    f.state_layer(lay.task_view, radius, touch, false);
-    let (cx, cy) = lay.task_view.center();
-    f.glyph(Glyph::TaskView, Rect::new(cx - 10.0, cy - 10.0, 20.0, 20.0), theme.text);
+    if let Some(rect) = lay.task_view {
+        let touch = f.hit(rect, Action::Taskbar(Act::TaskView));
+        f.tip("Task View");
+        f.state_layer(rect, radius, touch, false);
+        let (cx, cy) = rect.center();
+        f.glyph(Glyph::TaskView, Rect::new(cx - 10.0, cy - 10.0, 20.0, 20.0), theme.text);
+    }
 
     // Applications.
     let icon_size = t.shell("taskbar-icon");
@@ -325,6 +366,17 @@ pub fn draw(f: &mut Frame, st: &State) {
         if !task.windows.is_empty() {
             let (pw, color) = if task.active { (active_w, theme.accent) } else { (idle_w, theme.text_muted) };
             f.canvas.fill_rounded_rect(cx - pw / 2.0, rect.bottom() - idle_h - 1.0, pw, idle_h, idle_h / 2.0, color);
+        }
+        let count = if st.desktop.taskbar.badges { badge_count(st, task) } else { 0 };
+        if count > 0 {
+            // The number of the application's notifications in the centre.
+            let label = if count > 9 { "9+".to_owned() } else { count.to_string() };
+            let style = ramp("caption", theme.on_accent).weight(600);
+            let bw = (f.res.text.measure(&label, &style).0 + 8.0).max(16.0);
+            let badge = Rect::new((rect.right() - bw - 1.0).min(cx + icon_size / 2.0 + 4.0 - bw / 2.0), rect.y + 1.0, bw, 16.0);
+            f.canvas.fill_rounded_rect(badge.x - 1.0, badge.y - 1.0, badge.w + 2.0, badge.h + 2.0, 9.0, theme.background);
+            f.canvas.fill_rounded_rect(badge.x, badge.y, badge.w, badge.h, 8.0, theme.accent);
+            f.text_centered(&label, badge, &style);
         }
     }
 
@@ -384,7 +436,7 @@ pub fn draw(f: &mut Frame, st: &State) {
     let touch = f.hit(lay.clock, Action::Taskbar(Act::Clock));
     f.tip(&chrono::Local::now().format("%A, %-d %B %Y").to_string());
     f.state_layer(lay.clock, radius, touch, st.flyout == Some(Flyout::Notifications));
-    let caption = ramp("caption", theme.text);
+    let caption = clock_style(theme.text);
     let line = caption.line_height();
     let mark = if st.notes.dnd || st.notes.unread > 0 { 22.0 } else { 0.0 };
     let text = Rect::new(lay.clock.x + 8.0, lay.clock.y, lay.clock.w - 16.0 - mark, lay.clock.h);
@@ -409,6 +461,17 @@ pub fn draw(f: &mut Frame, st: &State) {
         let fill = f.res.fill("subtle-hover");
         f.canvas.fill_rect(lay.show_desktop.x, 0.0, lay.show_desktop.w, h, fill);
     }
+}
+
+/// How many notifications of a task's application the notification centre
+/// holds: those whose desktop entry is the application's, or whose sender
+/// calls itself by the application's name.
+pub fn badge_count(st: &State, task: &Task) -> usize {
+    st.notes
+        .history
+        .iter()
+        .filter(|note| note.desktop_entry.as_deref().is_some_and(|entry| entry == task.id || entry.strip_suffix(".desktop") == Some(task.id.as_str())) || note.app_name == task.name)
+        .count()
 }
 
 /// The flyout of tray items that are not on the taskbar: a grid of icons.
@@ -554,7 +617,7 @@ mod tests {
             window(5, "firefox-esr", false, 0),
             urgent,
         ];
-        let list = tasks(&apps, &pinned, &windows, 0);
+        let list = tasks(&apps, &pinned, &windows, Some(0));
         assert_eq!(list.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(), ["Files", "Firefox", "Terminal", "Window 3"]);
         assert!(list[0].pinned && list[0].windows.is_empty(), "the window on another desktop is not shown");
         assert_eq!(list[1].windows, [2, 5]);
@@ -562,26 +625,31 @@ mod tests {
         assert_eq!(list[2].windows, [1, 6], "an urgent window shows from any desktop");
         assert!(list[2].attention && !list[2].pinned);
         assert_eq!((list[3].app, list[3].id.as_str()), (None, "foot"));
+        // Multitasking > "show windows of all desktops on the taskbar".
+        let all = tasks(&apps, &pinned, &windows, None);
+        assert_eq!(all[0].windows, [4], "the window on desktop 2 is there too");
+        assert_eq!(all.len(), list.len());
     }
 
     #[test]
     fn a_click_goes_to_the_only_window_or_cycles() {
         let apps = vec![app("firefox-esr", "Firefox")];
         let windows = vec![window(2, "firefox-esr", false, 0), window(5, "firefox-esr", true, 0), window(7, "firefox-esr", false, 0)];
-        let list = tasks(&apps, &[], &windows, 0);
+        let list = tasks(&apps, &[], &windows, Some(0));
         assert_eq!(click_target(&list[0], &windows), Some(7), "the window after the active one");
         let inactive: Vec<WindowInfo> = windows.iter().cloned().map(|mut w| { w.active = false; w }).collect();
         assert_eq!(click_target(&list[0], &inactive), Some(2));
         let single = vec![window(9, "firefox-esr", true, 0)];
-        let list = tasks(&apps, &[], &single, 0);
+        let list = tasks(&apps, &[], &single, Some(0));
         assert_eq!(click_target(&list[0], &single), Some(9), "the caller minimises an active single window");
-        let pinned = tasks(&apps, &["firefox-esr".to_owned()], &[], 0);
+        let pinned = tasks(&apps, &["firefox-esr".to_owned()], &[], Some(0));
         assert_eq!(click_target(&pinned[0], &[]), None);
     }
 
     #[test]
     fn the_layout_centres_the_group_and_never_overlaps_the_tray() {
-        let lay = layout(1920.0, 6, 2, true, false, 3, 80.0);
+        let centred = Arrangement { left: false, task_view: true };
+        let lay = layout(1920.0, 6, 2, true, false, 3, 80.0, centred);
         let left = lay.start.x;
         let right = lay.tasks.last().unwrap().right();
         assert!(((left + right) / 2.0 - 960.0).abs() <= 1.0, "centred: {left}..{right}");
@@ -595,13 +663,28 @@ mod tests {
         assert!(lay.layout.is_none());
 
         // A narrow output: the group moves left and drops what does not fit.
-        let narrow = layout(640.0, 30, 3, true, true, 3, 80.0);
+        let narrow = layout(640.0, 30, 3, true, true, 3, 80.0, centred);
         let last = narrow.tasks.last().unwrap();
         assert!(last.right() <= narrow.overflow.unwrap().x - 7.9, "{last:?} vs {:?}", narrow.overflow);
         assert!(narrow.tasks.len() < 30 && narrow.start.x >= 8.0);
         assert!(narrow.layout.unwrap().right() <= narrow.status.x);
-        let tiny = layout(200.0, 5, 0, false, false, 2, 60.0);
+        let tiny = layout(200.0, 5, 0, false, false, 2, 60.0, centred);
         assert!(tiny.tasks.len() <= 1);
+    }
+
+    #[test]
+    fn the_group_can_sit_at_the_left_without_task_view() {
+        let left = layout(1920.0, 6, 2, true, false, 3, 80.0, Arrangement { left: true, task_view: true });
+        assert_eq!(left.start.x, 12.0, "Start at the left edge");
+        assert_eq!(left.task_view.unwrap().x, left.start.right() + GAP);
+        assert_eq!(left.tasks[0].x, left.task_view.unwrap().right() + GAP);
+        let without = layout(1920.0, 6, 2, true, false, 3, 80.0, Arrangement { left: false, task_view: false });
+        assert!(without.task_view.is_none());
+        assert_eq!(without.tasks[0].x, without.start.right() + GAP, "the applications follow Start");
+        let right = without.tasks.last().unwrap().right();
+        assert!(((without.start.x + right) / 2.0 - 960.0).abs() <= 1.0, "still centred");
+        let narrow = layout(640.0, 30, 3, true, true, 3, 80.0, Arrangement { left: true, task_view: false });
+        assert!(narrow.tasks.last().unwrap().right() <= narrow.overflow.unwrap().x - 7.9);
     }
 
     #[test]

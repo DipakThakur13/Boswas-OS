@@ -531,6 +531,18 @@ class SelectorTest(Base):
         bar.set_items([])
         self.assertEqual(bar.count(), 0)
 
+    def test_a_new_path_replaces_the_old_crumbs_at_once(self):
+        bar = self.show(fluent.BreadcrumbBar(items=["System", "Display"]), 600, 32)
+        old = list(bar._crumbs)
+        bar.set_items(["Personalization", "Taskbar", "Behaviours"])
+        # Before the old widgets are deleted (the next turn of the event loop) they must not show any more.
+        visible = [crumb.accessibleName() for crumb in bar.findChildren(type(old[0])) if crumb.isVisibleTo(bar)]
+        self.assertEqual(visible, ["Personalization", "Taskbar", "Behaviours"])
+        self.assertTrue(all(not crumb.isVisibleTo(bar) for crumb in old))
+        before = bar.grab().toImage()
+        testing.process()
+        self.assertEqual(bar.grab().toImage(), before, "nothing changes once the old crumbs are gone")
+
 
 @unittest.skipUnless(support.PYSIDE, support.SKIP_QT)
 class CommandBarTest(Base):

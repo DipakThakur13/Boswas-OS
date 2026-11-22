@@ -26,14 +26,16 @@ profiles, and the Plasma branch of `boswas-preset`.
 All ten presets are one family. Only the accent colour, light or dark, and
 the mood (the wallpaper motif) change; everything else is shared.
 
-* **Brand.** The Boswas OS mark (gold blade-shaped stem and dot, silver ring
-  and swoosh), the navy and silver palette of `desktop/branding/README.md`,
-  and the logo gold as the flagship accent. No teal (the retired accent) in
-  any colour or artwork; the tests enforce it.
-* **Typography.** Brand lettering in Orbitron (outlined wordmarks). The
+* **Brand.** The Boswas OS mark (a lowercase "b": a pill-shaped stem in
+  front of a round bowl, a warm dot in the counter; drawn by
+  `desktop/branding/tools/build_mark.py`). The presets keep their own
+  palettes (navy, silver and gold among them); the mark brings its blues.
+  No teal (the retired accent) in any colour or artwork; the tests enforce
+  it.
+* **Typography.** Brand lettering in Inter (outlined wordmarks). The
   wallpapers carry no lettering.
 * **Wallpaper geometry.** Every wallpaper is built from the mark itself:
-  * the *orbit*: rings concentric with the mark's ring, around a focus point
+  * the *orbit*: rings concentric with the mark's bowl, around a focus point
     on the right (the left side stays calm for desktop icons and windows);
   * the *trail*: an arc on one ring ending in the *dot*, a satellite in the
     accent colour;

@@ -8,6 +8,7 @@
 //! layers and strokes).
 
 use std::{
+    cell::Cell,
     rc::Rc,
     time::{Duration, Instant},
 };
@@ -72,6 +73,9 @@ pub struct Resources {
     pub backdrop_key: (u32, u32),
     /// Durations are zero: nothing slides or fades.
     pub reduced_motion: bool,
+    /// Materials show the blurred wallpaper through their tint; without
+    /// transparency they are the tint alone.
+    pub transparency: bool,
 }
 
 impl Resources {
@@ -93,6 +97,7 @@ impl Resources {
             backdrop: None,
             backdrop_key: (0, 0),
             reduced_motion: false,
+            transparency: true,
         }
     }
 
@@ -107,10 +112,59 @@ impl Resources {
     }
 }
 
-/// A type-ramp style in a colour.
+thread_local! {
+    /// The text size of the desktop in percent (Accessibility > Text
+    /// size): every ramp style is this much larger; nothing else of the
+    /// interface is. The shell draws on one thread.
+    static TEXT_SCALE: Cell<u32> = const { Cell::new(100) };
+}
+
+/// Sets the text size, 100 to 225 percent.
+pub fn set_text_scale(percent: u32) {
+    TEXT_SCALE.with(|scale| scale.set(percent.clamp(100, 225)));
+}
+
+/// The text size as a factor (1.0 to 2.25).
+pub fn text_scale() -> f32 {
+    TEXT_SCALE.with(Cell::get) as f32 / 100.0
+}
+
+/// A type-ramp style in a colour, at the desktop's text size.
 pub fn ramp(name: &str, color: Rgba) -> TextStyle {
     let t = tokens().type_style(name);
-    TextStyle::new(t.size, color).weight(t.weight)
+    TextStyle::new((t.size * text_scale()).round(), color).weight(t.weight)
+}
+
+/// A line of text in a row of fixed height: the style as it is when its line
+/// fits the row, else made smaller until it does, but never smaller than
+/// at the normal text size. Larger text therefore fills fixed rows as far
+/// as they allow; text that flows (wrapped text) grows fully.
+pub fn fit_line(style: &TextStyle, height: f32) -> TextStyle {
+    if style.line_height() <= height + 0.5 {
+        return *style;
+    }
+    let floor = (style.size / text_scale()).round();
+    let mut size = style.size;
+    while size > floor && TextStyle::new(size, style.color).line_height() > height + 0.5 {
+        size -= 1.0;
+    }
+    TextStyle { size, ..*style }
+}
+
+/// A type-ramp style that grows with the text size only as far as `room`
+/// logical pixels of line height allow (fixed-height places such as the
+/// taskbar's clock), never below the ramp's own size.
+pub fn ramp_within(name: &str, color: Rgba, room: f32) -> TextStyle {
+    let style = ramp(name, color);
+    let base = tokens().type_style(name).size;
+    if style.line_height() <= room || style.size <= base {
+        return style;
+    }
+    let mut size = style.size;
+    while size > base && TextStyle::new(size, color).line_height() > room {
+        size -= 1.0;
+    }
+    TextStyle::new(size.max(base), color).weight(style.weight)
 }
 
 /// One control registered during a drawing pass.
@@ -226,17 +280,20 @@ impl Frame<'_> {
     }
 
     pub fn text_centered(&mut self, text: &str, rect: Rect, style: &TextStyle) {
+        let style = &fit_line(style, rect.h);
         self.res.text.draw_centered(self.canvas, text, rect.x, rect.y, rect.w, rect.h, style);
     }
 
     /// One line, vertically centred in `rect`, starting at its left edge.
     pub fn text_left(&mut self, text: &str, rect: Rect, style: &TextStyle) -> f32 {
+        let style = &fit_line(style, rect.h);
         let y = rect.y + (rect.h - style.line_height()) / 2.0;
         self.res.text.draw(self.canvas, text, rect.x, y, Some(rect.w), style)
     }
 
     /// One line, vertically centred in `rect`, ending at its right edge.
     pub fn text_right(&mut self, text: &str, rect: Rect, style: &TextStyle) {
+        let style = &fit_line(style, rect.h);
         let fitted = self.res.text.elide(text, style, rect.w);
         let (w, h) = self.res.text.measure(&fitted, style);
         self.res.text.draw(self.canvas, &fitted, rect.right() - w, rect.y + (rect.h - h) / 2.0, None, style);
@@ -306,7 +363,7 @@ impl Frame<'_> {
     /// `chrome`): the blurred wallpaper behind this surface under a tint.
     pub fn material(&mut self, rect: Rect, radii: [f32; 4], name: &str) {
         let material = tokens().material(self.res.theme.scheme, name);
-        match self.res.backdrop.as_mut() {
+        match self.res.backdrop.as_mut().filter(|_| self.res.transparency) {
             Some(backdrop) => backdrop.fill(self.canvas, rect.x, rect.y, rect.w, rect.h, radii, self.origin, material),
             None => fill_fallback(self.canvas, rect.x, rect.y, rect.w, rect.h, radii, material),
         }
@@ -668,6 +725,15 @@ impl Anim {
         now.saturating_duration_since(self.start) >= self.duration
     }
 
+    /// The presence to draw the surface with at `now` while the transition
+    /// is drawn frame by frame (each frame at the display's pace): from its
+    /// first instant to its end, even when the surface is still fully there
+    /// (a closing transition starts at 1.0), and for a closing one until
+    /// the surface is gone. `None`: the surface is drawn as it is.
+    pub fn frame(&self, now: Instant) -> Option<f32> {
+        (self.closing || !self.done(now)).then(|| self.presence(now))
+    }
+
     /// How present the surface is: 0.0 gone, 1.0 fully shown. Things that
     /// enter decelerate, things that leave accelerate.
     pub fn presence(&self, now: Instant) -> f32 {
@@ -833,6 +899,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn larger_text_fills_fixed_rows_as_far_as_they_allow() {
+        set_text_scale(100);
+        assert_eq!(ramp("body", Rgba::WHITE).size, 14.0);
+        set_text_scale(200);
+        let body = ramp("body", Rgba::WHITE);
+        assert_eq!(body.size, 28.0);
+        assert_eq!(fit_line(&body, 60.0), body, "room enough");
+        let fitted = fit_line(&body, 22.0);
+        assert!(fitted.line_height() <= 22.5 && fitted.size >= 14.0, "{fitted:?}");
+        assert_eq!(fit_line(&body, 4.0).size, 14.0, "never below the normal size");
+        let clock = ramp_within("caption", Rgba::WHITE, 18.0);
+        assert!(clock.line_height() <= 18.0 && clock.size >= 12.0);
+        set_text_scale(1000);
+        assert_eq!(text_scale(), 2.25, "at most 225 %");
+        set_text_scale(100);
+    }
+
+    #[test]
     fn the_input_region_covers_what_reacts_and_nothing_else() {
         let mut card = hit(12.5, 40.25, 0);
         card.rect = Rect::new(12.5, 40.25, 300.0, 80.5);
@@ -920,6 +1004,28 @@ mod tests {
         assert!(reduced.done(now));
         assert_eq!(reduced.presence(now), 1.0);
         assert_eq!(Anim::closing(now, true).presence(now), 0.0);
+    }
+
+    #[test]
+    fn a_transition_is_drawn_frame_by_frame_from_its_first_instant_to_its_end() {
+        let now = Instant::now();
+        let later = now + Duration::from_secs(1);
+        // Opening: from nothing, until it is over; then the surface is simply drawn.
+        let open = Anim::opening(now, false);
+        assert!(open.frame(now).is_some_and(|p| p < 0.001));
+        assert!(open.frame(now + Duration::from_millis(60)).is_some_and(|p| p > 0.0 && p < 1.0));
+        assert_eq!(open.frame(later), None);
+        // Closing: it starts with the surface fully there, and that first
+        // frame already belongs to the transition (else no frame of it is
+        // asked for and the surface vanishes at the end without fading).
+        let close = Anim::closing(now, false);
+        assert!(close.frame(now).is_some_and(|p| p > 0.999));
+        assert!(close.frame(now + Duration::from_millis(100)).is_some_and(|p| p > 0.0 && p < 1.0));
+        // Over, it stays invisible until the surface is removed.
+        assert!(close.frame(later).is_some_and(|p| p < 0.001));
+        // Reduced motion: nothing moves.
+        assert_eq!(Anim::opening(now, true).frame(now), None);
+        assert_eq!(Anim::closing(now, true).frame(now), Some(0.0));
     }
 
     #[test]

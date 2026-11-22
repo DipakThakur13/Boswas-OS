@@ -177,6 +177,47 @@ impl Theme {
             Scheme::Light => &tokens.light,
         }
     }
+
+    /// The theme of `scheme` with another hue of the palette as its accent
+    /// (one of [`ACCENT_HUES`]; any other name gives the token file's own
+    /// accent). The accent takes the same shades of the hue as the token
+    /// file's accent takes of its own, and is moved towards the text colour
+    /// just far enough for text on it to keep 4.5:1, as the Qt toolkit
+    /// derives its accent fills.
+    pub fn accented(scheme: Scheme, hue: &str) -> &'static Theme {
+        tokens()
+            .accented
+            .iter()
+            .find(|(name, _, _)| *name == hue)
+            .map(|(_, dark, light)| match scheme {
+                Scheme::Dark => dark,
+                Scheme::Light => light,
+            })
+            .unwrap_or_else(|| Theme::of(scheme))
+    }
+}
+
+/// The hues of the palette that can be the accent colour. The first is the
+/// token file's own accent.
+pub const ACCENT_HUES: [&str; 8] = ["iris", "azure", "sky", "mint", "sun", "coral", "orchid", "slate"];
+
+/// The contrast text on the accent keeps (WCAG 2.1, 1.4.3).
+pub const TEXT_CONTRAST: f32 = 4.5;
+
+/// `colour`, moved towards `towards` in steps of 5 % until it has
+/// [`TEXT_CONTRAST`] against `other`; unchanged when it already has.
+pub fn readable(colour: Rgba, other: Rgba, towards: Rgba) -> Rgba {
+    if colour.contrast(other) >= TEXT_CONTRAST {
+        return colour;
+    }
+    let mut candidate = colour;
+    for step in 1..=20 {
+        candidate = colour.mix(towards, step as f32 * 0.05);
+        if candidate.contrast(other) >= TEXT_CONTRAST {
+            break;
+        }
+    }
+    candidate
 }
 
 /// A translucent surface drawn from the blurred wallpaper under a tint.
@@ -219,6 +260,8 @@ pub struct Tokens {
     raw: Value,
     pub dark: Theme,
     pub light: Theme,
+    /// The themes with another accent: (hue, dark, light).
+    accented: Vec<(&'static str, Theme, Theme)>,
     /// Corner radius of windows and cards (logical pixels).
     pub radius_window: f32,
     /// Corner radius of controls.
@@ -292,9 +335,28 @@ impl Tokens {
                 .map(|a| a.iter().filter_map(|s| s.as_str().map(str::to_owned)).collect())
                 .unwrap_or_default()
         };
+        let (dark, light) = (theme(Scheme::Dark)?, theme(Scheme::Light)?);
+        let accented = |base: &Theme, hue: &str| -> Option<Theme> {
+            let shade = |role: &str| -> Option<Rgba> {
+                let reference = raw["semantic"][base.scheme.key()][role].as_str()?;
+                let (_, shade) = reference.split_once('.')?;
+                resolve(&raw, &format!("{hue}.{shade}"))
+            };
+            Some(Theme {
+                accent: readable(shade("accent")?, base.on_accent, base.text),
+                accent_hover: shade("accent-hover")?,
+                accent_pressed: shade("accent-pressed")?,
+                ..*base
+            })
+        };
+        let accented = ACCENT_HUES
+            .iter()
+            .map(|hue| Ok((*hue, accented(&dark, hue).ok_or(format!("no accent shades of {hue}"))?, accented(&light, hue).ok_or(format!("no accent shades of {hue}"))?)))
+            .collect::<Result<Vec<_>, String>>()?;
         Ok(Self {
-            dark: theme(Scheme::Dark)?,
-            light: theme(Scheme::Light)?,
+            dark,
+            light,
+            accented,
             radius_window: number(&["radius", "window"])? as f32,
             radius_control: number(&["radius", "control"])? as f32,
             radius_card: number(&["radius", "card"])? as f32,
@@ -535,6 +597,31 @@ mod tests {
             assert!(theme.on_accent.contrast(theme.accent) >= 4.0, "{theme:?}");
             assert!(theme.accent.contrast(theme.background) >= 3.0, "{theme:?}");
         }
+    }
+
+    #[test]
+    fn every_accent_keeps_the_contrast_rules() {
+        for scheme in [Scheme::Dark, Scheme::Light] {
+            assert_eq!(Theme::accented(scheme, "iris"), Theme::of(scheme), "the default hue is the token file's accent");
+            assert_eq!(Theme::accented(scheme, "teal"), Theme::of(scheme), "an unknown hue is the default");
+            let mut accents = Vec::new();
+            for hue in ACCENT_HUES {
+                let theme = Theme::accented(scheme, hue);
+                assert_eq!(theme.scheme, scheme);
+                assert!(theme.on_accent.contrast(theme.accent) >= TEXT_CONTRAST, "{scheme:?} {hue}: text on the accent");
+                for surface in [theme.background, theme.surface, theme.chrome] {
+                    assert!(theme.accent.contrast(surface) >= 3.0, "{scheme:?} {hue}: the accent as a mark");
+                }
+                assert_eq!((theme.text, theme.background, theme.on_accent), (Theme::of(scheme).text, Theme::of(scheme).background, Theme::of(scheme).on_accent));
+                assert!(!accents.contains(&theme.accent), "{hue} has a colour of its own");
+                accents.push(theme.accent);
+            }
+        }
+        // A hue that needs it is moved towards the text colour, no further.
+        let sun = Theme::accented(Scheme::Light, "sun");
+        assert_ne!(Some(sun.accent), tokens().color("sun.600"));
+        assert!(sun.on_accent.contrast(sun.accent) < TEXT_CONTRAST + 0.6);
+        assert_eq!(Some(Theme::accented(Scheme::Dark, "azure").accent), tokens().color("azure.400"));
     }
 
     #[test]

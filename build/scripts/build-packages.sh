@@ -27,9 +27,11 @@ stage="$(mktemp -d)"
 trap 'rm -rf "$stage"' EXIT
 # (Developer build trees of the Rust packages, target/ and build/, can be
 # gigabytes and are never part of a package build.)
+# The live-build configuration is small; the branding tests compare the boot
+# menu's theme with the artwork.
 rsync -a --exclude '__pycache__' --exclude '/packages/*/target/' --exclude '/packages/*/build/' \
 	--include '/build/' --include '/build/scripts/***' --exclude '/build/*' \
-	--include '/config/' --include '/config/boswas/***' --exclude '/config/*' \
+	--include '/config/' --include '/config/boswas/***' --include '/config/live-build/***' --exclude '/config/*' \
 	--include '/compatibility/***' --include '/desktop/***' --include '/installer/***' \
 	--include '/packages/***' --include '/security/***' --include '/control-plane/***' \
 	--exclude '/*' \
