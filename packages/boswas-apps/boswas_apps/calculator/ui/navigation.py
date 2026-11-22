@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QModelIndex, QRectF, QSize, Qt, QVariantAnimation, Signal
+from PySide6.QtCore import QModelIndex, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import (QAbstractItemView, QFrame, QHBoxLayout, QListWidget, QListWidgetItem, QStyle,
                                QStyledItemDelegate, QVBoxLayout, QWidget)
@@ -68,7 +68,7 @@ class NavigationOverlay(QWidget):
 
     def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
-        self._animation: QVariantAnimation | None = None
+        self._animation: fluent.Animation | None = None
         self.hide()
         self.pane = QFrame(self)
         self.pane.setFrameShape(QFrame.Shape.NoFrame)
@@ -163,7 +163,7 @@ class NavigationOverlay(QWidget):
             self._place(end)
             return
         self._place(start)
-        animation = QVariantAnimation(self)
+        animation = fluent.Animation(self)
         animation.setStartValue(start)
         animation.setEndValue(end)
         animation.setDuration(time)

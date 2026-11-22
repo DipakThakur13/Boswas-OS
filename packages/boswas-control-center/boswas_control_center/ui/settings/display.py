@@ -1,4 +1,5 @@
-"""Display settings: the monitors (arrangement, resolution, refresh rate, scale, orientation) and night light.
+"""Display settings: the monitors (arrangement, resolution, refresh rate, variable refresh rate, scale,
+orientation) and night light.
 
 Both sections read the compositor's configuration through
 boswas_control_center.compositorconfig and change it by writing the user's
@@ -10,6 +11,12 @@ A change of resolution, refresh rate, scale or orientation, and turning a
 monitor off, is applied and then asked about: "Keep these display
 settings?". Without an answer within CONFIRM_SECONDS, or with Esc, the user
 file is put back exactly as it was and the compositor reads it again.
+
+The refresh rate box lists every rate the monitor offers at the chosen
+resolution; the highest is the compositor's default and is marked so. The
+variable refresh rate switch writes ``[outputs.NAME] adaptive_sync``; it can
+be turned on only where the compositor reports the monitor and its driver
+offer it.
 
 ConfigSection, the base of every section that edits the compositor's
 configuration, lives here; input.py and personalize.py build on it.
@@ -33,6 +40,14 @@ SCALE_LABELS = {1.0: "100 %", 1.25: "125 %", 1.5: "150 %", 1.75: "175 %", 2.0: "
 ORIENTATIONS = (("Landscape", "normal"), ("Portrait", "90"), ("Landscape (flipped)", "180"),
                 ("Portrait (flipped)", "270"))
 CONTROL_WIDTH = 220
+VRR_ON = ("The monitor waits for each new picture instead of showing pictures at a fixed rate, so games and "
+          "videos move smoothly without tearing. Some monitors flicker in dark scenes when it is on")
+VRR_OFF = "This monitor or its graphics driver does not offer a variable refresh rate"
+
+
+def rate_text(rate: int, default: bool = False) -> str:
+    """A refresh rate in the rate box: "165 Hz (default)" for the compositor's choice."""
+    return cc.rate_label(rate) + (" (default)" if default else "")
 
 
 def combo(items=(), width: int = CONTROL_WIDTH) -> QComboBox:
@@ -448,8 +463,9 @@ class MonitorsSection(ConfigSection):
     title = "Monitors"
     order = 10
     reports_files = True
-    keywords = ("monitor", "screen", "resolution", "refresh rate", "scale", "zoom", "orientation", "rotate",
-                "arrange", "second screen", "external display", "hdmi")
+    keywords = ("monitor", "screen", "resolution", "refresh rate", "hz", "variable refresh rate", "adaptive sync",
+                "vrr", "scale", "zoom", "orientation", "rotate", "arrange", "second screen", "external display",
+                "hdmi")
 
     def __init__(self, parent: QWidget | None = None, *, config: cc.Settings | None = None) -> None:
         self.outputs: list[cc.Output] = []
@@ -489,6 +505,9 @@ class MonitorsSection(ConfigSection):
         self.rate_card = self.card("Refresh rate", "A higher rate makes motion smoother and uses more power",
                                    "view-refresh-symbolic", self.rate_box)
         self.rate_box.activated.connect(self._rate_changed)
+        self.vrr_switch = fluent.ToggleSwitch()
+        self.vrr_card = self.card("Variable refresh rate", VRR_ON, "input-gaming-symbolic", self.vrr_switch)
+        self.vrr_switch.clicked.connect(self._vrr_changed)
         self.scale_box = combo((label, value) for value, label in SCALE_LABELS.items())
         self.scale_card = self.card("Scale", "The size of text, applications and other items",
                                     "zoom-in-symbolic", self.scale_box)
@@ -497,7 +516,8 @@ class MonitorsSection(ConfigSection):
         self.orientation_card = self.card("Orientation", "Turn the picture for a monitor that stands upright",
                                           "object-rotate-right-symbolic", self.orientation_box)
         self.orientation_box.activated.connect(self._orientation_changed)
-        self.detail_cards = (self.resolution_card, self.rate_card, self.scale_card, self.orientation_card)
+        self.detail_cards = (self.resolution_card, self.rate_card, self.vrr_card, self.scale_card,
+                             self.orientation_card)
         for widget in (self.canvas_card, self.monitor_card, self.use_card, *self.detail_cards):
             widget.hide()
 
@@ -571,10 +591,15 @@ class MonitorsSection(ConfigSection):
             self.resolution_box.addItem(f"{width} × {height}" + (" (recommended)" if (width, height) == best
                                                                          else ""), (width, height))
         select(self.resolution_box, output.mode.size, f"{output.mode.width} × {output.mode.height}")
-        for rate in cc.rates(output.modes, output.mode.size):
-            self.rate_box.addItem(cc.rate_label(rate), rate)
-        select(self.rate_box, output.mode.refresh, cc.rate_label(output.mode.refresh))
+        offered = cc.rates(output.modes, output.mode.size)
+        for rate in offered:
+            self.rate_box.addItem(rate_text(rate, rate == offered[0]), rate)
+        select(self.rate_box, output.mode.refresh, rate_text(output.mode.refresh))
         self.rate_box.setEnabled(self.rate_box.count() > 1)
+        sync = output.adaptive_sync
+        self.vrr_switch.setChecked(sync.enabled)
+        self.vrr_switch.setEnabled(sync.supported)
+        self.vrr_card.set_description(VRR_ON if sync.supported else VRR_OFF)
         for index in reversed(range(self.scale_box.count())):
             if self.scale_box.itemData(index) not in SCALE_LABELS:
                 self.scale_box.removeItem(index)
@@ -624,6 +649,12 @@ class MonitorsSection(ConfigSection):
         if output is None or output.mode is None or rate is None or self.loading:
             return
         self.change_risky({(f"outputs.{output.name}", "mode"): cc.mode_text(*output.mode.size, rate)})
+
+    def _vrr_changed(self, on: bool) -> None:
+        output = self.output()
+        if output is None or not output.adaptive_sync.supported or self.loading:
+            return
+        self.change({(f"outputs.{output.name}", "adaptive_sync"): bool(on)})
 
     def _scale_changed(self, _index: int) -> None:
         output, scale = self.output(), self.scale_box.currentData()

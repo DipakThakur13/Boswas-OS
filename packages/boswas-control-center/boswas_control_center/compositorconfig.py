@@ -384,6 +384,7 @@ OUTPUT_KEYS: dict[str, Key] = {
     "scale": _scale(None),
     "position": _position(),
     "rotation": _choice(None, ROTATIONS, "rotation", None),
+    "adaptive_sync": Key("bool", None, lambda v: isinstance(v, bool), _boolean(False).check, _same),
 }
 
 # The order tables and keys are written in.
@@ -793,6 +794,14 @@ class Mode:
 
 
 @dataclass(frozen=True)
+class AdaptiveSync:
+    """Variable refresh rate of a monitor as ``outputs`` reports it: offered by monitor and driver, and on."""
+
+    supported: bool = False
+    enabled: bool = False
+
+
+@dataclass(frozen=True)
 class Output:
     """One monitor as ``outputs`` reports it. A monitor that is turned off has a name and nothing else."""
 
@@ -807,8 +816,9 @@ class Output:
     scale: float = 1.0
     rotation: str = "normal"
     mode: Mode | None = None
-    modes: tuple[Mode, ...] = ()
+    modes: tuple[Mode, ...] = ()              # "preferred": what the compositor uses without a mode setting
     physical_mm: tuple[int, int] = (0, 0)
+    adaptive_sync: AdaptiveSync = AdaptiveSync()
 
     @property
     def label(self) -> str:
@@ -868,11 +878,14 @@ def parse_outputs(data: object) -> list[Output]:
         scale = entry.get("scale")
         scale = float(scale) if _is_number(scale) and math.isfinite(scale) and 0.25 <= scale <= 8 else 1.0
         rotation = entry.get("rotation") if entry.get("rotation") in ROTATIONS else "normal"
+        sync = entry.get("adaptive_sync") if isinstance(entry.get("adaptive_sync"), dict) else {}
+        supported = sync.get("supported") is True
         found.setdefault(name, Output(
             name, True, _clean(entry.get("make")), _clean(entry.get("model")),
             _whole(entry.get("x"), -65536, 65536), _whole(entry.get("y"), -65536, 65536), width, height, scale,
             rotation, current, tuple(modes),
-            (_whole(entry.get("physical_width_mm"), 0, 100000), _whole(entry.get("physical_height_mm"), 0, 100000))))
+            (_whole(entry.get("physical_width_mm"), 0, 100000), _whole(entry.get("physical_height_mm"), 0, 100000)),
+            AdaptiveSync(supported, supported and sync.get("enabled") is True)))
     return sorted(found.values(), key=lambda output: _natural(output.name))
 
 
@@ -1226,7 +1239,11 @@ def sizes(modes: Iterable[Mode]) -> list[tuple[int, int]]:
 
 
 def rates(modes: Iterable[Mode], size: tuple[int, int]) -> list[int]:
-    """The refresh rates (millihertz) offered at ``size``, highest first."""
+    """Every refresh rate (millihertz) offered at ``size``, highest first: the first is the compositor's default.
+
+    The compositor runs a monitor at the highest rate it offers at a size unless the mode names another
+    (boswas-compositor(1), [outputs.NAME] mode).
+    """
     return sorted({mode.refresh for mode in modes if mode.size == size}, reverse=True)
 
 

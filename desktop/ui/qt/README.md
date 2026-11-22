@@ -181,6 +181,44 @@ re-styles every open window. Dark is the default.
 Custom-painted widgets read `fluent.theme()` in `paintEvent`; they need no
 code for a scheme change.
 
+### Motion: `animation`
+
+Qt's own animations (`QVariantAnimation`, `QPropertyAnimation`) step on
+one application timer of 16 ms: 60 times a second, also on a monitor that
+shows 144 or 240. PySide6 exposes nothing to change that, so the toolkit
+and the Boswas applications animate with `fluent.Animation`, which steps
+once per refresh of the screen its widget is on.
+
+```python
+animation = fluent.Animation(self)                  # parent: the widget that moves
+animation.setStartValue(0.0)
+animation.setEndValue(1.0)
+animation.setDuration(fluent.duration("fast"))      # 0 with reduced motion
+animation.setEasingCurve(fluent.easing("decelerate"))
+animation.valueChanged.connect(self._set_position)
+animation.finished.connect(self._arrived)
+animation.start()
+```
+
+| Name | What it does |
+|------|--------------|
+| `fluent.Animation(parent=None, *, clock=None)` | The part of `QVariantAnimation` Boswas programs use, under its names: `setStartValue`, `setEndValue`, `setKeyValueAt(step, value)`, `setDuration(ms)`, `setEasingCurve`, `setLoopCount` (-1: until stopped), `setDirection`, `start()`, `stop()` (no `finished`), `state()` (`Animation.State.Running` or `Stopped`), `currentValue()`, `refresh_rate()`; signals `valueChanged(value)` and `finished()`. Values: `int`, `float`, `QPointF`, `QRectF`. The parent is the widget that moves, or an object under it: its screen sets the pace. `clock` (monotonic seconds) is for tests |
+| `fluent.refresh_rate(widget)` | How many steps a second animations of `widget` take: the refresh rate of its screen (`QScreen.refreshRate()`), 60 when the screen reports no usable rate, 500 at most |
+
+* **Paced to the screen:** a step per refresh, at a fixed pace on a
+  precise timer. The rate is read again at every step, so an animation of
+  a window moved to another monitor, or of a monitor whose mode changed,
+  follows it.
+* **Driven by the clock:** each value comes from the time since `start()`
+  on a monotonic clock. A step that comes late (the application was busy)
+  never slows the animation down; steps missed are skipped; the last value
+  is the end value exactly.
+* **Reduced motion:** `start()` goes straight to the end value and emits
+  `finished` before it returns.
+* Do not use Qt's animation classes, or a `QTimer` at a fixed 16 or 33 ms,
+  for motion: `tests/test_animation.py` fails if a module of the toolkit
+  does.
+
 ### Icons: `icons`
 
 | Name | What it does |

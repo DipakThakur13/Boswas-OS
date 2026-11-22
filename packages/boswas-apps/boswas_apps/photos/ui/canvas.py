@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import math
 
-from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer, QVariantAnimation, Signal
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QImage, QMovie, QPainter
 from PySide6.QtWidgets import QApplication, QPinchGesture, QWidget
 
@@ -66,7 +66,7 @@ class ImageCanvas(QWidget):
         self._press_pos = QPointF()
         self._mode = ""                    # "", "pan", "drag"
         self._wheel_rest = 0
-        self._animation: QVariantAnimation | None = None
+        self._animation: fluent.Animation | None = None
         self._anchor = QPointF()
         self.wheel_mode = "zoom"
         self.worker = fluent.Worker(self, max_threads=1)
@@ -262,7 +262,7 @@ class ImageCanvas(QWidget):
         if time <= 0 or abs(zoom - self._zoom) < 1e-9:
             self._apply_zoom(zoom, self._anchor)
             return
-        animation = QVariantAnimation(self)
+        animation = fluent.Animation(self)
         animation.setStartValue(float(self._zoom))
         animation.setEndValue(float(zoom))
         animation.setDuration(time)

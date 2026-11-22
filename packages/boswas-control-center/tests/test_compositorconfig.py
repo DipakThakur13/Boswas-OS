@@ -34,7 +34,8 @@ from boswas_control_center import userfiles  # noqa: E402
 REPO = Path(__file__).resolve().parents[3]
 COMPOSITOR = REPO / "packages" / "boswas-desktop" / "target" / "debug" / "boswas-compositor"
 # What the headless backend of the real compositor answers to "outputs" (captured from it).
-HEADLESS = [{"description": "Boswas - Headless - HEADLESS-1", "enabled": True, "height": 1080, "make": "Boswas",
+HEADLESS = [{"adaptive_sync": {"enabled": False, "supported": False},
+             "description": "Boswas - Headless - HEADLESS-1", "enabled": True, "height": 1080, "make": "Boswas",
              "mode": {"height": 1080, "refresh": 60000, "width": 1920}, "model": "Headless",
              "modes": [{"height": 1080, "preferred": True, "refresh": 60000, "width": 1920}], "name": "HEADLESS-1",
              "physical_height_mm": 0, "physical_width_mm": 0, "rotation": "normal", "scale": 1.0,
@@ -275,6 +276,23 @@ class SnapshotTest(Files):
         self.assertEqual(snapshot.source("outputs.eDP-1", "scale"), "user")
         self.assertEqual(snapshot.source("outputs.eDP-1", "enabled"), "built-in")
 
+    def test_variable_refresh_rate_layers_like_the_other_monitor_keys(self):
+        self.put(self.system, "[outputs.DP-1]\nadaptive_sync = true\n[outputs.DP-2]\nadaptive_sync = true\n")
+        self.put(self.user, "[outputs.DP-1]\nscale = 1.25\n[outputs.DP-2]\nadaptive_sync = false\n")
+        snapshot = self.settings.snapshot()
+        self.assertEqual(snapshot.output("DP-1"), {"adaptive_sync": True, "scale": 1.25})
+        self.assertEqual(snapshot.source("outputs.DP-1", "adaptive_sync"), "system")
+        self.assertEqual((snapshot.get("outputs.DP-2", "adaptive_sync"), snapshot.source("outputs.DP-2", "adaptive_sync")),
+                         (False, "user"))
+        self.assertIsNone(snapshot.get("outputs.DP-3", "adaptive_sync"), "not set: the compositor keeps it off")
+        # A value of the wrong kind makes the compositor ignore the file, and Settings says so.
+        self.put(self.user, "[outputs.DP-2]\nadaptive_sync = \"yes\"\nscale = 2.0\n")
+        snapshot = self.settings.snapshot()
+        self.assertEqual(snapshot.output("DP-2"), {"adaptive_sync": True})
+        self.assertTrue(snapshot.problems())
+        self.settings.update({("outputs.DP-2", "adaptive_sync"): False})
+        self.assertEqual(self.toml(self.user)["outputs"]["DP-2"]["adaptive_sync"], False)
+
     def test_the_appearance_file_only_changes_the_look(self):
         self.put(self.user, "[appearance]\nscheme = \"dark\"\n[keyboard]\nlayout = \"in\"\n")
         self.put(self.look, "[appearance]\nscheme = \"light\"\n[lock]\nidle_seconds = 0\n")
@@ -330,8 +348,8 @@ class WriterTest(unittest.TestCase):
         config = {table: {key: (found.default if found.default is not None else "")
                           for key, found in keys.items()} for table, keys in cc.SCHEMA.items()}
         config["outputs"] = {"eDP-1": {"enabled": True, "mode": "1920x1080@60", "scale": 1.25, "position": [0, -10],
-                                       "rotation": "90"}, "HDMI-A-1": {"enabled": False}, "bad name": {"scale": 1.0},
-                             "DP-3": {}}
+                                       "rotation": "90", "adaptive_sync": True}, "HDMI-A-1": {"enabled": False},
+                             "bad name": {"scale": 1.0}, "DP-3": {}}
         config["appearance"]["wallpaper"] = "/home/a/My \"best\" \\ picture ä世.png"
         text = cc.serialize(config)
         parsed = tomllib.loads(text)
@@ -815,10 +833,31 @@ class ControlTest(unittest.TestCase):
                          ("DELL U2720Q", 1440, 2560, 1.5, "90"))
         self.assertEqual(dell.modes, (cc.Mode(3840, 2160, 59997, True), cc.Mode(1920, 1080, 60000)))
         self.assertEqual(dell.mode, cc.Mode(3840, 2160, 59997, True))
+        self.assertEqual(dell.adaptive_sync, cc.AdaptiveSync(), "not reported: not offered")
         self.assertEqual((internal.enabled, internal.label, internal.modes), (False, "Built-in display", ()))
         for junk in (None, {}, "outputs", 7, [[[]]]):
             self.assertEqual(cc.parse_outputs(junk), [])
         self.assertEqual(len(cc.parse_outputs([dict(HEADLESS[0], name=f"DP-{n}") for n in range(40)])), 16)
+        self.assertEqual(cc.parse_outputs(HEADLESS)[0].adaptive_sync, cc.AdaptiveSync(False, False))
+
+    def test_variable_refresh_rate_is_read_as_the_compositor_reports_it(self):
+        def sync(report):
+            return cc.parse_outputs([dict(HEADLESS[0], adaptive_sync=report)])[0].adaptive_sync
+        self.assertEqual(sync({"supported": True, "enabled": False}), cc.AdaptiveSync(True, False))
+        self.assertEqual(sync({"supported": True, "enabled": True}), cc.AdaptiveSync(True, True))
+        # On without being offered cannot be; anything but true is false; junk is "not offered".
+        self.assertEqual(sync({"supported": False, "enabled": True}), cc.AdaptiveSync(False, False))
+        for junk in ({"supported": "yes", "enabled": 1}, "on", None, [True], {}):
+            self.assertEqual(sync(junk), cc.AdaptiveSync(), junk)
+
+    def test_variable_refresh_rate_is_a_switch_of_each_monitor(self):
+        self.assertEqual(cc.check_value("outputs.DP-1", "adaptive_sync", True), True)
+        self.assertEqual(cc.check_value("outputs.DP-1", "adaptive_sync", False), False)
+        for wrong in ("true", 1, None, "on"):
+            with self.assertRaises(cc.InvalidValue, msg=repr(wrong)):
+                cc.check_value("outputs.DP-1", "adaptive_sync", wrong)
+        with self.assertRaises(cc.InvalidValue):
+            cc.check_value("output", "adaptive_sync", True)            # per monitor only
 
     def test_apply_reports_whether_the_desktop_took_the_change(self):
         with tempfile.TemporaryDirectory() as home:
@@ -1045,7 +1084,8 @@ class RealCompositorTest(unittest.TestCase):
                    ("touchpad", "gestures"): False, ("output", "scale"): 1.25,
                    ("outputs.HEADLESS-1", "enabled"): True, ("outputs.HEADLESS-1", "mode"): "1920x1080@60",
                    ("outputs.HEADLESS-1", "scale"): 1.75, ("outputs.HEADLESS-1", "position"): [0, 0],
-                   ("outputs.HEADLESS-1", "rotation"): "normal", ("outputs.DP-7", "enabled"): False,
+                   ("outputs.HEADLESS-1", "rotation"): "normal", ("outputs.HEADLESS-1", "adaptive_sync"): True,
+                   ("outputs.DP-7", "enabled"): False,
                    ("outputs.DP-7", "position"): [-1920, 120], ("outputs.DP-7", "rotation"): "270",
                    ("night_light", "enabled"): True, ("night_light", "temperature"): 3400,
                    ("night_light", "scheduled"): True, ("night_light", "from"): "21:30", ("night_light", "to"): "07:15",
