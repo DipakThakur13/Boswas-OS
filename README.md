@@ -22,8 +22,12 @@ hardware, not a public Linux distribution.
 >   Manager, Media Player, Camera, Clock, Calendar and Task Manager, in
 >   place of KDE's applications
 > - **native settings** in Boswas Control Center, in place of Plasma's
->   settings modules: network, Bluetooth, sound, power, display, input,
->   personalization, date and time, user accounts
+>   settings modules, laid out like the Settings of Windows 11 (eleven
+>   categories, search, Home): network and VPN, Bluetooth, printers,
+>   sound, power, display, input, personalization (accent colour,
+>   taskbar, Start, fonts), notifications, multitasking, storage cleanup,
+>   troubleshooters, installed apps and optional features, date and time,
+>   user accounts, privacy and accessibility
 > - the Boswas OS experience: Boswas OS identity, Boswas UI (the Fluent
 >   design language with the Prism colours, in one token file), the Boswas
 >   Prism icon pack, the Boswas-Cursors pointer theme, ten presets, Boswas
@@ -77,23 +81,32 @@ What it does today:
 - **Windows:** Fluent window frames with rounded corners and shadows,
   animations, snap layouts, a window picker (Alt+Tab), Task View with
   several desktops, a window menu, and the Windows shortcuts.
-- **Shell:** a centred taskbar with Start and search, the tray and the
-  clock; quick settings for Wi-Fi, Bluetooth, sound, brightness, night
-  light and the power mode; notifications with a calendar; Run; screen
-  capture; the password dialog for administrator actions.
+- **Shell:** a centred or left-aligned taskbar that can hide itself, with
+  Start and search, the tray and the clock; quick settings for Wi-Fi,
+  Bluetooth, sound, brightness, night light and the power mode;
+  notifications with a calendar and a do-not-disturb schedule; Run;
+  screen capture; the password dialog for administrator actions.
 - **Displays and input:** settings per monitor (mode, scale, position,
   rotation), night light, touch screens, touchpad gestures, drawing
   tablets, support for an input method.
+- **Accessibility:** text size up to 225 %, a magnifier, colour filters
+  (greyscale, inverted, corrections for colour blindness), sticky keys and
+  filter keys, always visible scroll bars; animations can be turned off.
 - **System applications** (`boswas-apps`): Files, Terminal, Text Editor,
   Calculator, Photos, Document Viewer, Archive Manager, Media Player,
   Camera, Clock and Calendar with reminders, Task Manager. They run as
   the user, start nothing through a shell and treat files as hostile
   input.
-- **Settings** in Control Center: Wi-Fi, Bluetooth, sound, power,
-  monitors (arrangement, resolution, scale, rotation), night light,
-  mouse, touchpad, keyboard layouts, colour mode and background, lock and
-  screen timeouts, date and time, region, default and start-up
-  applications, user accounts.
+- **Settings** in Control Center, laid out like Windows 11's Settings
+  (ADR-0049): Wi-Fi, VPN, network adapters, Bluetooth, printers,
+  cameras, sound, power, monitors (arrangement, resolution, refresh rate,
+  scale, rotation), night light, mouse, touchpad, keyboard layouts,
+  colour mode, accent colour and background, the taskbar, Start, snapping
+  and notifications, fonts, storage cleanup, troubleshooters, restarting
+  into the firmware settings, renaming the device, installed apps and
+  optional features, app permissions, update history, lock and screen
+  timeouts, date and time, region, default and start-up applications,
+  user accounts, accessibility.
 - **Other applications:** any Wayland application, and X11 applications
   through Xwayland. A program gets pictures of the screen only after the
   user has allowed it.
@@ -116,13 +129,14 @@ Known gaps: no live blur behind translucent surfaces, X11 windows are not
 sharp on scaled monitors and X11 applications are not isolated from each
 other, Bluetooth devices that need a PIN and enterprise Wi-Fi cannot be
 set up from the desktop, no input method is in the image, one GPU only, no
-HDR, no screen reader for the shell. The full
+HDR, no screen reader for the shell and no contrast themes. The full
 list is in [docs/experience/README.md](docs/experience/README.md#known-gaps).
 
 What the system applications and the settings leave out is listed in
-ADR-0040 and ADR-0041: among other things there is no office suite and
-no print service (printing means a PDF file), and the Document Viewer
-reads PDF only.
+ADR-0040, ADR-0041 and ADR-0049: among other things there is no office
+suite and no print service in the image (printing means a PDF file;
+Control Center can install CUPS, untried), and the Document Viewer reads
+PDF only.
 
 ## Build
 
@@ -201,7 +215,7 @@ boswas-device status        # device agent: state, identity, Control Plane conne
 |------|----------------|
 | Base | Debian 13.x trixie, amd64, Linux 6.12, systemd |
 | Desktop | The native Boswas desktop (`boswas-desktop`): `boswas-compositor`, a Wayland compositor in Rust on Smithay (Fluent window frames, animations, snap layouts, Task View with several desktops, per-monitor settings, night light, Xwayland for X11 applications, compositor-owned session lock, privileged protocols only for its own shell, screen capture only with the user's consent), and `boswas-shell` (taskbar, Start, quick settings, notifications, tray, the polkit dialog, lock screen, login screen behind greetd). Ten presets ([docs/experience](docs/experience/README.md)) |
-| Applications | The Boswas system applications (`boswas-apps`, PySide6 on the Boswas Qt toolkit): Files, Terminal, Text Editor, Calculator, Photos, Document Viewer, Archive Manager, Media Player, Camera, Clock, Calendar, Task Manager; Firefox ESR as the browser. Boswas Control Center with native settings and the Security, Software and Update Centers ([docs/experience/control-center.md](docs/experience/control-center.md)) |
+| Applications | The Boswas system applications (`boswas-apps`, PySide6 on the Boswas Qt toolkit): Files, Terminal, Text Editor, Calculator, Photos, Document Viewer, Archive Manager, Media Player, Camera, Clock, Calendar, Task Manager; Firefox ESR as the browser. Boswas Control Center with native settings, laid out like Windows 11's Settings, and the Security, Software and Update Centers ([docs/experience/control-center.md](docs/experience/control-center.md)) |
 | Design system | Boswas UI v3: the Fluent design language with Boswas's own colours (the Prism palette), icons and typeface, as design tokens in one file ([desktop/ui](desktop/ui/README.md)). The shell, the window frames, the boot screen, the Qt toolkit of the Boswas applications ([desktop/ui/qt](desktop/ui/qt/README.md)), the KDE colour schemes, the Boswas Prism icon pack ([desktop/icons](desktop/icons/README.md)) and the Boswas-Cursors pointer theme ([desktop/cursors](desktop/cursors/README.md)) all read it |
 | Branding | Built from the official Boswas Group logo and lettering ([desktop/branding](desktop/branding/README.md)) |
 | Boot | GRUB for BIOS and UEFI; Debian-signed shim/GRUB/kernel for Secure Boot; Boswas boot menu; the Boswas boot screen (`boswas-bootsplash`, Rust: boot, shutdown, restart and the disk-unlock prompt, [packages/boswas-bootsplash](packages/boswas-bootsplash/README.md)) |

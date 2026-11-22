@@ -43,6 +43,9 @@ Verification status of the native desktop
   resolution of the new image manifest on Debian trixie.
 
 ### Fixed
+- **Control Center's path above the page** (`BreadcrumbBar` of the
+  toolkit): the crumbs of the previous place were still painted under
+  the new path for a moment; they are hidden at once.
 - **High refresh rates** (ADR-0048): a 120, 144 or 165 Hz monitor ran at
   60 Hz, because the compositor took the mode the monitor calls preferred.
   It now takes the fastest rate at the monitor's native size. The boot
@@ -173,6 +176,68 @@ Verification status of the native desktop
   also dropped an administrator's stricter lock policy.
 
 ### Added
+- **Control Center laid out like Windows 11's Settings** (ADR-0049):
+  eleven categories in the pane (Home, System, Bluetooth & devices,
+  Network & internet, Personalization, Apps, Accounts, Time & language,
+  Accessibility, Privacy & security, Boswas Update), the pages of a
+  category as cards, the path above the page with Back (Alt+Left), and
+  search that lists categories, pages, sections and single settings.
+  Home shows the device (with Rename), the account, the network, the
+  update state, dark mode and night light, Bluetooth devices, the
+  background and the storage. Mouse, Touchpad and Keyboard are pages of
+  their own, and "Other connections" became Ethernet and Airplane mode.
+  Every `--page` key of earlier versions still works and leads to where
+  its settings moved; the keys are in `--help` and the manual page.
+- **New in Control Center** (ADR-0049), each on the system's own tools in
+  fixed, validated forms:
+  - System: rename the device (`hostnamectl`) and copy its
+    specifications; storage cleanup recommendations (temporary files, the
+    Trash, downloads not changed for 14 to 90 days, moved to the Trash);
+    troubleshooters for the internet connection, sound, Bluetooth and the
+    displays, read-only; restart into the firmware settings or the boot
+    menu where the device supports it.
+  - Bluetooth & devices: printers (CUPS's printers and default, a test
+    page, installing printing support), cameras, USB devices.
+  - Network & internet: VPN connections (import a WireGuard or OpenVPN
+    file, connect, disconnect, remove), network adapters (on and off, data
+    used, hardware address).
+  - Personalization > Fonts: preview, install and remove fonts for the
+    account.
+  - Apps: Installed apps (origin, version, size; uninstall the way each
+    was installed) and Optional features (codecs, printing, fonts,
+    Firefox in the device's languages, developer tools).
+  - Privacy & security: App permissions of sandboxed applications, with
+    Revoke; Diagnostics & feedback; Access work or school under Accounts.
+  - Boswas Update: Update history from APT's log, and the update options.
+- **Taskbar, Start, multitasking and notification settings** (ADR-0049):
+  - Taskbar: centred or at the left, hidden automatically (it leaves a
+    sliver at the bottom edge and reserves no room), the Task View button,
+    seconds in the clock, badges with the number of an application's
+    notifications; "Taskbar settings" on a right-click of its background.
+  - Start: three layouts, recently added and most used applications under
+    "Recommended", folders next to the power button.
+  - Multitasking: snapping on or off, the snap layouts on the maximise
+    button and, new, when a window is dragged to the top of the screen;
+    the windows of the current desktop or of all on the taskbar and in
+    Alt+Tab.
+  - Notifications: a daily schedule for do not disturb, banners off per
+    application, how long a notification stays; the notification centre's
+    settings button opens them.
+- **Accent colour and transparency** (ADR-0049): eight hues of the
+  palette for the shell, the window frames and every Qt application, each
+  kept readable (4.5:1 for text on it) by the same rule in Rust and
+  Python; transparency effects can be turned off.
+- **Accessibility** (ADR-0049): text size up to 225 % (the shell, the
+  title bars, the Qt applications); always visible scroll bars; colour
+  filters (greyscale, inverted, greyscale inverted, corrections for
+  deuteranopia, protanopia and tritanopia; Super+Ctrl+C), drawn with
+  OpenGL ES; a magnifier (Super+Plus, Super+Minus, Super+Esc, up to
+  1600 %); sticky keys and filter keys (slow keys, bounce keys).
+- **The compositor's configuration** gained the tables `[accessibility]`,
+  `[color_filter]`, `[magnifier]`, `[taskbar]`, `[start]`,
+  `[multitasking]` and `[notifications]`, and `[appearance] accent` and
+  `transparency`, `[keyboard]` sticky and filter keys; the control
+  socket's `version` reports `color_filters`.
 - **A new Boswas OS logo** (ADR-0047): a lowercase "b" drawn from geometry
   (a pill-shaped stem in front of a round bowl, a warm dot in the counter)
   in the palette's blues and sun, with wordmarks in Inter. It replaces the
@@ -579,9 +644,11 @@ Verification status of the native desktop
   show through.
 - **Quick settings and Settings** *(native desktop)*: Bluetooth devices
   that need a PIN cannot be paired, and enterprise Wi-Fi (802.1X) cannot
-  be set up. Control Center shows the proxy read-only and VPN connections
-  as status only. A password that an administrator sets for another user
-  is stored as SHA-512 crypt, not with Debian's default scheme.
+  be set up. Control Center shows the proxy read-only, and a VPN that
+  asks for a password when it connects cannot be connected (the desktop
+  has no secret agent for NetworkManager). A password that an
+  administrator sets for another user is stored as SHA-512 crypt, not
+  with Debian's default scheme.
 - **Screen sharing** *(native desktop)*: the portal for it is installed
   and has not been tested; it shares the first monitor.
 - **Input methods** *(native desktop)*: the compositor supports one, none
@@ -592,10 +659,14 @@ Verification status of the native desktop
   loses XMP and IPTC data on save, the Terminal has no split panes. None
   has run on the desktop yet, and the Camera has run against a stand-in
   only. The list is in ADR-0040 and in the verification document.
-- **Displays** *(native desktop)*: one GPU only; no HDR and no variable
-  refresh rate.
+- **Displays** *(native desktop)*: one GPU only; no HDR. Variable
+  refresh rate exists (ADR-0048) and has not run on a real monitor.
 - **Accessibility** *(native desktop)*: no screen reader can read the
-  shell or the compositor's own surfaces.
+  shell or the compositor's own surfaces, and there are no contrast
+  themes. Colour filters are not available where the compositor draws
+  with pixman. The magnifier and the colour filters have not run on real
+  graphics hardware, and sticky and filter keys have run in unit tests
+  only.
 - **Presets** *(native desktop)*: the taskbar, Start and the lock screen
   follow a preset's light or dark variant and wallpaper, not its accent
   colour. The preview pictures still sketch the panel of the Plasma image.

@@ -43,7 +43,7 @@ Automated guards keep it that way:
 | `/etc/motd` | "The programs included with the Debian GNU/Linux system…" | The same legal notice in Boswas OS wording (only while unmodified) |
 | Boot menu subtitle (live/installation medium) | `Debian 13 "trixie" base` | `Live and installation medium` |
 | `.disk/info` on the medium (shown by the installer, apt-cdrom) | `Debian GNU/Linux 13 "Trixie" - Snapshot amd64 LIVE/INSTALL` | `Boswas OS v1 Alpha (1.0~alpha3) - amd64 LIVE/INSTALL` |
-| KDE's About this System page, "Variant" (`kcm-about-distrorc`) | `Based on Debian 13 "trixie"` | Not applicable: the page and the file left with Plasma (ADR-0026, ADR-0042). Control Center > About Boswas OS takes its place, and the live session is marked there |
+| KDE's About this System page, "Variant" (`kcm-about-distrorc`) | `Based on Debian 13 "trixie"` | Not applicable: the page and the file left with Plasma (ADR-0026, ADR-0042). Control Center > System > About takes its place, and the live session is marked there |
 | About page website button (from os-release `HOME_URL`) | debian.org | Not shown (no `HOME_URL`) |
 | Live user's full name (lock screen, login) | `Debian Live user` (live-config default) | `Boswas OS Live` |
 | Boot screen | Plain console text (Debian's Plymouth theme belongs to desktop-base, not installed) | The Boswas OS boot screen, `boswas-bootsplash` (boot, shutdown, restart, disk passphrase); Plymouth is not installed |

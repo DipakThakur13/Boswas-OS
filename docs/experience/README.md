@@ -545,7 +545,8 @@ of the compositor's configuration:
   text, the title bars (as far as their 32 px height allows, about
   180 %) and the text of every Qt application grow; nothing else does.
 - **Scaling:** 1.0 to 2.0 in steps of 0.25, for all screens (`[output]
-  scale`) or per monitor (`[outputs.NAME] scale`), in Settings > Display.
+  scale`) or per monitor (`[outputs.NAME] scale`), in Settings > System >
+  Display.
 - **Always show scroll bars** in the Qt applications
   (`[accessibility] always_show_scrollbars`), and how long a notification
   stays at least, 5 seconds to 5 minutes (`[notifications]

@@ -40,8 +40,10 @@ manifest installs `boswas-desktop` and `boswas-bootsplash` and pins out the
 Plasma shell, KWin, SDDM, System Settings and Plymouth (ADR-0026 to
 ADR-0032). A second round turned that first version into a desktop in
 the Fluent design language with the functions a user expects of one,
-its own system applications and native settings (ADR-0033 to ADR-0041).
-The plan's exit criteria are **not** met yet.
+its own system applications and native settings (ADR-0033 to ADR-0041);
+later rounds laid Settings out like Windows 11's and gave the desktop the
+functions behind it (ADR-0049). The plan's exit criteria are **not** met
+yet.
 
 **What "done" means below.** *Implemented* = the code exists and passes
 its tests in the development environment: unit tests, for the compositor
@@ -87,10 +89,10 @@ screenshot tool; the portal path is not tested).
 
 | Component | Status |
 |-----------|--------|
-| Taskbar | **Implemented**: at the bottom edge of every output, with Start, Task View and the pinned and running applications as one centred group (indicators, context menus, window previews), the tray with its overflow and menus, the keyboard layout, network, sound and battery state, and the clock. Open: other edges |
-| Start and search | **Implemented**: search over applications, settings pages and commands, a pinned grid, all applications by letter, the most used ones, the user menu and the power menu. Open: recent files, search in files |
+| Taskbar | **Implemented**: at the bottom edge of every output, with Start, Task View and the pinned and running applications as one centred group (indicators, context menus, window previews), the tray with its overflow and menus, the keyboard layout, network, sound and battery state, and the clock. Its settings (ADR-0049): the group at the left, automatic hiding, the Task View button, seconds in the clock, notification badges. Open: other edges |
+| Start and search | **Implemented**: search over applications, settings pages and commands, a pinned grid, all applications by letter, recommendations (recently added and most used), the user menu and the power menu, folders next to it; three layouts (ADR-0049). Open: recent files, search in files |
 | Quick settings | **Implemented** (ADR-0035): Wi-Fi with the list of networks, Bluetooth with the list of devices, airplane mode, night light, power mode, do not disturb, media controls, brightness and volume with the choice of output. **Not run against the real services.** Open: enterprise Wi-Fi, Bluetooth devices that need a PIN |
-| Notification centre and calendar | **Implemented** (ADR-0035): the shell is the notification service; toasts with actions and progress, a centre grouped by application, a month calendar, do not disturb. Notifications are kept in memory only |
+| Notification centre and calendar | **Implemented** (ADR-0035): the shell is the notification service; toasts with actions and progress, a centre grouped by application, a month calendar, do not disturb, with a daily schedule, banners off per application and the time a toast stays (ADR-0049). Notifications are kept in memory only. Open: notifications on the lock screen (left out by design) |
 | On-screen displays | **Implemented** for the volume and brightness keys. Open: keyboard layout (the taskbar shows it) |
 | Desktop and wallpaper | **Implemented**: wallpaper (built-in background or a preset's picture) and a right-click menu. Open: desktop icons |
 | Lock screen and login screen | **Implemented** (ADR-0028, ADR-0030), password only; the login screen lists the people who can sign in. A boot always ends at a way to sign in (ADR-0044). Login booted in a virtual machine from the packages; **not on the image or on hardware** |
@@ -101,7 +103,7 @@ screenshot tool; the portal path is not tested).
 | Pointer | **Implemented**: Boswas-Cursors, Boswas's own XCursor theme, the default of the compositor, the login screen and every program (ADR-0043). Not yet seen on hardware |
 | Boot screen | **Implemented**: `boswas-bootsplash` (ADR-0029), in the Boswas UI look since ADR-0038. Booted in a virtual machine from the packages (ADR-0044); **not on the image, an encrypted disk or hardware** |
 | System applications | **Implemented, not run on the desktop** (`boswas-apps`, ADR-0040): Files, Terminal, Text Editor, Calculator, Photos, Document Viewer, Archive Manager, Media Player, Camera, Clock, Calendar, Task Manager and a reminders service replace KDE's applications in the image. Open: what each leaves out (ADR-0040), an office suite, a mail client, a print service |
-| Settings | **Implemented against stand-ins** (ADR-0041): native sections in Control Center for network, Bluetooth, sound, power, display, night light, mouse, touchpad, keyboard, personalization, lock and screen timeouts, date and time, region, default and start-up applications, user accounts. Open: proxy and VPN editing, drawing tablets, an automatic suspend time |
+| Settings | **Implemented against stand-ins** (ADR-0041, ADR-0049): Control Center laid out like Windows 11's Settings, in eleven categories with search and the deep links of earlier versions; native sections for network (VPN and adapters included), Bluetooth, printers, cameras, sound, power, display, night light, mouse, touchpad, keyboard, notifications, multitasking, personalization (accent colour, taskbar, Start, fonts), storage cleanup, troubleshooters, advanced start-up, installed apps, optional features, app permissions, update history, lock and screen timeouts, date and time, region, default and start-up applications, user accounts, accessibility. Open: proxy editing, VPNs that ask for a password (no secret agent), drawing tablets, an automatic suspend time, pausing updates |
 
 ### Done since the first version of the native desktop
 
@@ -123,6 +125,7 @@ booted system.
 | A Qt Widgets look for the Boswas applications | ADR-0039 |
 | Boswas's own system applications in place of KDE's | ADR-0040 |
 | Settings without Plasma: native sections in Control Center, display arrangement included | ADR-0041 |
+| Control Center laid out like Windows 11's Settings; settings for the taskbar, Start, multitasking and notifications; the accent colour; text size, magnifier, colour filters, sticky and filter keys | ADR-0049 |
 
 ### Planned work on the native desktop
 
@@ -135,8 +138,10 @@ In rough order of what a user misses first:
    polkit agent: no administrator action from the desktop works without
    it.
 2. **Settings**: run every section against the real services, the Users
-   page first (AccountsService, polkit, `passwd`); then what ADR-0041
-   leaves out.
+   page first (AccountsService, polkit, `passwd`), then the pages of
+   ADR-0049 (NetworkManager, CUPS, logind, systemd-hostnamed, the Flatpak
+   permission store); then what ADR-0041 and ADR-0049 leave out, among
+   them a secret agent for NetworkManager.
 3. **System applications**: run every application on the desktop and on
    real devices (a camera, removable drives, sound);
    a print service in the image, so that Print reaches a printer; then
@@ -150,8 +155,10 @@ In rough order of what a user misses first:
    languages), an on-screen keyboard; pairing Bluetooth devices that need
    a PIN; enterprise Wi-Fi.
 7. **Accessibility**: screen-reader support in the shell and for what
-   the compositor draws, a high-contrast scheme. `reduced_motion` exists
-   as a setting.
+   the compositor draws, contrast themes for the shell. Text size, the
+   magnifier, colour filters, sticky and filter keys, always visible
+   scroll bars and `reduced_motion` exist (ADR-0049); they have not run on
+   real hardware.
 8. **Graphics**: a second GPU, HDR, the NVIDIA
    proprietary driver; sharp X11 windows on scaled monitors. Direct
    scan-out is left to Smithay's DRM compositor and has not been observed

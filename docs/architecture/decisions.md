@@ -2962,9 +2962,10 @@ toolkit, with their settings.
 **Context.** Control Center was one list of about twenty pages (Network,
 Bluetooth, Sound, Power, Display, Devices, Personalization, Security,
 System, Applications, Privacy, Users, Storage and the centres). Much of
-what Windows 11's Settings offers had no place, and the desktop had no
-settings for the taskbar, Start, snapping or notifications, one accent,
-and no accessibility beyond motion, scaling and night light.
+what Windows 11's Settings offers had no place. The desktop had one
+fixed accent colour, no settings for the taskbar, Start, snapping or
+notifications, and no accessibility beyond motion, scaling and night
+light.
 
 **Decision.**
 
@@ -2974,7 +2975,7 @@ and no accessibility beyond motion, scaling and night light.
   Privacy & security and Boswas Update. There is no Gaming category. A
   category lists its pages as cards; a card whose page has nothing to
   show on the device is hidden, and Install Boswas OS appears only in a
-  live session. The title is the path ("System › Display"); a crumb, the
+  live session. The title is the path ("System > Display"); a crumb, the
   back button or Alt+Left returns. The window opens at 1100 by 720
   pixels, and below 720 pixels of width the pane shows icons only.
   Search lists its results in the content area: categories, pages,
@@ -3095,7 +3096,7 @@ and no accessibility beyond motion, scaling and night light.
   per application (its notifications still reach the centre); a
   notification stays at least 5 seconds to 5 minutes; the do-not-disturb
   tile of quick settings stays; the notification centre's settings button
-  opens Settings > Notifications.
+  opens Settings > System > Notifications.
 - **Accent colour:** one of eight hues of the palette (iris, azure, sky,
   mint, sun, coral, orchid, slate), taken by the shell, the compositor's
   own surfaces and every Qt application. Each takes the shades of its hue
@@ -3183,7 +3184,7 @@ and no accessibility beyond motion, scaling and night light.
 - **Verified:** Control Center 688 tests (5 skipped), with new suites
   for the places and search (`test_places.py`) and for the new pages in a
   window on fakes (`test_pages_ui.py`), and for every new section
-  against the real settings files; the toolkit 147; the desktop
+  against the real settings files; the toolkit's 147; the desktop
   workspace 428 Rust tests (compositor 118 unit and 19 end to end, shell
   106, `boswas-ui` 34, services 60 and 85, bridge 6); the applications
   2,297 in 15 suites; the static checks. Looked at by the builder on the
@@ -3194,11 +3195,11 @@ and no accessibility beyond motion, scaling and night light.
 - **Not verified:** real hardware: the colour-filter pass and the
   magnifier through the DRM back end are compiled only. Sticky and filter
   keys have unit tests only, not a run against the real compositor.
-  Every shell surface at 225 % was not looked at. Every new page ran
-  against fakes: no real NetworkManager, CUPS, logind, systemd-hostnamed,
-  Flatpak permission store or fontconfig, and the output formats of
-  `nmcli`, `lpstat`, `fc-list`, `dpkg-query` and `flatpak
-  permission-list` were not compared with the real programs. Some
+  Not every shell surface was looked at with 225 % text. Every new page
+  ran against fakes: no real NetworkManager, CUPS, logind,
+  systemd-hostnamed, Flatpak permission store or fontconfig, and the
+  output formats of `nmcli`, `lpstat`, `fc-list`, `dpkg-query` and
+  `flatpak permission-list` were not compared with the real programs. Some
   package names of Optional features were not checked against the
   archive (`gstreamer1.0-plugins-ugly`, `gstreamer1.0-libav`,
   `printer-driver-cups-pdf`, `fonts-noto-cjk`,
