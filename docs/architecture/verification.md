@@ -157,6 +157,18 @@ lintian and the package stage were repeated on the final set. The boots
 listed under "Seen on the final packages" ran on the build before the
 change of wording; the `nomodeset` boot was repeated after it.
 
+The run after the Control Center work of ADR-0049 (2026-11-22, version
+3.0~alpha1, the same build environment): the 13 device packages and the
+Control Plane built with all their test suites (428 Rust tests in
+`boswas-desktop`, 154 in `boswas-bootsplash`, 3,929 Python tests in the
+other device packages, 50 in the Control Plane; none failed); lintian
+reported no errors or warnings; the package stage passed 100 checks,
+failed none and skipped the same three; the static stage passed 82
+checks. The unit stage and the boot in the virtual machine were not
+repeated for this run. The first attempt stopped at `boswas-branding`:
+its tests read the boot menu's theme, which the package build did not
+copy; `build-packages.sh` now copies `config/live-build` too.
+
 Qt Multimedia in this environment: the sandbox has PySide6 6.12, whose
 audio back end is PipeWire, and `libpipewire` without its configuration
 files. Creating an audio output then crashes inside Qt, which is why the
