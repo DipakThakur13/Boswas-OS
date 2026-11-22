@@ -118,8 +118,8 @@ pub struct OutputSettings {
     pub position: Option<[i32; 2]>,
     /// `normal`, `90`, `180` or `270`.
     pub rotation: Option<String>,
-    /// Variable refresh rate (adaptive sync, FreeSync, G-SYNC Compatible)
-    /// where the monitor and its driver offer it. Off unless `true`.
+    /// Variable refresh rate (adaptive sync) where the monitor and its
+    /// driver offer it. Off unless `true`.
     pub adaptive_sync: Option<bool>,
 }
 

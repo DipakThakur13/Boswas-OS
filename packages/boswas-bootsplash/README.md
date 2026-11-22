@@ -87,6 +87,7 @@ and a frame that changes nothing is not sent to the display at all.
 |---|---|
 | First frame (scale the mark, paint everything) | 4.5 ms |
 | Animation frame | 3 µs: 1,764 pixels (42 by 42), 0.085 % of the screen |
+| A second of the ring at 240 frames a second | 0.5 ms |
 | Blink of the caret | 1 µs: 18 pixels |
 | Keystroke in the text box, or a frame of its shake | 0.17 ms: 12,844 pixels, 0.62 % |
 
@@ -94,12 +95,20 @@ At 3840x2160 an animation frame is 8 µs (6,724 pixels) and a keystroke
 0.65 ms. `tests/perf.rs` prints these (`cargo test --release --test perf --
 --nocapture`) and fails if an animation frame redraws anything but the ring,
 a blink anything but the caret, or the ring is a quarter of a percent of the
-screen or more. Rendering a frame allocates no memory (the picture borrows
-the prompt and the message; the list of changed rectangles is reused). The
-animation runs at 30 frames a second at most, driven by the clock, so a busy
-system makes it slower to update but not faster or uneven; while a prompt is
-open the loop wakes only when the caret is due to change, four times a
-second for Caps Lock, and for the frames of a shake.
+screen or more, or if a second of the ring at 240 frames costs half a
+second of processor time. Rendering a frame allocates no memory (the picture
+borrows the prompt and the message; the list of changed rectangles is
+reused).
+
+The animation is paced to the display: one frame per refresh of the mode
+the display shows (as a rule the one the boot screen found on it, see
+below), 240 frames a second at most, and 60 on the legacy frame buffer,
+which does not tell its refresh rate. The rate is worked out from the
+mode's timings. Frames keep a fixed pace and the ring's position comes from
+the clock, so a busy system makes it update less often but not faster or
+uneven. At 240 frames a second the loop uses about 1 % of a processor core.
+While a prompt is open the loop wakes only when the caret is due to change,
+four times a second for Caps Lock, and for the frames of a shake.
 
 The ring is arithmetic, not artwork (`dot_at` in `src/scene.rs`): each dot
 goes round twice in three seconds, entering and leaving at the bottom; a
@@ -143,8 +152,8 @@ initramfs before compression (the daemon 1.31 MB, the client 0.45 MB) and
 
 | Output | When | Notes |
 |--------|------|-------|
-| DRM/KMS dumb buffers (`src/output/drm.rs`) | A `/dev/dri/card*` with a connected display | No GPU acceleration, no libdrm (the `drm` crate issues the ioctls). Every connected display gets its own buffer and layout. The mode already set is kept when possible. A buffer is filled before it is put on its display and again right after: the first mode-set can empty it (seen with `bochs` after it had replaced the firmware frame buffer; only the ring was visible then). What the display showed before (the kernel console) is put back on hide and quit |
-| Frame buffer (`src/output/fbdev.rs`) | No DRM device, `/dev/fb0` exists | 32 bits per pixel with 8-bit channels, or RGB565. Before every frame the device is asked whether it is still the one that was opened; once it is not (a real driver replaced `efifb` or `vesafb`), nothing more is written into the old mapping and the daemon looks for the new device. It cannot keep a frame for the next program, so `quit --retain` is a plain quit here |
+| DRM/KMS dumb buffers (`src/output/drm.rs`) | A `/dev/dri/card*` with a connected display | No GPU acceleration, no libdrm (the `drm` crate issues the ioctls). Every connected display gets its own buffer and layout. The mode already set is kept when possible; the ring turns at that mode's refresh rate (the fastest display's, 240 frames a second at most). A buffer is filled before it is put on its display and again right after: the first mode-set can empty it (seen with `bochs` after it had replaced the firmware frame buffer; only the ring was visible then). What the display showed before (the kernel console) is put back on hide and quit |
+| Frame buffer (`src/output/fbdev.rs`) | No DRM device, `/dev/fb0` exists | 32 bits per pixel with 8-bit channels, or RGB565. Before every frame the device is asked whether it is still the one that was opened; once it is not (a real driver replaced `efifb` or `vesafb`), nothing more is written into the old mapping and the daemon looks for the new device. It cannot keep a frame for the next program, so `quit --retain` is a plain quit here. Its refresh rate is unknown: the ring turns 60 times a second |
 | Headless (`src/output/headless.rs`) | `--headless=WxH --out=DIR` | For tests and review; frames are saved on request |
 
 Graphics devices change during boot: the firmware frame buffer

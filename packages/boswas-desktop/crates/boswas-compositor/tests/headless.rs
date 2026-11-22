@@ -29,7 +29,7 @@ use serde_json::{json, Value};
 use wayland_client::{
     delegate_noop,
     globals::{registry_queue_init, GlobalListContents},
-    protocol::{wl_buffer, wl_compositor, wl_registry, wl_shm, wl_shm_pool, wl_surface},
+    protocol::{wl_buffer, wl_callback, wl_compositor, wl_registry, wl_shm, wl_shm_pool, wl_surface},
     Connection, Dispatch, QueueHandle,
 };
 use wayland_protocols::{
@@ -89,6 +89,11 @@ impl Compositor {
     /// Starts the compositor with `config` (TOML). `role` names the helper
     /// (see `trusted_helper`) that programs started by the compositor run.
     fn start(config: &str, role: &str) -> Self {
+        Self::start_with(config, role, &[])
+    }
+
+    /// The same, with more options for the compositor.
+    fn start_with(config: &str, role: &str, options: &[&str]) -> Self {
         // Unix socket paths are short; keep the directory name short too.
         let runtime = tempfile::Builder::new().prefix("bw").tempdir_in("/tmp").unwrap();
         let config_path = runtime.path().join("compositor.toml");
@@ -96,6 +101,7 @@ impl Compositor {
         let log = std::fs::File::create(runtime.path().join("compositor.log")).unwrap();
         let mut child = Command::new(env!("CARGO_BIN_EXE_boswas-compositor"))
             .args(["--backend", "headless", "--headless-size", "800x600", "--test-input", "--print-env"])
+            .args(options)
             .arg("--config")
             .arg(&config_path)
             .env("XDG_RUNTIME_DIR", runtime.path())
@@ -224,6 +230,16 @@ struct Client {
     configured: bool,
     closed: bool,
     locked: Option<bool>,
+    /// Frame callbacks received.
+    frames: u32,
+}
+
+impl Dispatch<wl_callback::WlCallback, ()> for Client {
+    fn event(state: &mut Self, _: &wl_callback::WlCallback, event: wl_callback::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        if let wl_callback::Event::Done { .. } = event {
+            state.frames += 1;
+        }
+    }
 }
 
 impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for Client {
@@ -280,6 +296,17 @@ fn globals_of(conn: &Connection) -> Vec<String> {
 
 /// Opens a 320x200 toplevel filled with one opaque colour (ARGB).
 fn open_window(conn: &Connection, title: &str, argb: u32) -> (wayland_client::EventQueue<Client>, Client, xdg_toplevel::XdgToplevel) {
+    let (queue, client, toplevel, _surface, _buffer) = open_drawn_window(conn, title, argb);
+    (queue, client, toplevel)
+}
+
+/// The same, with the window's surface and buffer, to draw again.
+#[allow(clippy::type_complexity)]
+fn open_drawn_window(
+    conn: &Connection,
+    title: &str,
+    argb: u32,
+) -> (wayland_client::EventQueue<Client>, Client, xdg_toplevel::XdgToplevel, wl_surface::WlSurface, wl_buffer::WlBuffer) {
     let (globals, mut queue) = registry_queue_init::<Client>(conn).unwrap();
     let qh = queue.handle();
     let compositor: wl_compositor::WlCompositor = globals.bind(&qh, 1..=4, ()).unwrap();
@@ -308,7 +335,7 @@ fn open_window(conn: &Connection, title: &str, argb: u32) -> (wayland_client::Ev
     surface.damage_buffer(0, 0, w, h);
     surface.commit();
     queue.roundtrip(&mut client).unwrap();
-    (queue, client, toplevel)
+    (queue, client, toplevel, surface, buffer)
 }
 
 // ---------------------------------------------------------------------------
@@ -400,6 +427,49 @@ fn a_program_the_compositor_starts_is_trusted() {
     // And an ordinary client still sees no privileged global.
     let globals = globals_of(&compositor.wayland());
     assert!(!globals.iter().any(|g| PRIVILEGED.contains(&g.as_str())), "{globals:?}");
+}
+
+/// How many frames a second a client that draws again on every frame
+/// callback gets, over a second and a half.
+fn frames_per_second(compositor: &Compositor) -> f64 {
+    let conn = compositor.wayland();
+    let (mut queue, mut client, _toplevel, surface, buffer) = open_drawn_window(&conn, "Busy", 0xFF20_4060);
+    let qh = queue.handle();
+    let mut draw = |client: &mut Client| {
+        let before = client.frames;
+        surface.frame(&qh, ());
+        surface.attach(Some(&buffer), 0, 0);
+        surface.damage_buffer(0, 0, 320, 200);
+        surface.commit();
+        while client.frames == before {
+            queue.blocking_dispatch(client).unwrap();
+        }
+    };
+    // The window has appeared and the compositor draws at its pace.
+    for _ in 0..30 {
+        draw(&mut client);
+    }
+    let started = Instant::now();
+    let mut frames = 0u32;
+    while started.elapsed() < Duration::from_millis(1500) {
+        draw(&mut client);
+        frames += 1;
+    }
+    f64::from(frames) / started.elapsed().as_secs_f64()
+}
+
+#[test]
+fn a_client_draws_at_the_refresh_rate_of_its_output() {
+    // 60 Hz by default; a 144 Hz output gets 144 frames a second, not 60,
+    // and never more than its refresh rate.
+    for (options, hertz) in [(&[][..], 60.0), (&["--headless-refresh", "144"][..], 144.0)] {
+        let compositor = Compositor::start_with(LOCKED_DOWN, "none", options);
+        let outputs = compositor.control().ok(json!({"cmd": "outputs"}));
+        assert_eq!(outputs[0]["mode"]["refresh"].as_f64(), Some(hertz * 1000.0));
+        let rate = frames_per_second(&compositor);
+        println!("{hertz} Hz output: {rate:.1} frames a second");
+        assert!(rate > hertz * 0.75 && rate < hertz * 1.03, "{rate:.1} frames a second on a {hertz} Hz output");
+    }
 }
 
 #[test]

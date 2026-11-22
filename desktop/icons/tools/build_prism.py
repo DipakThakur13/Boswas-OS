@@ -466,7 +466,7 @@ def ramp(name: str, box: tuple, top: str, bottom: str, top_op: float = 1, bottom
     return lin(name, cx - TILT * h, y0, cx + TILT * h, y1, (0, top, top_op), (1, bottom, bottom_op))
 
 
-TIERS = {"light": ("light", "from"), "body": ("from", "to"), "deep": ("to", "deep"),
+TIERS = {"light": ("light", "from"), "body": ("from", "to"), "deep": ("to", "deep"), "rich": ("from", "deep"),
          "bright": ("light", "to"), "full": ("light", "deep"), "flat": ("from", "from")}
 
 
@@ -510,9 +510,20 @@ def edge(d: str, fam: str = "paper", w: float = 3, opacity: float | None = None)
     return S(d, family(fam)["edge"], w, opacity)
 
 
+def rim(d: str, box: tuple | None = None) -> P:
+    """Light caught by the edge of a dark part: a thin outline in the
+    material's edge colour, brighter at the top, so that a dark object stays
+    visible on a dark panel."""
+    x0, y0, x1, y1 = box or bbox(d)
+    ref = family("glass")["edge"]
+    return S(d, lin("rim", (x0 + x1) / 2, y0, (x0 + x1) / 2, y1, (0, ref, 0.95), (1, ref, 0.35)), 3)
+
+
 def obj(d: str, fam: str, tier: str = "body", depth: float = 14, box=None, strength: float = 1.0) -> list[P]:
-    """A lit part: its gradient and the highlight along its top edge."""
-    return [part(d, fam, tier, box), sheen(d, depth, box, strength)]
+    """A lit part: its gradient and the highlight along its top edge (and a
+    rim of light around a dark part)."""
+    out = [part(d, fam, tier, box), sheen(d, depth, box, strength)]
+    return out + [rim(d, box)] if fam == "glass" else out
 
 
 # ---------------------------------------------------------------------------
@@ -651,6 +662,2443 @@ def p_trash_full():
             obj(TRASH_BODY, "metal", "body", 10) + [edge(TRASH_BODY, "metal", 2.5, 0.8)] + trash_ribs())
 
 
+
+# ---------------------------------------------------------------------------
+# Shared parts of the coloured icons
+# ---------------------------------------------------------------------------
+R, R2, R3 = 20, 12, 6  # corner radii: bodies, inner parts, small parts
+
+
+def reflection(x: float, y: float, w: float, h: float, strength: float = 1.0) -> P:
+    """A soft diagonal band of light across a screen or glass."""
+    return F(poly((x + w * 0.42, y), (x + w * 0.66, y), (x + w * 0.34, y + h), (x + w * 0.10, y + h)),
+             light("highlight"), 0.14 * strength)
+
+
+def screen(x: float, y: float, w: float, h: float, fam: str = "azure", bezel: float = 10,
+           r: float = R, bottom: float | None = None) -> list[P]:
+    """A dark bezel around a lit display (in `fam`) with a soft reflection.
+    `bottom` is the radius of the lower corners (default: r)."""
+    bottom = r if bottom is None else bottom
+    shell = rrect(x, y, w, h, r, bottom)
+    sx, sy, sw, sh = x + bezel, y + bezel, w - 2 * bezel, h - 2 * bezel
+    inner = rrect(sx, sy, sw, sh, max(r - bezel, 4), max(bottom - bezel, 3))
+    return (obj(shell, "glass", "body", 8) + [part(inner, fam, "bright")] +
+            [F(inner, lin("glow", sx, sy, sx, sy + sh * 0.6, (0, light("highlight"), 0.22),
+                          (1, light("highlight"), 0)))] + [reflection(sx, sy, sw, sh)])
+
+
+def foot(cx: float, top: float, bottom: float, width: float) -> list[P]:
+    """A monitor's neck and foot."""
+    neck = poly((cx - 15, top), (cx + 15, top), (cx + 19, bottom - 8), (cx - 19, bottom - 8))
+    base = rr(cx - width / 2, bottom - 12, width, 16, 8)
+    return [part(neck, "metal", "deep")] + obj(base, "metal", "body", 6)
+
+
+def light_dot(cx: float, cy: float, r: float, fam: str = "mint") -> list[P]:
+    """A status light: a small lit disc."""
+    return [part(circle(cx, cy, r), fam, "bright"), sheen(circle(cx, cy, r), r, strength=0.8)]
+
+
+# ---------------------------------------------------------------------------
+# Devices
+# ---------------------------------------------------------------------------
+def d_display():
+    """Screen with an azure display on a metal stand."""
+    return [shadow(128, 216, 66, 10)] + foot(128, 174, 216, 104) + screen(20, 34, 216, 146)
+
+
+def d_computer():
+    """Desktop computer: screen on a stand beside a metal tower with a power light."""
+    tower = rr(194, 34, 46, 182, R2)
+    return ([shadow(128, 218, 114, 10)] + foot(100, 160, 216, 88) + screen(16, 44, 168, 122) +
+            obj(tower, "metal", "body", 8) + [edge(tower, "metal", 2.5),
+             S(line((206, 64), (228, 64)) + line((206, 80), (228, 80)), family("metal")["deep"], 6)] +
+            light_dot(217, 188, 7))
+
+
+def d_laptop():
+    """Laptop: open lid with an azure display, metal base."""
+    base = "M14 178H242V188Q242 208 222 208H34Q14 208 14 188Z"
+    return ([shadow(128, 208, 116, 10)] + screen(38, 42, 180, 138, bottom=4) +
+            obj(base, "metal", "body", 6) + [part(rr(102, 178, 52, 8, 4), "metal", "deep")])
+
+
+def d_harddisk():
+    """Internal drive: metal slab with a deeper front strip and a status light."""
+    slab = rr(24, 62, 208, 130, R)
+    strip = "M24 146H232V172Q232 192 212 192H44Q24 192 24 172Z"
+    return ([shadow(128, 192, 104, 11)] + obj(slab, "metal", "body", 12) + [edge(slab, "metal", 2.5)] +
+            [part(strip, "metal", "deep"), S(line((52, 169), (120, 169)), family("slate")["from"], 8, 0.7)] +
+            light_dot(198, 169, 9))
+
+
+def d_removable():
+    """External drive: rounded slate slab with a white eject symbol."""
+    slab = rr(28, 62, 200, 132, 32)
+    return ([shadow(128, 194, 96, 11)] + obj(slab, "slate", "body", 14) +
+            [FS(poly((128, 96), (156, 128), (100, 128)), family("slate")["glyph"], 8),
+             S(line((102, 152), (154, 152)), family("slate")["glyph"], 12)])
+
+
+def d_usb():
+    """USB stick: metal plug with two contacts, azure body with a light."""
+    plug = rr(94, 18, 68, 70, 8)
+    body = rr(70, 76, 116, 158, 28)
+    return ([shadow(128, 232, 54, 8)] + obj(plug, "metal", "body", 8) + [edge(plug, "metal", 2.5),
+             part(rr(106, 36, 16, 22, 3) + rr(134, 36, 16, 22, 3), "glass", "body")] +
+            [shade(move(body, 0, -4))] + obj(body, "azure", "body", 14) +
+            [F(circle(128, 196, 11), family("azure")["glyph"], 0.9)])
+
+
+def d_flash():
+    """Memory card: iris card with a cut corner, golden contacts and a white label."""
+    card = "M80 20H158L198 60V212Q198 232 178 232H80Q60 232 60 212V40Q60 20 80 20Z"
+    contacts = "".join(rr(x, 36, 14, 40, 4) for x in (80, 101, 122, 143))
+    return ([shadow(128, 232, 66, 8)] + obj(card, "iris", "body", 12) +
+            [part(contacts, "sun", "light", (80, 36, 157, 76)), part(rr(80, 124, 98, 88, R2), "paper"),
+             S(line((100, 168), (158, 168)), family("iris")["to"], 12)])
+
+
+def d_optical():
+    """Disc: metal with a centre hole and two iridescent reflections."""
+    disc = circle(128, 124, 106)
+    return ([shadow(128, 226, 80, 10),
+             F(disc + circle(128, 124, 17), paint_of("metal", "body", (22, 18, 234, 230)), evenodd=True),
+             S(arc(128, 124, 70, 300, 30), family("sky")["light"], 26, 0.75),
+             S(arc(128, 124, 70, 120, 210), family("orchid")["light"], 26, 0.6),
+             S(circle(128, 124, 34), family("metal")["deep"], 12, 0.7), edge(disc, "metal", 2.5, 0.8)])
+
+
+def d_phone():
+    """Phone: dark body with an azure display."""
+    return [shadow(128, 236, 56, 8)] + screen(66, 14, 124, 226, bezel=9, r=28) + [
+        F(rr(112, 30, 32, 7, 3.5), family("glass")["deep"])]
+
+
+def d_printer():
+    """Printer: paper in the feeder, metal body, printed page in the tray, status light."""
+    feed = rr(70, 22, 116, 84, 8)
+    body = rr(22, 84, 212, 104, R)
+    out = rr(62, 156, 132, 76, 8)
+    return ([shadow(128, 228, 104, 9)] + [part(feed, "paper"), edge(feed)] +
+            [shade(move(body, 0, -5))] + obj(body, "metal", "body", 12) + [edge(body, "metal", 2.5)] +
+            [part(rr(52, 148, 152, 14, 7), "glass")] + [part(out, "paper"), edge(out),
+             S(line((84, 186), (172, 186)) + line((84, 208), (148, 208)), family("azure")["from"], 8)] +
+            light_dot(204, 116, 8))
+
+
+def d_headphones():
+    """Headphones: dark head band and ear cups with azure cushions."""
+    cup_l, cup_r = rr(24, 140, 58, 94, 26), rr(174, 140, 58, 94, 26)
+    return ([shadow(128, 232, 100, 8),
+             S("M50 160V132A78 78 0 0 1 206 132V160", paint_of("glass", "body", (50, 54, 206, 160)), 18)] +
+            obj(cup_l, "glass", "body", 10) + obj(cup_r, "glass", "body", 10) +
+            [part(rr(70, 152, 22, 70, 11) + rr(164, 152, 22, 70, 11), "azure", "bright", (70, 152, 186, 222))])
+
+
+def d_audio_card():
+    """Loudspeaker: dark cabinet with a metal tweeter and woofer, azure dust cap."""
+    cab = rr(56, 16, 144, 220, 24)
+    return ([shadow(128, 236, 70, 8)] + obj(cab, "glass", "body", 10) +
+            [part(circle(128, 68, 24), "metal"), F(circle(128, 68, 10), family("glass")["to"]),
+             part(circle(128, 156, 54), "metal"), S(circle(128, 156, 36), family("metal")["deep"], 6),
+             part(circle(128, 156, 18), "azure", "bright")])
+
+
+def d_keyboard():
+    """Keyboard: dark body, two rows of light keys and an azure space bar."""
+    keys = "".join(rr(36 + i * 24, 102, 17, 17, 5) for i in range(8))
+    keys += "".join(rr(48 + i * 24, 126, 17, 17, 5) for i in range(7))
+    keys += rr(36, 150, 28, 17, 5) + rr(192, 150, 28, 17, 5)
+    body = rr(16, 80, 224, 108, R)
+    return ([shadow(128, 188, 108, 10)] + obj(body, "glass", "body", 10) +
+            [part(keys, "metal", "body", (36, 102, 220, 167)), part(rr(74, 150, 108, 17, 6), "azure", "bright")])
+
+
+def d_mouse():
+    """Mouse: light body with a button split and an azure scroll wheel."""
+    body = rr(70, 18, 116, 216, 58)
+    return ([shadow(128, 232, 58, 8)] + obj(body, "metal", "body", 18) + [edge(body, "metal", 2.5),
+             S(line((72, 114), (184, 114)) + line((128, 20), (128, 114)), family("metal")["deep"], 4),
+             part(rr(117, 46, 22, 46, 11), "azure", "bright")])
+
+
+def d_webcam():
+    """Webcam: round dark head on a metal foot, glass lens with an azure ring."""
+    base = rr(60, 208, 136, 22, 11)
+    return ([shadow(128, 228, 72, 8), part(poly((104, 176), (152, 176), (164, 212), (92, 212)), "metal", "deep")] +
+            obj(base, "metal", "body", 6) + obj(circle(128, 104, 88), "glass", "body", 16) +
+            [part(circle(128, 104, 50), "metal", "deep"), part(circle(128, 104, 38), "glass", "body"),
+             S(circle(128, 104, 26), family("azure")["from"], 7), F(circle(114, 90, 8), light("highlight"), 0.6)])
+
+
+def d_wired():
+    """Network socket: metal plate, dark port, golden contacts."""
+    plate = rr(36, 36, 184, 184, 32)
+    port = "M72 92H184V164H158V186H98V164H72Z"
+    pins = "".join(line((x, 104), (x, 124)) for x in (96, 112, 128, 144, 160))
+    return ([shadow(128, 220, 90, 10)] + obj(plate, "metal", "body", 14) + [edge(plate, "metal", 2.5),
+             part(port, "glass", "body"), S(pins, family("sun")["from"], 8)])
+
+
+def d_wireless():
+    """Wireless router: metal body with two antennas, status lights and azure radio waves."""
+    body = rr(24, 144, 208, 72, 24)
+    waves = paint_of("azure", "body", (80, 52, 176, 120))
+    return ([shadow(128, 216, 104, 9),
+             S(line((62, 148), (46, 76)) + line((194, 148), (210, 76)), paint_of("glass", "body", (46, 76, 210, 148)), 12)] +
+            obj(body, "metal", "body", 12) + [edge(body, "metal", 2.5)] +
+            light_dot(66, 180, 8) + light_dot(94, 180, 8) +
+            [S(line((150, 180), (198, 180)), family("metal")["deep"], 8),
+             S(arc(128, 124, 34, -48, 48) + arc(128, 124, 64, -48, 48), waves, 13), F(circle(128, 122, 10), waves)])
+
+
+# ---------------------------------------------------------------------------
+# Mimetypes: a page with a folded corner and a symbol in the family's colour
+# ---------------------------------------------------------------------------
+PAGE = "M68 20H156L208 72V212A20 20 0 0 1 188 232H68A20 20 0 0 1 48 212V40A20 20 0 0 1 68 20Z"
+FOLD = "M156 20V60Q156 72 168 72H208Z"
+SYMBOL_BOX = (76, 88, 180, 196)
+MW = 14  # stroke width of a page symbol
+
+
+def sym_paint(fam: str) -> Grad:
+    """The paint of a symbol on a page: the family from its lit to its deep shade."""
+    return paint_of(fam, "rich", SYMBOL_BOX)
+
+
+def page(symbol: list[P], d: str = PAGE, fold: str = FOLD) -> list[P]:
+    x0, _y0, x1, y1 = bbox(d)
+    return ([shadow((x0 + x1) / 2, y1 - 2, (x1 - x0) * 0.46, 9)] + obj(d, "paper", "body", 10) +
+            [edge(d), shade(move(fold, -5, 5)), part(fold, "paper", "deep"), edge(fold, w=2)] + symbol)
+
+
+def m_text():
+    """Page with text lines."""
+    return page([S(line((84, 104), (172, 104)) + line((84, 132), (172, 132)) + line((84, 160), (172, 160)) +
+                   line((84, 188), (136, 188)), sym_paint("slate"), MW)])
+
+
+def m_html():
+    """Page with angle brackets and a slash."""
+    g = sym_paint("azure")
+    return page([S(line((104, 112), (80, 142), (104, 172)) + line((152, 112), (176, 142), (152, 172)), g, MW),
+                 S(line((140, 104), (116, 180)), g, MW)])
+
+
+def m_script():
+    """Page with a prompt chevron and a cursor line."""
+    g = sym_paint("mint")
+    return page([S(line((84, 112), (114, 140), (84, 168)), g, MW + 2), S(line((126, 174), (172, 174)), g, MW + 2)])
+
+
+def m_image():
+    """Page with mountains and a sun."""
+    return page([FS(poly((80, 180), (110, 136), (132, 162), (148, 146), (176, 180)), sym_paint("azure"), 10),
+                 part(circle(152, 112, 14), "sun", "body")])
+
+
+def m_audio():
+    """Page with two beamed notes."""
+    g = sym_paint("orchid")
+    return page([S(line((110, 164), (110, 112), (160, 102), (160, 152)), g, MW),
+                 F(ellipse(96, 166, 17, 14), g), F(ellipse(146, 154, 17, 14), g)])
+
+
+def m_video():
+    """Page with a film frame and a play triangle."""
+    g = sym_paint("coral")
+    return page([S(rr(80, 104, 96, 80, 14), g, MW), FS(poly((116, 126), (148, 144), (116, 162)), g, 8)])
+
+
+def m_pdf():
+    """Page with a heading block and text lines."""
+    g = sym_paint("coral")
+    return page([FS(rr(84, 98, 88, 34, 6), g, 4), S(line((84, 156), (172, 156)) + line((84, 182), (140, 182)), g, MW)])
+
+
+def m_archive():
+    """Page with a zip fastener."""
+    g = sym_paint("slate")
+    teeth = "".join(rr(108 if i % 2 == 0 else 128, 92 + i * 16, 20, 10, 3) for i in range(4))
+    return page([F(teeth, g), S(rr(112, 158, 32, 30, 9), g, 11)])
+
+
+def m_package():
+    """Page with a parcel."""
+    g = sym_paint("sun")
+    return page([F("M128 96L170 116V162L128 182L86 162V116Z", paint_of("sun", "light", SYMBOL_BOX)),
+                 S("M128 96L170 116V162L128 182L86 162V116Z" + line((86, 116), (128, 136), (170, 116)) +
+                   line((128, 136), (128, 182)), g, 10)])
+
+
+def m_deb():
+    """Page with an arrow into an open box."""
+    g = sym_paint("iris")
+    return page([S("M84 148V170Q84 182 96 182H160Q172 182 172 170V148", g, MW),
+                 S(line((128, 96), (128, 152)) + line((106, 132), (128, 154), (150, 132)), g, MW)])
+
+
+def m_apk():
+    """Page with a phone and a download arrow."""
+    g = sym_paint("mint")
+    return page([S(rr(94, 94, 68, 94, 16), g, MW - 2),
+                 S(line((128, 114), (128, 160)) + line((114, 148), (128, 162), (142, 148)), g, 10)])
+
+
+def m_executable():
+    """Page with a gear."""
+    g = sym_paint("slate")
+    return page([F(gear(128, 142, 8, 46, 34, 11, 17) + circle(128, 142, 13), g, evenodd=True)])
+
+
+def m_sharedlib():
+    """Page with three stacked layers."""
+    g = sym_paint("slate")
+    return page([FS("M128 98L170 118L128 138L86 118Z", g, 8),
+                 S(line((86, 142), (128, 162), (170, 142)) + line((86, 164), (128, 184), (170, 164)), g, 12)])
+
+
+def m_document():
+    """Page with a heading and text lines."""
+    g = sym_paint("azure")
+    return page([S(line((86, 104), (146, 104)), g, 20),
+                 S(line((84, 136), (172, 136)) + line((84, 160), (172, 160)) + line((84, 184), (140, 184)), g, 12)])
+
+
+def m_spreadsheet():
+    """Page with a table grid."""
+    g = sym_paint("mint")
+    return page([S(rr(82, 98, 92, 88, 12), g, 12),
+                 S(line((82, 128), (174, 128)) + line((82, 156), (174, 156)) + line((128, 98), (128, 186)), g, 9)])
+
+
+def m_presentation():
+    """Page with a bar chart."""
+    g = sym_paint("sun")
+    return page([S(line((98, 178), (98, 146)) + line((128, 178), (128, 108)) + line((158, 178), (158, 128)), g, 20)])
+
+
+def m_font():
+    """Page with the letters "Aa" drawn as strokes."""
+    g = sym_paint("orchid")
+    big = line((80, 182), (108, 104), (136, 182)) + line((92, 156), (124, 156))
+    small = circle(158, 166, 15) + line((173, 146), (173, 182))
+    return page([S(big + small, g, MW)])
+
+
+def m_json():
+    """Page with curly braces and two dots."""
+    g = sym_paint("iris")
+    left = "M112 100Q96 100 96 114V128Q96 142 82 142Q96 142 96 156V170Q96 184 112 184"
+    right = "M144 100Q160 100 160 114V128Q160 142 174 142Q160 142 160 156V170Q160 184 144 184"
+    return page([S(left + right, g, MW), F(circle(120, 142, 7) + circle(136, 142, 7), g)])
+
+
+def m_unknown():
+    """Page with a question mark."""
+    g = sym_paint("slate")
+    hook = "M104 122Q104 98 128 98Q152 98 152 120Q152 134 140 140Q128 146 128 160"
+    return page([S(hook, g, 16), F(circle(128, 184, 10), g)])
+
+
+def mini_window(x: float, y: float, w: float, h: float, fam: str = "sky") -> list[P]:
+    """A small application window: a light body under a title bar in `fam`."""
+    frame = rr(x, y, w, h, R2)
+    bar = rrect(x, y, w, 22, R2, 0)
+    return ([shade(move(frame, 0, 4))] + obj(frame, "paper", "body", 8) + [edge(frame, w=2.5)] +
+            [part(bar, fam, "body")])
+
+
+def badge(cx: float, cy: float, r: float, fam: str, symbol: list[P]) -> list[P]:
+    """A round badge in `fam` with a symbol, lifted off what lies below by a shade."""
+    disc = circle(cx, cy, r)
+    return [shade(circle(cx, cy + 4, r + 2), 1.4)] + obj(disc, fam, "body", r * 0.6) + symbol
+
+
+def page_window(symbol: list[P]) -> list[P]:
+    """The application window on the page, with a badge (Windows family)."""
+    return page(mini_window(76, 92, 92, 74) + symbol)
+
+
+def m_win_exe():
+    """Page with an application window and a sandbox shield badge."""
+    s = shield(162, 132, 30, 66)
+    return page_window([shade(move(s, 0, 4), 1.4)] + obj(s, "sun", "body", 14))
+
+
+def m_win_msi():
+    """Page with an application window and a download badge."""
+    cx, cy = 160, 166
+    arrow = line((cx, cy - 15), (cx, cy + 12)) + line((cx - 11, cy + 1), (cx, cy + 13), (cx + 11, cy + 1))
+    return page_window(badge(cx, cy, 28, "sun", [S(arrow, family("sun")["glyph"], 8)]))
+
+
+def m_win_lnk():
+    """Page with an application window and a shortcut-arrow badge."""
+    box = rr(132, 136, 56, 56, R2)
+    curve = "M148 176V166Q148 152 164 152H172" + arrowhead((174, 152), (1, 0), 10, 45)
+    return page_window([shade(move(box, 0, 4), 1.4)] + obj(box, "sun", "body", 10) +
+                       [S(curve, family("sun")["glyph"], 8)])
+
+
+# ---------------------------------------------------------------------------
+# The Boswas OS mark, copied from desktop/branding/boswas-os-mark.svg
+# ---------------------------------------------------------------------------
+_MARK: dict = {}
+_MARK_GRADIENTS = ("linearGradient", "radialGradient")
+_MARK_ATTRS = ("gradientUnits", "x1", "y1", "x2", "y2", "cx", "cy", "r", "fx", "fy")
+
+
+def load_mark() -> dict:
+    """The mark's gradients and paths. The file has a 256 viewBox, a <defs>
+    with linear and radial gradients in user space, then only <path>
+    elements filled with one of those gradients or a hex colour."""
+    if _MARK:
+        return _MARK
+    root = ET.parse(MARK_FILE).getroot()
+    if root.get("viewBox") != "0 0 256 256":
+        raise SystemExit(f"build_prism: {MARK_FILE} must have the viewBox 0 0 256 256")
+    gradients = []
+    for el in root.iter():
+        tag = el.tag.split("}")[-1]
+        if tag not in _MARK_GRADIENTS:
+            continue
+        if el.get("gradientUnits") != "userSpaceOnUse" or el.get("gradientTransform") or el.get("href"):
+            raise SystemExit(f"build_prism: {MARK_FILE}: gradient {el.get('id')} is not in plain user space")
+        stops = []
+        for stop in el:
+            colour_ = stop.get("stop-color", "")
+            if not re.fullmatch(r"#[0-9A-Fa-f]{6}", colour_):
+                raise SystemExit(f"build_prism: {MARK_FILE}: stop colour {colour_!r} is not #RRGGBB")
+            stops.append((stop.get("offset"), colour_.upper(), stop.get("stop-opacity")))
+        attrs = [(k, el.get(k)) for k in _MARK_ATTRS if el.get(k) is not None]
+        gradients.append((tag, el.get("id"), attrs, stops))
+    paths = []
+    for el in root:
+        tag = el.tag.split("}")[-1]
+        if tag == "path":
+            extra = set(el.attrib) - {"d", "fill", "fill-opacity", "fill-rule"}
+            if extra:
+                raise SystemExit(f"build_prism: {MARK_FILE}: unexpected path attributes {sorted(extra)}")
+            paths.append((el.get("fill"), el.get("fill-opacity"), el.get("fill-rule"), el.get("d")))
+        elif tag not in ("defs", "title", "desc"):
+            raise SystemExit(f"build_prism: {MARK_FILE}: unexpected element <{tag}>")
+    _MARK.update(gradients=gradients, paths=paths)
+    return _MARK
+
+
+def mark(x: float = 0, y: float = 0, size: float = 256) -> Raw:
+    """The full-colour mark, its 256 box placed at (x, y) and scaled to `size`.
+    Gradients and paths are copied as they are; their ids get the file's
+    prefix ("{id}-boswas-mark-..."), and a group places and scales them."""
+    data = load_mark()
+    ids = {gid: "{id}-" + gid for _tag, gid, _attrs, _stops in data["gradients"]}
+    defs = []
+    for tag, gid, attrs, stops in data["gradients"]:
+        head = " ".join(f'{k}="{v}"' for k, v in attrs)
+        lines = [f'    <{tag} id="{ids[gid]}" {head}>']
+        for offset, colour_, opacity in stops:
+            op = f' stop-opacity="{opacity}"' if opacity is not None else ""
+            lines.append(f'      <stop offset="{offset}" stop-color="{colour_}"{op}/>')
+        lines.append(f"    </{tag}>")
+        defs.append("\n".join(lines))
+    body = []
+    for fill, opacity, rule, d in data["paths"]:
+        ref = re.fullmatch(r"url\(#([^)]+)\)", fill or "")
+        paint = f"url(#{ids[ref.group(1)]})" if ref else fill
+        attrs = f' fill-opacity="{opacity}"' if opacity is not None else ""
+        attrs += f' fill-rule="{rule}"' if rule is not None else ""
+        body.append(f'<path d="{d}" fill="{paint}"{attrs}/>')
+    if (x, y, size) == (0, 0, 256):
+        return Raw("\n".join(body), defs)
+    group = f'<g transform="translate({n(x)} {n(y)}) scale({n(size / 256)})">'
+    return Raw("\n".join([group] + ["  " + b for b in body] + ["</g>"]), defs)
+
+
+# ---------------------------------------------------------------------------
+# Applications: objects (no tile)
+# ---------------------------------------------------------------------------
+def white(fam: str) -> str:
+    """The symbol colour on a family (`glyph`)."""
+    return family(fam)["glyph"]
+
+
+def disc(cx: float, cy: float, r: float, fam: str, tier: str = "full") -> list[P]:
+    """A round object (a button, a globe) with its contact shadow."""
+    d = circle(cx, cy, r)
+    return [shadow(cx, cy + r - 2, r * 0.72, 10)] + obj(d, fam, tier, r * 0.5)
+
+
+def window(x: float, y: float, w: float, h: float, fam: str, bar: float = 30) -> list[P]:
+    """An application window: a light body under a title bar in `fam`."""
+    frame = rr(x, y, w, h, R)
+    return (obj(frame, "paper", "body", 10) + [edge(frame)] +
+            [part(rrect(x, y, w, bar, R, 0), fam, "body"), sheen(rrect(x, y, w, bar, R, 0), 10)])
+
+
+def dark_window(x: float, y: float, w: float, h: float) -> list[P]:
+    """A console window: a dark body under a slightly lighter title bar."""
+    frame = rr(x, y, w, h, R)
+    bar = rrect(x, y, w, 30, R, 0)
+    return obj(frame, "glass", "body", 10) + [part(bar, "glass", "light"), sheen(bar, 10)]
+
+
+def pencil(tail: tuple, tip: tuple, width: float = 30) -> list[P]:
+    """A pencil from tail to tip: coral eraser, metal ferrule, sun body lit
+    across its width, wooden cone and a dark point."""
+    (tx, ty), (px, py) = tail, tip
+    length = math.hypot(px - tx, py - ty)
+    ux, uy = (px - tx) / length, (py - ty) / length
+    nx, ny = -uy * width / 2, ux * width / 2
+
+    def at(s: float, side: float = 0) -> tuple[float, float]:
+        return tx + ux * s + nx * side, ty + uy * s + ny * side
+
+    def band(s0: float, s1: float) -> str:
+        return poly(at(s0, 1), at(s1, 1), at(s1, -1), at(s0, -1))
+    cone, point = length - 40, length - 13
+    across = lambda fam, top, bottom: lin("pencil", *at(0, 1), *at(0, -1),  # noqa: E731
+                                           (0, family(fam)[top]), (1, family(fam)[bottom]))
+    outline = poly(at(0, 1), at(cone, 1), at(length), at(cone, -1), at(0, -1))
+    return [shade(move(outline, 6, 8)),
+            F(band(0, 18), across("coral", "from", "to")),
+            F(band(18, 34), across("metal", "from", "deep")),
+            F(band(34, cone), across("sun", "light", "to")),
+            F(poly(at(cone, 1), at(length), at(cone, -1)), across("sun", "light", "from")),
+            F(poly(at(point, 13 / 40), at(length), at(point, -13 / 40)), family("glass")["to"])]
+
+
+def bust(cx: float, head_y: float, head_r: float, width: float, bottom: float) -> str:
+    """Head and shoulders, as one path."""
+    top = head_y + head_r + 10
+    half = width / 2
+    return (circle(cx, head_y, head_r) +
+            f"M{pt(cx - half, bottom)}V{n(top + half * 0.7)}Q{pt(cx - half, top)} {pt(cx, top)}"
+            f"Q{pt(cx + half, top)} {pt(cx + half, top + half * 0.7)}V{n(bottom - 14)}"
+            f"Q{pt(cx + half, bottom)} {pt(cx + half - 14, bottom)}H{n(cx - half + 14)}"
+            f"Q{pt(cx - half, bottom)} {pt(cx - half, bottom - 14)}Z")
+
+
+def arc_arrow(cx: float, cy: float, r: float, a0: float, a1: float, paint, w: float = 24) -> list[P]:
+    """A thick clockwise arc from a0 to a1 ending in a filled arrowhead."""
+    tip = polar(cx, cy, r, a1 + 22)
+    base_out, base_in = polar(cx, cy, r + w * 1.05, a1), polar(cx, cy, r - w * 1.05, a1)
+    return [S(arc(cx, cy, r, a0, a1 + 2), paint, w), FS(poly(base_out, tip, base_in), paint, 6)]
+
+
+def gear_shape(cx: float, cy: float, r: float, hole: float) -> str:
+    return gear(cx, cy, 8, r, r * 0.8, 10.5, 16, 22.5) + circle(cx, cy, hole)
+
+
+def gear_obj(cx: float, cy: float, r: float, fam: str) -> list[P]:
+    """A gear with a hole, lit from the top, with a groove around its hub."""
+    d = gear_shape(cx, cy, r, r * 0.3)
+    box = (cx - r, cy - r, cx + r, cy + r)
+    return [F(d, paint_of(fam, "body", box), evenodd=True),
+            F(d, lin("sheen", cx, cy - r, cx, cy - r + 16, (0, light("highlight"), light("highlight-opacity")),
+                     (1, light("highlight"), 0)), evenodd=True),
+            S(circle(cx, cy, r * 0.56), family(fam)["deep"], r * 0.1, 0.45)]
+
+
+def g_settings():
+    """Slate gear with a hub hole and a groove."""
+    return [shadow(128, 226, 80, 10)] + gear_obj(128, 124, 104, "slate")
+
+
+def g_control():
+    """Iris gear with a toggle switch in front of it."""
+    pill = rr(112, 150, 124, 64, 32)
+    return ([shadow(150, 218, 96, 10)] + gear_obj(108, 104, 88, "iris") + [shade(move(pill, 0, 5), 1.4)] +
+            obj(pill, "paper", "body", 12) + [edge(pill)] + obj(circle(204, 182, 22), "mint", "body", 10))
+
+
+def g_info():
+    """Processor chip with metal pins and an azure "i" disc."""
+    pins = ""
+    for c in (92, 128, 164):
+        pins += rr(c - 8, 30, 16, 40, 5) + rr(c - 8, 186, 16, 40, 5) + rr(30, c - 8, 40, 16, 5) + rr(186, c - 8, 40, 16, 5)
+    chip = rr(52, 52, 152, 152, R)
+    i_mark = circle(128, 104, 9) + rr(120, 122, 16, 40, 8)
+    return ([shadow(128, 226, 90, 9), part(pins, "slate", "light", (30, 30, 226, 226))] +
+            obj(chip, "glass", "body", 10) + [S(rr(70, 70, 116, 116, R2), family("glass")["light"], 3, 0.8)] +
+            obj(circle(128, 128, 42), "azure", "body", 16) + [F(i_mark, white("azure"))])
+
+
+def g_terminal():
+    """Dark console window with a white prompt chevron and a mint cursor."""
+    return ([shadow(128, 220, 104, 10)] + dark_window(20, 36, 216, 184) +
+            [S(line((60, 106), (96, 134), (60, 162)), white("glass"), 18),
+             S(line((112, 166), (164, 166)), family("glass")["accent"], 18)])
+
+
+def g_files():
+    """Folder holding a white sheet and an azure sheet that rises out of it."""
+    sheet = rr(96, 22, 116, 120, 12)
+    return ([shadow(128, 214, 104, 13)] + obj(FOLDER_BACK, "sun", "body", 10) +
+            [part(FOLDER_PAPER, "paper"), shade(move(sheet, -4, 4)), part(sheet, "azure", "bright"),
+             sheen(sheet, 10), shade(move(FOLDER_FRONT, 0, -7), 0.5), shade(move(FOLDER_FRONT, 0, -3))] +
+            obj(FOLDER_FRONT, "sun", "light", 12))
+
+
+def g_monitor():
+    """Dark gauge with a mint to coral scale and a white needle."""
+    scale = lin("scale", 48, 0, 208, 0, (0, family("mint")["from"]), (0.5, family("sun")["from"]),
+                (1, family("coral")["from"]))
+    return ([shadow(128, 224, 80, 9)] + obj(circle(128, 126, 100), "glass", "body", 22) +
+            [S(arc(128, 126, 72, 236, 124), scale, 22),
+             S(line((128, 126), polar(128, 126, 62, 48)), white("glass"), 12),
+             F(circle(128, 126, 15), white("glass")), F(circle(128, 126, 6), family("glass")["to"])])
+
+
+def g_browser():
+    """Azure globe with white meridians and equator (a generic browser, not a vendor logo)."""
+    def parallel(y: float) -> str:
+        half = math.sqrt(100 ** 2 - (y - 124) ** 2) - 12
+        return line((128 - half, y), (128 + half, y))
+    lines = (ellipse(128, 124, 44, 100) + parallel(124) + parallel(76) + parallel(172) +
+             line((128, 36), (128, 212)))
+    return disc(128, 124, 100, "azure") + [S(lines, white("azure"), 7, 0.5),
+                                          F(ellipse(92, 72, 34, 22), light("highlight"), 0.16)]
+
+
+def g_calculator():
+    """Dark calculator with an azure display, light keys and a coral equals key."""
+    keys = "".join(rr(x, y, 34, 28, 8) for y in (104, 142) for x in (66, 111, 156))
+    keys += rr(66, 180, 34, 28, 8) + rr(111, 180, 34, 28, 8)
+    return ([shadow(128, 222, 76, 9)] + obj(rr(48, 20, 160, 204, R), "glass", "body", 10) +
+            [part(rr(64, 38, 128, 48, 10), "azure", "light"), S(line((128, 62), (172, 62)), white("azure"), 10, 0.9),
+             part(keys, "metal", "body", (66, 104, 190, 208)), part(rr(156, 180, 34, 28, 8), "coral", "body")])
+
+
+def g_editor():
+    """Page with azure text lines and a pencil writing on it."""
+    d = rr(36, 20, 152, 208, R)
+    lines = line((64, 64), (160, 64)) + line((64, 96), (160, 96)) + line((64, 128), (144, 128)) + line((64, 160), (112, 160))
+    return ([shadow(112, 226, 72, 9)] + obj(d, "paper", "body", 10) + [edge(d), S(lines, family("azure")["from"], 12)] +
+            pencil((228, 92), (124, 212)))
+
+
+def g_image():
+    """Photo in a white frame (sky, hills and a sun) in front of an iris print."""
+    back = rr(72, 26, 160, 128, 14)
+    front = rr(24, 70, 180, 148, 14)
+    pic = rr(38, 84, 152, 104, 6)
+    hills = "M38 168L84 128L118 156L142 138L190 172V182Q190 188 184 188H44Q38 188 38 182Z"
+    return ([shadow(128, 218, 104, 10)] + obj(back, "iris", "body", 10) + [shade(move(front, 0, -5))] +
+            obj(front, "paper", "body", 10) + [edge(front), part(pic, "sky", "bright"),
+             part(hills, "mint", "body"), part(circle(152, 112, 13), "sun", "light")])
+
+
+def g_book():
+    """Open book on a coral cover, a sun bookmark ribbon."""
+    cover = ("M22 70Q22 60 32 60H224Q234 60 234 70V206Q234 216 224 216H152Q138 216 128 226Q118 216 104 216H32"
+             "Q22 216 22 206Z")
+    left = "M128 76Q98 52 36 54V196Q98 194 128 214Z"
+    right = "M128 76Q158 52 220 54V196Q158 194 128 214Z"
+    text = "".join(line((52, y), (110, y + 6)) + line((146, y + 6), (204, y)) for y in (88, 116, 144))
+    return ([shadow(128, 222, 106, 9)] + obj(cover, "coral", "body", 10) + obj(left, "paper", "body", 8) +
+            [part(right, "paper", "deep", (128, 52, 220, 214)), S(text, family("slate")["light"], 7, 0.8),
+             FS("M172 44V104L183 94L194 104V44Z", paint_of("sun", "body", (172, 44, 194, 104)), 4)])
+
+
+def g_archive():
+    """Cardboard box with a lighter lid and a metal zip running down its front."""
+    body = rr(34, 92, 188, 132, 16)
+    lid = rr(24, 54, 208, 50, 14)
+    teeth = "".join(rr(120 if i % 2 == 0 else 128, 112 + i * 16, 8, 8, 2) for i in range(5))
+    return ([shadow(128, 224, 96, 10)] + obj(body, "sun", "deep", 8) + [shade(move(lid, 0, 6), 1.4)] +
+            obj(lid, "sun", "body", 12) + [F(teeth, family("glass")["to"], 0.75),
+             part(rr(112, 84, 32, 22, 8), "metal", "body"), F(rr(122, 90, 12, 10, 4), family("glass")["to"])])
+
+
+def g_screenshot():
+    """A screen region (sky, hills) inside four coral selection corners."""
+    pic = rr(46, 54, 164, 148, R2)
+    hills = "M46 170L92 128L128 160L152 142L210 184V190Q210 202 198 202H58Q46 202 46 190Z"
+    corners = ("M24 76V48Q24 28 44 28H72M184 28H212Q232 28 232 48V76"
+               "M232 180V208Q232 228 212 228H184M72 228H44Q24 228 24 208V180")
+    return ([shadow(128, 204, 84, 8)] + obj(pic, "sky", "bright", 10) + [part(hills, "mint", "body"),
+             part(circle(170, 92, 14), "sun", "light"),
+             S(corners, paint_of("coral", "body", (24, 28, 232, 228)), 18)])
+
+
+def g_help():
+    """Azure disc with a white question mark."""
+    hook = "M98 100Q98 66 128 66Q158 66 158 98Q158 116 142 126Q128 134 128 154"
+    return disc(128, 124, 100, "azure") + [S(hook, white("azure"), 22), F(circle(128, 186, 14), white("azure"))]
+
+
+def g_find():
+    """Magnifying glass: metal ring around azure glass, dark handle."""
+    handle = line((160, 160), (214, 214))
+    return ([shadow(150, 228, 80, 8), S(handle, family("glass")["edge"], 40, 0.6),
+             S(handle, paint_of("glass", "body", (150, 150, 222, 222)), 34)] +
+            [part(circle(108, 108, 56), "azure", "light", (52, 52, 164, 164)),
+             S(circle(108, 108, 66), paint_of("metal", "body", (32, 32, 184, 184)), 22),
+             S(arc(108, 108, 40, 285, 345), light("highlight"), 10, 0.7)])
+
+
+def g_wallet():
+    """Mint wallet with a deeper pocket flap, a sun clasp and a card inside."""
+    body = rr(26, 66, 204, 152, R)
+    flap = "M230 104H170Q148 104 148 126V150Q148 172 170 172H230Z"
+    card = rr(48, 38, 132, 60, 10)
+    return ([shadow(128, 218, 100, 10)] + obj(card, "azure", "body", 8) + [shade(move(body, 0, -5))] +
+            obj(body, "mint", "body", 12) + [shade(move(flap, -4, 4)), part(flap, "mint", "deep"),
+             part(circle(178, 138, 11), "sun", "light")])
+
+
+def g_partition():
+    """Slate disc as a pie, one azure partition pulled out."""
+    c, r = (120, 134), 92
+    p0, p1 = polar(*c, r, 120), polar(*c, r, 360)
+    rest = f"M{pt(*c)}L{pt(*p0)}A{r} {r} 0 1 1 {pt(*p1)}Z"
+    oc = polar(*c, 16, 60)
+    q0, q1 = polar(*oc, r, 0), polar(*oc, r, 120)
+    wedge = f"M{pt(*oc)}L{pt(*q0)}A{r} {r} 0 0 1 {pt(*q1)}Z"
+    return ([shadow(128, 226, 90, 9)] + obj(rest, "slate", "body", 16, (28, 42, 212, 226)) +
+            [shade(move(wedge, -3, 5))] + obj(wedge, "azure", "body", 12, (oc[0], oc[1] - r, oc[0] + r, oc[1] + r)))
+
+
+def g_menuedit():
+    """Menu card with slate rows, one highlighted in azure, and a pencil."""
+    card = rr(28, 30, 176, 188, R)
+    return ([shadow(116, 218, 84, 9)] + obj(card, "paper", "body", 10) + [edge(card),
+             S(line((56, 72), (176, 72)) + line((56, 168), (140, 168)), family("slate")["light"], 12),
+             part(rr(44, 102, 144, 36, 12), "azure", "body"), S(line((60, 120), (150, 120)), white("azure"), 10)] +
+            pencil((232, 120), (148, 222), 28))
+
+
+def g_htop():
+    """Dark console window with mint, sun and coral load bars."""
+    return ([shadow(128, 220, 104, 10)] + dark_window(20, 36, 216, 184) +
+            [part(rr(56, 150, 32, 46, 8), "mint", "bright"), part(rr(112, 86, 32, 110, 8), "sun", "bright"),
+             part(rr(168, 122, 32, 74, 8), "coral", "bright")])
+
+
+def g_bug():
+    """Coral beetle with a dark head, legs and antennae."""
+    legs = (line((86, 124), (56, 108)) + line((80, 152), (46, 152)) + line((88, 182), (58, 202)) +
+            line((170, 124), (200, 108)) + line((176, 152), (210, 152)) + line((168, 182), (198, 202)) +
+            line((112, 62), (98, 36)) + line((144, 62), (158, 36)))
+    shell = ellipse(128, 154, 58, 72)
+    return ([shadow(128, 226, 64, 8), S(legs, family("glass")["from"], 11)] +
+            obj(circle(128, 82, 30), "glass", "body", 10) + obj(shell, "coral", "body", 18) +
+            [S(line((128, 92), (128, 224)), family("coral")["deep"], 6, 0.8),
+             F(circle(104, 142, 9) + circle(152, 170, 9) + circle(106, 188, 7), family("coral")["deep"], 0.7)])
+
+
+def g_emoji():
+    """Sun-yellow face with dark eyes and a smile."""
+    ink = family("sun")["glyph"]
+    return disc(128, 124, 100, "sun", "bright") + [
+        F(ellipse(94, 100, 12, 17) + ellipse(162, 100, 12, 17), ink),
+        S("M78 140Q128 196 178 140", ink, 14),
+        F(ellipse(70, 146, 14, 9) + ellipse(186, 146, 14, 9), family("coral")["light"], 0.6)]
+
+
+def g_network():
+    """Azure wireless arcs above a sun dot."""
+    waves = paint_of("azure", "full", (40, 50, 216, 200))
+    c = (128, 188)
+    return ([shadow(128, 222, 36, 7), S(arc(*c, 52, -45, 45) + arc(*c, 96, -45, 45) + arc(*c, 140, -45, 45), waves, 26)] +
+            obj(circle(*c, 20), "sun", "bright", 8))
+
+
+RUNE = line((92, 92), (166, 156), (128, 194), (128, 62), (166, 100), (92, 164))
+
+
+def g_bluetooth():
+    """Azure capsule with a white Bluetooth rune."""
+    cap = rr(66, 18, 124, 214, 62)
+    return [shadow(128, 228, 56, 8)] + obj(cap, "azure", "full", 24) + [S(RUNE, white("azure"), 16)]
+
+
+def g_sound():
+    """Slate loudspeaker with azure sound waves."""
+    speaker = poly((30, 100), (66, 100), (120, 56), (120, 200), (66, 156), (30, 156))
+    waves = paint_of("azure", "body", (128, 60, 228, 196))
+    return ([shadow(84, 214, 56, 8), FS(speaker, paint_of("slate", "body", (30, 56, 120, 200)), 14),
+             FS(speaker, lin("sheen", 75, 50, 75, 80, (0, light("highlight"), 0.4), (1, light("highlight"), 0)), 14),
+             S(arc(120, 128, 46, 48, 132) + arc(120, 128, 90, 50, 130), waves, 20)])
+
+
+def g_display():
+    """Screen with an iris display on a metal stand."""
+    return [shadow(128, 216, 66, 10)] + foot(128, 174, 216, 104) + screen(20, 34, 216, 146, "iris")
+
+
+def g_power():
+    """Metal battery, a mint charge and a sun lightning bolt."""
+    body = rr(20, 70, 196, 116, R)
+    bolt = poly((146, 54), (98, 136), (130, 136), (112, 204), (168, 116), (136, 116))
+    return ([shadow(122, 186, 96, 10), part(rr(212, 102, 24, 52, 8), "metal", "deep")] +
+            obj(body, "metal", "body", 12) + [edge(body, "metal", 2.5), part(rr(36, 86, 112, 84, 10), "mint", "bright"),
+             shade(move(bolt, 3, 5), 1.4), FS(bolt, paint_of("sun", "bright", (98, 54, 168, 204)), 6)])
+
+
+def g_users():
+    """Two people: an azure one in front of an iris one."""
+    back = bust(168, 66, 32, 104, 186)
+    front = bust(100, 98, 36, 128, 226)
+    return ([shadow(128, 224, 100, 8)] + obj(back, "iris", "body", 14, (116, 34, 220, 186)) +
+            [shade(move(front, 5, -3), 1.2)] + obj(front, "azure", "body", 14, (36, 62, 164, 226)))
+
+
+def g_storage():
+    """Two stacked metal drives with status lights."""
+    out = [shadow(128, 216, 104, 9)]
+    for y, fam in ((48, "azure"), (128, "mint")):
+        d = rr(28, y, 200, 72, 18)
+        out += obj(d, "metal", "body", 10) + [edge(d, "metal", 2.5),
+                                              S(line((56, y + 36), (122, y + 36)), family("slate")["light"], 8)]
+        out += light_dot(196, y + 36, 9, fam)
+    return out
+
+
+def g_palette():
+    """Light paint palette with dots of coral, sun, mint and a large iris dot."""
+    shape = ("M128 30C68 30 24 76 24 130C24 186 70 226 126 226C146 226 154 214 150 198C146 182 156 170 172 170H190"
+             "C214 170 232 152 232 126C232 72 188 30 128 30Z")
+    return ([shadow(128, 224, 90, 8)] + obj(shape, "paper", "body", 14) + [edge(shape)] +
+            obj(circle(78, 104, 18), "coral", "body", 8) + obj(circle(124, 72, 18), "sun", "body", 8) +
+            obj(circle(176, 92, 18), "mint", "body", 8) + obj(circle(80, 162, 24), "iris", "body", 10))
+
+
+def g_privacy():
+    """Sun padlock with a metal shackle and a dark keyhole."""
+    body = rr(44, 108, 168, 120, R)
+    return ([shadow(128, 228, 82, 8), S("M80 112V84A48 48 0 0 1 176 84V112", paint_of("metal", "deep", (64, 36, 192, 112)), 24),
+             shade(move(body, 0, -5))] + obj(body, "sun", "body", 14) +
+            [F(circle(128, 156, 15) + "M120 160L114 196H142L136 160Z", family("glass")["to"])])
+
+
+def g_mouse():
+    """Light mouse with an iris scroll wheel."""
+    body = rr(70, 18, 116, 216, 58)
+    return ([shadow(128, 232, 58, 8)] + obj(body, "metal", "body", 18) + [edge(body, "metal", 2.5),
+             S(line((72, 114), (184, 114)) + line((128, 20), (128, 114)), family("metal")["deep"], 4),
+             part(rr(117, 46, 22, 46, 11), "iris", "bright")])
+
+
+def g_update():
+    """Two mint arrows circling an azure download arrow."""
+    g = paint_of("mint", "body", (30, 30, 226, 226))
+    down = line((128, 92), (128, 160)) + line((100, 134), (128, 162), (156, 134))
+    return ([shadow(128, 228, 72, 7)] + arc_arrow(128, 128, 88, 290, 50, g) + arc_arrow(128, 128, 88, 110, 230, g) +
+            [S(down, paint_of("azure", "body", (100, 92, 156, 162)), 20)])
+
+
+BELL = ("M48 184Q72 162 72 124V112A56 56 0 0 1 184 112V124Q184 162 208 184Q214 196 200 196H56Q42 196 48 184Z")
+
+
+def g_bell():
+    """Sun bell with a coral clapper."""
+    return ([shadow(128, 226, 70, 8), part(rr(116, 26, 24, 40, 12), "sun", "deep"),
+             part("M100 204H156A28 28 0 0 1 100 204Z", "coral", "body")] + obj(BELL, "sun", "bright", 16))
+
+
+def g_accessibility():
+    """Azure disc with a white figure with outstretched arms."""
+    figure = line((78, 102), (128, 114), (178, 102)) + line((128, 114), (128, 150)) + line((100, 192), (128, 150), (156, 192))
+    return disc(128, 124, 100, "azure") + [S(figure, white("azure"), 18), F(circle(128, 72, 16), white("azure"))]
+
+
+def g_keyboard():
+    """Dark keyboard, light keys and an iris space bar."""
+    keys = "".join(rr(36 + i * 24, 102, 17, 17, 5) for i in range(8))
+    keys += "".join(rr(48 + i * 24, 126, 17, 17, 5) for i in range(7))
+    keys += rr(36, 150, 28, 17, 5) + rr(192, 150, 28, 17, 5)
+    body = rr(16, 80, 224, 108, R)
+    return ([shadow(128, 188, 108, 10)] + obj(body, "glass", "body", 10) +
+            [part(keys, "metal", "body", (36, 102, 220, 167)), part(rr(74, 150, 108, 17, 6), "iris", "bright")])
+
+
+def bubble(x: float, y: float, w: float, h: float, tail_left: bool = True) -> str:
+    """Speech bubble with a tail at the bottom."""
+    tx = x + w * 0.3 if tail_left else x + w * 0.7
+    tail = (f"L{pt(tx - 14, y + h)}L{pt(tx - 26, y + h + 26)}L{pt(tx + 10, y + h)}" if tail_left else
+            f"L{pt(tx + 14, y + h)}L{pt(tx + 26, y + h + 26)}L{pt(tx - 10, y + h)}")
+    r = R
+    if tail_left:
+        return (f"M{pt(x + r, y)}H{n(x + w - r)}A{r} {r} 0 0 1 {pt(x + w, y + r)}V{n(y + h - r)}"
+                f"A{r} {r} 0 0 1 {pt(x + w - r, y + h)}H{n(tx + 10)}"
+                f"L{pt(tx - 26, y + h + 26)}L{pt(tx - 14, y + h)}H{n(x + r)}"
+                f"A{r} {r} 0 0 1 {pt(x, y + h - r)}V{n(y + r)}A{r} {r} 0 0 1 {pt(x + r, y)}Z")
+    return (f"M{pt(x + r, y)}H{n(x + w - r)}A{r} {r} 0 0 1 {pt(x + w, y + r)}V{n(y + h - r)}"
+            f"A{r} {r} 0 0 1 {pt(x + w - r, y + h)}H{n(tx + 14)}"
+            f"L{pt(tx + 26, y + h + 26)}L{pt(tx - 10, y + h)}H{n(x + r)}"
+            f"A{r} {r} 0 0 1 {pt(x, y + h - r)}V{n(y + r)}A{r} {r} 0 0 1 {pt(x + r, y)}Z")
+
+
+def g_locale():
+    """Azure speech bubble with a white letter A in front of an iris one."""
+    back = bubble(104, 24, 132, 100, tail_left=False)
+    front = bubble(20, 84, 152, 112)
+    letter = line((68, 168), (96, 108), (124, 168)) + line((80, 146), (112, 146))
+    return ([shadow(110, 224, 76, 7)] + obj(back, "iris", "body", 12, (104, 24, 236, 150)) +
+            [F(circle(150, 72, 8) + circle(176, 72, 8) + circle(202, 72, 8), white("iris"), 0.85),
+             shade(move(front, 4, -4), 1.2)] + obj(front, "azure", "body", 12, (20, 84, 172, 222)) +
+            [S(letter, white("azure"), 15)])
+
+
+def g_firewall():
+    """Coral brick wall with light mortar, one sun brick."""
+    wall = rr(24, 48, 208, 168, 16)
+    mortar = (line((24, 104), (232, 104)) + line((24, 160), (232, 160)) + line((96, 48), (96, 104)) +
+              line((168, 48), (168, 104)) + line((60, 104), (60, 160)) + line((132, 104), (132, 160)) +
+              line((204, 104), (204, 160)) + line((96, 160), (96, 216)) + line((168, 160), (168, 216)))
+    return ([shadow(128, 216, 100, 10)] + obj(wall, "coral", "body", 12) +
+            [part(rr(136, 108, 64, 48, 4), "sun", "body"), S(mortar, family("paper")["to"], 7, 0.9)])
+
+
+def g_font():
+    """Card with a large orchid A and a dark small a."""
+    card = rr(24, 40, 208, 176, R)
+    big = line((44, 186), (88, 70), (132, 186)) + line((62, 146), (114, 146))
+    small = circle(176, 158, 26) + line((202, 124), (202, 186))
+    return ([shadow(128, 216, 100, 10)] + obj(card, "paper", "body", 10) + [edge(card),
+             S(big, paint_of("orchid", "body", (44, 70, 132, 186)), 20), S(small, family("slate")["to"], 16)])
+
+
+def g_windows():
+    """Two overlapping windows, iris behind, azure in front."""
+    front = rr(78, 92, 154, 128, R)
+    return ([shadow(150, 220, 84, 8)] + window(24, 32, 154, 128, "iris") + [shade(move(front, -4, -4), 1.2)] +
+            window(78, 92, 154, 128, "azure"))
+
+
+def g_calendar():
+    """Calendar page with a coral header, metal binder rings and one coral day."""
+    card = rr(28, 40, 200, 188, R)
+    head = rrect(28, 40, 200, 54, R, 0)
+    cells = "".join(rr(x, y, 32, 28, 8) for y in (112, 152, 190) for x in (54, 112, 170) if (x, y) != (170, 152))
+    return ([shadow(128, 228, 96, 9)] + obj(card, "paper", "body", 10) + [edge(card)] +
+            obj(head, "coral", "body", 10) + [part(cells, "paper", "deep", (54, 112, 202, 218)),
+             part(rr(170, 152, 32, 28, 8), "coral", "body"),
+             part(rr(76, 24, 16, 42, 8) + rr(164, 24, 16, 42, 8), "metal", "body", (76, 24, 180, 66))])
+
+
+def g_clock():
+    """Clock: white face in an iris rim, dark hands and a coral second hand."""
+    ticks = "".join(line(polar(128, 128, 70, a), polar(128, 128, 80, a)) for a in range(0, 360, 90))
+    return (disc(128, 128, 104, "iris") + obj(circle(128, 128, 86), "paper", "body", 8) +
+            [S(ticks, family("slate")["light"], 8),
+             S(line((128, 128), (128, 70)) + line((128, 128), polar(128, 128, 46, 120)), family("glass")["to"], 14),
+             S(line(polar(128, 128, 18, 225), polar(128, 128, 70, 45)), family("coral")["from"], 6),
+             F(circle(128, 128, 10), family("coral")["from"])])
+
+
+def g_media():
+    """Coral disc with a white play triangle."""
+    return disc(128, 124, 100, "coral") + [FS(poly((106, 82), (170, 124), (106, 166)), white("coral"), 16)]
+
+
+def g_camera():
+    """Slate camera with a glass lens in a metal ring, a coral shutter button."""
+    body = rr(16, 70, 224, 150, R)
+    return ([shadow(128, 220, 108, 10), part(rr(80, 46, 96, 40, 12), "slate", "deep"),
+             part(rr(184, 56, 36, 18, 6), "coral", "body")] + obj(body, "slate", "body", 12) +
+            [part(rr(184, 92, 32, 16, 6), "paper", "body")] + obj(circle(128, 146, 60), "metal", "body", 10) +
+            [part(circle(128, 146, 46), "glass", "body"), S(circle(128, 146, 30), family("azure")["from"], 7),
+             F(circle(112, 130, 9), light("highlight"), 0.55)])
+
+
+def g_logo():
+    """The Boswas OS mark (copied from desktop/branding/boswas-os-mark.svg), alone."""
+    return [mark()]
+
+
+def g_store():
+    """Azure shopping bag with an iris handle and a sun tag."""
+    bag = "M44 86H212L202 210Q200 228 182 228H74Q56 228 54 210Z"
+    return ([shadow(128, 228, 82, 8), S("M90 92V74Q90 36 128 36Q166 36 166 74V92", paint_of("iris", "body", (90, 36, 166, 92)), 16)] +
+            obj(bag, "azure", "body", 14) + [shade(move(circle(128, 150, 26), 0, 4), 1.2)] +
+            obj(circle(128, 150, 26), "sun", "bright", 10))
+
+
+def g_compat_manager():
+    """Application window with a sky title bar, a slate gear in front."""
+    return ([shadow(128, 222, 104, 9)] + window(20, 30, 184, 150, "sky") +
+            [shade(circle(178, 180, 52), 1.2)] + gear_obj(176, 174, 52, "slate"))
+
+
+def g_device_agent():
+    """Laptop whose iris display shows a white heartbeat."""
+    base = "M14 178H242V188Q242 208 222 208H34Q14 208 14 188Z"
+    pulse = line((70, 112), (98, 112), (114, 82), (136, 144), (152, 100), (164, 112), (188, 112))
+    return ([shadow(128, 208, 116, 10)] + screen(38, 42, 180, 138, "iris", bottom=4) +
+            obj(base, "metal", "body", 6) + [part(rr(102, 178, 52, 8, 4), "metal", "deep"), S(pulse, white("iris"), 12)])
+
+
+def g_security():
+    """Mint shield with a white check mark."""
+    s = shield(128, 20, 96, 212)
+    return [shadow(128, 228, 60, 8)] + obj(s, "mint", "body", 18) + [S(line((88, 126), (118, 156), (170, 100)), white("mint"), 20)]
+
+
+def g_update_center():
+    """Mint arrow circling a sun dot (a ring and a dot)."""
+    g = paint_of("mint", "body", (30, 30, 226, 226))
+    return [shadow(128, 228, 72, 7)] + arc_arrow(128, 128, 88, 30, 300, g) + obj(circle(128, 128, 32), "sun", "bright", 12)
+
+
+def g_software():
+    """Iris box with an azure tile and a coral disc rising out of it."""
+    box = rr(28, 116, 200, 108, R)
+    return ([shadow(128, 224, 100, 10)] + obj(rr(52, 44, 76, 76, 18), "azure", "body", 10) +
+            obj(circle(172, 76, 36), "coral", "body", 12) + [shade(move(box, 0, -6), 1.2)] + obj(box, "iris", "body", 12) +
+            [S(line((92, 156), (164, 156)), white("iris"), 12, 0.85)])
+
+
+def g_install():
+    """The Boswas OS mark with an azure download badge."""
+    cx, cy = 186, 190
+    arrow = line((cx, cy - 22), (cx, cy + 18)) + line((cx - 17, cy + 2), (cx, cy + 19), (cx + 17, cy + 2))
+    return [shadow(100, 190, 62, 9), mark(0, 0, 200)] + badge(cx, cy, 44, "azure", [S(arrow, white("azure"), 12)])
+
+
+def app_window(badge_: list[P]) -> list[P]:
+    """The generic application window of the Windows family, with a badge."""
+    return [shadow(120, 210, 100, 9)] + window(20, 36, 184, 150, "sky") + badge_
+
+
+def g_win_app():
+    """Application window with a sky title bar, a sun sandbox shield."""
+    s = shield(178, 120, 46, 106)
+    return app_window([shade(move(s, 0, 5), 1.4)] + obj(s, "sun", "body", 16))
+
+
+def g_win_installer():
+    """Application window with a sky title bar, a sun badge with a download arrow."""
+    cx, cy = 180, 180
+    arrow = line((cx, cy - 22), (cx, cy + 18)) + line((cx - 17, cy + 2), (cx, cy + 19), (cx + 17, cy + 2))
+    return app_window(badge(cx, cy, 48, "sun", [S(arrow, white("sun"), 12)]))
+
+
+def g_wine():
+    """Application window with a sky title bar, a sun badge with a run (play) triangle."""
+    cx, cy = 180, 180
+    return app_window(badge(cx, cy, 48, "sun", [FS(poly((cx - 14, cy - 22), (cx + 22, cy), (cx - 14, cy + 22)),
+                                                    white("sun"), 8)]))
+
+
+def g_compat_status():
+    """Application window with a sky title bar, a mint badge with a check mark."""
+    cx, cy = 180, 180
+    return app_window(badge(cx, cy, 48, "mint", [S(line((cx - 22, cy + 2), (cx - 6, cy + 18), (cx + 22, cy - 14)),
+                                                   white("mint"), 13)]))
+
+
+def g_repair():
+    """Application window with a sky title bar, a metal wrench."""
+    head, r = (166, 150), 26
+    jaw = arc(*head, r, 0, 270)
+    handle = line(polar(*head, r, 135), (226, 226))
+    g = paint_of("slate", "body", (130, 114, 230, 230))
+    return app_window([S(jaw + handle, light("shade"), 40, light("shade-opacity") * 1.4), S(jaw, g, 24),
+                       S(handle, g, 26)])
+
+
+def g_sandbox():
+    """Sky shield enclosing an application window."""
+    s = shield(128, 18, 104, 214)
+    win = rr(76, 82, 104, 84, R2)
+    return ([shadow(128, 228, 64, 8)] + obj(s, "sky", "body", 18) + [shade(move(win, 0, 4))] +
+            obj(win, "paper", "body", 8) + [part(rrect(76, 82, 104, 24, R2, 0), "sky", "deep")])
+
+
+def g_app_policy():
+    """Sky clipboard holding a sheet with an application window, metal clip."""
+    board = rr(36, 34, 184, 196, R)
+    sheet = rr(54, 60, 148, 154, 10)
+    return ([shadow(128, 228, 88, 8)] + obj(board, "sky", "body", 12) + [part(sheet, "paper")] +
+            [S(rr(76, 98, 104, 80, 10), family("sky")["to"], 10), S(line((76, 122), (180, 122)), family("sky")["to"], 10),
+             shade(move(rr(84, 20, 88, 36, 12), 0, 5), 1.4)] + obj(rr(84, 20, 88, 36, 12), "metal", "body", 8) +
+            [edge(rr(84, 20, 88, 36, 12), "metal", 2, 0.8)])
+
+
+def g_weather():
+    """White cloud in front of a sun."""
+    cloud = cloud_path(144, 208, 1.0)
+    return ([shadow(140, 208, 80, 8)] + obj(circle(92, 92, 56), "sun", "bright", 20) +
+            [shade(move(cloud, -5, -4), 1.2)] + obj(cloud, "paper", "body", 14) + [edge(cloud, w=2.5)])
+
+
+def g_launcher():
+    """Three-by-three grid of azure application tiles, the centre one in sun."""
+    out = [shadow(128, 226, 100, 8)]
+    for j, y in enumerate((30, 100, 170)):
+        for i, x in enumerate((30, 100, 170)):
+            out += obj(rr(x, y, 56, 56, 16), "sun" if (i, j) == (1, 1) else "azure", "body", 10)
+    return out
+
+
+def g_lock():
+    """Screen with an iris display and a sun padlock in front of it."""
+    body = rr(110, 140, 100, 80, 16)
+    return ([shadow(128, 222, 104, 9)] + screen(20, 28, 200, 150, "iris") +
+            [S("M134 142V122A26 26 0 0 1 186 122V142", paint_of("metal", "deep", (134, 96, 186, 142)), 16),
+             shade(move(body, 0, -5), 1.2)] + obj(body, "sun", "body", 12) +
+            [F(circle(160, 172, 10) + "M155 176L151 200H169L165 176Z", family("glass")["to"])])
+
+
+
+APP_ICONS = [
+    ("preferences-system", "Settings", g_settings, ("systemsettings",), "slate"),
+    ("hwinfo", "System Information", g_info, (), "azure"),
+    ("utilities-terminal", "Terminal", g_terminal, ("org.kde.konsole", "boswas-terminal"), "ink"),
+    ("system-file-manager", "File Manager", g_files, ("org.kde.dolphin", "boswas-files"), "sun"),
+    ("utilities-system-monitor", "System Monitor", g_monitor, ("org.kde.plasma-systemmonitor",), "ink"),
+    ("web-browser", "Web Browser", g_browser, ("firefox-esr", "konqueror"), "azure"),
+    ("accessories-calculator", "Calculator", g_calculator, ("org.kde.kcalc",), "ink"),
+    ("accessories-text-editor", "Text Editor", g_editor,
+     ("kwrite", "org.kde.kwrite", "kate", "org.kde.kate", "gvim"), "azure"),
+    ("gwenview", "Image Viewer", g_image,
+     ("org.kde.gwenview", "preferences-desktop-wallpaper", "boswas-photos"), "sky"),
+    ("okular", "Document Viewer", g_book, ("org.kde.okular", "boswas-document-viewer"), "coral"),
+    ("utilities-file-archiver", "Archive Manager", g_archive, ("ark", "org.kde.ark"), "sun"),
+    ("spectacle", "Screenshot", g_screenshot, ("org.kde.spectacle", "boswas-snipping-tool"), "coral"),
+    ("help-browser", "Help", g_help, ("org.kde.khelpcenter",), "azure"),
+    ("kfind", "Find Files", g_find, (), "azure"),
+    ("kwalletmanager", "Wallet", g_wallet, (), "mint"),
+    ("partitionmanager", "Partition Manager", g_partition, (), "slate"),
+    ("kmenuedit", "Menu Editor", g_menuedit, (), "azure"),
+    ("htop", "Process Viewer", g_htop, (), "ink"),
+    ("tools-report-bug", "Report a Bug", g_bug, (), "coral"),
+    ("preferences-desktop-emoticons", "Emoji", g_emoji, (), "sun"),
+    ("preferences-system-network", "Network", g_network, (), "azure"),
+    ("preferences-system-bluetooth", "Bluetooth", g_bluetooth, (), "azure"),
+    ("preferences-desktop-sound", "Audio", g_sound, (), "slate"),
+    ("preferences-desktop-display", "Display", g_display, ("preferences-desktop-display-randr",), "iris"),
+    ("preferences-system-power-management", "Power", g_power, (), "mint"),
+    ("preferences-system-users", "Users", g_users, ("system-users",), "azure"),
+    ("boswas-storage", "Storage", g_storage, (), "metal"),
+    ("preferences-desktop-theme-global", "Personalization", g_palette, (), "iris"),
+    ("preferences-system-privacy", "Privacy", g_privacy, ("preferences-desktop-user-password",), "sun"),
+    ("preferences-desktop-peripherals", "Devices", g_mouse, ("preferences-desktop-mouse",), "metal"),
+    ("system-software-update", "Updates", g_update, (), "mint"),
+    ("preferences-desktop-notification-bell", "Notifications", g_bell, (), "sun"),
+    ("preferences-desktop-accessibility", "Accessibility", g_accessibility, (), "azure"),
+    ("preferences-desktop-keyboard", "Keyboard", g_keyboard, (), "iris"),
+    ("preferences-desktop-locale", "Language and Region", g_locale, (), "azure"),
+    ("preferences-security-firewall", "Firewall", g_firewall, (), "coral"),
+    ("preferences-desktop-font", "Fonts", g_font, (), "orchid"),
+    ("preferences-system-windows", "Window Management", g_windows, ("preferences-system-windows-actions",), "azure"),
+    ("office-calendar", "Calendar", g_calendar, ("x-office-calendar",), "coral"),
+    ("preferences-system-time", "Clock", g_clock, (), "iris"),
+    ("multimedia-player", "Media Player", g_media, ("applications-multimedia",), "coral"),
+    ("camera-photo", "Camera", g_camera, (), "slate"),
+    ("boswas-logo", "Boswas OS", g_logo,
+     ("boswas-os", "start-here", "start-here-kde", "start-here-kde-plasma", "distributor-logo"), "mark"),
+    ("boswas-store", "Boswas Store", g_store, (), "azure"),
+    ("boswas-compat-manager", "Compatibility Manager", g_compat_manager, (), "sky"),
+    ("boswas-device-agent", "Device Agent", g_device_agent, (), "iris"),
+    ("boswas-security-center", "Security Center", g_security, (), "mint"),
+    ("boswas-control-center", "Control Center", g_control, (), "iris"),
+    ("boswas-update-center", "Update Center", g_update_center, (), "mint"),
+    ("boswas-software-center", "Software Center", g_software, (), "iris"),
+    ("boswas-install", "Install Boswas OS", g_install, (), "mark"),
+    ("boswas-windows-application", "Windows Application", g_win_app, (), "sky"),
+    ("boswas-windows-installer", "Windows Installer", g_win_installer, (), "sky"),
+    ("wine", "Windows Program Loader", g_wine, ("wine-stable",), "sky"),
+    ("boswas-compat-status", "Compatibility Status", g_compat_status, (), "sky"),
+    ("boswas-repair", "Repair Application", g_repair, (), "sky"),
+    ("boswas-sandbox", "Application Sandbox", g_sandbox, (), "sky"),
+    ("boswas-app-policy", "Application Policy", g_app_policy, (), "sky"),
+    ("boswas-weather", "Weather", g_weather, (), "sun"),
+    ("boswas-launcher", "Boswas Launcher", g_launcher, ("boswas-shell",), "azure"),
+    ("boswas-lock", "Lock Screen", g_lock, (), "iris"),
+]
+
+
+# ---------------------------------------------------------------------------
+# Symbolic status and action icons: line icons in one flat colour ("sym"),
+# strokes of SW units with round caps and joins. Filled parts only where
+# they carry meaning (a level, a dot, a starred star). Parts that are off (a
+# signal arc, a glyph under its slash) are the same colour at DIM opacity.
+# Straight lines and box edges lie on 8 + 16k where the drawing allows it:
+# the centres of the pixels at 16 px, so that a 1 px line stays sharp there.
+# ---------------------------------------------------------------------------
+SW = 16     # stroke width: 1 px at 16 px, 1.5 px at 24 px
+SOFT = 6    # width of the stroke that rounds the corners of a filled part
+DIM = 0.35
+
+
+def y_s(d: str, dim: bool = False) -> P:
+    """A line of a symbolic icon."""
+    return S(d, "sym", SW, DIM if dim else None)
+
+
+def y_f(d: str, dim: bool = False, evenodd: bool = False) -> P:
+    """A filled part of a symbolic icon (dots, levels)."""
+    return F(d, "sym", DIM if dim else None, evenodd)
+
+
+def y_fs(d: str, dim: bool = False, evenodd: bool = False) -> P:
+    """A filled part with softly rounded corners."""
+    return FS(d, "sym", SOFT, DIM if dim else None, evenodd)
+
+
+SLASH = line((40, 40), (216, 216))
+
+
+def doc(glyph, text: str):
+    glyph.__doc__ = text
+    return glyph
+
+
+def wifi(level: int, slashed: bool = False) -> list[P]:
+    """Dot and three arcs; the first `level` of the four parts are lit."""
+    c = (128, 200)
+    parts = [y_f(circle(c[0], c[1] - 2, 16), dim=level < 1)]
+    parts += [y_s(arc(*c, r, -45, 45), dim=level < i + 2) for i, r in enumerate((56, 100, 144))]
+    return parts + ([y_s(SLASH)] if slashed else [])
+
+
+def s_wifi(level: int, words: str):
+    def build():
+        return wifi(level)
+    build.__doc__ = f"Wireless fan (dot and three arcs), {words}."
+    return build
+
+
+def s_wifi_offline():
+    """Wireless fan dimmed under a slash."""
+    return wifi(0, slashed=True)
+
+
+def wired(dim: bool = False) -> list[P]:
+    sockets = rr(88, 40, 80, 56, 14) + rr(24, 160, 80, 56, 14) + rr(152, 160, 80, 56, 14)
+    wires = line((128, 96), (128, 136)) + line((64, 160), (64, 136), (192, 136), (192, 160))
+    return [y_s(sockets + wires, dim)]
+
+
+def s_wired():
+    """Three connected network sockets."""
+    return wired()
+
+
+def s_net_offline():
+    """Network sockets dimmed under a slash."""
+    return wired(dim=True) + [y_s(SLASH)]
+
+
+SPEAKER = poly((40, 104), (72, 104), (112, 64), (112, 192), (72, 152), (40, 152))
+
+
+def s_volume(level: int, words: str):
+    def build():
+        waves = [y_s(arc(112, 128, r, 52, 128), dim=level < i + 1) for i, r in enumerate((40, 80, 120))]
+        return [y_s(SPEAKER)] + waves
+    build.__doc__ = f"Speaker with three sound waves, {words}."
+    return build
+
+
+def s_volume_muted():
+    """Speaker with a cross."""
+    return [y_s(SPEAKER), y_s(line((152, 96), (216, 160)) + line((216, 96), (152, 160)))]
+
+
+BOLT = poly((138, 82), (90, 138), (121, 138), (106, 174), (154, 118), (123, 118))
+
+
+def battery(level: float, charging: bool) -> list[P]:
+    """Battery outline with a charge bar. While charging, a bolt: knocked out
+    of the bar where the bar is, solid where it is not (one even-odd path)."""
+    out = [y_s(rr(24, 72, 184, 112, 24)), y_fs(rr(220, 108, 12, 40, 5))]
+    width = 136 * level
+    bar_ = rr(48, 96, width, 64, min(8, width / 2)) if level > 0 else ""
+    if charging:
+        return out + [y_f(bar_ + BOLT, evenodd=True)]
+    return out + ([y_f(bar_)] if bar_ else [])
+
+
+def s_battery(level: float, charging: bool, words: str):
+    def build():
+        return battery(level, charging)
+    build.__doc__ = f"Battery, {words}" + (", with a charging bolt." if charging else ".")
+    return build
+
+
+SYM_RUNE = line((80, 88), (176, 168), (128, 216), (128, 40), (176, 88), (80, 168))
+
+
+def s_bluetooth():
+    """Bluetooth rune."""
+    return [y_s(SYM_RUNE)]
+
+
+def s_bluetooth_off():
+    """Bluetooth rune dimmed under a slash."""
+    return [y_s(SYM_RUNE, dim=True), y_s(SLASH)]
+
+
+SYM_BELL = "M48 184Q72 164 72 128V112A56 56 0 0 1 184 112V128Q184 164 208 184Z"
+SYM_CLAPPER = "M104 208A24 24 0 0 0 152 208"
+
+
+def bell(dim: bool = False) -> list[P]:
+    return [y_s(SYM_BELL + SYM_CLAPPER + line((128, 40), (128, 56)), dim)]
+
+
+def s_notification():
+    """Bell."""
+    return bell()
+
+
+def s_notification_off():
+    """Bell dimmed under a slash."""
+    return bell(dim=True) + [y_s(SLASH)]
+
+
+def s_warning():
+    """Triangle with an exclamation mark."""
+    return [y_s(poly((128, 40), (224, 216), (32, 216))), y_s(line((128, 104), (128, 152))),
+            y_f(circle(128, 184, 12))]
+
+
+def ring() -> P:
+    return y_s(circle(128, 128, 96))
+
+
+def s_error():
+    """Ring with a cross."""
+    return [ring(), y_s(line((96, 96), (160, 160)) + line((160, 96), (96, 160)))]
+
+
+def s_information():
+    """Ring with the letter i."""
+    return [ring(), y_f(circle(128, 84, 12)), y_s(line((128, 120), (128, 176)))]
+
+
+def s_password():
+    """Key."""
+    return [y_s(circle(80, 136, 40)), y_s(line((120, 136), (224, 136)) + line((184, 136), (184, 168)) +
+                                         line((216, 136), (216, 160)))]
+
+
+def s_security():
+    """Shield with a check mark."""
+    return [y_s(shield(128, 28, 88, 200)), y_s(line((92, 126), (118, 152), (166, 100)))]
+
+
+def s_caps_lock():
+    """Up arrow with a bar below."""
+    return [y_s("M128 32L216 120H168V168H88V120H40Z"), y_s(line((88, 216), (168, 216)))]
+
+
+def s_avatar():
+    """Person: head and shoulders."""
+    return [y_s(circle(128, 80, 44)),
+            y_s("M64 152H192Q216 152 216 176V184Q216 232 128 232Q40 232 40 184V176Q40 152 64 152Z")]
+
+
+def s_brightness():
+    """Sun with eight rays."""
+    rays = "".join(line(polar(128, 128, 72, a), polar(128, 128, 100, a)) for a in range(0, 360, 45))
+    return [y_s(circle(128, 128, 40)), y_s(rays)]
+
+
+def s_night_light():
+    """Crescent moon with two stars."""
+    return [y_s(crescent(112, 144, 80, 36, -36, 72)), y_f(circle(176, 56, 12)), y_f(circle(216, 104, 10))]
+
+
+def s_airplane():
+    """Airplane seen from above."""
+    plane = ("M128 24Q144 24 144 48V98L232 150V176L144 150V194L172 214V232L128 220L84 232V214L112 194"
+             "V150L24 176V150L112 98V48Q112 24 128 24Z")
+    return [y_s(plane)]
+
+
+def a_close():
+    """Cross."""
+    return [y_s(line((72, 72), (184, 184)) + line((184, 72), (72, 184)))]
+
+
+def a_maximize():
+    """Square."""
+    return [y_s(rr(72, 72, 112, 112, 16))]
+
+
+def a_minimize():
+    """Horizontal line."""
+    return [y_s(line((72, 136), (184, 136)))]
+
+
+def a_restore():
+    """Square in front of a second one."""
+    return [y_s("M104 72H168Q184 72 184 88V152"), y_s(rr(72, 104, 80, 80, 14))]
+
+
+def a_search():
+    """Magnifying glass."""
+    return [y_s(circle(112, 112, 72) + line((166, 166), (216, 216)))]
+
+
+def a_app_grid():
+    """Three-by-three grid of small filled squares."""
+    return [y_f("".join(rr(x, y, 32, 32, 6) for y in (32, 112, 192) for x in (32, 112, 192)))]
+
+
+def a_lock():
+    """Padlock."""
+    return [y_s("M88 120V88A40 40 0 0 1 168 88V120"), y_s(rr(56, 120, 144, 96, 20)), y_f(circle(128, 168, 12))]
+
+
+def a_shutdown():
+    """Power symbol: broken ring with a vertical line."""
+    return [y_s(arc(128, 136, 88, 36, 324) + line((128, 32), (128, 120)))]
+
+
+def a_reboot():
+    """Circular arrow."""
+    c, r = (128, 132), 88
+    return [y_s(arc(*c, r, 48, 318) + arrowhead(polar(*c, r, 318), arc_tangent(318), 40, 44))]
+
+
+def a_logout():
+    """Door frame with an arrow leaving it."""
+    return [y_s("M104 40H64Q40 40 40 64V192Q40 216 64 216H104" +
+                line((104, 128), (216, 128)) + line((176, 88), (216, 128), (176, 168)))]
+
+
+def a_suspend():
+    """Crescent moon."""
+    return [y_s(crescent(120, 136, 92, 40, -40, 84))]
+
+
+def a_chevron(points):
+    def build():
+        return [y_s(line(*points))]
+    return build
+
+
+def a_pan(points):
+    def build():
+        return [y_fs(poly(*points))]
+    return build
+
+
+def a_menu():
+    """Three horizontal lines."""
+    return [y_s(line((40, 56), (216, 56)) + line((40, 120), (216, 120)) + line((40, 184), (216, 184)))]
+
+
+def a_add():
+    """Plus."""
+    return [y_s(line((120, 40), (120, 200)) + line((40, 120), (200, 120)))]
+
+
+def a_remove():
+    """Minus."""
+    return [y_s(line((40, 120), (216, 120)))]
+
+
+def a_delete():
+    """Waste bin."""
+    return [y_s(line((40, 72), (216, 72)) + "M96 72V56Q96 40 112 40H144Q160 40 160 56V72"
+                "M64 72L72 200Q74 216 90 216H166Q182 216 184 200L192 72" +
+                line((104, 104), (104, 184)) + line((152, 104), (152, 184)))]
+
+
+def a_ok():
+    """Check mark."""
+    return [y_s(line((40, 136), (100, 196), (216, 72)))]
+
+
+def a_refresh():
+    """Two arrows chasing each other around a circle."""
+    c, r = (128, 128), 84
+    top = arc(*c, r, 280, 60) + arrowhead(polar(*c, r, 60), arc_tangent(60), 36, 44)
+    bottom = arc(*c, r, 100, 240) + arrowhead(polar(*c, r, 240), arc_tangent(240), 36, 44)
+    return [y_s(top + bottom)]
+
+
+def a_open():
+    """Open folder."""
+    return [y_s("M40 196V64Q40 40 64 40H100L124 64H184Q208 64 208 88V104"
+                "M40 200L66 128Q72 112 88 112H220Q238 112 232 128L210 192Q204 208 188 208H48Q36 208 40 200Z")]
+
+
+def a_settings():
+    """Gear."""
+    return [y_s(gear(128, 128, 8, 100, 78, 11, 17, 22.5) + circle(128, 128, 32))]
+
+
+EYE = "M24 128Q128 24 232 128Q128 232 24 128Z"
+
+
+def a_eye_open():
+    """Eye."""
+    return [y_s(EYE), y_s(circle(128, 128, 32))]
+
+
+def a_eye_closed():
+    """Eye dimmed under a slash."""
+    return [y_s(EYE + circle(128, 128, 32), dim=True), y_s(SLASH)]
+
+
+def mirrored(d_points):
+    """The same points mirrored left to right on the 256 grid."""
+    return tuple((256 - x, y) for x, y in d_points)
+
+
+def a_play():
+    """Triangle pointing right."""
+    return [y_s(poly((80, 48), (200, 128), (80, 208)))]
+
+
+def a_pause():
+    """Two upright bars."""
+    return [y_s(rr(64, 56, 40, 144, 12) + rr(152, 56, 40, 144, 12))]
+
+
+def a_stop():
+    """Square."""
+    return [y_s(rr(56, 56, 144, 144, 20))]
+
+
+def a_record():
+    """Filled disc."""
+    return [y_f(circle(128, 128, 72))]
+
+
+SKIP = ((56, 56), (168, 128), (56, 200))
+SEEK_A = ((32, 64), (120, 128), (32, 192))
+SEEK_B = ((136, 64), (224, 128), (136, 192))
+
+
+def a_skip_forward():
+    """Triangle pointing right against a bar."""
+    return [y_s(poly(*SKIP) + line((200, 48), (200, 208)))]
+
+
+def a_skip_backward():
+    """Triangle pointing left against a bar."""
+    return [y_s(poly(*mirrored(SKIP)) + line((56, 48), (56, 208)))]
+
+
+def a_seek_forward():
+    """Two triangles pointing right."""
+    return [y_s(poly(*SEEK_A) + poly(*SEEK_B))]
+
+
+def a_seek_backward():
+    """Two triangles pointing left."""
+    return [y_s(poly(*mirrored(SEEK_A)) + poly(*mirrored(SEEK_B)))]
+
+
+def a_eject():
+    """Triangle pointing up above a bar."""
+    return [y_s(poly((128, 48), (208, 136), (48, 136)) + line((48, 184), (208, 184)))]
+
+
+def a_shuffle():
+    """Two arrows crossing each other."""
+    head = lambda y: arrowhead((224, y), (1, 0), 32, 44)  # noqa: E731
+    return [y_s("M32 88H64Q90 88 106 110L150 154Q166 168 192 168H224" + head(168) +
+                "M32 168H64Q90 168 106 146L112 140M144 116L150 110Q166 88 192 88H224" + head(88))]
+
+
+def a_repeat():
+    """Two arrows following each other around a loop."""
+    return [y_s("M48 124V104Q48 72 80 72H208" + arrowhead((216, 72), (1, 0), 32, 44) +
+                "M208 132V152Q208 184 176 184H48" + arrowhead((40, 184), (-1, 0), 32, 44))]
+
+
+def a_task_view():
+    """Two overlapping windows."""
+    return [y_s("M88 56H200Q216 56 216 72V152"), y_s(rr(40, 88, 144, 112, 16))]
+
+
+def a_copy():
+    """Sheet in front of a second one."""
+    return [y_s("M104 40H200Q216 40 216 56V168"), y_s(rr(40, 72, 136, 152, 16))]
+
+
+def a_cut():
+    """Scissors."""
+    return [y_s(circle(72, 192, 28) + circle(184, 192, 28) + line((88, 168), (184, 40)) + line((168, 168), (72, 40)))]
+
+
+def a_paste():
+    """Clipboard."""
+    return [y_s("M88 56H72Q56 56 56 72V200Q56 216 72 216H184Q200 216 200 200V72Q200 56 184 56H168"),
+            y_s(rr(88, 40, 80, 40, 12))]
+
+
+def a_undo():
+    """Arrow turning back to the left."""
+    return [y_s("M56 104H152A52 52 0 0 1 152 208H104" + arrowhead((48, 104), (-1, 0), 40, 44))]
+
+
+def a_redo():
+    """Arrow turning forward to the right."""
+    return [y_s("M200 104H104A52 52 0 0 0 104 208H152" + arrowhead((208, 104), (1, 0), 40, 44))]
+
+
+def a_clear():
+    """Backspace key: a tag pointing left with a cross."""
+    return [y_s("M100 56H200Q216 56 216 72V184Q216 200 200 200H100L32 128Z" +
+                line((128, 104), (176, 152)) + line((176, 104), (128, 152)))]
+
+
+SHEET = "M72 40H152L200 88V200Q200 216 184 216H72Q56 216 56 200V56Q56 40 72 40Z"
+SHEET_FOLD = "M152 40V72Q152 88 168 88H200"
+
+
+def a_new_document():
+    """Sheet with a folded corner."""
+    return [y_s(SHEET + SHEET_FOLD)]
+
+
+def a_save():
+    """Floppy disk."""
+    return [y_s("M64 40H168L216 88V192Q216 216 192 216H64Q40 216 40 192V64Q40 40 64 40Z" +
+                "M88 40V88H152V40" + rr(88, 152, 80, 64, 8))]
+
+
+def a_print():
+    """Printer with paper in and out."""
+    return [y_s("M72 184H56Q40 184 40 168V104Q40 88 56 88H200Q216 88 216 104V168Q216 184 200 184H184"
+                "M72 88V56Q72 40 88 40H168Q184 40 184 56V88" + rr(72, 152, 112, 72, 10))]
+
+
+def a_edit():
+    """Pencil."""
+    return [y_s(poly((48, 208), (60, 160), (164, 56), (200, 92), (96, 196)) + line((136, 84), (172, 120)))]
+
+
+FOLDER_OUTLINE = "M56 56H104L128 80H200Q216 80 216 96V184Q216 200 200 200H56Q40 200 40 184V72Q40 56 56 56Z"
+
+
+def a_folder():
+    """Folder outline."""
+    return [y_s(FOLDER_OUTLINE)]
+
+
+def a_folder_new():
+    """Folder outline with a plus."""
+    return [y_s(FOLDER_OUTLINE + line((128, 112), (128, 168)) + line((100, 140), (156, 140)))]
+
+
+def a_home():
+    """House."""
+    return [y_s(line((32, 120), (128, 40), (224, 120)) + "M56 104V200Q56 216 72 216H184Q200 216 200 200V104"
+                "M104 216V168Q104 152 120 152H136Q152 152 152 168V216")]
+
+
+TRAY = "M40 168V200Q40 216 56 216H200Q216 216 216 200V168"
+
+
+def a_download():
+    """Arrow pointing down into a tray."""
+    return [y_s(line((128, 40), (128, 152)) + line((80, 104), (128, 152), (176, 104)) + TRAY)]
+
+
+def a_upload():
+    """Arrow pointing up out of a tray."""
+    return [y_s(line((128, 152), (128, 40)) + line((80, 88), (128, 40), (176, 88)) + TRAY)]
+
+
+def a_list_view():
+    """Three lines with bullets."""
+    return [y_f("".join(circle(48, y, 12) for y in (56, 120, 184))),
+            y_s("".join(line((88, y), (216, y)) for y in (56, 120, 184)))]
+
+
+def a_grid_view():
+    """Two-by-two grid of squares."""
+    return [y_s("".join(rr(x, y, 72, 72, 16) for y in (40, 136) for x in (40, 136)))]
+
+
+def a_zoom(plus: bool):
+    def build():
+        sign = line((80, 104), (136, 104)) + (line((108, 76), (108, 132)) if plus else "")
+        return [y_s(circle(108, 104, 68) + line((158, 156), (216, 216)) + sign)]
+    build.__doc__ = f"Magnifying glass with a {'plus' if plus else 'minus'}."
+    return build
+
+
+def corners(inward: bool) -> str:
+    out = ""
+    for sx, sy in ((1, 1), (-1, 1), (-1, -1), (1, -1)):
+        x, y = 128 - sx * 88, 128 - sy * 88
+        if inward:
+            cx, cy = x + sx * 56, y + sy * 56
+            out += line((cx, y), (cx, cy), (x, cy))
+        else:
+            out += line((x, y + sy * 56), (x, y), (x + sx * 56, y))
+    return out
+
+
+def a_fullscreen():
+    """Four corners pointing outwards."""
+    return [y_s(corners(False))]
+
+
+def a_leave_fullscreen():
+    """Four corners pointing inwards."""
+    return [y_s(corners(True))]
+
+
+def a_pin():
+    """Pushpin."""
+    return [y_s("M96 40H160L152 104L192 152H64L104 104Z" + line((128, 152), (128, 224)))]
+
+
+def a_more(vertical: bool):
+    def build():
+        return [y_f("".join(circle(128, c, 16) if vertical else circle(c, 128, 16) for c in (56, 128, 200)))]
+    build.__doc__ = f"Three dots in a {'column' if vertical else 'row'}."
+    return build
+
+
+def a_help():
+    """Ring with a question mark."""
+    return [ring(), y_s("M100 104A28 28 0 1 1 128 132V148"), y_f(circle(128, 180, 12))]
+
+
+def a_star():
+    """Five-pointed star, filled."""
+    return [y_fs(star())]
+
+
+def a_star_outline():
+    """Five-pointed star, outlined."""
+    return [y_s(star())]
+
+
+def a_location():
+    """Map pin."""
+    return [y_s("M128 32A72 72 0 0 1 200 104Q200 152 128 224Q56 152 56 104A72 72 0 0 1 128 32Z" +
+                circle(128, 104, 24))]
+
+
+def a_bookmark():
+    """Ribbon."""
+    return [y_s("M72 40H184Q200 40 200 56V216L128 168L56 216V56Q56 40 72 40Z")]
+
+
+def a_sidebar():
+    """Window with a side pane."""
+    return [y_s(rr(40, 56, 176, 144, 20) + line((104, 56), (104, 200)))]
+
+
+def a_sort(ascending: bool):
+    def build():
+        widths = (56, 104, 152) if ascending else (152, 104, 56)
+        return [y_s("".join(line((40, y), (40 + w, y)) for y, w in zip((56, 120, 184), widths)))]
+    build.__doc__ = f"Three lines growing {'longer' if ascending else 'shorter'} downwards."
+    return build
+
+
+def a_mail():
+    """Envelope."""
+    return [y_s(rr(24, 56, 208, 144, 20) + line((40, 80), (128, 144), (216, 80)))]
+
+
+def a_unlock():
+    """Padlock with an open shackle."""
+    return [y_s("M88 120V88A40 40 0 0 1 166 76"), y_s(rr(56, 120, 144, 96, 20)), y_f(circle(128, 168, 12))]
+
+
+CAMERA_BODY = ("M56 72H84L100 48H156L172 72H200Q216 72 216 88V184Q216 200 200 200H56Q40 200 40 184V88"
+               "Q40 72 56 72Z")
+
+
+def a_camera():
+    """Photo camera."""
+    return [y_s(CAMERA_BODY + circle(128, 136, 36))]
+
+
+def a_video_camera():
+    """Video camera."""
+    return [y_s(rr(24, 72, 144, 112, 20) + poly((168, 116), (232, 80), (232, 176), (168, 140)))]
+
+
+def a_picture():
+    """Framed picture: hills and a sun."""
+    return [y_s(rr(40, 56, 176, 144, 20) + line((48, 184), (100, 136), (136, 168), (164, 144), (208, 184))),
+            y_f(circle(168, 100, 14))]
+
+
+def a_clock():
+    """Clock face with two hands."""
+    return [ring(), y_s(line((128, 72), (128, 128), (168, 152)))]
+
+
+def a_calendar():
+    """Calendar sheet with two rings."""
+    return [y_s(rr(40, 56, 176, 160, 20) + line((40, 104), (216, 104)) + line((88, 40), (88, 72)) +
+                line((168, 40), (168, 72)))]
+
+
+def a_accessibility():
+    """Person with open arms in a ring."""
+    return [ring(), y_f(circle(128, 76, 14)),
+            y_s(line((76, 108), (180, 108)) + line((128, 108), (128, 152)) + line((96, 200), (128, 152), (160, 200)))]
+
+
+def a_keyboard():
+    """Keyboard."""
+    keys = "".join(circle(x, y, 9) for y in (104, 136) for x in (64, 96, 128, 160, 192))
+    return [y_s(rr(24, 56, 208, 144, 20) + line((88, 168), (168, 168))), y_f(keys)]
+
+
+def a_mouse():
+    """Mouse."""
+    return [y_s(rr(72, 24, 112, 208, 56) + line((128, 40), (128, 104)))]
+
+
+def a_display():
+    """Monitor on a stand."""
+    return [y_s(rr(24, 40, 208, 136, 20) + line((128, 176), (128, 216)) + line((88, 216), (168, 216)))]
+
+
+def a_drive():
+    """Drive with an activity light."""
+    return [y_s(rr(24, 72, 208, 112, 20) + line((56, 136), (120, 136))), y_f(circle(184, 136, 12))]
+
+
+def a_usb():
+    """USB stick."""
+    return [y_s(rr(72, 104, 112, 120, 20) + "M96 104V40H160V104"), y_f(circle(116, 72, 8) + circle(140, 72, 8))]
+
+
+def mic(dim: bool = False) -> list[P]:
+    return [y_s(rr(96, 32, 64, 120, 32) + "M64 128A64 64 0 0 0 192 128" + line((128, 192), (128, 224)) +
+                line((88, 224), (168, 224)), dim)]
+
+
+def s_microphone():
+    """Microphone."""
+    return mic()
+
+
+def s_microphone_muted():
+    """Microphone dimmed under a slash."""
+    return mic(dim=True) + [y_s(SLASH)]
+
+
+def s_headphones():
+    """Headphones."""
+    return [y_s("M40 168V136A88 88 0 0 1 216 136V168" + rr(40, 152, 48, 72, 16) + rr(168, 152, 48, 72, 16))]
+
+
+def s_question():
+    """Ring with a question mark."""
+    return a_help()
+
+
+def s_leaf():
+    """Leaf: the power saver profile."""
+    return [y_s("M48 208Q32 96 132 56Q180 36 216 40Q220 84 200 132Q160 220 48 208Z" + line((48, 208), (152, 104)))]
+
+
+def s_gauge():
+    """Gauge with its needle in the middle: the balanced profile."""
+    return [y_s(arc(128, 160, 96, 270, 90) + line((128, 160), (128, 96))), y_f(circle(128, 160, 16))]
+
+
+def s_bolt():
+    """Lightning bolt: the performance profile."""
+    return [y_s(poly((148, 32), (64, 144), (120, 144), (104, 224), (192, 112), (136, 112)))]
+
+
+def s_battery_missing():
+    """Battery outline under a slash."""
+    return battery(0.0, False) + [y_s(SLASH)]
+
+
+def s_wifi_generic():
+    """Wireless fan (dot and three arcs), all parts lit."""
+    return wifi(4)
+
+
+def s_vpn():
+    """Shield with a keyhole."""
+    return [y_s(shield(128, 28, 88, 200) + line((128, 116), (128, 156))), y_f(circle(128, 108, 18))]
+
+
+def s_update():
+    """Ring with an arrow pointing up."""
+    return [ring(), y_s(line((128, 176), (128, 80)) + line((88, 120), (128, 80), (168, 120)))]
+
+
+def s_user_ok():
+    """Ring with a check mark."""
+    return [ring(), y_s(line((88, 132), (116, 160), (170, 100)))]
+
+
+def a_history():
+    """Clock hands inside an arrow turning back."""
+    c, r = (128, 128), 88
+    tx, ty = arc_tangent(300)
+    return [y_s(arc(*c, r, 300, 240) + arrowhead(polar(*c, r, 300), (-tx, -ty), 36, 44) +
+                line((128, 80), (128, 128), (160, 148)))]
+
+
+def a_rotate(right: bool):
+    def build():
+        if right:
+            turn = "M80 88A80 80 0 0 1 200 128" + arrowhead((200, 144), (0.2, 1), 34, 44)
+            box = rr(56, 120, 96, 96, 14)
+        else:
+            turn = "M176 88A80 80 0 0 0 56 128" + arrowhead((56, 144), (-0.2, 1), 34, 44)
+            box = rr(104, 120, 96, 96, 14)
+        return [y_s(turn + box)]
+    build.__doc__ = f"Sheet with an arrow turning {'clockwise' if right else 'anticlockwise'}."
+    return build
+
+
+def a_flip(horizontal: bool):
+    def build():
+        if horizontal:
+            return [y_s(poly((104, 56), (104, 200), (40, 200)) + line((128, 40), (128, 216))),
+                    y_fs(poly((152, 56), (152, 200), (216, 200)))]
+        return [y_s(poly((56, 104), (200, 104), (200, 40)) + line((40, 128), (216, 128))),
+                y_fs(poly((56, 152), (200, 152), (200, 216)))]
+    build.__doc__ = ("Two triangles mirrored at an upright line, one filled." if horizontal
+                     else "Two triangles mirrored at a level line, one filled.")
+    return build
+
+
+def a_zoom_fit():
+    """Picture inside four corners."""
+    return [y_s(corners(False) + rr(88, 104, 80, 56, 10))]
+
+
+def a_zoom_original():
+    """The figures 1:1."""
+    return [y_s(line((64, 88), (88, 64), (88, 192)) + line((168, 88), (192, 64), (192, 192))),
+            y_f(circle(128, 104, 12) + circle(128, 160, 12))]
+
+
+def a_save_as():
+    """Floppy disk with a pencil."""
+    return [y_s("M56 40H136L168 72V152Q168 168 152 168H56Q40 168 40 152V56Q40 40 56 40Z" + "M72 40V72H120V40" +
+                poly((136, 224), (144, 192), (200, 136), (232, 168), (176, 224)))]
+
+
+def a_select_all():
+    """Square inside four corners."""
+    return [y_s(corners(False) + rr(88, 88, 80, 80, 12))]
+
+
+def a_touchpad():
+    """Touchpad with its two buttons."""
+    return [y_s(rr(40, 56, 176, 144, 20) + line((40, 152), (216, 152)) + line((128, 152), (128, 200)))]
+
+
+BOX = "M72 120H56Q40 120 40 136V200Q40 216 56 216H200Q216 216 216 200V136Q216 120 200 120H184"
+
+
+def a_extract():
+    """Arrow rising out of an open box."""
+    return [y_s(line((128, 168), (128, 40)) + line((88, 80), (128, 40), (168, 80)) + BOX)]
+
+
+def a_insert():
+    """Arrow going down into an open box."""
+    return [y_s(line((128, 40), (128, 168)) + line((88, 128), (128, 168), (168, 128)) + BOX)]
+
+
+def a_properties():
+    """Sheet with the letter i."""
+    return [y_s(SHEET + line((128, 136), (128, 184))), y_f(circle(128, 108, 12))]
+
+
+def a_preview():
+    """Sheet under a magnifying glass."""
+    return [y_s("M104 216H72Q56 216 56 200V56Q56 40 72 40H152L200 88V104" + circle(160, 160, 36) +
+                line((186, 186), (220, 220)))]
+
+
+def a_text_document():
+    """Sheet with three lines of text."""
+    return [y_s(SHEET + line((88, 120), (168, 120)) + line((88, 152), (168, 152)) + line((88, 184), (136, 184)))]
+
+
+def a_clear_history():
+    """Arrow turning back around a cross."""
+    c, r = (128, 128), 88
+    tx, ty = arc_tangent(300)
+    return [y_s(arc(*c, r, 300, 240) + arrowhead(polar(*c, r, 300), (-tx, -ty), 36, 44) +
+                line((104, 104), (152, 152)) + line((152, 104), (104, 152)))]
+
+
+def a_process_stop():
+    """Ring with a cross."""
+    return s_error()
+
+
+def a_run():
+    """Ring with a play triangle."""
+    return [ring(), y_s(poly((108, 88), (108, 168), (168, 128)))]
+
+
+def a_columns():
+    """Three rows, each with a short and a long cell."""
+    return [y_s("".join(line((40, y), (72, y)) + line((112, y), (216, y)) for y in (56, 120, 184)))]
+
+
+def a_moon():
+    """Crescent moon."""
+    return [y_s(crescent(128, 128, 88, 40, -40, 80))]
+
+
+def a_camera_switch():
+    """Camera with two arrows turning inside it."""
+    c, r = (128, 138), 34
+    turn = (arc(*c, r, 200, 330) + arrowhead(polar(*c, r, 330), arc_tangent(330), 20, 44) +
+            arc(*c, r, 20, 150) + arrowhead(polar(*c, r, 150), arc_tangent(150), 20, 44))
+    return [y_s(CAMERA_BODY + turn)]
+
+
+def a_stopwatch():
+    """Stopwatch: a dial with a crown and one hand."""
+    return [y_s(circle(128, 144, 80) + line((104, 32), (152, 32)) + line((128, 32), (128, 64)) +
+                line((128, 144), (160, 108)) + line((192, 72), (208, 56)))]
+
+
+def a_hourglass():
+    """Hourglass."""
+    return [y_s(line((56, 40), (200, 40)) + line((56, 216), (200, 216)) +
+                "M76 40V64Q76 96 128 128Q180 160 180 192V216M180 40V64Q180 96 128 128Q76 160 76 192V216")]
+
+
+def a_alarm():
+    """Alarm clock: a dial with two bells and two feet."""
+    return [y_s(circle(128, 140, 76) + line((128, 96), (128, 140), (156, 158)) + line((40, 72), (76, 40)) +
+                line((216, 72), (180, 40)) + line((76, 204), (60, 224)) + line((180, 204), (196, 224)))]
+
+
+def a_globe():
+    """Globe with the equator and one meridian."""
+    return [ring(), y_s(line((32, 128), (224, 128)) + ellipse(128, 128, 42, 96))]
+
+
+def a_focus():
+    """Target: two rings around a dot."""
+    return [ring(), y_s(circle(128, 128, 50)), y_f(circle(128, 128, 14))]
+
+
+def a_flag():
+    """Flag on a pole."""
+    return [y_s(line((56, 32), (56, 224)) + "M56 48H192L160 96L192 144H56")]
+
+
+def a_torch():
+    """Hand torch, lit."""
+    return [y_s("M96 120H160L176 88V56H80V88Z" + rr(100, 120, 56, 104, 14) + line((128, 152), (128, 172)) +
+                line((128, 32), (128, 16)) + line((84, 34), (76, 20)) + line((172, 34), (180, 20)))]
+
+
+def a_repeat_one():
+    """The repeat loop around the figure 1."""
+    return a_repeat() + [y_s(line((116, 116), (130, 104), (130, 152)))]
+
+
+def a_playlist():
+    """Three lines of a list and a play triangle."""
+    return [y_s(line((40, 56), (216, 56)) + line((40, 120), (136, 120)) + line((40, 184), (136, 184)) +
+                poly((176, 120), (176, 200), (228, 160)))]
+
+
+def a_music():
+    """Two joined notes."""
+    return [y_s("M96 184V64L200 40V160"), y_f(ellipse(72, 186, 28, 22) + ellipse(176, 162, 28, 22))]
+
+
+def a_film():
+    """Frame of film with a play triangle."""
+    return [y_s(rr(24, 56, 208, 144, 20) + poly((112, 100), (112, 156), (156, 128)) + line((64, 56), (64, 88)) +
+                line((64, 168), (64, 200)) + line((192, 56), (192, 88)) + line((192, 168), (192, 200)))]
+
+
+def a_picture_in_picture():
+    """Window with a smaller, filled one in its corner."""
+    return [y_s("M104 200H56Q40 200 40 184V72Q40 56 56 56H200Q216 56 216 72V104"), y_fs(rr(136, 136, 88, 72, 12))]
+
+
+def a_pulse():
+    """Frame with a pulse line: activity over time."""
+    return [y_s(rr(24, 40, 208, 176, 20) + line((56, 136), (88, 136), (108, 92), (140, 172), (160, 120), (200, 120)))]
+
+
+def a_layers():
+    """Three sheets lying on each other."""
+    return [y_s(poly((128, 32), (224, 84), (128, 136), (32, 84)) + line((32, 128), (128, 180), (224, 128)) +
+                line((32, 172), (128, 224), (224, 172)))]
+
+
+def a_gamepad():
+    """Game controller."""
+    return [y_s("M76 72H180Q216 72 224 108L236 164Q240 196 212 196Q196 196 184 180L172 164H84L72 180"
+                "Q60 196 44 196Q16 196 20 164L32 108Q40 72 76 72Z" + line((72, 120), (104, 120)) +
+                line((88, 104), (88, 136))), y_f(circle(172, 120, 12))]
+
+
+def a_tablet():
+    """Drawing tablet with a pen resting on it."""
+    return [y_s("M144 88H56Q32 88 32 112V192Q32 216 56 216H200Q224 216 224 192V136" + line((116, 156), (208, 48))),
+            y_fs(poly((88, 188), (98, 158), (116, 174)))]
+
+
+def a_success():
+    """Ring with a check mark."""
+    return s_user_ok()
+
+
+# Weather (Boswas Weather): conditions and details.
+def raised_cloud(dy: float = -38) -> str:
+    """The cloud of a condition with something under it (rain, snow, a bolt)."""
+    return cloud_path(132, 194 + dy)
+
+
+def w_cloud():
+    """Cloud outline."""
+    return [y_s(cloud_path(132, 200))]
+
+
+def w_overcast():
+    """Filled cloud."""
+    return [y_fs(cloud_path(132, 200))]
+
+
+def w_few_clouds(night: bool):
+    def build():
+        sky = y_s(crescent(84, 84, 38, 18, -18, 34)) if night else y_s(circle(84, 84, 26))
+        out = [sky, y_s(cloud_path(150, 212, 0.82))]
+        if not night:
+            out.append(y_s("".join(line(polar(84, 84, 46, a), polar(84, 84, 62, a)) for a in (0, 45, 90, 225, 270, 315))))
+        return out
+    build.__doc__ = f"{'Crescent moon' if night else 'Sun with rays'} behind a cloud to its lower right."
+    return build
+
+
+def w_fog():
+    """Cloud over two lines of mist."""
+    return [y_s(raised_cloud(-40) + line((40, 184), (176, 184)) + line((80, 216), (216, 216)))]
+
+
+def w_showers(scattered: bool):
+    def build():
+        if scattered:
+            drops = "".join(line((x, 186), (x - 10, 206)) for x in (96, 140, 184))
+        else:
+            drops = "".join(line((x, 180), (x - 22, 228)) for x in (96, 140, 184))
+        return [y_s(raised_cloud() + drops)]
+    build.__doc__ = f"Cloud with {'three short drops' if scattered else 'three lines of rain'} under it."
+    return build
+
+
+def w_snow():
+    """Cloud with three snowflakes under it."""
+    return [y_s(raised_cloud())] + [y_f("".join(circle(x, y, 12) for x, y in ((92, 196), (136, 222), (180, 196))))]
+
+
+def w_storm():
+    """Cloud with a lightning bolt under it."""
+    return [y_s(raised_cloud() + poly((140, 156), (104, 200), (128, 200), (116, 236), (160, 188), (134, 188)))]
+
+
+def w_windy():
+    """Three lines of wind, two ending in a curl."""
+    return [y_s("M32 104H156Q188 104 188 72Q188 44 160 44Q136 44 132 68"
+                "M32 152H196Q228 152 228 180Q228 208 200 208Q176 208 172 184" + line((32, 200), (120, 200)))]
+
+
+def w_humidity():
+    """Water drop with a highlight."""
+    return [y_s("M128 32Q200 116 200 160A72 72 0 0 1 56 160Q56 116 128 32Z" + arc(128, 160, 40, 200, 250))]
+
+
+def w_daytime(rising: bool):
+    def build():
+        rays = "".join(line(polar(128, 168, 74, a), polar(128, 168, 96, a)) for a in (300, 330, 0, 30, 60))
+        tip, point = ((128, 200), (0, -1)) if rising else ((128, 240), (0, 1))
+        arrow = line((128, 200), (128, 240)) + arrowhead(tip, point, 20, 44)
+        return [y_s(arc(128, 168, 48, 270, 90) + rays + line((24, 168), (232, 168)) + arrow)]
+    build.__doc__ = f"Half a sun on the horizon, an arrow {'up' if rising else 'down'} under it."
+    return build
+
+
+def w_temperature():
+    """Thermometer with its bulb filled."""
+    return [y_s("M104 160V64A24 24 0 0 1 152 64V160A44 44 0 1 1 104 160Z" + line((128, 184), (128, 96))),
+            y_f(circle(128, 192, 20))]
+
+
+# Drawing (Boswas Snipping Tool): the editor's tools.
+def d_screenshot():
+    """Viewfinder corners around a dot."""
+    return [y_s("M40 88V64Q40 40 64 40H88M168 40H192Q216 40 216 64V88M216 168V192Q216 216 192 216H168"
+                "M88 216H64Q40 216 40 192V168"), y_f(circle(128, 128, 28))]
+
+
+def d_pen():
+    """Pencil, tip to the lower left."""
+    return [y_s("M48 208L60 160L168 52Q180 40 192 52L204 64Q216 76 204 88L96 196Z" + line((148, 72), (184, 108)))]
+
+
+def d_highlighter():
+    """Highlighter with a chisel tip over a line."""
+    return [y_s(poly((100, 144), (172, 72), (212, 112), (140, 184)) + poly((100, 144), (76, 176), (108, 208), (140, 184))),
+            y_s(line((40, 232), (216, 232)), dim=True)]
+
+
+def d_eraser():
+    """Eraser block on a line."""
+    return [y_s(poly((48, 156), (140, 64), (216, 140), (124, 232)) + line((92, 112), (168, 188)) +
+                line((124, 232), (224, 232)))]
+
+
+def d_crop():
+    """Two crossing right angles."""
+    return [y_s("M72 24V184H232M24 72H184V232")]
+
+
+def d_arrow():
+    """Diagonal arrow pointing up and to the right."""
+    return [y_s(line((56, 200), (200, 56)) + arrowhead((200, 56), (1, -1), 56, 40))]
+
+
+def d_rectangle():
+    """Rounded rectangle outline."""
+    return [y_s(rr(40, 56, 176, 144, 20))]
+
+
+def d_text():
+    """Capital T."""
+    return [y_s(line((56, 56), (200, 56)) + line((128, 56), (128, 200)) + line((96, 200), (160, 200)))]
+
+
+MORE_STATUS_ICONS = [
+    ("network-wireless-symbolic", "Wireless Network", s_wifi_generic),
+    ("network-vpn-symbolic", "VPN", s_vpn),
+    ("audio-input-microphone-symbolic", "Microphone", s_microphone),
+    ("microphone-sensitivity-muted-symbolic", "Microphone Off", s_microphone_muted),
+    ("audio-headphones-symbolic", "Headphones", s_headphones),
+    ("battery-missing-symbolic", "No Battery", s_battery_missing),
+    ("dialog-question-symbolic", "Question", s_question),
+    ("power-profile-power-saver-symbolic", "Power Saver", s_leaf),
+    ("power-profile-balanced-symbolic", "Balanced", s_gauge),
+    ("power-profile-performance-symbolic", "Performance", s_bolt),
+    ("software-update-available-symbolic", "Update Available", s_update),
+    ("emblem-default-symbolic", "Default", s_user_ok),
+]
+
+MORE_ACTION_ICONS = [
+    ("media-playback-start-symbolic", "Play", a_play),
+    ("media-playback-pause-symbolic", "Pause", a_pause),
+    ("media-playback-stop-symbolic", "Stop", a_stop),
+    ("media-record-symbolic", "Record", a_record),
+    ("media-skip-forward-symbolic", "Next Track", a_skip_forward),
+    ("media-skip-backward-symbolic", "Previous Track", a_skip_backward),
+    ("media-seek-forward-symbolic", "Fast Forward", a_seek_forward),
+    ("media-seek-backward-symbolic", "Rewind", a_seek_backward),
+    ("media-eject-symbolic", "Eject", a_eject),
+    ("media-playlist-shuffle-symbolic", "Shuffle", a_shuffle),
+    ("media-playlist-repeat-symbolic", "Repeat", a_repeat),
+    ("view-task-symbolic", "Task View", a_task_view),
+    ("object-select-symbolic", "Selected", doc(lambda: a_ok(), "Check mark.")),
+    ("edit-copy-symbolic", "Copy", a_copy),
+    ("edit-cut-symbolic", "Cut", a_cut),
+    ("edit-paste-symbolic", "Paste", a_paste),
+    ("edit-undo-symbolic", "Undo", a_undo),
+    ("edit-redo-symbolic", "Redo", a_redo),
+    ("edit-clear-symbolic", "Clear", a_clear),
+    ("edit-find-symbolic", "Find", doc(lambda: a_search(), "Magnifying glass.")),
+    ("document-new-symbolic", "New Document", a_new_document),
+    ("document-save-symbolic", "Save", a_save),
+    ("document-print-symbolic", "Print", a_print),
+    ("document-edit-symbolic", "Edit", a_edit),
+    ("folder-symbolic", "Folder", a_folder),
+    ("folder-new-symbolic", "New Folder", a_folder_new),
+    ("go-home-symbolic", "Home", a_home),
+    ("user-home-symbolic", "Home Folder", doc(lambda: a_home(), "House.")),
+    ("user-trash-symbolic", "Trash", doc(lambda: a_delete(), "Waste bin.")),
+    ("folder-download-symbolic", "Downloads", a_download),
+    ("document-send-symbolic", "Upload", a_upload),
+    ("view-list-symbolic", "List View", a_list_view),
+    ("view-grid-symbolic", "Grid View", a_grid_view),
+    ("zoom-in-symbolic", "Zoom In", a_zoom(True)),
+    ("zoom-out-symbolic", "Zoom Out", a_zoom(False)),
+    ("view-fullscreen-symbolic", "Full Screen", a_fullscreen),
+    ("view-restore-symbolic", "Leave Full Screen", a_leave_fullscreen),
+    ("view-pin-symbolic", "Pin", a_pin),
+    ("view-more-symbolic", "More", a_more(True)),
+    ("view-more-horizontal-symbolic", "More Options", a_more(False)),
+    ("help-browser-symbolic", "Help", a_help),
+    ("help-about-symbolic", "About", doc(lambda: s_information(), "Ring with the letter i.")),
+    ("starred-symbolic", "Favourite", a_star),
+    ("non-starred-symbolic", "Not a Favourite", a_star_outline),
+    ("mark-location-symbolic", "Location", a_location),
+    ("user-bookmarks-symbolic", "Bookmarks", a_bookmark),
+    ("sidebar-show-symbolic", "Side Pane", a_sidebar),
+    ("view-sort-ascending-symbolic", "Sort Ascending", a_sort(True)),
+    ("view-sort-descending-symbolic", "Sort Descending", a_sort(False)),
+    ("mail-unread-symbolic", "Mail", a_mail),
+    ("changes-allow-symbolic", "Unlocked", a_unlock),
+    ("changes-prevent-symbolic", "Locked", doc(lambda: a_lock(), "Padlock.")),
+    ("tab-new-symbolic", "New Tab", doc(lambda: a_add(), "Plus.")),
+    ("camera-photo-symbolic", "Camera", a_camera),
+    ("camera-video-symbolic", "Video Camera", a_video_camera),
+    ("image-x-generic-symbolic", "Picture", a_picture),
+    ("preferences-system-time-symbolic", "Clock", a_clock),
+    ("x-office-calendar-symbolic", "Calendar", a_calendar),
+    ("preferences-desktop-accessibility-symbolic", "Accessibility", a_accessibility),
+    ("input-keyboard-symbolic", "Keyboard", a_keyboard),
+    ("input-mouse-symbolic", "Mouse", a_mouse),
+    ("video-display-symbolic", "Display", a_display),
+    ("drive-harddisk-symbolic", "Drive", a_drive),
+    ("drive-removable-media-symbolic", "Removable Drive", a_usb),
+    ("document-open-recent-symbolic", "Recent", a_history),
+    ("object-rotate-right-symbolic", "Rotate Right", a_rotate(True)),
+    ("object-rotate-left-symbolic", "Rotate Left", a_rotate(False)),
+    ("object-flip-horizontal-symbolic", "Flip Horizontally", a_flip(True)),
+    ("object-flip-vertical-symbolic", "Flip Vertically", a_flip(False)),
+    ("zoom-fit-best-symbolic", "Zoom to Fit", a_zoom_fit),
+    ("zoom-original-symbolic", "Actual Size", a_zoom_original),
+    ("document-save-as-symbolic", "Save As", a_save_as),
+    ("edit-select-all-symbolic", "Select All", a_select_all),
+    ("input-touchpad-symbolic", "Touchpad", a_touchpad),
+]
+
+APP_ACTION_ICONS = [
+    ("dialog-positive-symbolic", "Success", a_success),
+    ("archive-extract-symbolic", "Extract", a_extract),
+    ("archive-insert-symbolic", "Add to Archive", a_insert),
+    ("document-properties-symbolic", "Properties", a_properties),
+    ("document-preview-symbolic", "Preview", a_preview),
+    ("text-x-generic-symbolic", "Text Document", a_text_document),
+    ("text-x-log-symbolic", "Log", doc(lambda: a_text_document(), "Sheet with three lines of text.")),
+    ("utilities-log-viewer-symbolic", "Log Viewer", doc(lambda: a_text_document(), "Sheet with three lines of text.")),
+    ("edit-clear-history-symbolic", "Clear History", a_clear_history),
+    ("process-stop-symbolic", "Cancel", a_process_stop),
+    ("system-run-symbolic", "Run", a_run),
+    ("run-install-symbolic", "Install", doc(lambda: a_download(), "Arrow pointing down into a tray.")),
+    ("system-software-install-symbolic", "Install Software",
+     doc(lambda: a_download(), "Arrow pointing down into a tray.")),
+    ("view-list-details-symbolic", "Details View", a_columns),
+    ("weather-clear-symbolic", "Light", doc(lambda: s_brightness(), "Sun with eight rays.")),
+    ("weather-clear-night-symbolic", "Dark", a_moon),
+    ("window-pin-symbolic", "Keep on Top", doc(lambda: a_pin(), "Pushpin.")),
+    ("camera-flash-symbolic", "Flash", doc(lambda: s_bolt(), "Lightning bolt.")),
+    ("camera-switch-symbolic", "Switch Camera", a_camera_switch),
+    ("timer-symbolic", "Timer", a_stopwatch),
+    ("stopwatch-symbolic", "Stopwatch", doc(lambda: a_stopwatch(), "Stopwatch: a dial with a crown and one hand.")),
+    ("hourglass-symbolic", "Countdown", a_hourglass),
+    ("alarm-symbolic", "Alarm", a_alarm),
+    ("globe-symbolic", "World", a_globe),
+    ("focus-symbolic", "Focus", a_focus),
+    ("flag-symbolic", "Flag", a_flag),
+    ("torch-symbolic", "Torch", a_torch),
+    ("media-playlist-repeat-song-symbolic", "Repeat One", a_repeat_one),
+    ("playlist-symbolic", "Playlist", a_playlist),
+    ("audio-x-generic-symbolic", "Music", a_music),
+    ("video-x-generic-symbolic", "Video", a_film),
+    ("view-dual-symbolic", "Mini Player", a_picture_in_picture),
+    ("utilities-system-monitor-symbolic", "Performance", a_pulse),
+    ("view-layers-symbolic", "Services", a_layers),
+    ("input-gaming-symbolic", "Game Controller", a_gamepad),
+    ("input-tablet-symbolic", "Tablet", a_tablet),
+    ("weather-few-clouds-symbolic", "Partly Cloudy", w_few_clouds(False)),
+    ("weather-few-clouds-night-symbolic", "Partly Cloudy at Night", w_few_clouds(True)),
+    ("weather-overcast-symbolic", "Overcast", w_overcast),
+    ("weather-clouds-symbolic", "Cloudy", w_cloud),
+    ("weather-fog-symbolic", "Fog", w_fog),
+    ("weather-showers-scattered-symbolic", "Drizzle", w_showers(True)),
+    ("weather-showers-symbolic", "Rain", w_showers(False)),
+    ("weather-snow-symbolic", "Snow", w_snow),
+    ("weather-storm-symbolic", "Thunderstorm", w_storm),
+    ("weather-windy-symbolic", "Wind", w_windy),
+    ("weather-humidity-symbolic", "Humidity", w_humidity),
+    ("weather-pressure-symbolic", "Pressure", doc(lambda: s_gauge(), "Gauge with its needle in the middle.")),
+    ("daytime-sunrise-symbolic", "Sunrise", w_daytime(True)),
+    ("daytime-sunset-symbolic", "Sunset", w_daytime(False)),
+    ("temperature-symbolic", "Temperature", w_temperature),
+    ("screenshot-symbolic", "New Snip", d_screenshot),
+    ("draw-freehand-symbolic", "Pen", d_pen),
+    ("draw-highlight-symbolic", "Highlighter", d_highlighter),
+    ("draw-eraser-symbolic", "Eraser", d_eraser),
+    ("transform-crop-symbolic", "Crop", d_crop),
+    ("draw-arrow-symbolic", "Arrow", d_arrow),
+    ("draw-rectangle-symbolic", "Rectangle", d_rectangle),
+    ("draw-text-symbolic", "Text", d_text),
+]
+
+# The bar ends clear of the bolt of the charging variants (left of it, or past it).
+BATTERY_LEVELS = (("empty", 0.0, "empty"), ("caution", 0.1, "nearly empty"), ("low", 0.25, "a quarter full"),
+                  ("good", 0.8, "mostly full"), ("full", 1.0, "full"))
+
+STATUS_ICONS = (
+    [(f"network-wireless-signal-{name}-symbolic", f"Wireless Signal: {name.capitalize()}", s_wifi(level, words))
+     for level, (name, words) in enumerate((("none", "all parts dimmed"), ("weak", "only the dot lit"),
+                                            ("ok", "dot and one arc lit"), ("good", "dot and two arcs lit"),
+                                            ("excellent", "all parts lit")))] +
+    [("network-wireless-offline-symbolic", "Wireless Off", s_wifi_offline),
+     ("network-wired-symbolic", "Wired Network", s_wired),
+     ("network-offline-symbolic", "Network Offline", s_net_offline),
+     ("audio-volume-muted-symbolic", "Volume: Muted", s_volume_muted)] +
+    [(f"audio-volume-{name}-symbolic", f"Volume: {name.capitalize()}", s_volume(level, words))
+     for level, (name, words) in enumerate((("low", "one lit"), ("medium", "two lit"), ("high", "all lit")), 1)] +
+    [(f"battery-{name}-symbolic", f"Battery: {name.capitalize()}", s_battery(level, False, words))
+     for name, level, words in BATTERY_LEVELS] +
+    [(f"battery-{name}-charging-symbolic", f"Battery: {name.capitalize()}, Charging", s_battery(level, True, words))
+     for name, level, words in BATTERY_LEVELS] +
+    [("bluetooth-active-symbolic", "Bluetooth On", s_bluetooth),
+     ("bluetooth-disabled-symbolic", "Bluetooth Off", s_bluetooth_off),
+     ("notification-symbolic", "Notifications", s_notification),
+     ("notification-disabled-symbolic", "Notifications Off", s_notification_off),
+     ("dialog-warning-symbolic", "Warning", s_warning),
+     ("dialog-error-symbolic", "Error", s_error),
+     ("dialog-information-symbolic", "Information", s_information),
+     ("dialog-password-symbolic", "Password", s_password),
+     ("security-high-symbolic", "Secure", s_security),
+     ("caps-lock-symbolic", "Caps Lock", s_caps_lock),
+     ("avatar-default-symbolic", "User", s_avatar),
+     ("display-brightness-symbolic", "Brightness", s_brightness),
+     ("night-light-symbolic", "Night Light", s_night_light),
+     ("airplane-mode-symbolic", "Airplane Mode", s_airplane)]
+)
+
+ACTION_ICONS = [
+    ("window-close-symbolic", "Close Window", a_close),
+    ("window-maximize-symbolic", "Maximize Window", a_maximize),
+    ("window-minimize-symbolic", "Minimize Window", a_minimize),
+    ("window-restore-symbolic", "Restore Window", a_restore),
+    ("system-search-symbolic", "Search", a_search),
+    ("view-app-grid-symbolic", "All Applications", a_app_grid),
+    ("system-lock-screen-symbolic", "Lock Screen", a_lock),
+    ("system-shutdown-symbolic", "Shut Down", a_shutdown),
+    ("system-reboot-symbolic", "Restart", a_reboot),
+    ("system-log-out-symbolic", "Log Out", a_logout),
+    ("system-suspend-symbolic", "Sleep", a_suspend),
+    ("go-next-symbolic", "Next", doc(a_chevron(((96, 48), (176, 128), (96, 208))), "Chevron pointing right.")),
+    ("go-previous-symbolic", "Previous", doc(a_chevron(((160, 48), (80, 128), (160, 208))), "Chevron pointing left.")),
+    ("go-up-symbolic", "Up", doc(a_chevron(((48, 160), (128, 80), (208, 160))), "Chevron pointing up.")),
+    ("go-down-symbolic", "Down", doc(a_chevron(((48, 96), (128, 176), (208, 96))), "Chevron pointing down.")),
+    ("open-menu-symbolic", "Menu", a_menu),
+    ("list-add-symbolic", "Add", a_add),
+    ("list-remove-symbolic", "Remove", a_remove),
+    ("edit-delete-symbolic", "Delete", a_delete),
+    ("emblem-ok-symbolic", "Done", a_ok),
+    ("view-refresh-symbolic", "Refresh", a_refresh),
+    ("document-open-symbolic", "Open", a_open),
+    ("preferences-system-symbolic", "Settings", a_settings),
+    ("pan-down-symbolic", "Expand", doc(a_pan(((52, 92), (204, 92), (128, 180))), "Filled triangle pointing down.")),
+    ("pan-up-symbolic", "Collapse", doc(a_pan(((52, 164), (204, 164), (128, 76))), "Filled triangle pointing up.")),
+    ("eye-open-symbolic", "Show", a_eye_open),
+    ("eye-closed-symbolic", "Hide", a_eye_closed),
+]
+
 # ---------------------------------------------------------------------------
 # The icon list: (context, file name, title, drawing, aliases, colour family).
 # Aliases are written as real files (same drawing, own id prefix).
@@ -672,12 +3120,69 @@ FOLDER_ICONS = [
 ]
 
 
+DEVICE_ICONS = [
+    ("computer", "Computer", d_computer, ()),
+    ("computer-laptop", "Laptop", d_laptop, ()),
+    ("video-display", "Display", d_display, ()),
+    ("drive-harddisk", "Internal Drive", d_harddisk, ()),
+    ("drive-removable-media", "Removable Drive", d_removable, ()),
+    ("drive-removable-media-usb", "USB Stick", d_usb, ()),
+    ("media-flash", "Memory Card", d_flash, ()),
+    ("media-optical", "Disc", d_optical, ()),
+    ("phone", "Phone", d_phone, ()),
+    ("printer", "Printer", d_printer, ()),
+    ("audio-headphones", "Headphones", d_headphones, ()),
+    ("audio-card", "Loudspeaker", d_audio_card, ()),
+    ("input-keyboard", "Keyboard", d_keyboard, ()),
+    ("input-mouse", "Mouse", d_mouse, ()),
+    ("camera-web", "Webcam", d_webcam, ()),
+    ("network-wired", "Wired Network", d_wired, ()),
+    ("network-wireless", "Wireless Network", d_wireless, ()),
+]
+
+
+WINDOWS_PROGRAM_NAMES = ("application-x-msdownload", "application-vnd.microsoft.portable-executable",
+                         "application-x-ms-ne-executable")
+MIME_ICONS = [
+    ("text-plain", "Text", m_text, ("text-x-generic",), "slate"),
+    ("text-html", "Web Page", m_html, (), "azure"),
+    ("text-x-script", "Script", m_script, (), "mint"),
+    ("image-x-generic", "Image", m_image, (), "azure"),
+    ("audio-x-generic", "Audio", m_audio, (), "orchid"),
+    ("video-x-generic", "Video", m_video, (), "coral"),
+    ("application-pdf", "PDF Document", m_pdf, (), "coral"),
+    ("application-x-archive", "Archive", m_archive,
+     ("application-zip", "application-x-tar", "application-x-7z-compressed", "application-x-compressed-tar"),
+     "slate"),
+    ("package-x-generic", "Package", m_package, (), "sun"),
+    ("application-x-deb", "Software Package", m_deb, (), "iris"),
+    ("application-vnd.android.package-archive", "Android Package", m_apk, (), "mint"),
+    ("application-x-executable", "Program", m_executable, (), "slate"),
+    ("application-x-sharedlib", "Library", m_sharedlib, (), "slate"),
+    ("x-office-document", "Document", m_document, (), "azure"),
+    ("x-office-spreadsheet", "Spreadsheet", m_spreadsheet, (), "mint"),
+    ("x-office-presentation", "Presentation", m_presentation, (), "sun"),
+    ("font-x-generic", "Font", m_font, (), "orchid"),
+    ("application-json", "JSON Data", m_json, (), "iris"),
+    ("unknown", "Unknown File", m_unknown, ("application-octet-stream",), "slate"),
+    ("application-x-ms-dos-executable", "Windows Program", m_win_exe, WINDOWS_PROGRAM_NAMES, "sky"),
+    ("application-x-msi", "Windows Installer Package", m_win_msi, (), "sky"),
+    ("application-x-ms-shortcut", "Windows Shortcut", m_win_lnk, (), "sky"),
+]
+
+
 def icons() -> list[tuple]:
     """Every design: (context, name, title, drawing, aliases, family)."""
-    rows = []
+    rows = [(APPS, name, title, glyph, aliases, fam) for name, title, glyph, aliases, fam in APP_ICONS]
     rows += [(PLACES, name, title, glyph, aliases, "sun") for name, title, glyph, aliases in FOLDER_ICONS]
     rows += [(PLACES, "user-trash", "Trash", p_trash, (), "metal"),
              (PLACES, "user-trash-full", "Trash (Full)", p_trash_full, (), "metal")]
+    rows += [(DEVICES, name, title, glyph, aliases, "metal") for name, title, glyph, aliases in DEVICE_ICONS]
+    rows += [(MIME, name, title, glyph, aliases, fam) for name, title, glyph, aliases, fam in MIME_ICONS]
+    rows += [(MIME, "inode-directory", "Folder", p_folder, (), "sun")]
+    rows += [(STATUS, name, title, glyph, (), None) for name, title, glyph in STATUS_ICONS + MORE_STATUS_ICONS]
+    rows += [(ACTIONS, name, title, glyph, (), None)
+             for name, title, glyph in ACTION_ICONS + MORE_ACTION_ICONS + APP_ACTION_ICONS]
     return rows
 
 

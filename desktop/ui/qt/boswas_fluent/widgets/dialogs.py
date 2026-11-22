@@ -5,12 +5,13 @@ from __future__ import annotations
 import enum
 from typing import Callable
 
-from PySide6.QtCore import QEvent, QEventLoop, QObject, QPoint, QRect, QRectF, QSize, Qt, QVariantAnimation, Signal
+from PySide6.QtCore import QEvent, QEventLoop, QObject, QPoint, QRect, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QAction, QIcon, QKeySequence, QPainter, QPainterPath
 from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QMenu, QPushButton, QSizePolicy, QVBoxLayout,
                                QWidget)
 
 from .. import icons, paint
+from ..animation import Animation
 from ..theming import current_theme, duration, easing, qcolor, repolish
 from .basic import Button, IconButton, Label, to_icon
 
@@ -69,7 +70,7 @@ class ContentDialog(QWidget):
         self._loop: QEventLoop | None = None
         self._previous_focus: QWidget | None = None
         self._smoke = 1.0
-        self._animation: QVariantAnimation | None = None
+        self._animation: Animation | None = None
         self._open = False
         self.setObjectName("fluentContentDialog")
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -173,7 +174,7 @@ class ContentDialog(QWidget):
         time = duration("fast")
         if time > 0 and self._host.isVisible():
             self._smoke = 0.0
-            animation = QVariantAnimation(self)
+            animation = Animation(self)
             animation.setStartValue(0.0)
             animation.setEndValue(1.0)
             animation.setDuration(time)

@@ -4,12 +4,14 @@
 Usage: contact_sheet.py OUTPUT.png [--theme DIR] [--light] [--aliases]
                         [--columns N] [--sizes 128,48,32]
        contact_sheet.py OUTPUT.png --prism [--contexts apps,places,...]
-                        [--light] [--aliases] [--columns N] [--sizes 128,48,32]
+                        [--names NAME,...] [--light] [--aliases] [--columns N]
+                        [--sizes 128,48,32]
 
 Without --prism the sheet shows the legacy Boswas theme (build_icons.py).
 With --prism it shows Boswas Prism (build_prism.py): every context, or the
-ones named by --contexts; --light takes the symbolic icons from
-Boswas-Prism-Light and puts everything on a light background.
+ones named by --contexts, or only the icons named by --names (theme names,
+aliases included, in the order given); --light takes the symbolic icons
+from Boswas-Prism-Light and puts everything on a light background.
 
 Each icon is shown at the given sizes (largest first) with its theme name.
 The sheet is composed as SVG (OUTPUT.svg, kept next to the PNG) and rendered
@@ -48,6 +50,7 @@ def main(argv: list[str]) -> int:
                         help="theme directory (default: Boswas, or Boswas-Prism with --prism)")
     parser.add_argument("--prism", action="store_true", help="show Boswas Prism instead of the legacy theme")
     parser.add_argument("--contexts", default="", help="with --prism: comma-separated contexts (default: all)")
+    parser.add_argument("--names", default="", help="with --prism: comma-separated icon names (default: all)")
     parser.add_argument("--light", action="store_true", help="light background")
     parser.add_argument("--aliases", action="store_true", help="also show alias files")
     parser.add_argument("--columns", type=int, default=6)
@@ -68,12 +71,19 @@ def main(argv: list[str]) -> int:
             parser.error(f"unknown context: {', '.join(unknown)}")
         dark = args.theme or build_prism.ICONS_DIR / build_prism.DARK
         light = dark.parent / build_prism.LIGHT
+        names = [x for x in args.names.split(",") if x]
+        found = {}
         for theme, context, file_name, design, _title, _glyph, _hue in build_prism.all_files():
             symbolic = context in build_prism.SYMBOLIC
             wanted = build_prism.LIGHT if symbolic and args.light else build_prism.DARK
-            if theme == wanted and context in contexts and (args.aliases or file_name == design):
+            chosen = file_name in names if names else (args.aliases or file_name == design)
+            if theme == wanted and context in contexts and chosen:
                 root = light if theme == build_prism.LIGHT else dark
-                entries.append(root / "scalable" / context / f"{file_name}.svg")
+                found.setdefault(file_name, root / "scalable" / context / f"{file_name}.svg")
+        missing = [x for x in names if x not in found]
+        if missing:
+            parser.error(f"no such icon: {', '.join(missing)}")
+        entries = [found[x] for x in names] if names else list(found.values())
     else:
         theme_dir = args.theme or build_icons.DEFAULT_OUTPUT
         for kind, file_name, design, _title, _glyph in build_icons.all_files():

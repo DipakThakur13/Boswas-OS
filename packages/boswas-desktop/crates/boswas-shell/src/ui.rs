@@ -668,6 +668,15 @@ impl Anim {
         now.saturating_duration_since(self.start) >= self.duration
     }
 
+    /// The presence to draw the surface with at `now` while the transition
+    /// is drawn frame by frame (each frame at the display's pace): from its
+    /// first instant to its end, even when the surface is still fully there
+    /// (a closing transition starts at 1.0), and for a closing one until
+    /// the surface is gone. `None`: the surface is drawn as it is.
+    pub fn frame(&self, now: Instant) -> Option<f32> {
+        (self.closing || !self.done(now)).then(|| self.presence(now))
+    }
+
     /// How present the surface is: 0.0 gone, 1.0 fully shown. Things that
     /// enter decelerate, things that leave accelerate.
     pub fn presence(&self, now: Instant) -> f32 {
@@ -920,6 +929,28 @@ mod tests {
         assert!(reduced.done(now));
         assert_eq!(reduced.presence(now), 1.0);
         assert_eq!(Anim::closing(now, true).presence(now), 0.0);
+    }
+
+    #[test]
+    fn a_transition_is_drawn_frame_by_frame_from_its_first_instant_to_its_end() {
+        let now = Instant::now();
+        let later = now + Duration::from_secs(1);
+        // Opening: from nothing, until it is over; then the surface is simply drawn.
+        let open = Anim::opening(now, false);
+        assert!(open.frame(now).is_some_and(|p| p < 0.001));
+        assert!(open.frame(now + Duration::from_millis(60)).is_some_and(|p| p > 0.0 && p < 1.0));
+        assert_eq!(open.frame(later), None);
+        // Closing: it starts with the surface fully there, and that first
+        // frame already belongs to the transition (else no frame of it is
+        // asked for and the surface vanishes at the end without fading).
+        let close = Anim::closing(now, false);
+        assert!(close.frame(now).is_some_and(|p| p > 0.999));
+        assert!(close.frame(now + Duration::from_millis(100)).is_some_and(|p| p > 0.0 && p < 1.0));
+        // Over, it stays invisible until the surface is removed.
+        assert!(close.frame(later).is_some_and(|p| p < 0.001));
+        // Reduced motion: nothing moves.
+        assert_eq!(Anim::opening(now, true).frame(now), None);
+        assert_eq!(Anim::closing(now, true).frame(now), Some(0.0));
     }
 
     #[test]

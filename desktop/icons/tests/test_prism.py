@@ -157,9 +157,14 @@ TEAL = re.compile("|".join(["#17C6" + "C0", "#2ED3" + "CD", r"23,\s*198,\s*" + "
 FORBIDDEN_ELEMENTS = {"image", "script", "text", "foreignObject", "style", "mask",
                       "clipPath", "filter", "pattern", "use", "svg"}
 # Everything the generator may write. Qt, resvg and librsvg draw all of it.
-ALLOWED_ELEMENTS = {"svg", "title", "defs", "linearGradient", "stop", "path", "g"}
-GLYPH_MIN = 3.0   # glyph against both stops of its tile
-ACCENT_MIN = 2.0  # accent against both stops of its tile
+ALLOWED_ELEMENTS = {"svg", "title", "defs", "linearGradient", "radialGradient", "stop", "path", "g"}
+GRADIENTS = (f"{SVG_NS}linearGradient", f"{SVG_NS}radialGradient")
+GLYPH_MIN = 3.0   # a symbol against the deeper end of the colour it is drawn on
+SW = 16           # stroke width of the symbolic icons (1 px at 16 px)
+# The icons that show the Boswas OS mark, and those that are the mark alone.
+MARK_ICONS = ("boswas-logo", "boswas-os", "start-here", "start-here-kde", "start-here-kde-plasma",
+              "distributor-logo", "boswas-install")
+MARK_ALONE = MARK_ICONS[:-1]
 
 
 def colour(ref: str) -> str:
@@ -176,9 +181,14 @@ def token_palette() -> set[str]:
 
 
 def mark_colours() -> set[str]:
-    """The official mark's own gradient stops (gold and silver)."""
+    """The colours of the Boswas OS mark (its gradient stops and solid fills)."""
     text = (REPO / "desktop/branding/boswas-os-mark.svg").read_text(encoding="utf-8")
-    return {c.upper() for c in re.findall(r'stop-color="(#[0-9A-Fa-f]{6})"', text)}
+    return colours_in(text)
+
+
+def icon_roles() -> dict:
+    """The colour families of the pack: `icon.hues` and `icon.materials`."""
+    return {**TOKENS["icon"]["hues"], **TOKENS["icon"]["materials"]}
 
 
 def luminance(hex_colour: str) -> float:
@@ -216,18 +226,19 @@ def read_theme(path: Path) -> configparser.ConfigParser:
     return parser
 
 
-def tile_stops(text: str) -> tuple[str, str] | None:
-    """The two stops of an application's tile gradient."""
-    match = re.search(r'<linearGradient id="[^"]*-tile"[^>]*>\s*<stop offset="0" stop-color="(#[0-9A-F]{6})"/>\s*'
-                      r'<stop offset="1" stop-color="(#[0-9A-F]{6})"/>', text)
-    return match.groups() if match else None
+def gradients(root: ET.Element) -> dict:
+    """Gradient id -> (element, [(offset, colour, opacity)])."""
+    out = {}
+    for grad in root.iter():
+        if grad.tag in GRADIENTS:
+            stops = [(float(st.get("offset")), st.get("stop-color").upper(), float(st.get("stop-opacity", "1")))
+                     for st in grad.iter(f"{SVG_NS}stop")]
+            out[grad.get("id")] = (grad, stops)
+    return out
 
 
-def hue_of(stops: tuple[str, str]) -> tuple[str, dict]:
-    """The token hue a tile belongs to (its 'to' stop is unique per hue)."""
-    hits = [(name, spec) for name, spec in TOKENS["icon"]["hues"].items() if colour(spec["to"]) == stops[1]]
-    assert len(hits) == 1, stops
-    return hits[0]
+def shows_mark(stem: str) -> bool:
+    return stem in MARK_ICONS
 
 
 class SourceTree(unittest.TestCase):
@@ -303,25 +314,26 @@ class SvgFiles(unittest.TestCase):
                             self.assertTrue(value.startswith("#"), value)
                         for ref in re.findall(r"url\(([^)]*)\)", value):
                             self.assertTrue(ref.startswith("#"), ref)
-                for grad in root.iter(f"{SVG_NS}linearGradient"):
-                    # A horizontal or vertical stroke has a bounding box without
-                    # area: only user-space gradients paint it.
-                    self.assertEqual(grad.get("gradientUnits"), "userSpaceOnUse")
+                for grad in root.iter():
+                    if grad.tag in GRADIENTS:
+                        # A horizontal or vertical stroke has a bounding box
+                        # without area: only user-space gradients paint it.
+                        self.assertEqual(grad.get("gradientUnits"), "userSpaceOnUse")
                 for word in ("<image", "<script", "<text", "<!entity", "javascript:"):
                     self.assertNotIn(word, text.lower())
 
     def test_no_teal_and_palette_only(self):
         palette = token_palette()
         mark = mark_colours()
-        self.assertEqual(len(mark), 4)
+        self.assertTrue(mark)
         for path in all_svg_files():
             with self.subTest(icon=path.name):
                 text = path.read_text(encoding="utf-8")
                 self.assertIsNone(TEAL.search(text))
                 self.assertNotRegex(text, r"rgb\(|hsl\(")
                 extra = colours_in(text) - palette
-                # Only the official mark brings colours of its own.
-                if "transform=" in text:
+                # Only the Boswas OS mark may bring colours of its own.
+                if shows_mark(path.stem):
                     extra -= mark
                 self.assertEqual(extra, set())
 
@@ -343,18 +355,34 @@ class SvgFiles(unittest.TestCase):
                     refs = set(re.findall(r"url\(#([^)]+)\)", text)) | set(re.findall(r'href="#([^"]+)"', text))
                     self.assertLessEqual(refs, set(ids), refs - set(ids))
 
-    def test_logo_uses_the_official_mark(self):
+    def test_logo_icons_copy_the_mark(self):
+        """The mark's paths and gradients are copied, never redrawn; the Start
+        button (boswas-logo and its aliases) is the mark alone."""
         mark = ET.parse(REPO / "desktop/branding/boswas-os-mark.svg").getroot()
-        paths = [p.get("d") for p in mark.iter(f"{SVG_NS}path")]
-        self.assertEqual(len(paths), 2)
-        for name in ("boswas-logo", "start-here", "start-here-kde-plasma", "distributor-logo", "boswas-install"):
-            text = (DARK / "scalable/apps" / f"{name}.svg").read_text(encoding="utf-8")
-            for d in paths:
-                self.assertIn(f'd="{d}"', text, name)
-            # On the ink tile, and never under the highlight: the tile and its
-            # highlight are the first two shapes, the mark comes after them.
-            self.assertEqual(hue_of(tile_stops(text))[0], "ink", name)
-            self.assertLess(text.index("-shine)"), text.index("<g transform="), name)
+        paths = [(p.get("fill"), p.get("d")) for p in mark.iter(f"{SVG_NS}path")]
+        self.assertGreaterEqual(len(paths), 2)
+        mark_grads = gradients(mark)
+        for name in MARK_ICONS:
+            with self.subTest(icon=name):
+                text = (DARK / "scalable/apps" / f"{name}.svg").read_text(encoding="utf-8")
+                root = ET.fromstring(text)
+                prefix = id_prefix(name)
+                drawn = [(p.get("fill"), p.get("d")) for p in root.iter(f"{SVG_NS}path")]
+                copied = [(fill.replace("url(#", f"url(#{prefix}"), d) for fill, d in paths]
+                for item in copied:
+                    self.assertIn(item, drawn)
+                grads = gradients(root)
+                for ident, (grad, stops) in mark_grads.items():
+                    self.assertIn(prefix + ident, grads)
+                    mine, my_stops = grads[prefix + ident]
+                    self.assertEqual(mine.tag, grad.tag)
+                    self.assertEqual(my_stops, stops)
+                    for attr in ("x1", "y1", "x2", "y2", "cx", "cy", "r", "fx", "fy"):
+                        self.assertEqual(mine.get(attr), grad.get(attr), attr)
+                if name in MARK_ALONE:
+                    # No tile, no shadow, no placement: exactly the mark.
+                    self.assertEqual(drawn, copied)
+                    self.assertIsNone(root.find(f"{SVG_NS}g"))
 
     def test_aliases_repeat_their_design(self):
         # Files with the same title are one design; apart from the id prefix
@@ -377,59 +405,72 @@ class SvgFiles(unittest.TestCase):
                          inode.replace(id_prefix("inode-directory"), "ID-"))
 
 
-class Tiles(unittest.TestCase):
-    """Applications: a squircle tile in one hue, a glyph, one accent."""
+class Objects(unittest.TestCase):
+    """Coloured icons: objects without a tile, lit from the top, with a
+    contact shadow, in the colour roles of the tokens."""
 
-    def test_every_hue_token_is_usable(self):
-        for name, spec in TOKENS["icon"]["hues"].items():
-            with self.subTest(hue=name):
-                glyph, accent = colour(spec["glyph"]), colour(spec["accent"])
-                # The 'to' stop is used as it is; 'from' may move to the next
-                # shade (generator: contrast guard), never the accent.
-                self.assertGreaterEqual(contrast(glyph, colour(spec["to"])), GLYPH_MIN)
-                for key in ("from", "to"):
-                    self.assertGreaterEqual(contrast(accent, colour(spec[key])), ACCENT_MIN, key)
+    def test_colour_roles_are_lit_from_the_top(self):
+        for name, spec in icon_roles().items():
+            with self.subTest(family=name):
+                steps = [luminance(colour(spec[key])) for key in ("light", "from", "to", "deep")]
+                self.assertEqual(steps, sorted(steps, reverse=True), "light >= from >= to >= deep")
+                self.assertGreaterEqual(contrast(colour(spec["glyph"]), colour(spec["to"])), GLYPH_MIN)
+                colour(spec["accent"])
+        light = TOKENS["icon"]["light"]
+        for key in ("highlight", "shade", "shadow"):
+            colour(light[key])
+            self.assertTrue(0 < light[f"{key}-opacity"] <= 1, key)
 
-    def test_tile_hue_contrast_and_colours(self):
-        white, ink = colour("white"), colour("ink.900")
-        mark = mark_colours()
-        hues_used = set()
-        for path in svg_files(DARK, ("apps",)):
+    def test_no_tile(self):
+        for path in svg_files(DARK, COLOURED):
             with self.subTest(icon=path.name):
-                text = path.read_text(encoding="utf-8")
-                stops = tile_stops(text)
-                self.assertIsNotNone(stops, "no tile gradient")
-                name, spec = hue_of(stops)
-                hues_used.add(name)
-                glyph, accent = colour(spec["glyph"]), colour(spec["accent"])
-                # The tile's first stop stays in the colour scale of the token.
-                scale = spec["from"].partition(".")[0]
-                self.assertIn(stops[0], {v.upper() for v in TOKENS["color"][scale].values()})
-                for stop in stops:
-                    self.assertGreaterEqual(contrast(glyph, stop), GLYPH_MIN, "glyph contrast")
-                    self.assertGreaterEqual(contrast(accent, stop), ACCENT_MIN, "accent contrast")
-                # Nothing but the hue: tile, highlight, glyph, accent and the
-                # symbol on an accent badge (plus the mark's own colours).
-                allowed = {*stops, white, glyph, accent, ink} | (mark if name == "ink" else set())
-                self.assertLessEqual(colours_in(text), allowed, colours_in(text) - allowed)
-                title = ET.fromstring(text).find(f"{SVG_NS}title").text
-                if title != "Boswas OS":  # the plain mark has no accent
-                    self.assertIn(accent, colours_in(text), "no accent element")
-                # Squircle tile (a path of Bezier curves, no rounded <rect>, no
-                # edge stroke) under a white highlight that fades out.
-                root = ET.fromstring(text)
-                shapes = [el for el in root if el.tag == f"{SVG_NS}path"]
-                self.assertRegex(shapes[0].get("fill"), r"^url\(#.*-tile\)$")
-                self.assertIsNone(shapes[0].get("stroke"))
-                self.assertGreaterEqual(shapes[0].get("d").count("C"), 16)
-                self.assertRegex(text, r'-shine"[^>]*>\s*<stop offset="0" stop-color="#FFFFFF" stop-opacity="0\.\d+"/>'
-                                       r'\s*<stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>')
-        self.assertEqual(hues_used, set(TOKENS["icon"]["hues"]))
+                root = ET.fromstring(path.read_text(encoding="utf-8"))
+                for ident in gradients(root):
+                    self.assertFalse(ident.endswith(("-tile", "-shine")), ident)
 
-    def test_objects_have_no_tile(self):
-        for path in svg_files(DARK, ("places", "devices", "mimetypes")):
+    def test_contact_shadow(self):
+        """Every object stands on a soft shadow: the first shape, an ellipse in
+        the shadow colour that fades out to its edge (no filter)."""
+        shadow, strength = colour(TOKENS["icon"]["light"]["shadow"]), TOKENS["icon"]["light"]["shadow-opacity"]
+        for path in svg_files(DARK, COLOURED):
+            if path.stem in MARK_ALONE:
+                continue
             with self.subTest(icon=path.name):
-                self.assertIsNone(tile_stops(path.read_text(encoding="utf-8")))
+                root = ET.fromstring(path.read_text(encoding="utf-8"))
+                first = next(el for el in root if el.tag == f"{SVG_NS}path")
+                ident = re.fullmatch(r"url\(#([^)]+)\)", first.get("fill")).group(1)
+                grad, stops = gradients(root)[ident]
+                self.assertEqual(grad.tag, f"{SVG_NS}radialGradient")
+                self.assertTrue(ident.endswith("-shadow"), ident)
+                self.assertEqual({c for _o, c, _a in stops}, {shadow})
+                opacities = [a for _o, _c, a in stops]
+                self.assertEqual(opacities, sorted(opacities, reverse=True))
+                self.assertLessEqual(opacities[0], strength)
+                self.assertEqual((stops[-1][0], opacities[-1]), (1.0, 0.0))
+
+    def test_parts_are_lit_from_the_top(self):
+        """Every part's gradient runs from the lighter colour at its top to the
+        deeper one at its bottom; highlights fade out downwards."""
+        families = "|".join(icon_roles())
+        ramp = re.compile(rf"-({families})-(light|body|deep|bright|full|rich|flat)(-\d+)?$")
+        for path in svg_files(DARK, COLOURED):
+            with self.subTest(icon=path.name):
+                root = ET.fromstring(path.read_text(encoding="utf-8"))
+                found = 0
+                for ident, (grad, stops) in gradients(root).items():
+                    if ident.startswith(id_prefix(path.stem) + "boswas-mark-"):
+                        continue
+                    x1, y1, x2, y2 = (float(grad.get(k, "0")) for k in ("x1", "y1", "x2", "y2"))
+                    if ramp.search(ident):
+                        found += 1
+                        self.assertGreater(y2 - y1, abs(x2 - x1), ident)
+                        self.assertGreaterEqual(luminance(stops[0][1]), luminance(stops[-1][1]), ident)
+                    elif ident.endswith(("-sheen", "-glow")) or re.search(r"-(sheen|glow)-\d+$", ident):
+                        self.assertGreater(y2, y1, ident)
+                        self.assertEqual(stops[-1][2], 0, ident)
+                        self.assertEqual({c for _o, c, _a in stops}, {colour(TOKENS["icon"]["light"]["highlight"])})
+                if path.stem not in MARK_ALONE:
+                    self.assertGreater(found, 0, "no lit part")
 
 
 class Symbolic(unittest.TestCase):
@@ -456,6 +497,53 @@ class Symbolic(unittest.TestCase):
     def test_symbolic_ink_is_legible_on_its_panel(self):
         self.assertGreaterEqual(contrast(colour("cloud.50"), colour("ink.900")), 7)
         self.assertGreaterEqual(contrast(colour("ink.900"), colour("cloud.50")), 7)
+
+    def test_fluent_line_weight(self):
+        """Lines are SW units wide (1 px at 16 px) with round caps and joins; a
+        filled part may only have a thinner stroke of its own colour, which
+        rounds its corners."""
+        for path in svg_files(DARK, SYMBOLIC):
+            with self.subTest(icon=path.name):
+                root = ET.fromstring(path.read_text(encoding="utf-8"))
+                lines = 0
+                for el in root.iter(f"{SVG_NS}path"):
+                    if el.get("stroke") is None:
+                        continue
+                    self.assertEqual((el.get("stroke-linecap"), el.get("stroke-linejoin")), ("round", "round"))
+                    width = float(el.get("stroke-width"))
+                    if el.get("fill") == "none":
+                        lines += 1
+                        self.assertEqual(width, SW)
+                    else:
+                        self.assertEqual(el.get("fill"), el.get("stroke"))
+                        self.assertLess(width, SW)
+                filled = [el for el in root.iter(f"{SVG_NS}path") if el.get("fill") != "none"]
+                self.assertTrue(lines or filled)
+
+    def test_window_buttons_are_sharp_at_16px(self):
+        """The caption buttons' straight lines lie on pixel centres at 16 px
+        (8 + 16k units), so that they stay one sharp pixel wide."""
+        for name in ("window-maximize-symbolic", "window-minimize-symbolic", "window-restore-symbolic"):
+            text = (DARK / "scalable/actions" / f"{name}.svg").read_text(encoding="utf-8")
+            positions = []
+            for d in re.findall(r' d="([^"]+)"', text):
+                x = y = 0.0
+                for cmd, args in re.findall(r"([MLHVAQCZ])([^MLHVAQCZ]*)", d):
+                    v = [float(a) for a in args.split()]
+                    if cmd == "H":
+                        positions.append(y)
+                        x = v[0]
+                    elif cmd == "V":
+                        positions.append(x)
+                        y = v[0]
+                    elif cmd == "L":
+                        positions += [y] if v[1] == y else [x] if v[0] == x else []
+                        x, y = v[0], v[1]
+                    elif cmd in "MAQC":
+                        x, y = v[-2], v[-1]
+            self.assertTrue(positions, name)
+            for value in positions:
+                self.assertEqual(value % 16, 8, (name, value))
 
 
 class ThemeIndex(unittest.TestCase):

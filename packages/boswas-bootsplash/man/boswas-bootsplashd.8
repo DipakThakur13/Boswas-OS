@@ -17,6 +17,8 @@ systemd units, not by hand.
 It draws directly on the display through kernel mode setting (or a legacy
 frame buffer), redraws only the part of the picture that changed, and reads
 the passphrase from the console keyboard with the keymap the console uses.
+The ring turns once per refresh of the display's mode, at most 240 times a
+second (60 times on a legacy frame buffer, which does not tell its rate).
 Everything it shows is built into the program; it reads no image, font or
 theme file at run time.
 .PP

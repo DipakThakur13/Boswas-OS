@@ -814,8 +814,9 @@ impl Shell {
         let Some(mut canvas) = Canvas::new(cw, ch, scale) else {
             return;
         };
-        let presence = surface.anim.as_ref().map_or(1.0, |anim| anim.presence(now));
-        let animating = surface.anim.as_ref().is_some_and(|anim| !anim.done(now)) && presence < 0.999;
+        let transition = surface.anim.as_ref().and_then(|anim| anim.frame(now));
+        let presence = transition.unwrap_or(1.0);
+        let animating = transition.is_some();
         let reuse = animating && surface.snapshot.as_ref().is_some_and(|s| (s.width(), s.height()) == canvas.pixel_size());
         if !reuse {
             let mut hits = Vec::new();

@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 
 use drm::buffer::{Buffer, DrmFourcc};
 use drm::control::dumbbuffer::{DumbBuffer, DumbMapping};
-use drm::control::{connector, crtc, framebuffer, ClipRect, Device as ControlDevice, Mode, ModeTypeFlags};
+use drm::control::{connector, crtc, framebuffer, ClipRect, Device as ControlDevice, Mode, ModeFlags, ModeTypeFlags};
 use drm::{Device, DriverCapability};
 
 use crate::gfx::{Canvas, Rect};
@@ -120,6 +120,33 @@ fn choose_mode(modes: &[Mode], current: Option<Mode>) -> Option<Mode> {
         }
     }
     modes.iter().find(|m| m.mode_type().contains(ModeTypeFlags::PREFERRED)).or(modes.first()).copied()
+}
+
+/// The refresh rate of a mode in millihertz, from its timings: the pixel
+/// clock (kHz) over the pixels of a whole frame, twice that for an
+/// interlaced mode (two fields a frame), half for a double-scanned one.
+/// `None` when the timings make no sense.
+pub fn mode_refresh(clock: u32, htotal: u16, vtotal: u16, flags: ModeFlags, vscan: u16) -> Option<u32> {
+    if clock == 0 || htotal == 0 || vtotal == 0 {
+        return None;
+    }
+    let (htotal, vtotal) = (u64::from(htotal), u64::from(vtotal));
+    let mut refresh = (u64::from(clock) * 1_000_000 / htotal + vtotal / 2) / vtotal;
+    if flags.contains(ModeFlags::INTERLACE) {
+        refresh *= 2;
+    }
+    if flags.contains(ModeFlags::DBLSCAN) {
+        refresh /= 2;
+    }
+    if vscan > 1 {
+        refresh /= u64::from(vscan);
+    }
+    u32::try_from(refresh).ok().filter(|refresh| *refresh > 0)
+}
+
+/// [`mode_refresh`] of a mode.
+fn refresh_of(mode: &Mode) -> Option<u32> {
+    mode_refresh(mode.clock(), mode.hsync().2, mode.vsync().2, mode.flags(), mode.vscan())
 }
 
 /// Errors from "tell the driver what changed" that only mean the driver
@@ -293,6 +320,12 @@ impl Output for DrmOutput {
         self.heads.iter().map(|h| h.size).collect()
     }
 
+    /// The rate of the mode each head shows (the one the CRTC already had,
+    /// as a rule), the fastest of them.
+    fn refresh_millihertz(&self) -> Option<u32> {
+        self.heads.iter().filter_map(|head| refresh_of(&head.mode)).max()
+    }
+
     fn present(&mut self, index: usize, canvas: &Canvas, damage: &[Rect]) -> io::Result<()> {
         let DrmOutput { heads, card, .. } = self;
         let Some(head) = heads.get_mut(index) else {
@@ -420,6 +453,27 @@ mod tests {
         assert_eq!(frame_rects(screen, &[ring], true), [screen]);
         assert_eq!(frame_rects(screen, &[], true), [screen]);
         assert_eq!(frame_rects(screen, &[screen], true), [screen]);
+    }
+
+    #[test]
+    fn the_refresh_rate_comes_from_the_timings_of_the_mode() {
+        let none = ModeFlags::empty();
+        // CEA 1080p60: 148.5 MHz over 2200 by 1125.
+        assert_eq!(mode_refresh(148_500, 2200, 1125, none, 0), Some(60_000));
+        // 1080i60: the same frame in two fields.
+        assert_eq!(mode_refresh(74_250, 2200, 1125, ModeFlags::INTERLACE, 0), Some(60_000));
+        // 1440p at 144 Hz (reduced blanking), and 59.94 Hz.
+        assert_eq!(mode_refresh(586_587, 2640, 1543, none, 0), Some(144_000));
+        assert_eq!(mode_refresh(148_352, 2200, 1125, none, 0), Some(59_940));
+        // A 240 Hz panel.
+        assert_eq!(mode_refresh(570_000, 2080, 1142, none, 0).map(|r| (r + 500) / 1000), Some(240));
+        // Double scan and vertical scan multiples slow the refresh down.
+        assert_eq!(mode_refresh(25_175, 800, 525, ModeFlags::DBLSCAN, 0), Some(29_970));
+        assert_eq!(mode_refresh(25_175, 800, 525, none, 2), Some(29_970));
+        // Timings without a clock or totals are no refresh rate at all.
+        assert_eq!(mode_refresh(0, 2200, 1125, none, 0), None);
+        assert_eq!(mode_refresh(148_500, 0, 1125, none, 0), None);
+        assert_eq!(mode_refresh(148_500, 2200, 0, none, 0), None);
     }
 
     #[test]

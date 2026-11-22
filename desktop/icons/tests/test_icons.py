@@ -175,8 +175,10 @@ class SvgFiles(unittest.TestCase):
                 refs = set(re.findall(r"url\(#([^)]+)\)", text)) | set(re.findall(r'href="#([^"]+)"', text))
                 self.assertLessEqual(refs, set(ids), refs - set(ids))
 
-    def test_logo_uses_the_official_mark(self):
-        mark = ET.parse(REPO / "desktop/branding/boswas-os-mark.svg").getroot()
+    def test_logo_uses_the_traced_mark(self):
+        # The legacy pack keeps the gold and silver mark it was designed with:
+        # a copy of the traced mark kept next to its generator.
+        mark = ET.parse(ICONS / "tools/legacy-mark.svg").getroot()
         paths = [p.get("d") for p in mark.iter(f"{SVG_NS}path")]
         self.assertEqual(len(paths), 2)
         for name in ("boswas-logo", "start-here-kde-plasma", "boswas-install"):

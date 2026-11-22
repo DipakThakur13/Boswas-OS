@@ -31,6 +31,10 @@ there.
 .BI \-\-headless\-size " WIDTH" x HEIGHT
 Size of the headless output (default 1920x1080).
 .TP
+.BI \-\-headless\-refresh " HZ"
+Refresh rate of the headless output, 1 to 1000 (default 60): frames are
+paced to it as to a monitor's.
+.TP
 .BI \-\-socket " NAME"
 Wayland socket name (default: the first free \fBwayland\-\fIN\fR).
 .TP
@@ -79,6 +83,13 @@ runs: when the device in use goes away (a firmware framebuffer that the
 native driver replaces) or none is in use, the next device that appears is
 taken, its monitors are set up, and the windows of the session stay.
 .PP
+Each monitor runs at its native size (that of the mode it prefers) at the
+highest refresh rate it offers there: a 144 Hz monitor runs at 144 Hz,
+although most such monitors name their 60 Hz mode as the preferred one.
+Interlaced modes are never chosen, and only modes the monitor reports are
+used. Should the driver refuse the fastest mode, the monitor's preferred
+mode is used instead. \fB[outputs.\fINAME\fB] mode\fR chooses another.
+.PP
 A desktop session without a usable monitor keeps running and appears when
 one is connected. The login screen instead ends after 5 seconds without an
 output, so that the text login is shown.
@@ -91,9 +102,10 @@ buffers instead, which costs a fraction of software OpenGL for a
 desktop's flat rectangles; windows then have square corners. The log says
 which renderer a device uses ("drawing with"), and
 .B BOSWAS_RENDERER
-overrides the choice. On devices without a vertical blank (most virtual
-graphics adapters, the firmware framebuffer) frames are still shown no
-faster than the display's refresh rate.
+overrides the choice. Frames are drawn as fast as the monitor refreshes,
+at whatever rate its mode has. On devices without a vertical blank (most
+virtual graphics adapters, the firmware framebuffer) frames are still shown
+no faster than the display's refresh rate.
 .SH THE SHELL
 The shell is started again at once when it ends. A shell that keeps ending
 right after its start (within 30 seconds) is started again after a pause
@@ -270,9 +282,13 @@ setting of its own.
 .BI [outputs. NAME ]
 One monitor, by connector name (\fBeDP\-1\fR, \fBHDMI\-A\-1\fR; see
 \fB\-\-send outputs\fR): \fBenabled\fR, \fBmode\fR ("1920x1080" or
-"1920x1080@60", one of the modes the monitor offers), \fBscale\fR,
-\fBposition\fR ([x, y] of its top-left corner in logical pixels) and
-\fBrotation\fR ("normal", "90", "180" or "270"). Without a position,
+"1920x1080@60", one of the modes the monitor offers; without a rate, the
+highest it offers at that size; without a mode, its native size at its
+highest rate), \fBscale\fR, \fBposition\fR ([x, y] of its top-left
+corner in logical pixels), \fBrotation\fR ("normal", "90", "180" or
+"270") and \fBadaptive_sync\fR (true: variable refresh rate, also known as
+adaptive sync, where the monitor and its driver offer it; off by default;
+never with the pixman renderer). Without a position,
 monitors are placed side by side from left to right. The last enabled
 monitor is never turned off.
 .TP
@@ -372,7 +388,9 @@ capability.
 \fB$XDG_RUNTIME_DIR/boswas\-\fIWAYLAND_DISPLAY\fB.sock\fR accepts one JSON
 object per line, for example {"cmd": "outputs"}. Connections to this socket
 may ask for \fBversion\fR, \fBlock\fR, \fBreload\-config\fR, \fBoutputs\fR
-(every monitor with its modes, scale, position and rotation) and
+(every monitor with its modes, scale, position, rotation and
+"adaptive_sync": whether it offers variable refresh rate and whether it is
+on) and
 \fBcapture\fR (opens the capture screen; "mode": "screen" or "region").
 The window list, window control, desktops, thumbnails, screenshots, the
 answer to a program that asks to see the screen and \fBquit\fR are

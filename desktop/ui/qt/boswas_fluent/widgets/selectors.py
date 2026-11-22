@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRectF, QSize, Qt, QVariantAnimation, Signal
+from PySide6.QtCore import QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QFontMetrics, QIcon, QPainter
 from PySide6.QtWidgets import QAbstractButton, QHBoxLayout, QLayout, QMenu, QSizePolicy, QToolButton, QWidget
 
 from .. import icons, paint
+from ..animation import Animation
 from ..theming import current_theme, duration, easing, font, qcolor
 from .basic import to_icon
 
@@ -87,7 +88,7 @@ class _Selector(QWidget):
         self._items: dict[str, _SelectorItem] = {}
         self._current: str | None = None
         self._indicator: QRectF | None = None
-        self._animation: QVariantAnimation | None = None
+        self._animation: Animation | None = None
         self._layout = QHBoxLayout(self)
         self._layout.setContentsMargins(*self._margins())
         self._layout.setSpacing(self.SPACING)
@@ -200,7 +201,7 @@ class _Selector(QWidget):
             return
         start = self._indicator if self._indicator is not None else self.indicator_for(self._items[previous])
         self._indicator = QRectF(start)       # where it is painted until the animation's first step
-        animation = QVariantAnimation(self)
+        animation = Animation(self)
         animation.setStartValue(QRectF(start))
         animation.setEndValue(self.indicator_for(self._items[self._current]))
         animation.setDuration(time)
