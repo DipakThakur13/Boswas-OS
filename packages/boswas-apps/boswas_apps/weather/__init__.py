@@ -6,6 +6,7 @@ Modules without Qt
   settings  the user's settings (``settings.json``)
   service   addresses, the HTTP call, the forecast cache
   storage   reading and atomically writing small JSON files
+  lockscreen  the summary the lock screen shows, and ``--update-lock-screen``
 
 Modules with Qt
   ui.*      the window and its pages

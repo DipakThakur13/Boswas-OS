@@ -175,6 +175,10 @@ pub struct Lock {
     pub idle_seconds: u32,
     /// The lock screen program. It is started as a trusted client.
     pub command: Vec<String>,
+    /// The lock screen shows the weather of the user's home place (from
+    /// the summary the Weather application keeps). A preference of the
+    /// user, not lock policy: a user's file may set it.
+    pub show_weather: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -538,6 +542,7 @@ impl Default for Lock {
         Self {
             idle_seconds: 600,
             command: vec!["/usr/libexec/boswas/boswas-shell".into(), "--lock".into()],
+            show_weather: true,
         }
     }
 }
@@ -1129,6 +1134,41 @@ mod tests {
         assert!(warnings.iter().any(|w| w.contains("[lock] command")), "{warnings:?}");
         assert!(c.input_method.command.is_empty(), "a user file cannot install an input method");
         assert!(warnings.iter().any(|w| w.contains("[input_method] command")), "{warnings:?}");
+    }
+
+    #[test]
+    fn the_weather_on_the_lock_screen_is_the_users_choice() {
+        assert!(Config::default().lock.show_weather, "shown unless someone turns it off");
+        let dir = tempfile::tempdir().unwrap();
+        let sys = file(
+            dir.path(),
+            "sys.toml",
+            "[lock]\nidle_seconds = 300\nshow_weather = false\ncommand = [\"/usr/libexec/boswas/boswas-shell\", \"--lock\"]\n[policy]\nlock_idle_max_seconds = 300\n",
+        );
+        let (c, warnings) = Config::load_from(&[&sys], None);
+        assert!(!c.lock.show_weather, "an administrator may set another default");
+        assert!(warnings.is_empty(), "{warnings:?}");
+        // The user's file turns it back on, and off again: it is not lock
+        // policy. The lock program and the timeout limit stay the
+        // administrator's.
+        let user = file(dir.path(), "user.toml", "[lock]\nshow_weather = true\nidle_seconds = 0\ncommand = [\"/home/u/evil\"]\n");
+        let (c, warnings) = Config::load_from(&[&sys], Some(&user));
+        assert!(c.lock.show_weather);
+        assert_eq!(c.lock.command, ["/usr/libexec/boswas/boswas-shell", "--lock"]);
+        assert_eq!(c.lock.idle_seconds, 300, "never-lock is still cut back to the policy");
+        assert!(warnings.iter().any(|w| w.contains("[lock] command")), "{warnings:?}");
+        let user = file(dir.path(), "user2.toml", "[lock]\nshow_weather = false\n");
+        let (c, _) = Config::load_from(&[Path::new("/nonexistent")], Some(&user));
+        assert!(!c.lock.show_weather);
+        // A value of the wrong kind rejects the user's file as a whole, like
+        // any other key: what the system files say stays.
+        let user = file(dir.path(), "user3.toml", "[lock]\nshow_weather = \"no\"\n[appearance]\nscheme = \"light\"\n");
+        let (c, warnings) = Config::load_from(&[&sys], Some(&user));
+        assert!(!c.lock.show_weather && c.appearance.scheme == "dark");
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        // The shipped defaults file says the same as the built-in value.
+        let shipped = Config::from_toml(include_str!("../../../config/compositor.toml")).unwrap();
+        assert_eq!(shipped.lock, Lock::default());
     }
 
     #[test]

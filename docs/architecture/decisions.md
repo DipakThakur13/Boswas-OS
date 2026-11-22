@@ -1034,11 +1034,15 @@ is handled since ADR-0035.)*
 `[lock] command` and `[shell] command`. And a locked session gives no
 pictures of the screen to any program.
 
+*Since ADR-0051* the `[lock]` table also holds `show_weather`, which is
+not lock policy: a user's file may set it.
+
 ## ADR-0029 boswas-bootsplash replaces Plymouth
 
 *What the boot screen shows and which typeface it uses were changed by
-ADR-0038. The programs, the display and unlock paths, the sandbox and the
-failure behaviour decided here are unchanged.*
+ADR-0038, and how it draws them by ADR-0050 (vector outlines drawn at the
+display's size, with motion). The programs, the display and unlock paths,
+the sandbox and the failure behaviour decided here are unchanged.*
 
 **Decision.** The boot screen, the disk passphrase prompt and the shutdown
 and restart screens are one Rust package, `boswas-bootsplash`. Plymouth is
@@ -1091,7 +1095,8 @@ animation cheap on machines without a working GPU driver.
   check fails the build if the client is missing from an initramfs.
 - Text is ASCII from a built-in glyph atlas; other characters are drawn as
   `?`. Prompts are in English. `ask-for-password --command` is not
-  supported.
+  supported. *(Changed by ADR-0050: built-in glyph outlines, not an
+  atlas; still ASCII and English.)*
 - No per-preset boot themes: the boot screen is the same for every preset.
 - Landlock is best effort: a kernel without it still gets `no_new_privs`
   and the reduced capabilities.
@@ -1101,8 +1106,8 @@ animation cheap on machines without a working GPU driver.
   the development environment: 107 unit and integration tests (scene and
   damage, control protocol, Plymouth-compatible client, password agent,
   the unlock helper's call sequence in a scratch root), the package build
-  and lintian. *(124 tests since ADR-0038; what is not verified is
-  unchanged.)*
+  and lintian. *(124 tests since ADR-0038, 187 since ADR-0050; what is
+  not verified is unchanged, apart from the boots of ADR-0044.)*
 
 **Revisit when** the boot test or hardware validation shows a display the
 daemon cannot drive, or when localised boot text is required.
@@ -1294,7 +1299,9 @@ adds a large source tree that has to be reviewed and licensed as a whole.
   several minutes. `build-packages.sh` builds in a scratch tree, so nothing
   is reused between builds. *(366 and 86 since the service backends of
   ADR-0035, which added zbus and its dependencies. The boot screen
-  package also needs `fonts-inter` at build time, ADR-0038.)*
+  package also needs `fonts-inter` at build time, ADR-0038. 366 and 81
+  since ADR-0050, where the boot screen reads the fonts with `ttf-parser`,
+  already in its lock file, in place of `fontdue`.)*
 - No automated advisory check (`cargo audit`) and no SBOM for the crates
   yet (M9).
 
@@ -1505,7 +1512,11 @@ version.
   show no notifications, register no pairing or authentication agent.
   *(ADR-0049 keeps this: Settings offers no notifications on the lock
   screen. Do not disturb gained a daily schedule and a setting the
-  session starts with, and banners can be turned off per application.)*
+  session starts with, and banners can be turned off per application.
+  Changed by ADR-0051: besides the clock and the status, the lock
+  screen's clock view shows a weather card. It reads a file that Weather
+  writes; the lock screen gains no service, no bus name and no network
+  access.)*
   The third set is for Settings.
 - **A bridge for Settings.** `/usr/libexec/boswas/boswas-services-bridge`
   runs the network, Bluetooth, audio, power and brightness services for
@@ -1836,13 +1847,23 @@ the back end needs.
 Changes what ADR-0029's boot screen shows. The programs, the unlock
 path, the sandbox and the failure behaviour of ADR-0029 are unchanged.
 
+*Changed by ADR-0050:* the mark and the text are drawn at run time from
+embedded vector outlines instead of a bitmap of the mark and glyph
+atlases; the ring of dots became a progress ring close under the mark; the
+background has a soft bloom; the mark assembles itself at the start, the
+prompt glides in and out, and the screen fades at the end; shutdown and
+restart show the mark; the logical pixel follows the shorter side. The
+unlock screen's content, Inter and its build dependency, the damage rule
+and `boswas.splash=static` stay.
+
 **Decision.**
 
 - **Boot:** a solid `neutral.950` background, the Boswas mark in its own
   gold and silver, and under it a ring of five white dots that chase each
   other round. No wordmark and no name. A message from the boot scripts
   is one line under the ring; a reported progress is a percentage on that
-  line.
+  line. *(Changed by ADR-0050: a progress ring under the mark, which
+  also fills with a reported percentage, on a background with a bloom.)*
 - **Disk unlock:** the mark stays. Under it "Unlock your disk", the name
   of the disk, and a text box with the outline and the accent line of a
   focused Boswas UI control: one dot per character (24 at most, so a long
@@ -1850,7 +1871,7 @@ path, the sandbox and the failure behaviour of ADR-0029 are unchanged.
   that turns into "Caps Lock is on". A rejected passphrase is reported in
   the danger colour and the box shakes for 0.4 seconds.
 - **Shutdown and restart:** the ring and one line, "Shutting down" or
-  "Restarting". No mark.
+  "Restarting". No mark. *(Changed by ADR-0050: the mark is shown too.)*
 - **Typeface: Inter, as a glyph atlas made at build time.** `build.rs`
   rasterises the printable ASCII glyphs of Inter Regular and Inter
   SemiBold from the Debian package `fonts-inter`, which becomes a build
@@ -1858,11 +1879,14 @@ path, the sandbox and the failure behaviour of ADR-0029 are unchanged.
   package or copied into the initramfs, and nothing is parsed at boot,
   as before. The Debian package build fails without Inter. A plain
   `cargo build` on a machine without it warns and uses Orbitron from the
-  repository, so the crate still builds and its tests pass.
+  repository, so the crate still builds and its tests pass. *(Changed by
+  ADR-0050: the glyphs' outlines, advances and kerning are embedded and
+  rasterised at the exact size at run time.)*
 - **Scale rule:** one logical pixel is one display pixel up to 1080
   lines and grows with the height above that, to 3.2 at most. A display
   with fewer than 600 lines, or narrower than 480 pixels, gets a smaller
-  unit so that the layout fits.
+  unit so that the layout fits. *(Changed by ADR-0050: it grows with the
+  shorter side, so a 1080x1920 portrait display has 1.0, not 1.78.)*
 - **Damage:** an animation frame repaints only the ring, a blink only
   the caret, a keystroke or a frame of the shake only the text box, and
   rendering a frame allocates no memory.
@@ -2078,7 +2102,9 @@ single set of rules.
 - **One program runs in the background.** `boswas-reminders` stays in
   the session so that an alarm rings and a reminder shows while Clock and
   Calendar are closed. No other application keeps running after its
-  window closes.
+  window closes. *(Since ADR-0051 a systemd user timer also starts
+  Weather's update for the lock screen every half hour; it ends after
+  each run.)*
 - **They do less than what they replace.** Left out on purpose, by
   application:
   - Terminal: split panes, sixel graphics, the kitty keyboard protocol,
@@ -2797,7 +2823,9 @@ managed.
 - Weather contacts an outside service; a device without a network shows
   the last forecast it saved, marked with its time. Open-Meteo's terms
   ask for attribution, which the app shows; commercial use needs their
-  paid plan.
+  paid plan. *(Since ADR-0051 it also does so without its window, every
+  half hour during a session, for the lock screen: only for a place the
+  user added, and only while the lock screen shows the weather.)*
 - **Verified:** the suites of both applications (Snipping Tool 114
   tests, Weather 93) on Qt's offscreen platform, the icon tests, and the
   package build. The Snipping Tool against the real compositor and shell
@@ -2918,7 +2946,7 @@ Follows ADR-0045 (frame pacing) and ADR-0036 (outputs). Reported on
 - **The boot screen** draws one frame per refresh of the mode it shows
   (from the CRTC mode's timings), at most 240 a second, 60 on a legacy
   frame buffer; missed frames are skipped. A frame costs about 2 µs at
-  1080p.
+  1080p. *(A frame of ADR-0050's progress ring costs about 10 µs.)*
 - **The toolkit's `fluent.Animation`** replaces QVariantAnimation where
   the toolkit and the applications animate: the same interface subset,
   stepping once per refresh of the widget's screen (`QScreen.refreshRate`,
@@ -3213,3 +3241,294 @@ a page reads a format wrongly; when the desktop gets a secret agent for
 NetworkManager (then VPNs that ask for a password); when a designer
 delivers contrast themes; or when updates need a pause that something
 resumes.
+
+## ADR-0050 A boot screen drawn from vectors, with motion
+
+Changes how the boot screen of ADR-0029 and ADR-0038 is drawn and what it
+shows. The programs, the device layers, the control protocol, the unlock
+path, the sandbox, the start-up and the failure behaviour of ADR-0029 and
+ADR-0044 are unchanged. Requested on 2026-11-22: the boot splash "is an
+image which looks odd"; a different boot experience, with animation and
+drawn from vector images.
+
+**Context.** The boot screen of ADR-0038 embedded a bitmap of the mark
+(290 by 360 pixels, rasterised at build time) and scaled it to each
+display, and glyph atlases of Inter at one size per weight, scaled down
+without kerning. The background was one flat colour and the ring five
+dots. Apart from the ring, the caret and the shake nothing moved: the
+prompt and the shutdown screen appeared at once, and the shutdown screen
+showed no mark. A portrait display got a logical pixel of 1.78, because
+the unit followed the height.
+
+**Decision.**
+
+- **Vectors, drawn at the display's exact size.** `build.rs` reads the
+  mark's SVG with usvg and embeds its filled paths, flattened to line
+  segments (none more than 0.02 of a pixel from the curve at the largest
+  size the mark is drawn), its paints (linear and radial gradients with
+  their stops) and the geometry of the three parts the intro moves: the
+  stem, the bowl and the dot, found by the ids of their gradients
+  (`boswas-mark-stem…`, `-bowl…`, `-dot…`; a path with another id appears
+  with the mark as a whole). The printable ASCII glyphs of Inter Regular
+  and SemiBold are embedded the same way, with their advances and the
+  pair kerning of the font's `kern` feature (GPOS). They are read with
+  `ttf-parser`, which replaces `fontdue` as a build dependency and was
+  already in the lock file. Nothing is parsed at boot, as before.
+- **An exact-area coverage rasteriser** (`src/raster.rs`: safe Rust,
+  non-zero winding, no supersampling, its buffers reused so that drawing
+  allocates nothing once they have grown) fills the mark path by path
+  with its gradients, at any pose and stage of the intro (`src/mark.rs`),
+  and the glyphs, each rasterised once per size at its exact fractional
+  size and at four sub-pixel positions (`src/text.rs`).
+- **The picture.** The mark's ink is 16 % of the display's shorter side
+  high (200 logical pixels at most), its middle at 44 % of the height.
+  Behind it `neutral.950` with an `azure.500` and an `iris.500` bloom, as
+  on the boot menu (`desktop/branding/boot-splash.svg`), dithered with
+  fixed noise of less than half a step so that 8-bit displays show no
+  bands (`src/backdrop.rs`); a warm glow (`sun.400`) round the dot. Three
+  tenths of the mark's height under it, a progress ring 34 pixels across
+  with a 3.5 pixel stroke: an arc that lengthens and shortens while it
+  turns or, when the boot reports a percentage, an arc from the top over
+  that share on a faint track (the percentage also stays on the message
+  line). The unlock screen is ADR-0038's column, headed by the mark at
+  three quarters of its size, with a translucent text box. Shutdown and
+  restart show the mark and the ring too.
+- **Motion from the clock** (`src/motion.rs`): the cubic Bézier curves
+  of the token file and a choreography that is a function of time, so a
+  busy machine shows fewer frames, never slower or uneven motion. The
+  intro, once at boot (1.6 s): the mark fades in and grows from 94 %, its
+  stem rises from a disc at its foot, a soft-edged sweep round the bowl's
+  centre reveals the bowl, the dot grows with a small overshoot and its
+  glow settles; the ring fades in from 1.1 to 1.5 s. Shutdown and restart
+  fade in (0.25 s); the prompt glides in and out while the mark glides up
+  and shrinks or comes back (0.32 s); a reported progress glides to its
+  value (0.25 s); the dot's glow breathes once every 4 s while the ring
+  turns; `quit` fades everything to the background, `quit --retain` the
+  ring and the text, leaving the mark (0.2 s). With
+  `boswas.splash=static` nothing moves and the mark is whole at once.
+- **The logical pixel follows the display's shorter side,** so a
+  1080x1920 portrait display gets 1.0, as a 1920x1080 one does.
+- **The end of a prompt, and of the screen.** An answered prompt fades
+  out with its dots; only their number is kept for that, and the
+  passphrase is wiped before the fade. `quit` is answered once the fade
+  is over, about a fifth of a second later than before, also with
+  `--retain`; without animation, or while the screen is hidden, at once.
+
+**Why.**
+
+- One bitmap made at build time was scaled to every display, and the
+  text was scaled down from atlases without kerning. Drawn from outlines
+  at the exact size, the mark and the text are sharp on every display,
+  portrait and 4K included, and the mark is what its SVG says: a test
+  compares it with resvg's rendering of the same file, on average less
+  than a third of a colour level apart.
+- Motion that assembles the mark, and glides instead of jumps, is what
+  was asked for. Because it is a function of the clock and only what
+  moves is redrawn, ADR-0045's and ADR-0048's rules hold: an intro frame
+  redraws at most 1.15 % of a 1080p screen, a frame of the ring its 36 by
+  36 pixels.
+- Outlines keep ADR-0029's property that the process holding the
+  passphrase parses nothing at boot, and they are small: the mark about
+  10 KB, the two weights of Inter 64 and 69 KB.
+- Answering `quit` after the fade lets the next unit start on the frame
+  the boot screen leaves behind, not on a half-faded one.
+
+**Left out.**
+
+- Pictures or frame sequences made in advance: they are made for one
+  size and are scaled again on every other.
+- A GPU: the boot screen still draws on the processor, into dumb buffers
+  or the frame buffer (ADR-0029).
+- Dithering on a 16-bit (RGB565) frame buffer: the background is
+  truncated there and may show bands.
+- Text beyond ASCII and in other languages (ADR-0038).
+
+**Consequences.**
+
+- Built with Rust 1.85 and stripped, the two programs are 1.44 MB
+  together in the initramfs (the daemon 0.96 MB, the client 0.48 MB) and
+  0.71 MB after `gzip -6`. With the bitmaps they were 1.76 MB and
+  0.61 MB: coordinates compress less well than mostly empty bitmaps.
+- Cost on the build machine (release build, 1920x1080 / 3840x2160): the
+  first frame 20 / 82 ms; a frame of the ring 10 µs (1,296 pixels, 0.062 %
+  of the screen) / 34 µs; a second of the ring at 240 frames a second
+  2.4 / 8.1 ms; an intro frame 0.35 ms (median; at most 1.15 % of the
+  screen) / 1.4 ms; a keystroke 0.18 / 0.72 ms. `tests/perf.rs` fails if
+  a frame redraws more than the items that changed.
+- The mark's file format (ADR-0047) now matters to the boot screen in one
+  more way: the ids of its gradients say which path belongs to which
+  part.
+- The package's lock file names 81 crates (86 before); no crate was
+  added. `packages/boswas-bootsplash/README.md` is the reference.
+- **Verified:** 187 tests where there were 154 (161 unit tests, 19 with
+  the real programs, 5 on the packaging, the frame-cost test, and Debian's
+  unmodified `askpass` built from source against the daemon), with Rust
+  1.85 and 1.97, release and unoptimised builds. The vector mark against
+  resvg's rendering (mean difference under 0.3 colour levels). Review
+  frames looked at at 1366x768, 1920x1080, 3840x2160 and 1080x1920: every
+  state, the intro frame by frame, the ring's cycle, the glide, the fades,
+  the bloom with its contrast raised to look for bands; and a
+  25-frames-a-second preview made from them.
+- **Not verified:** the new picture on any display or in the virtual
+  machine (the boots of ADR-0044 ran the previous one; the device layers
+  and the start-up did not change, and the hand-over now waits a fifth of
+  a second for the fade); real hardware; Debian 13; the shading on a
+  16-bit frame buffer; the intro's cost on a slow machine with a large,
+  fast display (0.45 s of the build machine's processor for the 1.6 s
+  intro at 3840x2160 and 240 frames a second).
+
+**Revisit when** the first boot on a display or on hardware shows the
+motion uneven or the intro too costly on slow machines, or when the mark
+changes in a way that its gradient ids no longer describe.
+
+## ADR-0051 The weather on the lock screen, from a summary that Weather writes
+
+Follows ADR-0035 (what the lock screen runs), ADR-0046 (Weather) and
+ADR-0049 (the desktop's settings in the compositor's configuration).
+Requested on 2026-11-22: weather widgets on the lock screen.
+
+**Context.** The lock screen (`boswas-shell --lock`) showed the clock, the
+date and the status icons, and after a key or a click the sign-in view.
+It runs the restricted set of status services of ADR-0035, owns no bus
+name, and holds the password prompt of the session. Weather fetched
+forecasts only while its window was open.
+
+**Decision.**
+
+- **A weather card in the clock view.** Bottom left, 28 pixels from the
+  edges: the condition's icon, the current temperature, the condition and
+  the place; a line with today's high and low (until midnight at the
+  place) and how warm it feels; the next four hours (time, icon,
+  temperature); "Updated at HH:MM" once the summary is an hour old. It
+  is shown only in the clock view, only on the output that takes input
+  (the others show the clock and the date), only once the compositor's
+  settings have arrived and allow it, and only while the summary is at
+  most three hours old and not more than five minutes in the future.
+  Never in the sign-in view, and never on the login screen, which runs
+  before anyone's files are known.
+- **Its look.** The dark acrylic material over the blurred wallpaper (its
+  tint alone without a wallpaper, opaque with transparency off), the
+  flyout radius (8 px), the tooltip shadow and the dark theme's surface
+  outline, all from the tokens; the icons grow with the text size (40 to
+  64 px beside the temperature, 20 to 32 px for the hours). The card goes
+  beside the unlock hint or above it, whichever keeps more of it; short
+  of room it drops the details line first, then the hours.
+- **The lock screen reads one file and nothing else.**
+  `$XDG_STATE_HOME/boswas/weather.json` (default
+  `~/.local/state/boswas/weather.json`), a JSON summary of version 1,
+  already worded and naming its icons (format in
+  `docs/architecture/platform-contracts.md`). Only a regular file of the
+  user, at most 16 KB, opened with `O_NOFOLLOW | O_NONBLOCK`, so that a
+  link in its place is not followed and a FIFO cannot hold the lock
+  screen up. Its `stat` is looked at once a minute and the file is read
+  only when that changed; any value that is missing, of the wrong kind,
+  out of range or too long rejects the whole summary, and a bad file is
+  logged once per change. The lock screen gains no network access, no
+  service and no bus name.
+- **Weather writes the summary,** for the home place or, without one, the
+  first place. The window keeps it in line whenever that place's
+  forecast, the places, the units or the clock change, and removes it
+  when there is no place or the setting is off.
+  `boswas-weather --update-lock-screen` does the same without a window
+  and without Qt (`boswas_apps/weather/lockscreen.py`): it refuses root
+  (exit status 4), reads Weather's places and settings without changing
+  them, takes the units and the 12- or 24-hour clock from those settings
+  and, where they leave it to the locale, from the locale without Qt
+  (glibc's `T_FMT` for the clock), uses a forecast that is less than ten
+  minutes old from Weather's cache or fetches one (which renews the
+  cache), keeps the last summary when the service cannot be reached, and
+  writes atomically with mode 0600 (exit status 1 when it cannot). The
+  times in the summary are seconds since the epoch; every word and icon
+  is decided in Python.
+- **A systemd user timer runs the update.** Both units are in
+  `boswas-apps`, and its postinst enables the timer for every user.
+  `boswas-weather-update.timer` fires a minute after the Boswas session
+  starts and then every 30 minutes, each time up to 3 minutes later at
+  random; after a suspend it runs once, not once per missed half hour;
+  `WantedBy` and `PartOf` `boswas-session.target`.
+  `boswas-weather-update.service` is a oneshot that may write only its
+  `StateDirectory=boswas` and `CacheDirectory=com.boswas.Weather`
+  (`ProtectSystem=strict`), with `PrivateTmp`, `PrivateDevices`,
+  `NoNewPrivileges`, `RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX`,
+  `SystemCallFilter=@system-service`, `MemoryDenyWriteExecute`,
+  `MemoryMax=128M`, `TasksMax=16` and `TimeoutStartSec=90`, among others.
+- **Only a place the user added is sent** to Open-Meteo, as the window
+  sends it; without a place nothing is fetched. There is no location
+  lookup.
+- **The setting `[lock] show_weather`** (default `true`, in the shipped
+  `compositor.toml`) belongs to the user: unlike `[lock] command` and the
+  lock policy, a user's file may set it. It reaches the lock screen in
+  the compositor's `config` event and in the reply to `subscribe`, as
+  `"lock": {"show_weather": ...}`. The update reads it from the same three
+  files as the compositor (`/usr/share/boswas/compositor/compositor.toml`,
+  `/etc/boswas/compositor.toml`, the user's); when it is off nothing is
+  fetched and the summary is removed. Settings offers it as "Show weather
+  on the lock screen" under Privacy & security > Lock screen
+  (`LockScreenSection`), and search finds it under "weather" and
+  "forecast".
+
+**Why.**
+
+- The lock screen holds the password prompt of a session that nobody may
+  be watching. A network client or a forecast parser in that process
+  would be one more way in; a small file that it checks field by field,
+  written by an ordinary application of the same user, keeps it offline
+  and its input bounded. Whatever the file holds, the lock screen stays
+  correct and can be unlocked.
+- Weather already has the places, the units, the wording and the icons.
+  Deciding them in Python keeps one implementation; the lock screen draws
+  what it is given.
+- A timer keeps the summary fresh while Weather is closed and costs
+  nothing between runs; a resident service would be a second background
+  program next to the reminders service (ADR-0040).
+- The card shows the place and its weather to anyone at the device. That
+  is why there is a switch; it is on by default because nothing is shown
+  or fetched until the user has added a place.
+
+**Left out.**
+
+- The weather on the login screen, in the sign-in view and on the other
+  outputs.
+- Locating the device, and a place of the lock screen's own: it is
+  Weather's home place.
+- Any fetching in the lock screen itself, and a system-wide service.
+- Notifications on the lock screen stay left out (ADR-0035, ADR-0049).
+
+**Consequences.**
+
+- With a place and the setting on, the device asks Open-Meteo for that
+  place's forecast about every half hour while a Boswas session runs,
+  also while Weather is closed (`docs/security/privacy.md`).
+- `boswas-weather` has a second form and the exit status 1, and
+  `boswas-apps` ships its first systemd user units.
+- `XDG_STATE_HOME` set only in `~/.profile` is not seen by the systemd
+  user manager, so the update would write where the lock screen does not
+  look. For a user who never opened Weather, `StateDirectory` and
+  `CacheDirectory` create two empty directories (nothing is sent). The
+  hours are labelled in the place's local time. If a configuration file
+  has a mistake that makes the compositor ignore it, Weather and the
+  compositor can disagree about the setting; at worst no weather is
+  shown.
+- **Verified:** the shell's 115 tests (106 before: the summary's parser
+  and limits, a file that is not the user's, too large, a link or a FIFO,
+  old and future summaries, the card's place at every text size, and that
+  it appears only where it belongs), with one more, ignored, that writes
+  pictures for people to look at; the compositor's 119 unit and 20
+  end-to-end tests (the setting is the user's; the lock screen learns
+  it); Weather 129 (93 before); the applications 2,333; Control Center
+  691 (5 skipped); a package-stage check for the units. Looked at: the
+  real headless compositor with the real `boswas-shell --lock` at
+  1920x1080 and 1366x768, on bright and dark wallpapers, at 100, 175 and
+  225 % text, in both schemes; while locked, the setting turned off and on
+  through `reload-config`, the file removed, a summary 1.5 hours old and a
+  damaged one.
+- **Not verified:** the timer and the service under a real systemd user
+  manager (sandboxing options in a user manager need unprivileged user
+  namespaces, which Debian 13 enables by default), and that
+  `boswas-session.target` starts the timer; the live Open-Meteo service;
+  unlocking with the card shown under real PAM; locales where glibc and
+  Qt choose differently between the 12- and the 24-hour clock.
+
+**Revisit when** the units have run under a real user manager and their
+sandbox does not start there, when the hours should follow the device's
+time zone, or when the lock screen is to show more than the home place.

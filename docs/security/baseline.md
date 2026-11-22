@@ -194,6 +194,15 @@ Files asks before it starts a program, an executable script or a desktop
 entry; the Archive Manager extracts without following symbolic links or
 leaving the destination, skips device files, drops set-user-ID bits and
 stops at the size of a decompression bomb; deleting goes to the Trash.
+Weather's update for the lock screen (`boswas-weather
+--update-lock-screen`, ADR-0051) runs from a systemd user timer as a
+confined service: it may write only its state and cache directories
+(`ProtectSystem=strict`), reaches the network over IPv4 and IPv6 only
+(and local sockets for name resolution), and runs with `NoNewPrivileges`,
+`PrivateTmp`, `PrivateDevices`, `MemoryDenyWriteExecute`, the
+`@system-service` system-call filter and limits on memory and tasks. It
+refuses to run as root and fetches nothing unless the user added a place
+in Weather.
 
 Control Center changes desktop settings through two interfaces only
 (ADR-0041): the service bridge, and the user's layer of the compositor's
@@ -254,6 +263,15 @@ desktop yet, and none has had a security review.
   compositor never sees it.
 - Any program of the user may lock (`boswas-compositor --send lock`); the
   suspend hook uses that. Nothing but the lock screen unlocks.
+- The lock screen's weather card (ADR-0051) comes from one file, the
+  summary Weather writes to `~/.local/state/boswas/weather.json`. The lock
+  screen opens it without following a link and without blocking, reads it
+  only if it is a regular file of the user of at most 16 KB, and shows
+  nothing if any value is missing, of the wrong kind, out of range or too
+  long; whatever the file holds, it can still be unlocked. It makes no
+  network connection. The card shows the place and its weather to anyone
+  at the device; `[lock] show_weather` (Settings > Privacy & security >
+  Lock screen) turns it off, and it is a user setting, not lock policy.
 
 ### Login
 
@@ -274,9 +292,10 @@ passphrase from the console keyboard. Its control socket is root-only and
 checks the peer. Once the display, the console and the socket are open it
 sets `no_new_privs`, enters a Landlock domain limited to the graphics
 devices and its runtime directory with no TCP, and keeps three
-capabilities. Nothing is parsed from disk at boot: the artwork and the
-font are compiled in. If it cannot start or dies, the passphrase is asked
-for on the text console.
+capabilities. Nothing is parsed from disk at boot: the outlines of the
+mark and of the glyphs are compiled in (ADR-0050), and the rasteriser that
+draws them is safe Rust. If it cannot start or dies, the passphrase is
+asked for on the text console.
 
 ### Privileges
 
@@ -299,7 +318,8 @@ with Debian's unmodified unlock helper. **Not yet verified:** anything on
 a real boot (QEMU or hardware) or against a real system service: the DRM
 and input path, greetd login and PAM on the image, suspend and resume,
 the boot screen on an encrypted disk, polkit, NetworkManager and BlueZ,
-the portal. No external security review has taken place. The full list
+the portal, and the confinement of Weather's update under a real systemd
+user manager. No external security review has taken place. The full list
 is in [verification.md](../architecture/verification.md).
 
 ## Live session

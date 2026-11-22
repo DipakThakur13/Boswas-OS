@@ -10,7 +10,8 @@
 //! * a window is mapped, listed, tiled, drawn (checked in a screenshot) and
 //!   closed
 //! * a locked session stays locked when the lock screen dies, and unlocks
-//!   only when a lock client says so
+//!   only when a lock client says so; the lock screen learns whether to
+//!   show the weather
 //! * a login screen that keeps failing ends the compositor with the exit
 //!   status its start script falls back to the text login on, while a
 //!   desktop session stays and tries its shell again with a growing pause
@@ -992,6 +993,21 @@ fn only_a_lock_client_unlocks_the_session() {
     assert!(compositor.helper_output().contains("locked"));
 }
 
+#[test]
+fn the_lock_screen_learns_whether_to_show_the_weather() {
+    // The lock screen is a trusted client: it subscribes and finds
+    // `[lock] show_weather` in the session's settings.
+    for (setting, expected) in [("show_weather = false\n", "false"), ("", "true")] {
+        let config = format!("[shell]\ncommand = []\n[lock]\nidle_seconds = 0\n{setting}command = @HELPER@\n[policy]\nlock_idle_max_seconds = 0\n");
+        let compositor = Compositor::start(&config, "lock-settings");
+        compositor.control().ok(json!({"cmd": "lock"}));
+        let line = wait_for("the lock screen's settings", || {
+            compositor.helper_output().lines().find(|line| line.starts_with("show_weather=")).map(str::to_owned)
+        });
+        assert_eq!(line, format!("show_weather={expected}"), "{setting:?}");
+    }
+}
+
 /// The rest of a configuration whose shell is under test.
 const NO_LOCK: &str = "[lock]\nidle_seconds = 0\ncommand = []\n[policy]\nlock_idle_max_seconds = 0\n";
 
@@ -1161,6 +1177,24 @@ fn trusted_helper() {
             // reach the compositor together.
             drop(stream);
             std::thread::sleep(Duration::from_millis(300));
+        }
+        "lock-settings" => {
+            use std::os::fd::FromRawFd;
+            let fd: i32 = std::env::var("BOSWAS_COMPOSITOR_FD").unwrap().parse().unwrap();
+            // SAFETY: the descriptor was passed to this process by the
+            // compositor for exactly this use.
+            let stream = unsafe { UnixStream::from_raw_fd(fd) };
+            stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+            let mut control = Control {
+                reader: BufReader::new(stream),
+            };
+            let reply = control.call(json!({"cmd": "subscribe"}));
+            report(&format!("show_weather={}", reply["data"]["appearance"]["lock"]["show_weather"]));
+            // Until the compositor is gone (or ten quiet seconds).
+            let mut line = String::new();
+            while matches!(control.reader.read_line(&mut line), Ok(n) if n > 0) {
+                line.clear();
+            }
         }
         "lock-and-die" | "lock-and-unlock" => {
             let (globals, mut queue) = registry_queue_init::<Client>(&conn).unwrap();

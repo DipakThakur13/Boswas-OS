@@ -240,6 +240,28 @@ class SnapshotTest(Files):
         self.put(self.user, "[lock]\nidle_seconds = 120\n")
         self.assertEqual(self.settings.snapshot().get("lock", "idle_seconds"), 120)
 
+    def test_the_weather_on_the_lock_screen_is_the_users_choice(self):
+        self.assertTrue(self.settings.snapshot().get("lock", "show_weather"), "shown unless a file says otherwise")
+        self.put(self.system, "[lock]\nshow_weather = false\ncommand = [\"/usr/libexec/lock\"]\n")
+        snapshot = self.settings.snapshot()
+        self.assertEqual((snapshot.get("lock", "show_weather"), snapshot.source("lock", "show_weather")),
+                         (False, "system"))
+        # Unlike the lock program and the lock policy, the user's file may set it.
+        self.assertTrue(cc.check_value("lock", "show_weather", True))
+        with self.assertRaises(cc.InvalidValue):
+            cc.check_value("lock", "show_weather", "yes")
+        saved = self.settings.update({("lock", "show_weather"): True})
+        self.assertEqual(saved.backup, "")
+        self.assertEqual(self.toml(self.user), {"lock": {"show_weather": True}})
+        snapshot = self.settings.snapshot()
+        self.assertEqual((snapshot.get("lock", "show_weather"), snapshot.source("lock", "show_weather")),
+                         (True, "user"))
+        self.assertEqual(snapshot.get("lock", "command"), ["/usr/libexec/lock"])
+        # A value of the wrong kind makes the compositor ignore the user's whole file.
+        self.put(self.user, "[lock]\nshow_weather = \"no\"\n")
+        snapshot = self.settings.snapshot()
+        self.assertEqual((snapshot.layer("user").state, snapshot.get("lock", "show_weather")), ("rejected", False))
+
     def test_an_administrator_may_change_the_policy(self):
         self.put(self.system, "[policy]\nlock_idle_max_seconds = 0\n[lock]\nidle_seconds = 0\n")
         snapshot = self.settings.snapshot()
@@ -359,7 +381,7 @@ class WriterTest(unittest.TestCase):
         self.assertEqual(sorted(parsed), ["accessibility", "appearance", "apps", "color_filter", "keyboard", "lock",
                                           "magnifier", "multitasking", "night_light", "notifications", "output",
                                           "outputs", "pointer", "power", "start", "taskbar", "touchpad", "xwayland"])
-        self.assertEqual(parsed["lock"], {"idle_seconds": 600})           # never the command
+        self.assertEqual(parsed["lock"], {"idle_seconds": 600, "show_weather": True})   # never the command
         self.assertEqual(parsed["outputs"], {"eDP-1": config["outputs"]["eDP-1"], "HDMI-A-1": {"enabled": False}})
         for table in ("keyboard", "pointer", "touchpad", "night_light", "apps", "appearance", "accessibility",
                       "color_filter", "magnifier", "taskbar", "start", "multitasking", "notifications"):
@@ -1094,6 +1116,7 @@ class RealCompositorTest(unittest.TestCase):
                    ("night_light", "enabled"): True, ("night_light", "temperature"): 3400,
                    ("night_light", "scheduled"): True, ("night_light", "from"): "21:30", ("night_light", "to"): "07:15",
                    ("power", "screen_off_seconds"): 900, ("lock", "idle_seconds"): 300,
+                   ("lock", "show_weather"): False,
                    ("xwayland", "enabled"): True, ("apps", "terminal"): ["foot", "--title", "a \"b\" \\ c"],
                    ("apps", "files"): ["boswas-files"], ("apps", "settings"): ["boswas-control-center"],
                    ("apps", "task_manager"): ["boswas-task-manager"],

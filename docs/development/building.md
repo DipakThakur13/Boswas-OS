@@ -212,7 +212,7 @@ unprivileged user, with the image's own Wine, bubblewrap and boswas-compat:
 | Toolchain | `rustc` and `cargo` 1.85, the versions in Debian 13. Both workspaces set `rust-version = "1.85"`. A newer toolchain works for development; code and dependencies must still build with 1.85 |
 | Dependencies | The crates named in each `Cargo.lock`, downloaded from **crates.io** by cargo during the build and checked against the lock file. `debian/rules` and the tests use `--locked`: a build fails instead of changing the lock file |
 | System libraries | `libseat-dev`, `libinput-dev`, `libudev-dev`, `libgbm-dev`, `libpixman-1-dev`, `libxkbcommon-dev`, `libpam0g-dev`, found through `pkgconf` |
-| Fonts at build time | `fonts-inter` for `boswas-bootsplash`: its `build.rs` makes the glyph atlases from Inter. The Debian package build fails without it; a plain `cargo build` warns and uses Orbitron from the repository |
+| Fonts at build time | `fonts-inter` for `boswas-bootsplash`: its `build.rs` embeds the outlines of Inter's glyphs (ADR-0050). The Debian package build fails without it; a plain `cargo build` warns and uses Orbitron from the repository |
 | Programs the tests start | `dbus-daemon` for the service backends' integration tests (they fail without it). `grim`, `Xwayland` and `xclock` for three of the compositor's end-to-end tests, which skip themselves without them |
 | Where build products go | Package build: `build/` inside the staged package (cargo home and target directory; removed with the stage). Tests: the test work directory. Development: `target/` in the workspace (git-ignored) |
 | Adding or updating a crate | Change `Cargo.toml`, run `cargo update -p NAME` (or `cargo build`) with network access, check that `cargo +1.85.0 build --locked` still works, and commit `Cargo.lock` with the change |
@@ -310,7 +310,9 @@ The `udev` back end (real hardware) needs a free virtual terminal and a
 logind or seatd session: log in on a text console and run
 `boswas-session`. It has not been run on hardware yet.
 
-Review frames of the boot screen:
+Review frames of the boot screen (every state, the intro, the ring, the
+glide and the fades as PNG files, a contact sheet, and an animated preview
+where `ffmpeg` is installed):
 `cargo run --release --example frames -- OUTDIR 1920x1080` in
 `packages/boswas-bootsplash` (see its README).
 

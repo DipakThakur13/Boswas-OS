@@ -6,6 +6,8 @@ boswas-weather \- the weather and the forecast for the places you choose
 .RB [ \-\-place
 .IR name ]
 .br
+.B boswas-weather \-\-update\-lock\-screen
+.br
 .B boswas-weather
 .BR \-\-version " | " \-\-help
 .SH DESCRIPTION
@@ -50,12 +52,41 @@ fetched, and offers to try again.
 .PP
 Only one Weather runs per session; starting it again brings the window
 forward and shows the place asked for.
+.SS The lock screen
+The lock screen shows the weather of the home place (or of the first
+place, when no place is home): the condition with its icon, the
+temperature, the place, today's high and low, how warm it feels and the
+next four hours. It never contacts the network itself: it reads a small
+summary that Weather writes whenever it has a forecast of that place, and
+that
+.B boswas\-weather \-\-update\-lock\-screen
+writes while Weather is closed. The systemd user timer
+.B boswas\-weather\-update.timer
+runs it a minute after the Boswas session starts and then every half
+hour, each time up to three minutes later at random. A summary older than
+three hours is not shown; one older than an hour says when it was
+fetched. The lock screen shows nothing when there is no place, and
+"Show weather on the lock screen" in Settings (Privacy & security > Lock
+screen; the compositor's setting
+.B [lock] show_weather
+in
+.BR boswas\-compositor (1))
+turns it off.
 .SH OPTIONS
 .TP
 .BI \-\-place " name"
 Open with the forecast of one of your places, found by its name (letter
 case does not matter). Without the option, or for a name that is not one
 of your places, Weather opens with the home place.
+.TP
+.B \-\-update\-lock\-screen
+Fetch the forecast of the home place for the lock screen, write the
+summary and exit, without a window and without Qt. It does nothing and
+sends nothing when you have no place, and when the lock screen's setting
+is off (then it also removes the summary). A forecast Weather fetched in
+the last ten minutes is used as it is. When the weather service cannot be
+reached, the last summary is kept. The forecast also goes into Weather's
+cache. It refuses to run as root.
 .TP
 .B \-\-version
 Print the version and exit.
@@ -89,12 +120,32 @@ removed are deleted when Weather starts.
 .TP
 .I $XDG_STATE_HOME/com.boswas.Weather/window.ini
 The size of the window.
+.TP
+.I $XDG_STATE_HOME/boswas/weather.json
+The summary the lock screen shows (JSON, mode 0600, a few kilobytes): the
+place's name, when the forecast was fetched, the temperature unit, the
+current temperature, condition and icon, today's high and low, how warm
+it feels and the next twelve hours, already worded for your units and
+clock. Removed when you have no place or the lock screen does not show the
+weather.
+.TP
+.I /usr/lib/systemd/user/boswas\-weather\-update.timer
+.TQ
+.I /usr/lib/systemd/user/boswas\-weather\-update.service
+The half-hourly update for the lock screen, started with
+.B boswas\-session.target
+and stopped with it. The service may write only the summary's directory
+and Weather's cache, and reach the network only over IPv4 and IPv6.
+Turn it off for yourself with
+.BR "systemctl \-\-user mask boswas\-weather\-update.timer" .
 .PP
 Every file is written to a temporary file first and then put in place,
 so an interrupted write never leaves a broken file.
 .SH EXIT STATUS
-0 on success (also when a running Weather was brought forward); 4 when
-started as root, which Weather refuses.
+0 on success (also when a running Weather was brought forward, and for
+\fB\-\-update\-lock\-screen\fR when there was nothing to do or the weather
+service could not be reached); 1 when \fB\-\-update\-lock\-screen\fR could not
+write the summary; 4 when started as root, which Weather refuses.
 .SH NOTES
 Weather data by Open-Meteo.com
 .RI ( https://open-meteo.com/ ),
@@ -102,7 +153,9 @@ licensed under the Creative Commons Attribution 4.0 license (CC BY 4.0).
 Weather shows this attribution at the bottom of every forecast and in its
 settings.
 .PP
-Weather never uses your location. It asks Open-Meteo
+Weather never uses your location, and neither does the lock screen: the
+update for the lock screen asks only for the forecast of a place you
+added. It asks Open-Meteo
 .RI ( geocoding-api.open-meteo.com
 and
 .IR api.open-meteo.com ,
@@ -118,4 +171,6 @@ environment
 are used.
 .SH SEE ALSO
 .BR boswas\-clock (1),
-.BR boswas\-calendar (1)
+.BR boswas\-calendar (1),
+.BR boswas\-compositor (1),
+.BR boswas\-shell (1)

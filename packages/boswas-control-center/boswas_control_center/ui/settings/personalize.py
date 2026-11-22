@@ -14,6 +14,9 @@ Category "Personalization":
 Page "lock-screen" (Privacy & security):
   Lock screen   "Lock automatically after": [lock] idle_seconds, limited by
                 the administrator's [policy] lock_idle_max_seconds.
+                "Show weather on the lock screen": [lock] show_weather (the
+                home place chosen in Weather; the lock screen itself never
+                goes on the network, see boswas-weather(1)).
 Page "power":
   Screen        "Turn off the screen after": [power] screen_off_seconds.
 
@@ -466,12 +469,20 @@ class LockScreenSection(_TimeRow):
     page = "lock-screen"
     title = "Lock screen"
     order = 80
-    keywords = ("lock", "lock screen", "automatic lock", "screen lock", "idle", "timeout", "away", "password")
+    keywords = ("lock", "lock screen", "automatic lock", "screen lock", "idle", "timeout", "away", "password",
+                "weather", "forecast", "temperature")
     reports_files = True
     table, key = "lock", "idle_seconds"
     row_title = "Lock automatically after"
     row_description = "The screen locks when the device has not been used for this long"
     row_icon = "system-lock-screen-symbolic"
+    weather_description = ("The weather of your home place in Weather, with the next hours. The lock screen "
+                           "itself never goes online")
+
+    def build(self) -> None:
+        super().build()
+        self.weather = self.toggle("Show weather on the lock screen", self.weather_description,
+                                   "weather-few-clouds-symbolic", "lock", "show_weather")
 
     def allowed(self, snapshot: cc.Snapshot, seconds: int) -> bool:
         return snapshot.lock_allowed(seconds)
@@ -482,6 +493,7 @@ class LockScreenSection(_TimeRow):
         self.row.set_description(self.row_description if limit == 0 else
                                  f"Your organisation requires the screen to lock after at most {duration_text(limit)}")
         self.managed = limit > 0
+        self.weather.setChecked(bool(snapshot.get("lock", "show_weather")))
 
 
 class ScreenSection(_TimeRow):

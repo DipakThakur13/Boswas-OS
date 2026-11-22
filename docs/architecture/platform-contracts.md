@@ -7,7 +7,8 @@ fakes of the others; a change here changes all three.
 Section 4 describes the interfaces of the native desktop (`boswas-desktop`,
 ADR-0026) that other Boswas components use: its configuration files, its
 control socket, the service bridge for Settings (ADR-0035), the design
-tokens and the version file.
+tokens, the version file, and the weather summary that Weather writes for
+the lock screen (ADR-0051).
 
 ## 1. boswas-sysops: the only privileged helper
 
@@ -232,7 +233,7 @@ layers (the login screen uses `/usr/share/boswas/compositor/greeter.toml`).
 | `[outputs.NAME]` | one monitor, by connector name (`eDP-1`, `HDMI-A-1`): `enabled`, `mode` (`"1920x1080"` or `"1920x1080@60"`, one of the modes the monitor offers), `scale`, `position` (`[x, y]` of its top-left corner in logical pixels), `rotation` (`"normal"`, `"90"`, `"180"`, `"270"`), `adaptive_sync` (variable refresh rate where the monitor offers it; default `false`; ADR-0048). An invalid value is ignored alone. The last enabled monitor is never turned off |
 | `[night_light]` | `enabled`; `temperature` (2500–6500 kelvin); `scheduled` with `from` and `to` (`"HH:MM"`, local time) |
 | `[power]` | `screen_off_seconds` (0: never; otherwise 30 to 21600) |
-| `[lock]` | `idle_seconds` (0: never, if the policy allows); `command` (the lock screen program; system files only) |
+| `[lock]` | `idle_seconds` (0: never, if the policy allows); `command` (the lock screen program; system files only); `show_weather` (default `true`: the lock screen shows the weather card of ADR-0051; the user's setting, not lock policy, so a user's file may set it) |
 | `[shell]` | `command` (the shell program; system files only) |
 | `[input_method]` | `command` (the input method program, started as a trusted client; empty for none; system files only) |
 | `[xwayland]` | `enabled` (default `true`) |
@@ -256,9 +257,10 @@ every key.
 `reload-config` applies the keyboard, pointer and touchpad settings, the
 appearance, the cursor, the monitors, night light, the lock and
 screen-off times and the tables added for ADR-0049 to the running
-session; the shell gets its part in the `config` event. The shell
-command, the input method command and `privileged_protocols` are fixed
-for the session. `[night_light] enabled`, `[magnifier] enabled`,
+session; the shell gets its part in the `config` event, and so does a
+running lock screen (`[lock] show_weather`). The shell command, the
+input method command and `privileged_protocols` are fixed for the
+session. `[night_light] enabled`, `[magnifier] enabled`,
 `[color_filter] enabled` and `[notifications] do_not_disturb` are what a
 session starts with and take effect again when they change; in between,
 quick settings, the notification centre and the keys switch them for the
@@ -335,7 +337,7 @@ Events after `subscribe`, as `{"event": NAME, "data": ...}`:
 | `workspace` | `{active, count}` | desktops changed |
 | `outputs` | as the `outputs` reply | monitors changed |
 | `lock` | `{locked}` | the session was locked or unlocked |
-| `config` | `scheme`, `wallpaper`, `reduced_motion`, `accent`, `transparency`, `text_scale`; `taskbar` (`alignment`, `auto_hide`, `task_view`, `clock_seconds`, `badges`, and `windows` from `[multitasking] taskbar_windows`); `start` (`layout`, `recently_added`, `most_used`, `folders`); `notifications` (`do_not_disturb`, `scheduled`, `from`, `to`, `banners_off`, `toast_seconds`). The same object is `appearance` in the reply to `subscribe` | after a reload |
+| `config` | `scheme`, `wallpaper`, `reduced_motion`, `accent`, `transparency`, `text_scale`; `taskbar` (`alignment`, `auto_hide`, `task_view`, `clock_seconds`, `badges`, and `windows` from `[multitasking] taskbar_windows`); `start` (`layout`, `recently_added`, `most_used`, `folders`); `notifications` (`do_not_disturb`, `scheduled`, `from`, `to`, `banners_off`, `toast_seconds`); `lock` (`show_weather`, for the lock screen, which subscribes as a trusted client too). The same object is `appearance` in the reply to `subscribe` | after a reload |
 | `night-light` | `{enabled, temperature, active}` | `active`: the screens are tinted now |
 | `layout` | `{layouts, codes, active}` | the keyboard layouts or the active one changed |
 | `overview`, `show-desktop` | `{active}` | Task View or show desktop was toggled |
@@ -428,10 +430,86 @@ native desktop by `Boswas` in `XDG_CURRENT_DESKTOP`.
 | `$XDG_CONFIG_HOME/boswas/shell.toml` | boswas-shell (may be edited by hand) | boswas-shell | `[taskbar] pinned` and `[start] pinned`: lists of desktop file ids |
 | `$XDG_STATE_HOME/boswas/notification-senders.json` (default `~/.local/state/boswas/`) | boswas-shell, when a notification arrives (atomically) | Control Center (System > Notifications), read only | A JSON list, most recent first, at most 100: `{"name", "icon", "desktop_entry", "last"}` per application that sent notifications; `name` is the `app_name` it sends, which `[notifications] banners_off` names; `last` is seconds since the epoch. No notification content |
 | `$XDG_STATE_HOME/boswas/apps-seen.json` | boswas-shell | boswas-shell (Start's "Recently added") | A JSON object: desktop file id → when the shell first saw the application installed, in seconds since the epoch (0 for those installed when the shell first ran); at most 4000; removed applications are forgotten. Recently added means the last 14 days |
+| `$XDG_STATE_HOME/boswas/weather.json` | Weather (`boswas-apps`): its window and `boswas-weather --update-lock-screen` | `boswas-shell --lock` only | The weather summary of the lock screen, version 1; see below |
 | `/usr/share/xdg-desktop-portal/boswas-portals.conf` | boswas-desktop | xdg-desktop-portal (`XDG_CURRENT_DESKTOP=Boswas`) | GTK back end by default; the wlroots back end for ScreenCast and Screenshot |
 | `/etc/xdg/xdg-desktop-portal-wlr/Boswas` | boswas-desktop | xdg-desktop-portal-wlr | `chooser_type=none`: the first monitor is shared |
 | `/etc/boswas/greetd.toml` | boswas-desktop; live-config appends `[initial_session]` on the live medium only | greetd | Login configuration |
 | `/etc/pam.d/boswas-lock` | boswas-desktop | `boswas-shell --lock` (libpam) | `common-auth` and `common-account` |
+
+### The lock screen's weather summary
+
+`$XDG_STATE_HOME/boswas/weather.json` (default
+`~/.local/state/boswas/weather.json`) is how the weather reaches the lock
+screen (ADR-0051). Weather writes it; `boswas-shell --lock` reads it and
+nothing else about the weather, and never uses the network. The desktop
+and the login screen do not read it.
+
+```
+{"version": 1, "place": "Berlin", "fetched": 1763731200, "unit": "c",
+ "temperature": "8°C", "condition": "Partly cloudy",
+ "icon": "weather-few-clouds-symbolic", "updated": "Updated at 14:20",
+ "feels_like": "Feels like 5°", "high_low": "High 9° · Low 3°",
+ "today_until": 1763766000,
+ "hours": [{"at": 1763733600, "time": "15:00",
+            "icon": "weather-overcast-symbolic", "temperature": "8°"}]}
+```
+
+| Key | Value | Use |
+|-----|-------|-----|
+| `version` | `1` | Any other value: nothing is shown |
+| `place` | text, at most 100 characters | The place's name in Weather |
+| `fetched` | time | When the forecast was fetched. Not shown when this is more than three hours ago or more than five minutes ahead |
+| `unit` | `"c"` or `"f"` | The temperature unit the texts are in |
+| `temperature`, `condition` | text, at most 12 and 64 characters | The weather now, worded |
+| `icon` | `weather-` and lowercase letters and hyphens, at most 64 bytes | An icon of the icon theme |
+| `updated` | text, at most 64 characters; optional | Shown once `fetched` is an hour ago or more ("Updated at 14:20", in the device's time zone) |
+| `feels_like`, `high_low` | text, at most 64 characters; optional | The details line |
+| `today_until` | time; optional | `high_low` is shown until then (midnight at the place) |
+| `hours` | a list of at most 48 `{"at": time, "time": text (12), "icon", "temperature": text (12)}`; optional | The first four whose `at` is still ahead are shown; Weather writes up to twelve, labelled in the place's local time |
+
+A time is a whole number of seconds since the epoch between 2000 and
+2100. A text has at least one character that is not a space, and no
+control or direction-changing characters. Keys this version does not know
+are ignored; a value that is missing, of the wrong kind, out of range or
+too long rejects the whole summary.
+
+- **Reading**
+  (`packages/boswas-desktop/crates/boswas-shell/src/weather.rs`): the
+  file is opened with `O_NOFOLLOW | O_NONBLOCK | O_NOCTTY` and read only
+  if it is a regular file owned by the user and at most 16 KB. The lock
+  screen looks at its `stat` (without following a link) when it starts
+  and then once a minute, and reads it only when its device, inode, size
+  or modification time changed; a bad file is logged once per change. It
+  shows the card only while `[lock] show_weather` is true (`config`
+  event).
+- **Writing** (`packages/boswas-apps/boswas_apps/weather/lockscreen.py`):
+  compact JSON, at most 16 KB, replaced atomically (a private file beside
+  it, renamed over it), mode 0600. The summary is of the home place, else
+  of the first place. The Weather window writes it whenever that place's
+  forecast, the places, the units or the clock change;
+  `boswas-weather --update-lock-screen` writes it without a window. Both
+  remove it when there is no place or `[lock] show_weather` is false,
+  which they read from the same three files as the compositor (shipped,
+  administrator, user). The update takes the units and the 12- or 24-hour
+  clock from Weather's settings, or from the locale where those leave it
+  to the locale (glibc's `T_FMT`, without Qt). Exit status: 0 (also with
+  nothing to do, and when the service cannot be reached, which leaves the
+  summary as it is), 1 when the summary cannot be written, 4 as root.
+- **The user units,** installed by `boswas-apps` in
+  `/usr/lib/systemd/user/` and enabled for every user by its postinst:
+  `boswas-weather-update.timer` (`OnActiveSec=1min`,
+  `OnUnitActiveSec=30min`, `RandomizedDelaySec=3min`, `AccuracySec=1min`;
+  `WantedBy=` and `PartOf=boswas-session.target`) starts
+  `boswas-weather-update.service` (`Type=oneshot`,
+  `ExecStart=/usr/bin/boswas-weather --update-lock-screen`,
+  `TimeoutStartSec=90`; `StateDirectory=boswas` and
+  `CacheDirectory=com.boswas.Weather`, mode 0700, are all it may write
+  under `ProtectSystem=strict`; `PrivateTmp`, `PrivateDevices`,
+  `NoNewPrivileges`, `RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX`,
+  `SystemCallFilter=@system-service`, `MemoryDenyWriteExecute`,
+  `MemoryMax=128M`, `TasksMax=16` and the other options in the unit). A
+  user turns it off with `systemctl --user mask boswas-weather-update.timer`
+  or with the setting, which makes each run end at once.
 
 The boot screen's control protocol (`/run/boswas-bootsplash/socket`, root
 only) is described in `packages/boswas-bootsplash/README.md`.

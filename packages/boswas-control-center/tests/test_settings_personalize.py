@@ -432,6 +432,31 @@ if HAVE_QT:
             self.assertEqual(self.get("lock", "idle_seconds"), 120)
             testing.grab(section, self.tmp / "lock.png")
 
+        def test_show_weather_on_the_lock_screen(self):
+            section = self.open(personalize.LockScreenSection(config=self.settings))
+            self.assertTrue(section.weather.isChecked(), "on by default")
+            self.assertIn("never goes online", personalize.LockScreenSection.weather_description)
+            testing.click(section.weather)
+            shared.settle(section)
+            self.assertFalse(self.get("lock", "show_weather"))
+            self.assertEqual(cc._parse(self.user.read_bytes())[0], {"lock": {"show_weather": False}})
+            self.assertEqual(self.compositor.reloads, 1, "the running lock screen learns it with the reload")
+            self.assertFalse(section.weather.isChecked())
+            testing.click(section.weather)
+            shared.settle(section)
+            self.assertTrue(self.get("lock", "show_weather"))
+            # The administrator's default shows; the user's choice still wins over it.
+            self.user.unlink()
+            self.system_files[1].write_text("[lock]\nshow_weather = false\n")
+            section.refresh()
+            shared.settle(section)
+            self.assertFalse(section.weather.isChecked())
+            testing.click(section.weather)
+            shared.settle(section)
+            self.assertEqual((self.get("lock", "show_weather"), section.weather.isChecked()), (True, True))
+            self.assertEqual(section.box.currentText(), "10 minutes", "the lock time is untouched")
+            testing.grab(section, self.tmp / "lock-weather.png")
+
         def test_without_a_limit_never_is_offered(self):
             self.system_files[1].write_text("[policy]\nlock_idle_max_seconds = 0\n[lock]\nidle_seconds = 420\n")
             section = self.open(personalize.LockScreenSection(config=self.settings))
@@ -479,6 +504,7 @@ if HAVE_QT:
                 self.assertIsInstance(section.config, cc.Settings)
                 section.deactivate()
             self.assertIn("lock", personalize.LockScreenSection.keywords)
+            self.assertIn("weather", personalize.LockScreenSection.keywords)
 
         def test_the_code_names_no_colour(self):
             import re

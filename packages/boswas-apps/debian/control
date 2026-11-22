@@ -61,4 +61,6 @@ Description: Boswas OS system applications
  .
  Each application is one program and runs as the desktop user. None of
  them starts a shell or keeps running in the background, except the small
- reminders service that rings alarms and shows calendar reminders.
+ reminders service that rings alarms and shows calendar reminders. A
+ systemd user timer fetches the forecast of the home place chosen in Weather
+ every half hour for the lock screen; without a place it sends nothing.

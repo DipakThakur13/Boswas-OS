@@ -8,6 +8,10 @@ place are hidden.
 Forecasts are fetched on the window's Worker with the key ``forecast:<place key>``, so requests for
 one place never overlap. The last forecast of every place is cached; at start the cache fills the pane
 and the page at once, and the current place is fetched from the service.
+
+The lock screen's summary (``lockscreen``) follows the window: whenever the forecast of the home place
+(or of the first place) changes, or the places, the units or the clock do, it is written again on the
+files thread, and removed when there is no place or the lock screen's setting is off.
 """
 
 from __future__ import annotations
@@ -21,7 +25,7 @@ from PySide6.QtWidgets import QComboBox, QVBoxLayout, QWidget
 
 import boswas_fluent as fluent
 
-from .. import APP_ID, model, places, settings
+from .. import APP_ID, lockscreen, model, places, settings
 from ..model import Place
 from ..service import ForecastCache, Result, ServiceError, WeatherService
 from ..settings import Settings
@@ -59,7 +63,8 @@ class SlotPage(QWidget):
 
 class WeatherWindow(fluent.FluentWindow):
     def __init__(self, arguments: list[str] | None = None, *, service: WeatherService | None = None,
-                 clock: Callable[[], float] = time.time, imperial: bool | None = None) -> None:
+                 clock: Callable[[], float] = time.time, imperial: bool | None = None,
+                 compositor_files: list[str] | None = None) -> None:
         super().__init__(APP_ID, "Weather", navigation=True, icon="boswas-weather", size=(1100, 720),
                          minimum_size=(420, 420))
         self.clock = clock
@@ -85,6 +90,9 @@ class WeatherWindow(fluent.FluentWindow):
         self._banner_text = ("", "")                     # (title, message) of the banner
         self.places_page: PlacesPage | None = None
         self.settings_controls: dict[str, QComboBox] = {}
+        self.lock_screen_path = lockscreen.summary_path()
+        self.compositor_files = compositor_files         # where [lock] show_weather is read (None: the system's)
+        self._lock_screen_state: tuple | None = None     # what the summary was last brought in line with
 
         nav = self.navigation
         self.status = nav.add_banner(fluent.InfoBar("info"))
@@ -224,6 +232,7 @@ class WeatherWindow(fluent.FluentWindow):
         self._sync_slots()
         if self.places_page is not None:
             self.places_page.refresh(focus)
+        self._sync_lock_screen()
 
     def add_place(self, place: Place) -> bool:
         if self.places.index(place.key) is not None:
@@ -265,12 +274,14 @@ class WeatherWindow(fluent.FluentWindow):
             return False
         self._save_places()
         self._sync_slots()
+        self._sync_lock_screen()
         return True
 
     def set_home(self, key: str | None) -> None:
         if self.places.set_home(key):
             self._save_places()
             self._sync_slots()
+            self._sync_lock_screen()
 
     # --- forecasts ---
     @staticmethod
@@ -290,6 +301,7 @@ class WeatherWindow(fluent.FluentWindow):
                 self.results[key] = result
         self._sync_slots()
         self._update_view()
+        self._sync_lock_screen()
         place = self.current_place()
         if place is not None and place.key in found and self._banner_context == self._task(place.key):
             self._show_place_error(place)            # the request failed first: now the banner can say more
@@ -330,6 +342,7 @@ class WeatherWindow(fluent.FluentWindow):
         self._sync_slot_icon(self.places.index(key))
         self._sync_busy()
         self._update_view()
+        self._sync_lock_screen()
 
     def _forecast_failed(self, key: str, error: Exception) -> None:
         if not isinstance(error, ServiceError):
@@ -368,6 +381,32 @@ class WeatherWindow(fluent.FluentWindow):
         self.forecast_view.show_state(Shown(place, self.results.get(key), self.errors.get(key), self.settings,
                                             self.twelve_hour(), self.clock(), self.places.home == key,
                                             self.worker.busy(self._task(key))))
+
+    # --- the lock screen ---
+    def _sync_lock_screen(self) -> None:
+        """Bring the lock screen's summary in line with the places, the forecasts and the settings (on the
+        files thread, after the files written before it)."""
+        place = lockscreen.lock_place(self.places)
+        result = self.results.get(place.key) if place is not None else None
+        twelve = self.twelve_hour()
+        state = (place, result.fetched if result is not None else None, self.settings.temperature, twelve)
+        if state == self._lock_screen_state:
+            return
+        self._lock_screen_state = state
+        self.files.submit(self._write_lock_screen, place, result, Settings.from_json(self.settings.to_json()),
+                          twelve, self.clock())
+
+    def _write_lock_screen(self, place: Place | None, result: Result | None, chosen: Settings, twelve: bool,
+                           now: float) -> None:
+        # The cache may hold a newer forecast of the place than the window (the timer's update writes it).
+        cached = self.service.cached(place) if place is not None else None
+        if cached is not None and (result is None or cached.fetched > result.fetched):
+            result = cached
+        try:
+            lockscreen.sync(self.lock_screen_path, place, result, chosen, twelve, now,
+                            shown=lockscreen.show_weather(self.compositor_files))
+        except (OSError, ValueError):
+            pass                       # the lock screen goes without; the window is not the place to say so
 
     def twelve_hour(self) -> bool:
         choice = self.settings.time_format
@@ -537,6 +576,7 @@ class WeatherWindow(fluent.FluentWindow):
         for index in range(len(self.places.places)):
             self._sync_slot_icon(index)
         self._update_view()
+        self._sync_lock_screen()
 
     def _sync_refresh_timer(self) -> None:
         minutes = self.settings.refresh_minutes

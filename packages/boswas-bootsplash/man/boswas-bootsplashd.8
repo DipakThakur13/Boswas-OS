@@ -7,20 +7,25 @@ boswas-bootsplashd \- the Boswas OS boot, disk-unlock and shutdown screen
 .SH DESCRIPTION
 .B boswas-bootsplashd
 shows the Boswas OS boot screen. While the system starts: the Boswas OS mark
-on a dark screen and, lower down, a ring of five dots that chase each other
-round. To unlock an encrypted disk: the mark, the words "Unlock your disk",
-the name of the disk and a text box that shows one dot for each character
-typed. While the system shuts down or restarts: the ring and one line,
-"Shutting down" or "Restarting". It is started from the initramfs and by
-systemd units, not by hand.
+on a dark background lit softly behind it in the brand's blues, and close
+under it a progress ring, an arc that lengthens and shortens while it turns
+(or fills with a reported percentage). At the start the mark assembles
+itself: its stem rises, its bowl sweeps round and its dot lights up; then
+the ring fades in. To unlock an encrypted disk the mark glides up and the
+prompt slides in: the words "Unlock your disk", the name of the disk and a
+text box that shows one dot for each character typed. While the system
+shuts down or restarts: the mark, the ring and one line, "Shutting down" or
+"Restarting". It is started from the initramfs and by systemd units, not by
+hand.
 .PP
 It draws directly on the display through kernel mode setting (or a legacy
 frame buffer), redraws only the part of the picture that changed, and reads
 the passphrase from the console keyboard with the keymap the console uses.
-The ring turns once per refresh of the display's mode, at most 240 times a
-second (60 times on a legacy frame buffer, which does not tell its rate).
-Everything it shows is built into the program; it reads no image, font or
-theme file at run time.
+Everything moves once per refresh of the display's mode, at most 240 times
+a second (60 times on a legacy frame buffer, which does not tell its rate).
+The mark and the text are drawn from vector outlines built into the
+program, at the exact size of the display; it reads no image, font or theme
+file at run time.
 .PP
 The boot screen is shown only when the kernel command line contains
 .BR splash .
@@ -29,9 +34,10 @@ The boot screen is shown only when the kernel command line contains
 .BR boswas.splash=off )
 turns it off;
 .B boswas.splash=static
-keeps the screen but stops the animation: the ring stands still, the caret
-of the text box does not blink, and the box does not shake when a passphrase
-is rejected. When the boot screen does not run,
+keeps the screen but stops the animation: the mark is shown whole at once,
+the ring stands still, the caret of the text box does not blink, nothing
+glides or fades, and the box does not shake when a passphrase is rejected.
+When the boot screen does not run,
 or cannot start, the disk passphrase is asked for on the text console as
 usual.
 .PP

@@ -77,9 +77,9 @@ language with Boswas's own colours, icons and typeface (ADR-0033).
 | `boswas-services-bridge` | boswas-desktop | Rust | The network, Bluetooth, audio, power and brightness backends for the Settings application, as JSON lines on its standard input and output |
 | `boswas-ui` | boswas-desktop (library) | Rust, no `unsafe` | Design tokens, software drawing, text, icons and materials shared by the compositor's window frames and the shell |
 | `boswas-session`, `boswas-greeter` | boswas-desktop | POSIX shell | Session start after login; the login screen's start, with greetd's text login when the compositor cannot start (ADR-0044) |
-| `boswas-bootsplashd`, `boswas-bootsplash` | boswas-bootsplash | Rust | Boot, disk-unlock and shutdown screens (in the initramfs and the system) |
+| `boswas-bootsplashd`, `boswas-bootsplash` | boswas-bootsplash | Rust | Boot, disk-unlock and shutdown screens (in the initramfs and the system), drawn from vector outlines at the display's size, with motion (ADR-0050) |
 | `boswas_fluent` | boswas-branding | Python (PySide6) | The Qt toolkit of the Boswas applications: theme, style sheet and widgets from the design tokens (ADR-0039) |
-| The system applications | boswas-apps | Python (PySide6 on `boswas_fluent`) | Files, Terminal, Text Editor, Calculator, Photos, Document Viewer, Archive Manager, Media Player, Camera, Clock, Calendar with its reminders service, Task Manager (ADR-0040) |
+| The system applications | boswas-apps | Python (PySide6 on `boswas_fluent`) | Files, Terminal, Text Editor, Calculator, Photos, Document Viewer, Archive Manager, Media Player, Camera, Clock, Calendar with its reminders service, Snipping Tool, Weather, Task Manager (ADR-0040, ADR-0046) |
 | Control Center | boswas-control-center | Python (PySide6 on `boswas_fluent`) | Settings as native sections (ADR-0041), and the Security, Software and Update Centers |
 | `desktop/ui/tokens.json` | boswas-branding | JSON | Boswas UI, version 3: the palette, geometry, materials, type and motion. The one source for the programs above, the KDE colour schemes and the icon pack |
 
@@ -126,7 +126,7 @@ applications the image had.
 | Clock | `boswas-clock` | Alarms, timers, stopwatch, world clock, focus sessions |
 | Calendar | `boswas-calendar` | A calendar kept on this computer, with repeating events, reminders and iCalendar import and export |
 | Snipping Tool | `boswas-snipping-tool` | Screenshots through the desktop's capture screen (an area or the whole screen, with a delay), marked up with pen, highlighter, arrows, rectangles, text and crop; copy, save, open in Photos (ADR-0046) |
-| Weather | `boswas-weather` | Forecasts for the places the user adds, from Open-Meteo: current conditions, 24 hours, details and 10 days; the last forecast offline (ADR-0046) |
+| Weather | `boswas-weather` | Forecasts for the places the user adds, from Open-Meteo: current conditions, 24 hours, details and 10 days; the last forecast offline (ADR-0046). It keeps the lock screen's weather summary, which a systemd user timer also renews every half hour, whether or not the window is open (ADR-0051) |
 | Reminders | `boswas-reminders` | No window: a session service that shows alarms, timers and calendar reminders as notifications while Clock and Calendar are closed |
 | Task Manager | `boswas-task-manager` | Processes grouped by application, performance graphs (CPU, memory, disks, network, GPU, battery), start-up applications, users, details and services; ends tasks |
 
@@ -187,9 +187,9 @@ Licences: Debian components keep their own (see
 | Blueprint component | v1 alpha state |
 |---------------------|----------------|
 | Debian 13 base | **Implemented** |
-| Desktop | **Native Boswas desktop implemented** (`boswas-desktop`; ADR-0026 to ADR-0028, ADR-0030, ADR-0033 to ADR-0037): compositor with Fluent window frames, animations, Task View, snap layouts, per-monitor settings, night light and Xwayland; shell with taskbar, Start, quick settings, notifications, tray, the polkit dialog and screen capture; lock screen and greeter. It replaces KDE Plasma, which shipped up to 1.0~alpha3. **Not yet boot-tested, and not run against real system services.** Open: a second GPU, HDR, live blur, a screen reader interface, contrast themes, an input method in the image (see the roadmap) |
-| System applications | **Implemented** (`boswas-apps`, ADR-0040): Files, Terminal, Text Editor, Calculator, Photos, Document Viewer, Archive Manager, Media Player, Camera, Clock, Calendar, Task Manager and a reminders service, in place of KDE's applications. Firefox ESR is the browser. **Not run on the desktop yet** |
-| Boot screen | **Implemented** (`boswas-bootsplash`, ADR-0029, in the Boswas UI look since ADR-0038), replaces Plymouth. Booted in a virtual machine from the packages (ADR-0044); **not yet on the image or on hardware** |
+| Desktop | **Native Boswas desktop implemented** (`boswas-desktop`; ADR-0026 to ADR-0028, ADR-0030, ADR-0033 to ADR-0037): compositor with Fluent window frames, animations, Task View, snap layouts, per-monitor settings, night light and Xwayland; shell with taskbar, Start, quick settings, notifications, tray, the polkit dialog and screen capture; lock screen and greeter. It replaces KDE Plasma, which shipped up to 1.0~alpha3. **Booted from the built packages in a virtual machine on another base system only (ADR-0044), not from the image or on hardware, and not run against real system services.** Open: a second GPU, HDR, live blur, a screen reader interface, contrast themes, an input method in the image (see the roadmap) |
+| System applications | **Implemented** (`boswas-apps`, ADR-0040): Files, Terminal, Text Editor, Calculator, Photos, Document Viewer, Archive Manager, Media Player, Camera, Clock, Calendar, Snipping Tool, Weather, Task Manager and a reminders service, in place of KDE's applications. Firefox ESR is the browser. **Not run on the desktop yet** |
+| Boot screen | **Implemented** (`boswas-bootsplash`, ADR-0029, in the Boswas UI look since ADR-0038, drawn from vectors with motion since ADR-0050), replaces Plymouth. Booted in a virtual machine from the packages (ADR-0044), with the picture before ADR-0050; **not yet on the image or on hardware** |
 | Boswas branding (boot menu, installer, boot screen, login, lock, desktop, icons, pointer, About) | **Implemented**; Boswas UI v3 tokens (ADR-0033), the Prism icon pack (ADR-0031), the Boswas-Cursors pointer theme (ADR-0043) and the Qt toolkit `boswas_fluent` (ADR-0039) |
 | Secure Boot | **Boot chain ready:** the ISO boots with Secure Boot enforced via Debian's signed shim, GRUB and kernel; enforcement policy comes later |
 | LUKS2 full-disk encryption | **Implemented** (installer policy: guided encrypted LVM) |
@@ -233,6 +233,8 @@ are bounded and stay on the device. See `docs/security/privacy.md`.
 | `~/.config/boswas/compositor.toml`, `appearance.toml` | user, Control Center, `boswas-preset` | The user's compositor settings (never `[policy]` or a trusted program), written by Settings; the colour mode and wallpaper chosen with a preset or in Settings |
 | `~/.config/<application id>/`, `~/.local/state/<application id>/` | the Boswas applications | Each application's settings and state (for example `com.boswas.Terminal/settings.json`) |
 | `~/.config/boswas/shell.toml` | boswas-shell | The applications pinned to the taskbar and to Start |
+| `~/.local/state/boswas/weather.json` | Weather (`boswas-apps`) | The weather summary the lock screen shows (ADR-0051); the lock screen reads it and never uses the network |
+| `/usr/lib/systemd/user/boswas-weather-update.timer`, `.service` | boswas-apps | Weather's update for the lock screen, every half hour during a Boswas session |
 | `~/.local/state/boswas/launcher-usage.json`, `run-history.json`, `notification-senders.json`, `apps-seen.json` | boswas-shell | How often each application was started (ranks search); the last commands typed into Run; the applications that sent notifications (Settings reads it to turn banners off); when each application was first seen (Start's "Recently added"). Local only |
 | `/usr/libexec/boswas/boswas-shell`, `boswas-services-bridge` | boswas-desktop | The shell; the service backends for Settings |
 | `/usr/share/xdg-desktop-portal/boswas-portals.conf`, `/etc/xdg/xdg-desktop-portal-wlr/Boswas` | boswas-desktop | Which portal back end serves what (GTK; wlroots for screen sharing and screenshots, ADR-0037) |

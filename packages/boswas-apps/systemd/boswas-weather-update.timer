@@ -1,0 +1,19 @@
+# Weather for the lock screen: boswas-weather --update-lock-screen a minute
+# after the Boswas session starts, then every half hour while it runs. The
+# delay is spread over a few minutes so that devices do not all ask the
+# weather service at the same moment; a timer that was due while the device
+# slept runs once, not once for every half hour it missed.
+[Unit]
+Description=Weather for the lock screen, every half hour
+Documentation=man:boswas-weather(1)
+PartOf=boswas-session.target
+
+[Timer]
+OnActiveSec=1min
+OnUnitActiveSec=30min
+RandomizedDelaySec=3min
+AccuracySec=1min
+Unit=boswas-weather-update.service
+
+[Install]
+WantedBy=boswas-session.target

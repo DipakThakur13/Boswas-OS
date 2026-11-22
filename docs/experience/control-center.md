@@ -197,7 +197,7 @@ the user's layer of the compositor's settings; both are described under
 | Page | What it holds | Backend |
 |------|---------------|---------|
 | Boswas Security Center | AppArmor, the Windows-app sandbox, firewall, Secure Boot, disk encryption, screen lock, automatic security updates, device agent, device policy; each Secure, Warning, Attention, Info, Not available or Error, as text and icon | `boswas --json status` (its screen-lock check reads the compositor's lock policy), the device agent |
-| Lock screen | "Lock automatically after", up to the limit of the device's policy, which the page shows as set by the organisation | `[lock] idle_seconds` |
+| Lock screen | "Lock automatically after", up to the limit of the device's policy, which the page shows as set by the organisation. "Show weather on the lock screen": the weather of the home place chosen in Weather, with the next hours; the page says that the lock screen itself never goes online (ADR-0051). Search finds the switch under "weather", "forecast" and "temperature" | `[lock] idle_seconds`, `[lock] show_weather` |
 | App permissions | What sandboxed (Flatpak) applications were allowed or denied through the desktop portals (camera, microphone, location, screenshots, running in the background, ...), per application; **Revoke** forgets one decision after a question, so the application asks again. Native applications are not sandboxed and have the permissions of the account; the page says so | `flatpak permission-list`; `flatpak permission-remove TABLE OBJECT APP` (the user's own store) |
 | Activity history | Clear the list of recently used files | `~/.local/share/recently-used.xbel` |
 | Diagnostics & feedback | That Boswas OS collects no diagnostic data; what the device agent may send to an organisation that manages the device; the privacy statement | The device agent's configuration and status |
@@ -224,7 +224,8 @@ says so. A service that is not running shows as not available.
 
 **The compositor's configuration.** Display, the input devices, the look,
 the taskbar, Start, multitasking, notifications, the accessibility
-settings and the lock and screen times are the compositor's settings.
+settings, the lock and screen times and the weather on the lock screen
+are the compositor's settings.
 Control Center writes the user's layer, `~/.config/boswas/compositor.toml`,
 and asks the compositor to load it again (`reload-config`); it reads the
 monitors with `outputs`. The colour mode and the background go to

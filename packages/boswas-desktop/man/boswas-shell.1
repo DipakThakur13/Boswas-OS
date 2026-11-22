@@ -67,7 +67,11 @@ The lock screen. It shows the clock and, after a key or a click, asks for
 the password of the user who owns the session, checked through PAM (service
 \fBboswas\-lock\fR). The session is unlocked only after PAM accepts the
 password. It shows no notifications and offers no way to restart or shut
-down.
+down. Under the clock it shows the weather of the Weather application's
+home place, read from a summary file (see FILES), unless
+\fB[lock] show_weather\fR in
+.BR boswas-compositor (1)'s
+configuration is false; it never uses the network itself.
 .TP
 .B \-\-greeter
 The login screen, run by
@@ -121,6 +125,13 @@ turn their banners off.
 When each installed application was first seen, for "Recently added". The
 applications installed when the shell first ran do not count as new.
 .TP
+.I ~/.local/state/boswas/weather.json
+The weather summary the lock screen shows (or under
+\fB$XDG_STATE_HOME\fR), written by
+.BR boswas-weather (1)
+and its background update; it is read only if it is a regular file owned by
+the user, at most 16 KB, and not older than three hours.
+.TP
 .I /etc/pam.d/boswas\-lock
 PAM service of the lock screen.
 .SH ENVIRONMENT
@@ -153,4 +164,5 @@ after use. Wallpapers, icons, window previews and what tray items send are
 decoded in the shell with size limits.
 .SH SEE ALSO
 .BR boswas-compositor (1),
-.BR boswas-session (1)
+.BR boswas-session (1),
+.BR boswas-weather (1)

@@ -52,3 +52,11 @@ override_dh_auto_install:
 			install -D -m 0644 "$$file" "$(DATA)/$$app/$${file#$$dir}"; \
 		done; \
 	done
+	# Weather for the lock screen: a systemd user timer started with the
+	# Boswas session (boswas-session.target) runs
+	# "boswas-weather --update-lock-screen" every half hour.
+	# dh_installsystemduser enables the timer for every user.
+	install -D -m 0644 systemd/boswas-weather-update.service \
+		$(PKG)/usr/lib/systemd/user/boswas-weather-update.service
+	install -D -m 0644 systemd/boswas-weather-update.timer \
+		$(PKG)/usr/lib/systemd/user/boswas-weather-update.timer

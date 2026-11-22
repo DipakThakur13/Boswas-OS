@@ -22,7 +22,7 @@ Comment: This file pins the Rust crates the build downloads from crates.io.
  alternative to Apache-2.0:
  bitflags, bytemuck, drm, drm-ffi, drm-fourcc, drm-sys, enumflags2,
  landlock, libc, linux-raw-sys, rustix, thiserror, zeroize.
- Crates used only while building (resvg and its dependencies, fontdue,
+ Crates used only while building (resvg and its dependencies, ttf-parser,
  serde_json) are not part of the programs.
 
 Files: build.rs
@@ -31,22 +31,23 @@ Copyright: 2026 Boswas Group
 License: LicenseRef-Boswas-Internal and Expat and OFL-1.1
 Comment: build.rs itself is a Boswas file. It is listed here because it
  puts third-party material into the programs: the Rust crates described
- under Cargo.lock (Expat), and rasterised atlases of the printable ASCII
- glyphs of Inter Regular and Inter SemiBold, the Boswas UI typeface
- (OFL-1.1). Inter is not in the Boswas OS source repository: the atlases
- are made at build time from Inter-Regular.otf and Inter-SemiBold.otf of
- the Debian package fonts-inter, a build dependency of this package. The
- daemon embeds those bitmaps; the font files themselves are not shipped by
- this package. The fonts carry the notice "Copyright 2016 The Inter Project
- Authors" and are distributed under the SIL Open Font License 1.1 without a
- Reserved Font Name.
+ under Cargo.lock (Expat), and the outlines (flattened to polygons), advance
+ widths and pair kerning of the printable ASCII glyphs of Inter Regular and
+ Inter SemiBold, the Boswas UI typeface (OFL-1.1). Inter is not in the
+ Boswas OS source repository: the outlines are taken at build time from
+ Inter-Regular.otf and Inter-SemiBold.otf of the Debian package
+ fonts-inter, a build dependency of this package. The daemon embeds that
+ data; the font files themselves are not shipped by this package. The
+ fonts carry the notice "Copyright 2016 The Inter Project Authors" and are
+ distributed under the SIL Open Font License 1.1 without a Reserved Font
+ Name.
 
 Files: desktop/fonts/orbitron/*
 Copyright: 2018 The Orbitron Project Authors (https://github.com/theleagueof/orbitron)
 License: OFL-1.1
 Comment: Orbitron, the Boswas OS brand typeface, in the Boswas OS source
- repository (not in this package's directory). build.rs makes the glyph
- atlases from Orbitron-Medium.ttf and Orbitron-SemiBold.ttf instead of
+ repository (not in this package's directory). build.rs takes the glyph
+ outlines from Orbitron-Medium.ttf and Orbitron-SemiBold.ttf instead of
  Inter when the build machine has no Inter. The build of this package
  refuses to do that (debian/rules), so the packaged programs contain no
  Orbitron glyphs; the paragraph is here for builds made by other means.

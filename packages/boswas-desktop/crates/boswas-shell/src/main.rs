@@ -4,7 +4,8 @@
 //!
 //! * (no option)  the desktop: wallpaper, taskbar, Start, quick settings,
 //!   notifications, on-screen displays, dialogs and screen capture
-//! * `--lock`     the lock screen (ext-session-lock, PAM)
+//! * `--lock`     the lock screen (ext-session-lock, PAM), with the weather
+//!   of the user's home place when the Weather application keeps a summary
 //! * `--greeter`  the login screen (greetd)
 //!
 //! The compositor starts it and hands it a trusted Wayland connection; if
@@ -39,6 +40,7 @@ mod svc;
 mod taskbar;
 mod ui;
 mod wallpaper;
+mod weather;
 
 use std::{
     collections::HashMap,
@@ -407,6 +409,11 @@ fn run(mode: Mode) -> Result<i32, Box<dyn std::error::Error>> {
         Vec::new()
     };
 
+    // Only the lock screen shows the weather: the login screen runs before
+    // anyone's files are known. It is read now, for the first frame.
+    let mut weather = weather::Watch::new(if mode == Mode::Lock { weather::summary_path() } else { None });
+    weather.poll(chrono::Utc::now().timestamp());
+
     let mut auth = AuthView {
         display_name: user_name.clone(),
         ..AuthView::default()
@@ -462,6 +469,7 @@ fn run(mode: Mode) -> Result<i32, Box<dyn std::error::Error>> {
         dnd_schedule: None,
         senders: if mode == Mode::Desktop { config::Senders::load() } else { config::Senders::default() },
         seen: if mode == Mode::Desktop { config::SeenApps::load() } else { config::SeenApps::default() },
+        weather,
     };
 
     let mut shell = Shell {

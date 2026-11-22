@@ -1,10 +1,11 @@
 //! Software drawing on an XRGB8888 canvas.
 //!
 //! Small and self-contained on purpose: solid fills, premultiplied image and
-//! coverage-mask blits, area-averaging image scaling, and shapes drawn from
-//! signed distance functions (anti-aliased rounded rectangles and discs).
-//! Every operation takes a clip rectangle, which is how the scene redraws
-//! only the part of the screen that changed.
+//! coverage-mask blits at an opacity, and shapes drawn from signed distance
+//! functions (anti-aliased rounded rectangles and discs). Filled outlines
+//! (the mark, glyphs) are rasterised by [`crate::raster`]. Every operation
+//! takes a clip rectangle, which is how the scene redraws only the part of
+//! the screen that changed.
 
 /// An opaque sRGB colour.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -132,7 +133,7 @@ pub fn merge_rects(rects: &mut Vec<Rect>) {
 }
 
 /// A premultiplied RGBA8 image.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Image {
     pub width: u32,
     pub height: u32,
@@ -147,76 +148,6 @@ pub struct Mask {
     pub data: Vec<u8>,
 }
 
-/// Resample interleaved 8-bit channels with an area-averaging (box) filter.
-///
-/// Used once per display size for the mark, so clarity matters more than
-/// speed. Returns `dw * dh * channels` bytes.
-pub fn resample(src: &[u8], sw: usize, sh: usize, channels: usize, dw: usize, dh: usize) -> Vec<u8> {
-    if sw == 0 || sh == 0 || dw == 0 || dh == 0 || src.len() < sw * sh * channels {
-        return vec![0; dw * dh * channels];
-    }
-    if sw == dw && sh == dh {
-        return src[..sw * sh * channels].to_vec();
-    }
-    let xs = axis_weights(sw, dw);
-    let ys = axis_weights(sh, dh);
-    // Horizontal pass.
-    let mut tmp = vec![0f32; dw * sh * channels];
-    for y in 0..sh {
-        let row = &src[y * sw * channels..(y + 1) * sw * channels];
-        for (dx, (start, weights)) in xs.iter().enumerate() {
-            for c in 0..channels {
-                let mut acc = 0.0;
-                for (i, w) in weights.iter().enumerate() {
-                    acc += row[(start + i) * channels + c] as f32 * w;
-                }
-                tmp[(y * dw + dx) * channels + c] = acc;
-            }
-        }
-    }
-    // Vertical pass.
-    let mut out = vec![0u8; dw * dh * channels];
-    for (dy, (start, weights)) in ys.iter().enumerate() {
-        for dx in 0..dw {
-            for c in 0..channels {
-                let mut acc = 0.0;
-                for (i, w) in weights.iter().enumerate() {
-                    acc += tmp[((start + i) * dw + dx) * channels + c] * w;
-                }
-                out[(dy * dw + dx) * channels + c] = acc.round().clamp(0.0, 255.0) as u8;
-            }
-        }
-    }
-    out
-}
-
-/// For each destination index: the first source index and normalised weights.
-fn axis_weights(src: usize, dst: usize) -> Vec<(usize, Vec<f32>)> {
-    let scale = src as f32 / dst as f32;
-    (0..dst)
-        .map(|d| {
-            let start = d as f32 * scale;
-            let end = (d + 1) as f32 * scale;
-            let first = (start.floor() as usize).min(src - 1);
-            let last = ((end.ceil() as usize).max(first + 1)).min(src);
-            let mut weights: Vec<f32> = (first..last)
-                .map(|s| {
-                    let lo = (s as f32).max(start);
-                    let hi = ((s + 1) as f32).min(end);
-                    (hi - lo).max(0.0)
-                })
-                .collect();
-            let sum: f32 = weights.iter().sum();
-            if sum <= f32::EPSILON {
-                weights.iter_mut().for_each(|w| *w = 1.0 / (last - first) as f32);
-            } else {
-                weights.iter_mut().for_each(|w| *w /= sum);
-            }
-            (first, weights)
-        })
-        .collect()
-}
-
 /// The picture being composed: `width * height` XRGB8888 pixels.
 pub struct Canvas {
     width: u32,
@@ -227,6 +158,16 @@ pub struct Canvas {
 #[inline]
 fn blend_channel(dst: u32, src: u32, a: u32) -> u32 {
     (src * a + dst * (255 - a) + 127) / 255
+}
+
+/// An opacity (0..=1) as an 8-bit alpha.
+#[inline]
+pub fn alpha(opacity: f32) -> u32 {
+    if opacity.is_nan() {
+        0
+    } else {
+        (opacity.clamp(0.0, 1.0) * 255.0 + 0.5) as u32
+    }
 }
 
 #[inline]
@@ -271,6 +212,17 @@ impl Canvas {
         &self.pixels[start..start + len]
     }
 
+    /// One row of pixels to write, `x..x + len`. Out-of-range requests give
+    /// an empty slice.
+    pub fn row_mut(&mut self, y: u32, x: u32, len: u32) -> &mut [u32] {
+        if y >= self.height || x >= self.width {
+            return &mut [];
+        }
+        let len = len.min(self.width - x) as usize;
+        let start = y as usize * self.width as usize + x as usize;
+        &mut self.pixels[start..start + len]
+    }
+
     pub fn pixel(&self, x: u32, y: u32) -> Rgb {
         Rgb::from_xrgb(self.pixels[y as usize * self.width as usize + x as usize])
     }
@@ -288,30 +240,57 @@ impl Canvas {
         }
     }
 
-    /// Draw a premultiplied image with its top-left corner at (`x`, `y`).
-    pub fn blit_image(&mut self, image: &Image, x: i32, y: i32, clip: &Rect) {
+    /// Cover `rect` with `colour` at `opacity` (0..=1).
+    pub fn fill_rect_faded(&mut self, rect: &Rect, colour: Rgb, opacity: f32) {
+        let a = alpha(opacity);
+        if a == 0 {
+            return;
+        }
+        let r = self.clip(rect);
+        for y in r.y..r.bottom() {
+            let start = y as usize * self.width as usize + r.x as usize;
+            for px in &mut self.pixels[start..start + r.w as usize] {
+                *px = blend(*px, colour, a);
+            }
+        }
+    }
+
+    /// Draw a premultiplied image with its top-left corner at (`x`, `y`), at
+    /// `opacity` (0..=1).
+    pub fn blit_image(&mut self, image: &Image, x: i32, y: i32, opacity: f32, clip: &Rect) {
+        let k = alpha(opacity);
+        if k == 0 {
+            return;
+        }
         let area = self.clip(&Rect::new(x, y, image.width as i32, image.height as i32).intersect(clip));
         for py in area.y..area.bottom() {
             let sy = (py - y) as usize;
             for px in area.x..area.right() {
                 let sx = (px - x) as usize;
                 let s = &image.data[(sy * image.width as usize + sx) * 4..][..4];
-                let a = s[3] as u32;
-                if a == 0 {
+                if s[3] == 0 {
                     continue;
                 }
+                // The image's own premultiplied channels, scaled by the opacity.
+                let scale = |v: u8| if k == 255 { v as u32 } else { (v as u32 * k + 127) / 255 };
+                let a = scale(s[3]);
                 let idx = py as usize * self.width as usize + px as usize;
                 let d = self.pixels[idx];
                 let inv = 255 - a;
-                let ch = |src: u8, dst: u32| (src as u32 + (dst * inv + 127) / 255).min(255);
+                let ch = |src: u8, dst: u32| (scale(src) + (dst * inv + 127) / 255).min(255);
                 self.pixels[idx] =
                     (ch(s[0], (d >> 16) & 0xff) << 16) | (ch(s[1], (d >> 8) & 0xff) << 8) | ch(s[2], d & 0xff);
             }
         }
     }
 
-    /// Draw a coverage mask in one colour with its top-left corner at (`x`, `y`).
-    pub fn blit_mask(&mut self, mask: &Mask, x: i32, y: i32, colour: Rgb, clip: &Rect) {
+    /// Draw a coverage mask in one colour at `opacity` (0..=1) with its
+    /// top-left corner at (`x`, `y`).
+    pub fn blit_mask(&mut self, mask: &Mask, x: i32, y: i32, colour: Rgb, opacity: f32, clip: &Rect) {
+        let k = alpha(opacity);
+        if k == 0 {
+            return;
+        }
         let area = self.clip(&Rect::new(x, y, mask.width as i32, mask.height as i32).intersect(clip));
         for py in area.y..area.bottom() {
             let sy = (py - y) as usize;
@@ -320,6 +299,7 @@ impl Canvas {
                 if a == 0 {
                     continue;
                 }
+                let a = if k == 255 { a } else { (a * k + 127) / 255 };
                 let idx = py as usize * self.width as usize + px as usize;
                 self.pixels[idx] = blend(self.pixels[idx], colour, a);
             }
@@ -336,7 +316,7 @@ impl Canvas {
         for py in area.y..area.bottom() {
             for px in area.x..area.right() {
                 if let Some((colour, coverage)) = shade(px as f32 + 0.5, py as f32 + 0.5) {
-                    let a = (coverage.clamp(0.0, 1.0) * 255.0).round() as u32;
+                    let a = alpha(coverage);
                     if a > 0 {
                         let idx = py as usize * self.width as usize + px as usize;
                         self.pixels[idx] = blend(self.pixels[idx], colour, a);
@@ -352,26 +332,6 @@ impl Canvas {
         let area = bounding_rect(x, y, w, h, 1.0);
         self.shade(&area, clip, |px, py| {
             let d = round_rect_distance(px, py, x, y, w, h, radius);
-            Some((colour, 0.5 - d))
-        });
-    }
-
-    /// Anti-aliased outline of a rounded rectangle, `stroke` wide, centred on the edge.
-    #[allow(clippy::too_many_arguments)]
-    pub fn stroke_round_rect(
-        &mut self,
-        x: f32,
-        y: f32,
-        w: f32,
-        h: f32,
-        radius: f32,
-        stroke: f32,
-        colour: Rgb,
-        clip: &Rect,
-    ) {
-        let area = bounding_rect(x, y, w, h, stroke + 1.0);
-        self.shade(&area, clip, |px, py| {
-            let d = round_rect_distance(px, py, x, y, w, h, radius).abs() - stroke / 2.0;
             Some((colour, 0.5 - d))
         });
     }
@@ -403,7 +363,7 @@ pub fn bounding_rect(x: f32, y: f32, w: f32, h: f32, margin: f32) -> Rect {
 
 /// Signed distance from a point to the edge of a rounded rectangle
 /// (negative inside).
-fn round_rect_distance(px: f32, py: f32, x: f32, y: f32, w: f32, h: f32, radius: f32) -> f32 {
+pub fn round_rect_distance(px: f32, py: f32, x: f32, y: f32, w: f32, h: f32, radius: f32) -> f32 {
     let radius = radius.min(w / 2.0).min(h / 2.0).max(0.0);
     let cx = x + w / 2.0;
     let cy = y + h / 2.0;
@@ -452,10 +412,19 @@ mod tests {
     fn mask_blends_towards_the_colour() {
         let mut c = Canvas::new(2, 1);
         let mask = Mask { width: 2, height: 1, data: vec![255, 128] };
-        c.blit_mask(&mask, 0, 0, Rgb::new(200, 100, 50), &c.bounds());
+        c.blit_mask(&mask, 0, 0, Rgb::new(200, 100, 50), 1.0, &c.bounds());
         assert_eq!(c.pixel(0, 0), Rgb::new(200, 100, 50));
         let half = c.pixel(1, 0);
         assert!((99..=101).contains(&half.r) && (49..=51).contains(&half.g));
+        // At half opacity a full coverage is a half mix.
+        let mut c = Canvas::new(1, 1);
+        c.blit_mask(&Mask { width: 1, height: 1, data: vec![255] }, 0, 0, Rgb::new(200, 100, 50), 0.5, &c.bounds());
+        assert_eq!(c.pixel(0, 0), Rgb::new(100, 50, 25));
+        c.fill_rect_faded(&c.bounds(), Rgb::new(0, 0, 0), 0.5);
+        assert_eq!(c.pixel(0, 0), Rgb::new(50, 25, 12));
+        *c.row_mut(0, 0, 9).first_mut().unwrap() = 7;
+        assert_eq!(c.pixels(), [7]);
+        assert!(c.row_mut(1, 0, 1).is_empty() && c.row_mut(0, 1, 1).is_empty());
     }
 
     #[test]
@@ -464,31 +433,17 @@ mod tests {
         c.fill_rect(&c.bounds(), Rgb::new(100, 100, 100));
         // 50 % white, premultiplied.
         let img = Image { width: 1, height: 1, data: vec![128, 128, 128, 128] };
-        c.blit_image(&img, 0, 0, &c.bounds());
+        c.blit_image(&img, 0, 0, 1.0, &c.bounds());
         let p = c.pixel(0, 0);
         assert!((177..=179).contains(&p.r), "{p:?}");
-    }
-
-    #[test]
-    fn resample_keeps_the_average() {
-        // 4x4 checker of 0 and 255 averages to mid grey at 2x2 and 1x1.
-        let src: Vec<u8> = (0..16).map(|i| if (i % 4 + i / 4) % 2 == 0 { 255 } else { 0 }).collect();
-        for v in resample(&src, 4, 4, 1, 2, 2) {
-            assert!((126..=129).contains(&v), "{v}");
-        }
-        let one = resample(&src, 4, 4, 1, 1, 1);
-        assert!((126..=129).contains(&one[0]));
-        // Identity.
-        assert_eq!(resample(&src, 4, 4, 1, 4, 4), src);
-        // Non-integer ratio keeps a constant image constant.
-        let flat = vec![200u8; 7 * 5];
-        assert!(resample(&flat, 7, 5, 1, 3, 2).iter().all(|&v| v == 200));
-    }
-
-    #[test]
-    fn resample_handles_degenerate_sizes() {
-        assert_eq!(resample(&[], 0, 0, 4, 2, 2), vec![0; 16]);
-        assert!(resample(&[1, 2, 3, 4], 1, 1, 4, 0, 0).is_empty());
+        // At half opacity: a quarter white over the grey.
+        let mut c = Canvas::new(1, 1);
+        c.fill_rect(&c.bounds(), Rgb::new(100, 100, 100));
+        c.blit_image(&img, 0, 0, 0.5, &c.bounds());
+        let p = c.pixel(0, 0);
+        assert!((138..=140).contains(&p.r), "{p:?}");
+        c.blit_image(&img, 0, 0, 0.0, &c.bounds());
+        assert_eq!(c.pixel(0, 0), p, "a transparent image changes nothing");
     }
 
     #[test]

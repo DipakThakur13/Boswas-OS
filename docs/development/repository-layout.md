@@ -62,7 +62,8 @@ created by the milestone that implements them.
 │   │                                       unit + Qt tests
 │   ├── boswas-apps/                        the system applications (PySide6, ADR-0040):
 │   │                                       boswas_apps/<application>/, bin/ launchers,
-│   │                                       data/ desktop entries, man/, tests/<application>/
+│   │                                       data/ desktop entries, man/, tests/<application>/,
+│   │                                       systemd/ (Weather's user timer)
 │   ├── boswas-sysops/                      the privileged helper and its polkit actions
 │   ├── boswas-android/                     Android runtime manager (Waydroid, opt-in)
 │   ├── boswas-desktop/                     the native desktop (Rust workspace, ADR-0026):
