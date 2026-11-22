@@ -530,17 +530,57 @@ Boswas Terminal starts bash with `/usr/share/boswas/terminal/bashrc`.
   screen reader is in the image.
 - **High contrast:** Boswas Carbon is the high-contrast preset for
   applications (WCAG AAA body text). The shell uses the Prism dark or light
-  theme, whose text meets WCAG AA.
+  theme, whose text meets WCAG AA. There are no contrast themes for the
+  shell and the window frames: they would need a set of tokens of their
+  own (ADR-0049).
 - **Contrast:** the Prism colour schemes and every preset keep body text at
-  4.5:1 or more; the tests check it.
+  4.5:1 or more; the tests check it. Each of the eight accent colours is
+  moved, where needed, so that text on it keeps 4.5:1, in the shell and in
+  the Qt applications alike.
+
+Settings > Accessibility (ADR-0049) holds the rest; each setting is a key
+of the compositor's configuration:
+
+- **Text size:** 100 to 225 % (`[accessibility] text_scale`). The shell's
+  text, the title bars (as far as their 32 px height allows, about
+  180 %) and the text of every Qt application grow; nothing else does.
 - **Scaling:** 1.0 to 2.0 in steps of 0.25, for all screens (`[output]
-  scale`) or per monitor (`[outputs.NAME] scale`).
-- **Motion:** `[appearance] reduced_motion` turns the animations of
-  windows, desktops and the shell off; the Boswas Qt applications follow
-  the same setting. The boot screen's animation can be turned off with
-  `boswas.splash=static` on the kernel command line.
+  scale`) or per monitor (`[outputs.NAME] scale`), in Settings > Display.
+- **Always show scroll bars** in the Qt applications
+  (`[accessibility] always_show_scrollbars`), and how long a notification
+  stays at least, 5 seconds to 5 minutes (`[notifications]
+  toast_seconds`).
+- **Magnifier:** Super+Plus starts it and enlarges by its step,
+  Super+Minus reduces, Super+Esc ends it; 100 to 1600 %. The view follows
+  the pointer. It works with either renderer (`[magnifier]`).
+- **Colour filters:** greyscale, inverted, greyscale inverted, and
+  corrections for deuteranopia, protanopia and tritanopia; Super+Ctrl+C
+  switches the filter where Settings allows it (`[color_filter]`). They
+  need the OpenGL ES renderer: where the compositor draws with pixman,
+  Settings shows them as not available. Screenshots show the picture
+  without the filter or the magnifier.
+- **Sticky keys:** Shift, Ctrl, Alt and AltGr pressed and released on
+  their own stay down for the next key; pressed twice, they stay down
+  until pressed again. Super is not sticky, so that tapping it still
+  opens Start; Windows treats it differently. **Filter keys:** slow keys
+  (a key counts only after it was held for a set time) and bounce keys (a
+  key pressed again soon after its release is ignored) (`[keyboard]`).
+- **Pointer size:** 16 to 96 (`[pointer] cursor_size`), also under
+  Accessibility > Mouse pointer.
+- **Motion:** `[appearance] reduced_motion` (Accessibility > Visual
+  effects, "Animation effects") turns the animations of windows, desktops
+  and the shell off; the Boswas Qt applications follow the same setting.
+  Transparency effects can be turned off as well. The boot screen's
+  animation can be turned off with `boswas.splash=static` on the kernel
+  command line.
 - **Colour temperature:** night light, in quick settings or
   `[night_light]`.
+
+Not there yet: a screen reader for the shell and the compositor's
+surfaces, contrast themes, underlined access keys, a pointer colour.
+Sticky and filter keys have run in unit tests only, and the magnifier
+and the colour filters have not run on real graphics hardware
+([what is verified](../architecture/verification.md)).
 
 ## Performance
 
