@@ -176,6 +176,24 @@ Verification status of the native desktop
   also dropped an administrator's stricter lock policy.
 
 ### Added
+- **Weather on the lock screen** (ADR-0051): the clock view of the lock
+  screen shows a card in the bottom-left corner with the weather of the
+  home place chosen in Weather: the condition and the temperature,
+  today's high and low, how warm it feels and the next four hours. The
+  lock screen never uses the network: it reads a small summary that
+  Weather writes to `~/.local/state/boswas/weather.json`, accepts only a
+  regular file of the user, at most 16 KB, with sane values, and hides it
+  when it is more than three hours old ("Updated at HH:MM" after an
+  hour). The card is not shown in the sign-in view, on other monitors or
+  on the login screen. The summary is written by the Weather window and
+  by `boswas-weather --update-lock-screen`, which a hardened systemd user
+  timer (`boswas-weather-update.timer`, in `boswas-apps`) runs a minute
+  after the session starts and then every half hour. Only a place the
+  user added is sent to Open-Meteo; without one nothing is fetched. The
+  new compositor setting `[lock] show_weather` (on by default; the
+  user's, not lock policy) is "Show weather on the lock screen" in
+  Settings > Privacy & security > Lock screen, and reaches the lock
+  screen in the compositor's `config` event.
 - **Control Center laid out like Windows 11's Settings** (ADR-0049):
   eleven categories in the pane (Home, System, Bluetooth & devices,
   Network & internet, Personalization, Apps, Accounts, Time & language,
@@ -335,11 +353,13 @@ Verification status of the native desktop
 - **`boswas-bootsplash`** *(native desktop)*: a new package, the Boswas boot
   screen in Rust in place of Plymouth: boot, shutdown, restart and the
   disk-unlock prompt, on DRM dumb buffers or the frame buffer, repainting
-  only what changed. It shows the Boswas mark and a ring of dots, and for
-  an encrypted disk a text box in the style of the desktop; its text is
-  set in Inter (ADR-0038). Its client is installed under Plymouth's name
-  inside the initramfs only, so the disk-unlock scripts work unchanged; a
-  systemd password agent serves prompts after the initramfs
+  only what changed. It shows the Boswas mark, which assembles itself as
+  the screen opens, and a progress ring, drawn from vector outlines at the
+  display's size (ADR-0050), and for an encrypted disk a text box in the
+  style of the desktop; its text is set in Inter (ADR-0038). Its client
+  is installed under Plymouth's name inside the initramfs only, so the
+  disk-unlock scripts work unchanged; a systemd password agent serves
+  prompts after the initramfs
   ([packages/boswas-bootsplash](packages/boswas-bootsplash/README.md)).
 - **Boswas UI v3: the Fluent design language** *(native desktop)*:
   `desktop/ui/tokens.json` is the single source of the look: the layout,
@@ -467,6 +487,22 @@ Verification status of the native desktop
   instead of being deleted.
 
 ### Changed
+- **The boot screen, drawn from vectors and in motion** (ADR-0050): the
+  mark and the text are no longer a bitmap and glyph atlases scaled to
+  the display but vector outlines drawn at its exact size, sharp on every
+  display, portrait and 4K included. At the start the mark assembles
+  itself (its stem rises, its bowl sweeps round, its dot pops in with a
+  warm glow) on a dark background lit softly in the brand's blues; a
+  progress ring close under it replaces the ring of dots and fills when
+  the boot reports its progress. The passphrase prompt glides in as the
+  mark glides up; the shutdown and restart screens show the mark and fade
+  in; the screen fades out at the end, and `quit` is answered once the
+  fade is over (a fifth of a second later than before). Everything moves
+  at the display's refresh rate and redraws only what changed;
+  `boswas.splash=static` turns the motion off. The logical pixel follows
+  the display's shorter side: a 1080x1920 portrait display had a unit of
+  1.78 and now has 1.0. At build time `ttf-parser` replaces `fontdue`; no
+  crate was added.
 - **`boswas-branding`** *(native desktop)*: the default look is Boswas
   Prism (colour scheme `BoswasPrism`, icon theme `Boswas-Prism`, Breeze
   widget style), set as defaults for KDE applications in
@@ -661,6 +697,17 @@ Verification status of the native desktop
   only. The list is in ADR-0040 and in the verification document.
 - **Displays** *(native desktop)*: one GPU only; no HDR. Variable
   refresh rate exists (ADR-0048) and has not run on a real monitor.
+- **Boot screen** *(native desktop)*: the picture of ADR-0050 has been
+  seen as still frames and as a preview made from them, not yet on a
+  display or in a virtual machine (the boots of ADR-0044 showed the
+  previous one). On a 16-bit frame buffer its background is not dithered
+  and may show bands.
+- **Weather on the lock screen** (ADR-0051): the update's systemd user
+  units have not run under a real user manager, whose sandboxing options
+  need unprivileged user namespaces (on by default in Debian 13).
+  `XDG_STATE_HOME` set only in `~/.profile` is not seen by the user
+  manager, so the update then writes where the lock screen does not look.
+  The hours are labelled in the place's local time.
 - **Accessibility** *(native desktop)*: no screen reader can read the
   shell or the compositor's own surfaces, and there are no contrast
   themes. Colour filters are not available where the compositor draws

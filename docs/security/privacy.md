@@ -21,6 +21,10 @@ only outbound connections the OS itself makes are:
 - APT and unattended-upgrades to the Debian archive
 - NTP time synchronisation
 - NetworkManager connectivity checks, if enabled by Debian defaults
+- Weather's update for the lock screen, every half hour during a
+  session, only once the user has added a place in Weather and only while
+  the lock screen shows the weather (see
+  [The desktop](#the-desktop-what-stays-in-the-users-home))
 
 An **enrolled** device additionally talks to its Control Plane over mutual
 TLS, exactly as listed in "Device agent messages" below.
@@ -80,11 +84,27 @@ it when it starts.
   the user types into its search, `api.open-meteo.com` for the forecast of
   the coordinates of the places the user saved), when it opens, when the
   user refreshes and at the refresh interval the user chose while its
-  window is open. Open-Meteo sees the device's address and those place
-  names or coordinates; no account, key or other identifier is sent. The
-  app does not locate the device: places are only what the user picked.
-  The places and the last forecast stay in the user's home
+  window is open. Since ADR-0051 it also asks without its window, for
+  the lock screen: the systemd user timer `boswas-weather-update.timer`
+  runs `boswas-weather --update-lock-screen` a minute after the session
+  starts and then every 30 minutes (up to three minutes later at random),
+  for one place only, the home place (or the first place). It sends
+  nothing when the user has added no place, or when "Show weather on the
+  lock screen" is off, and uses a forecast that is less than ten minutes
+  old instead of asking again. Open-Meteo sees the device's address
+  and those place names or coordinates (rounded to four decimals, about
+  10 m); no account, key or other identifier is sent. The app does not
+  locate the device: places are only what the user picked. The places and
+  the last forecast stay in the user's home
   (`~/.config/com.boswas.Weather/`, `~/.cache/com.boswas.Weather/`).
+- **The lock screen** shows the weather of that place: its name, the
+  temperature, the condition and the next hours, to anyone at the device,
+  without signing in. That is why it can be turned off: Settings > Privacy
+  & security > Lock screen > "Show weather on the lock screen" (the
+  compositor's `[lock] show_weather`, on by default). The lock screen
+  itself never uses the network; it reads the summary that Weather writes
+  to `~/.local/state/boswas/weather.json` (mode 0600), which Weather
+  removes when the setting is off or there is no place.
 - **Snipping Tool** captures the screen only through the desktop's
   capture screen, where the user chooses the area and confirms; the
   pictures are saved where the user saves them.
