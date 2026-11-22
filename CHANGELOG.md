@@ -163,6 +163,17 @@ Verification status of the native desktop
   also dropped an administrator's stricter lock policy.
 
 ### Added
+- **A new Boswas OS logo** (ADR-0047): a lowercase "b" drawn from geometry
+  (a pill-shaped stem in front of a round bowl, a warm dot in the counter)
+  in the palette's blues and sun, with wordmarks in Inter. It replaces the
+  traced gold and silver mark on the boot screen, the boot menu, the
+  installer, the Start button, About, the login logo, the wallpapers and
+  the dashboard's favicon.
+- **A new icon design** (ADR-0047), inspired by Windows 11's icons and
+  drawn by Boswas: application, folder, device and file icons are objects
+  with their own shape, soft top-lit gradients and a contact shadow,
+  without tiles; line icons are thinner and rounder. Every icon keeps its
+  name, so applications pick the new design up unchanged.
 - **Snipping Tool** (`boswas-snipping-tool`, in `boswas-apps`; ADR-0046):
   screenshots of an area or the whole screen, now or after 3, 5 or 10
   seconds, taken through the desktop's capture screen (the user drags or

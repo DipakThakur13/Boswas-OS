@@ -223,6 +223,9 @@ brand typeface, so this decision replaces that one.
 **Revisit when** a designer's vector original of the mark exists. It then
 replaces the traced SVG.
 
+*Superseded by ADR-0047* for the mark and the wordmarks: the traced mark
+and the Orbitron wordmarks are retired; Orbitron stays installed.
+
 *Since ADR-0031* the desktop UI uses the Prism palette with Inter as its
 text face. The mark, the wordmarks and Orbitron are unchanged; gold stays a
 brand colour and is no longer the UI accent.
@@ -2791,3 +2794,67 @@ managed.
   build environment cannot reach it; the tests use answers written from
   its documentation); either application on Debian 13's PySide6 6.8 at
   run time, on a real display or at a fractional scale.
+
+## ADR-0047 A drawn Boswas OS mark, and a new design for the Prism icons
+
+Supersedes ADR-0008 for the mark and the wordmarks, and the tile design of
+the Prism icons (ADR-0031, ADR-0033, ADR-0043). Asked for on 2026-11-22: a
+new logo and an icon pack that takes its design and colours from Windows
+11, drawn by Boswas.
+
+**Decision.**
+
+- **The mark** is drawn, not traced: `desktop/branding/tools/build_mark.py`
+  writes it from geometry (standard library only, deterministic). A
+  lowercase "b": a pill-shaped stem stands in front of a round bowl, cut
+  clear of it by a gap and shading it, with a warm dot in the counter.
+  Light comes from the top left; the colours are palette colours of the
+  tokens (azure, sky, iris, sun). It reads from 512 px down to 16 px and in
+  one colour, and it resembles no other system's logo (no panes, no grid,
+  no ribbon, no letter on a tile). Five concepts were drawn and compared;
+  the others read as an eye, a generic letter, a blob in one colour or
+  "lD". The supplied raster originals stay in `desktop/branding/source/`
+  as history; `trace_mark.py` and its potrace dependency are gone.
+- **The file format of the mark is a contract:** a 256 x 256 view box,
+  user-space linear and radial gradients, then filled paths only (no
+  transforms, styles, strokes or text). The icon generator and the boot
+  screen read it; the presets' wallpaper motif follows its geometry.
+- **Wordmarks** in Inter SemiBold, outlined; the mark and the wordmark are
+  set side by side, centred. Redrawn with them: the boot menu (GRUB, whose
+  theme colours follow the tokens), the installer banner, the login and
+  About logos, the hicolor `boswas-logo` and the dashboard favicon.
+- **The icons keep their theme and file names** (`Boswas-Prism`,
+  `Boswas-Prism-Light`, 583 files): many components name them, so the
+  design behind the names is replaced instead of adding a third pack. The
+  new design follows the principles of the Windows 11 icons with Boswas's
+  own drawings: coloured icons are objects with their own silhouette (no
+  tile), lit from the top with soft gradients, a highlight on top edges, a
+  shade where parts overlap and a soft contact shadow underneath; symbolic
+  icons are thin line icons (16 units on the 256 grid, round caps and
+  joins). Nothing is copied from Microsoft: no logo, no product icon, no
+  drawing (the browser is a generic globe, the Windows family a generic
+  window). The Start button (`boswas-logo`) is the mark itself.
+- The token file's `icon` section names the new colour roles (hues from
+  light to deep, materials, light and shadow). The legacy navy pack keeps
+  drawing the old mark from a kept copy and does not change.
+
+**Why.** The traced mark had no vector original and the tiles made every
+application icon the same shape. Objects with their own silhouettes are
+recognised faster, and a mark drawn from geometry stays exact at every
+size and can be changed by editing a generator rather than retracing.
+
+**Consequences.**
+
+- Every surface that shows the logo changes at once: boot screen, boot
+  menu, installer, Start button, About, login, wallpapers, favicon.
+- 324 designs in 583 files: 375 in Boswas-Prism (99 applications, 19
+  places, 17 devices, 32 mimetypes, 48 status, 160 actions) and 208
+  symbolic in Boswas-Prism-Light.
+- Pale objects (folders, metal) are outlined to stay visible on white; at
+  16 px some symbols remain hard to read (the charging battery's bolt).
+- **Verified:** the icon tests (45), token tests, the branding tests (18),
+  the toolkit, all application suites and Control Center with the new
+  names; every icon drawn by Qt's SVG renderer and compared with librsvg;
+  the boot screen built with the new mark and its frames looked at.
+- **Not verified:** the new artwork in a real GRUB menu, installer or boot;
+  the icons on Qt 6.8 or in a running session.
