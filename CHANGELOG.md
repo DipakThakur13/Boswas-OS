@@ -178,22 +178,22 @@ Verification status of the native desktop
 ### Added
 - **Weather on the lock screen** (ADR-0051): the clock view of the lock
   screen shows a card in the bottom-left corner with the weather of the
-  home place chosen in Weather: the condition and the temperature,
-  today's high and low, how warm it feels and the next four hours. The
-  lock screen never uses the network: it reads a small summary that
-  Weather writes to `~/.local/state/boswas/weather.json`, accepts only a
-  regular file of the user, at most 16 KB, with sane values, and hides it
-  when it is more than three hours old ("Updated at HH:MM" after an
-  hour). The card is not shown in the sign-in view, on other monitors or
-  on the login screen. The summary is written by the Weather window and
+  home place chosen in Weather (or its first place): the condition and the
+  temperature, today's high and low, how warm it feels and the next four
+  hours. The lock screen never uses the network: it reads a small summary
+  that Weather writes to `~/.local/state/boswas/weather.json`, accepts
+  only a regular file of the user, at most 16 KB, with sane values, and
+  hides it when it is more than three hours old ("Updated at HH:MM" after
+  an hour). The card is not shown in the sign-in view, on other monitors
+  or on the login screen. The summary is written by the Weather window and
   by `boswas-weather --update-lock-screen`, which a hardened systemd user
   timer (`boswas-weather-update.timer`, in `boswas-apps`) runs a minute
-  after the session starts and then every half hour. Only a place the
-  user added is sent to Open-Meteo; without one nothing is fetched. The
-  new compositor setting `[lock] show_weather` (on by default; the
-  user's, not lock policy) is "Show weather on the lock screen" in
-  Settings > Privacy & security > Lock screen, and reaches the lock
-  screen in the compositor's `config` event.
+  after the session starts and then every half hour. Only a place the user
+  added is sent to Open-Meteo; without one nothing is fetched. The new
+  compositor setting `[lock] show_weather` (on by default; the user's, not
+  lock policy) is "Show weather on the lock screen" in Settings > Privacy
+  & security > Lock screen, and reaches the lock screen in the
+  compositor's `config` event.
 - **Control Center laid out like Windows 11's Settings** (ADR-0049):
   eleven categories in the pane (Home, System, Bluetooth & devices,
   Network & internet, Personalization, Apps, Accounts, Time & language,

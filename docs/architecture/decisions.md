@@ -3310,10 +3310,9 @@ the unit followed the height.
   1080x1920 portrait display gets 1.0, as a 1920x1080 one does.
 - **The end of a prompt, and of the screen.** An answered prompt fades
   out with its dots; only their number is kept for that, and the
-  passphrase is wiped before the fade. `quit` is answered once
-  the fade is over, about a fifth of a second later than before, also
-  with `--retain`; without animation, or while the screen is hidden, at
-  once.
+  passphrase is wiped before the fade. `quit` is answered once the fade
+  is over, about a fifth of a second later than before, also with
+  `--retain`; without animation, or while the screen is hidden, at once.
 
 **Why.**
 
@@ -3400,13 +3399,13 @@ forecasts only while its window was open.
   edges: the condition's icon, the current temperature, the condition and
   the place; a line with today's high and low (until midnight at the
   place) and how warm it feels; the next four hours (time, icon,
-  temperature); "Updated at HH:MM" once the summary is more than an hour
-  old. It is shown only in the clock view, only on the output that takes
-  input (the others show the clock and the date), only once the
-  compositor's settings have arrived and allow it, and only while the
-  summary is at most three hours old and not more than five minutes in
-  the future. Never in the sign-in view, and never on the login screen,
-  which runs before anyone's files are known.
+  temperature); "Updated at HH:MM" once the summary is an hour old. It
+  is shown only in the clock view, only on the output that takes input
+  (the others show the clock and the date), only once the compositor's
+  settings have arrived and allow it, and only while the summary is at
+  most three hours old and not more than five minutes in the future.
+  Never in the sign-in view, and never on the login screen, which runs
+  before anyone's files are known.
 - **Its look.** The dark acrylic material over the blurred wallpaper (its
   tint alone without a wallpaper, opaque with transparency off), the
   flyout radius (8 px), the tooltip shadow and the dark theme's surface
@@ -3433,7 +3432,8 @@ forecasts only while its window was open.
   `boswas-weather --update-lock-screen` does the same without a window
   and without Qt (`boswas_apps/weather/lockscreen.py`): it refuses root
   (exit status 4), reads Weather's places and settings without changing
-  them, takes the units and the 12- or 24-hour clock from the locale
+  them, takes the units and the 12- or 24-hour clock from those settings
+  and, where they leave it to the locale, from the locale without Qt
   (glibc's `T_FMT` for the clock), uses a forecast that is less than ten
   minutes old from Weather's cache or fetches one (which renews the
   cache), keeps the last summary when the service cannot be reached, and

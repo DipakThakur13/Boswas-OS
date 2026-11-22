@@ -185,6 +185,19 @@ repeated for this run. The first attempt stopped at `boswas-branding`:
 its tests read the boot menu's theme, which the package build did not
 copy; `build-packages.sh` now copies `config/live-build` too.
 
+The run after the new boot screen (ADR-0050) and the lock screen's
+weather (ADR-0051) (2026-11-22, version 3.0~alpha1, the same build
+environment): the 13 device packages and the Control Plane built with all
+their test suites (439 Rust tests in `boswas-desktop` with two ignored,
+187 in `boswas-bootsplash`, 3,968 Python tests in the other device
+packages, 50 in the Control Plane; none failed); lintian reported no
+errors or warnings; the package stage passed 101 checks (the new one: the
+weather update's user units and the postinst that enables the timer),
+failed none and skipped the same three; the static stage passed 82
+checks. The unit stage and the boot in the virtual machine were not
+repeated for this run, so the new boot screen has not yet been seen on a
+display.
+
 Qt Multimedia in this environment: the sandbox has PySide6 6.12, whose
 audio back end is PipeWire, and `libpipewire` without its configuration
 files. Creating an audio output then crashes inside Qt, which is why the
@@ -267,16 +280,15 @@ final packages):
 **Not shown by these boots:** the boot screen as it is drawn since
 ADR-0050 (they ran the previous picture: a bitmap of the mark and a ring
 of dots; the device layers and the start-up did not change); anything
-about Debian 13 (its
-initramfs-tools, on which the hook that copies the graphics drivers has
-never run; its versions of greetd and libseat; its package names); the
-image and its live session as built (the live-config component ran in a
-stand-in for live-config, not under it); the boot loader; real graphics
-hardware and hardware rendering; a login screen with a graphics device
-and no connected monitor; the boot screen handing over to a real
-compositor that takes the display (a stand-in program held the console);
-rescue mode; a desktop shell that keeps failing (tests only); the
-passphrase prompt of an encrypted disk.
+about Debian 13 (its initramfs-tools, on which the hook that copies the
+graphics drivers has never run; its versions of greetd and libseat; its
+package names); the image and its live session as built (the live-config
+component ran in a stand-in for live-config, not under it); the boot
+loader; real graphics hardware and hardware rendering; a login screen with
+a graphics device and no connected monitor; the boot screen handing over
+to a real compositor that takes the display (a stand-in program held the
+console); rescue mode; a desktop shell that keeps failing (tests only);
+the passphrase prompt of an encrypted disk.
 
 ## Snipping Tool on the real desktop
 

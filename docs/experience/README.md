@@ -7,8 +7,9 @@ window frames and the lock screen. They share one design system, **Boswas
 UI** ([desktop/ui](../../desktop/ui/README.md)): the Fluent design
 language (the layout, geometry, materials and motion that Windows 11
 users know) with Boswas's own colours (the Prism palette), icons (Boswas
-Prism) and typeface (Inter). The official mark keeps its gold and silver
-and is the Start button; brand lettering stays in Orbitron (ADR-0033).
+Prism) and typeface (Inter). The Boswas OS mark, in the palette's blues
+with a warm dot (ADR-0047), is the Start button; brand lettering is in
+Inter.
 
 Design rule: **Boswas owns the desktop layer, Debian stays the system
 layer**.
@@ -51,7 +52,7 @@ They have their tests and have not run on the desktop yet.
 
 | Surface | What users see |
 |---------|----------------|
-| Boot menu (USB/DVD) | Boswas OS mark, Orbitron wordmark, "Boswas OS v3 Alpha - Live session" (default), "Install Boswas OS" |
+| Boot menu (USB/DVD) | Boswas OS mark, Inter wordmark, "Boswas OS v3 Alpha - Live session" (default), "Install Boswas OS" |
 | Boot, shutdown, restart, disk unlock | The Boswas boot screen, drawn from vector outlines at the display's size (ADR-0050): the mark assembles itself on a dark background lit softly in the brand's blues, with no name written, and a progress ring turns close under it. For encrypted disks the mark glides up and the prompt slides in: "Unlock your disk", the disk's name and a text box with one dot per character, a Caps Lock hint and a line for a rejected passphrase. Shutdown and restart show the mark, the ring and one line of text |
 | Login screen | The Boswas login screen: first the clock over the background, then, after a key or a click, the people who can sign in and a password field. Another user name can be typed. A power button offers sleep, restart and shut down (the lock screen has none). If graphics cannot start, a text login takes its place |
 | Desktop | The background (or the preset's wallpaper), the taskbar with the Boswas mark as the Start button, Boswas Prism icons |
@@ -329,13 +330,13 @@ path has not been tested yet.
     that shows the clock and the hint, not in the sign-in view, not on the
     other monitors and not on the login screen. The lock screen itself
     never uses the network: it reads a summary that Weather keeps in
-    `~/.local/state/boswas/weather.json`, written while Weather is open
-    and every half hour by a user timer while it is closed. A summary
-    more than three hours old is not shown; after an hour the card says
-    when it was fetched. Without a place in Weather there is no card and
-    nothing is fetched. Settings > Privacy & security > Lock screen >
-    "Show weather on the lock screen" turns it off (`[lock]
-    show_weather`).
+    `~/.local/state/boswas/weather.json`, written by Weather while it is
+    open and every half hour by a user timer, also while it is closed. A
+    summary more than three hours old is not shown; after an hour the
+    card says when it was fetched. Without a place in Weather there is no
+    card and nothing is fetched. Settings > Privacy & security > Lock
+    screen > "Show weather on the lock screen" turns it off
+    (`[lock] show_weather`).
   - An administrator sets the timeout in `/etc/boswas/compositor.toml`. A
     user may shorten it, not lengthen or disable it.
   - `loginctl lock-session` locks the session while the shell runs;
@@ -504,7 +505,7 @@ light, and each has a manual page (`man boswas-files`, and so on).
 | **Clock** | Alarms, timers, a stopwatch, a world clock and focus sessions |
 | **Calendar** | A calendar kept on this computer: month, week and day views, repeating events, reminders, several calendars, import and export of `.ics` files. It has no accounts and does not synchronise |
 | **Snipping Tool** | Screenshots of an area or the whole screen, now or after a delay, through the desktop's capture screen (the same one Print opens). The picture opens in an editor with a pen, a highlighter, arrows, rectangles, text, an eraser and crop, with undo; copy it, save it as PNG or JPEG or open it in Photos. It also marks up pictures you open or paste |
-| **Weather** | The places you add (it never uses your location): current conditions, the next 24 hours, details (wind, humidity, pressure, UV index, visibility, precipitation, sunrise and sunset) and 10 days, in the units you choose. It refreshes while open and shows the last forecast when there is no network. The home place's weather is also on the lock screen, fetched every half hour while Weather is closed (Settings > Privacy & security > Lock screen turns it off). Data from Open-Meteo |
+| **Weather** | The places you add (it never uses your location): current conditions, the next 24 hours, details (wind, humidity, pressure, UV index, visibility, precipitation, sunrise and sunset) and 10 days, in the units you choose. It refreshes while open and shows the last forecast when there is no network. The home place's weather is also on the lock screen, fetched every half hour, also while Weather is closed (Settings > Privacy & security > Lock screen turns it off). Data from Open-Meteo |
 | **Task Manager** | Ctrl+Shift+Esc. What is running, by application, with CPU, memory and disk use, and "End task"; performance graphs for the processor, memory, disks, network, graphics and battery; start-up applications (switch them off or on); the signed-in users; every process in detail; services |
 | **Boswas Control Center** | Settings, laid out like the Settings of Windows 11: eleven categories from Home to Boswas Update, each page with its settings, the device's state and its actions (see [Settings](#settings)), and the three centres below. It is the application Super+I opens ([control-center.md](control-center.md)) |
 | **Boswas Security Center** | Control Center's Privacy & security > Boswas Security Center: AppArmor, Windows-app sandbox, firewall, Secure Boot, disk encryption, screen lock, automatic security updates, device agent, device policy. Each item is Secure, Warning, Attention, Error or Not available, shown with an icon and text, never colour alone |

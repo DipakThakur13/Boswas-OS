@@ -19,7 +19,8 @@ hardware, not a public Linux distribution.
 >   X11 applications run through Xwayland
 > - **the Boswas system applications** (`boswas-apps`, unreleased): Files,
 >   Terminal, Text Editor, Calculator, Photos, Document Viewer, Archive
->   Manager, Media Player, Camera, Clock, Calendar and Task Manager, in
+>   Manager, Media Player, Camera, Clock, Calendar, Snipping Tool, Weather
+>   and Task Manager, in
 >   place of KDE's applications
 > - **native settings** in Boswas Control Center, in place of Plasma's
 >   settings modules, laid out like the Settings of Windows 11 (eleven
@@ -73,8 +74,10 @@ speaks, and the native compositor implements it.
 The native desktop replaces KDE Plasma, KWin, SDDM and Plymouth in the image
 manifest (they are pinned out; ADRs in
 [docs/architecture/decisions.md](docs/architecture/decisions.md)). It is new
-and has **not yet booted**, neither in a virtual machine nor on real
-hardware, and it has not run against the real system services.
+and has **not run on real hardware**: it was booted from the built
+packages in a virtual machine on another distribution's base system, not
+from the image (ADR-0044), and it has not run against the real system
+services.
 
 What it does today:
 
@@ -100,7 +103,8 @@ What it does today:
   filter keys, always visible scroll bars; animations can be turned off.
 - **System applications** (`boswas-apps`): Files, Terminal, Text Editor,
   Calculator, Photos, Document Viewer, Archive Manager, Media Player,
-  Camera, Clock and Calendar with reminders, Task Manager. They run as
+  Camera, Clock and Calendar with reminders, Snipping Tool, Weather,
+  Task Manager. They run as
   the user, start nothing through a shell and treat files as hostile
   input.
 - **Settings** in Control Center, laid out like Windows 11's Settings
@@ -221,7 +225,7 @@ boswas-device status        # device agent: state, identity, Control Plane conne
 |------|----------------|
 | Base | Debian 13.x trixie, amd64, Linux 6.12, systemd |
 | Desktop | The native Boswas desktop (`boswas-desktop`): `boswas-compositor`, a Wayland compositor in Rust on Smithay (Fluent window frames, animations, snap layouts, Task View with several desktops, per-monitor settings, night light, Xwayland for X11 applications, compositor-owned session lock, privileged protocols only for its own shell, screen capture only with the user's consent), and `boswas-shell` (taskbar, Start, quick settings, notifications, tray, the polkit dialog, lock screen with the weather of the home place, login screen behind greetd). Ten presets ([docs/experience](docs/experience/README.md)) |
-| Applications | The Boswas system applications (`boswas-apps`, PySide6 on the Boswas Qt toolkit): Files, Terminal, Text Editor, Calculator, Photos, Document Viewer, Archive Manager, Media Player, Camera, Clock, Calendar, Task Manager; Firefox ESR as the browser. Boswas Control Center with native settings, laid out like Windows 11's Settings, and the Security, Software and Update Centers ([docs/experience/control-center.md](docs/experience/control-center.md)) |
+| Applications | The Boswas system applications (`boswas-apps`, PySide6 on the Boswas Qt toolkit): Files, Terminal, Text Editor, Calculator, Photos, Document Viewer, Archive Manager, Media Player, Camera, Clock, Calendar, Snipping Tool, Weather, Task Manager; Firefox ESR as the browser. Boswas Control Center with native settings, laid out like Windows 11's Settings, and the Security, Software and Update Centers ([docs/experience/control-center.md](docs/experience/control-center.md)) |
 | Design system | Boswas UI v3: the Fluent design language with Boswas's own colours (the Prism palette), icons and typeface, as design tokens in one file ([desktop/ui](desktop/ui/README.md)). The shell, the window frames, the boot screen, the Qt toolkit of the Boswas applications ([desktop/ui/qt](desktop/ui/qt/README.md)), the KDE colour schemes, the Boswas Prism icon pack ([desktop/icons](desktop/icons/README.md)) and the Boswas-Cursors pointer theme ([desktop/cursors](desktop/cursors/README.md)) all read it |
 | Branding | Built from the official Boswas Group logo and lettering ([desktop/branding](desktop/branding/README.md)) |
 | Boot | GRUB for BIOS and UEFI; Debian-signed shim/GRUB/kernel for Secure Boot; Boswas boot menu; the Boswas boot screen (`boswas-bootsplash`, Rust: boot, shutdown, restart and the disk-unlock prompt, drawn from vector outlines at the display's size, with motion, [packages/boswas-bootsplash](packages/boswas-bootsplash/README.md)) |
