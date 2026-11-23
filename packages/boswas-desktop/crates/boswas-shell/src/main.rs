@@ -851,6 +851,9 @@ impl Shell {
         let transition = surface.anim.as_ref().and_then(|anim| anim.frame(now));
         let presence = transition.unwrap_or(1.0);
         let animating = transition.is_some();
+        // Start's page scrolling smoothly: drawn again at the display's pace
+        // until it stands.
+        let scrolling = role == Role::Flyout && st.flyout == Some(state::Flyout::Start) && st.start.animating(now);
         let reuse = animating && surface.snapshot.as_ref().is_some_and(|s| (s.width(), s.height()) == canvas.pixel_size());
         if !reuse {
             let mut hits = Vec::new();
@@ -959,14 +962,14 @@ impl Shell {
         };
         let wl = surface.wl_surface().clone();
         let Some((dx, dy, dw, dh)) = changed else {
-            if animating {
+            if animating || scrolling {
                 // Still asked for a frame, so the transition goes on at the
                 // display's pace.
                 wl.frame(qh, wl.clone());
                 wl.commit();
                 surface.frame_pending = true;
             }
-            surface.dirty = animating;
+            surface.dirty = animating || scrolling;
             return;
         };
         let bytes = pw as usize * ph as usize * 4;
@@ -1022,7 +1025,7 @@ impl Shell {
         }
         wl.commit();
         surface.frame_pending = true;
-        surface.dirty = animating;
+        surface.dirty = animating || scrolling;
         surface.sent.clear();
         surface.sent.extend_from_slice(canvas.data());
         surface.sent_key = key;

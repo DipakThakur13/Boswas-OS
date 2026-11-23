@@ -580,6 +580,7 @@ mod tests {
             keywords: Vec::new(),
             wm_class: String::new(),
             actions: Vec::new(),
+            categories: Vec::new(),
         }
     }
 

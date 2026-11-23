@@ -10,7 +10,6 @@ use crate::ui::Rect;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Glyph {
     ChevronRight,
-    ChevronLeft,
     ChevronUp,
     ChevronDown,
     ArrowLeft,
@@ -60,7 +59,6 @@ pub fn draw(canvas: &mut Canvas, glyph: Glyph, rect: Rect, color: Rgba) {
     };
     match glyph {
         Glyph::ChevronRight => line(canvas, &[(6.0, 3.5), (10.5, 8.0), (6.0, 12.5)]),
-        Glyph::ChevronLeft => line(canvas, &[(10.0, 3.5), (5.5, 8.0), (10.0, 12.5)]),
         Glyph::ChevronUp => line(canvas, &[(3.5, 10.0), (8.0, 5.5), (12.5, 10.0)]),
         Glyph::ChevronDown => line(canvas, &[(3.5, 6.0), (8.0, 10.5), (12.5, 6.0)]),
         Glyph::ArrowLeft => {
@@ -117,7 +115,7 @@ mod tests {
     #[test]
     fn every_glyph_leaves_ink_inside_its_square() {
         let all = [
-            Glyph::ChevronRight, Glyph::ChevronLeft, Glyph::ChevronUp, Glyph::ChevronDown, Glyph::ArrowLeft,
+            Glyph::ChevronRight, Glyph::ChevronUp, Glyph::ChevronDown, Glyph::ArrowLeft,
             Glyph::ArrowRight, Glyph::Close, Glyph::Check, Glyph::Dot, Glyph::Play, Glyph::Pause, Glyph::Next,
             Glyph::Previous, Glyph::TaskView, Glyph::Leaf, Glyph::Gauge, Glyph::Bolt,
         ];

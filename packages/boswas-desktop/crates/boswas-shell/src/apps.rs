@@ -28,6 +28,9 @@ pub struct App {
     pub wm_class: String,
     /// The entry's additional actions ("New Window", "New Private Window").
     pub actions: Vec<DesktopAction>,
+    /// The entry's `Categories` (`Utility`, `Graphics`, ...), for Start's
+    /// category view.
+    pub categories: Vec<String>,
 }
 
 /// A `[Desktop Action ...]` group of a desktop entry.
@@ -204,6 +207,7 @@ pub fn parse_entry(id: &str, text: &str, locale: &str) -> Option<App> {
         keywords: lists("Keywords").into_iter().map(str::to_lowercase).collect(),
         wm_class: fields.get("StartupWMClass").map(|v| unescape(v)).unwrap_or_default(),
         actions,
+        categories: lists("Categories").into_iter().take(32).map(str::to_owned).collect(),
     })
 }
 
@@ -410,7 +414,7 @@ mod tests {
     use super::*;
 
     const ENTRY: &str = "[Desktop Entry]\nType=Application\nName=Files\nName[hi]=फ़ाइलें\nComment=Browse folders\n\
-        Exec=dolphin %u\nIcon=system-file-manager\nKeywords=folder;browse;\nStartupWMClass=dolphin\nActions=new;\n\
+        Exec=dolphin %u\nIcon=system-file-manager\nKeywords=folder;browse;\nStartupWMClass=dolphin\nActions=new;\nCategories=System;FileManager;\n\
         [Desktop Action new]\nName=New Window\nName[hi]=नई विंडो\nExec=dolphin --new-window %u\n\
         [Desktop Action unlisted]\nName=Hidden\nExec=dolphin --hidden\n";
 
@@ -421,6 +425,7 @@ mod tests {
         assert_eq!(app.exec, ["dolphin"]);
         assert_eq!(app.icon, "system-file-manager");
         assert_eq!(app.keywords, ["folder", "browse"]);
+        assert_eq!(app.categories, ["System", "FileManager"]);
         assert!(!app.terminal);
         assert_eq!(app.actions, [DesktopAction { name: "New Window".into(), exec: vec!["dolphin".into(), "--new-window".into()] }]);
         let hindi = parse_entry("org.kde.dolphin", ENTRY, "hi_IN.UTF-8").unwrap();
@@ -469,6 +474,7 @@ mod tests {
             keywords: keywords.iter().map(|k| k.to_string()).collect(),
             wm_class: String::new(),
             actions: Vec::new(),
+            categories: Vec::new(),
         }
     }
 

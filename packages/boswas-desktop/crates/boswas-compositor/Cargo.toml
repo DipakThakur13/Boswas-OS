@@ -26,7 +26,10 @@ udev = [
 winit = ["smithay/backend_winit", "smithay/renderer_gl"]
 
 [dependencies]
-boswas-ui = { workspace = true, features = ["text", "icons"] }
+# "images": applications that install only PNG icons (Firefox ESR in
+# hicolor) get them in window frames, the switcher and Task View; the same
+# size limits as the shell's (boswas_ui::icons).
+boswas-ui = { workspace = true, features = ["text", "icons", "images"] }
 serde.workspace = true
 serde_json.workspace = true
 tiny-skia.workspace = true

@@ -128,6 +128,7 @@ impl State {
             keywords: Vec::new(),
             wm_class: String::new(),
             actions: Vec::new(),
+            categories: Vec::new(),
         };
         let window = |id: u64, app_id: &str, active: bool| WindowInfo {
             id,
@@ -318,29 +319,206 @@ mod tests {
 
     #[test]
     fn start_draws_in_every_view() {
+        use crate::config::AllView;
         let mut st = State::for_tests();
-        for (w, h) in [(642.0, 726.0), (642.0, 480.0), (400.0, 360.0)] {
+        let (apps, usage) = (st.apps.clone(), st.usage.counts.clone());
+        for (output, full) in [((1920.0, 1080.0), true), ((1366.0, 768.0), true), ((2560.0, 1440.0), false), ((800.0, 600.0), false), ((480.0, 400.0), false)] {
+            let (w, h) = start::panel_size(output);
             let panel = Rect::new(PAD, PAD, w, h);
-            st.start.reset();
-            each(|f, _| start::draw(f, &st, panel), w + 2.0 * PAD, h + 2.0 * PAD, "start home");
-            st.start.view = start::View::AllApps;
-            each(|f, _| start::draw(f, &st, panel), w + 2.0 * PAD, h + 2.0 * PAD, "start all apps");
-            st.start.view = start::View::Home;
-            let (apps, usage) = (st.apps.clone(), st.usage.counts.clone());
-            st.start.typed("fi", &apps, &usage);
-            each(|f, _| start::draw(f, &st, panel), w + 2.0 * PAD, h + 2.0 * PAD, "start search");
+            let (sw, sh) = (w + 2.0 * PAD, h + 2.0 * PAD);
+            let draw = |st: &State, name: &str| {
+                if full {
+                    each(|f, _| start::draw(f, st, panel), sw, sh, name);
+                } else {
+                    let (_, hits) = testing::render(sw, sh, 1.0, Scheme::Dark, Some((sw / 2.0, sh / 2.0)), None, |f| start::draw(f, st, panel));
+                    check(name, &hits, sw, sh);
+                }
+            };
+            for view in AllView::ALL {
+                st.config.view = view;
+                st.start.reset();
+                draw(&st, "start");
+                st.start.expanded = true;
+                st.start.scroll = 400.0;
+                draw(&st, "start scrolled");
+                st.start.scroll = 1.0e6;
+                draw(&st, "start scrolled past the end");
+                if view == AllView::List {
+                    st.start.index = true;
+                    draw(&st, "start with the index of letters");
+                }
+                st.start.reset();
+                st.start.typed("fi", &apps, &usage);
+                draw(&st, "start search");
+            }
         }
-        // Every layout, with every folder next to the power button.
+        // Every layout, with every folder next to the power button, and
+        // without recommendations.
         st.desktop.start.folders = crate::settings::Folder::ALL.to_vec();
+        let panel = Rect::new(PAD, PAD, 832.0, 918.0);
         for layout in [crate::settings::StartLayout::MorePins, crate::settings::StartLayout::MoreRecommendations] {
             st.desktop.start.layout = layout;
             st.start.reset();
-            let panel = Rect::new(PAD, PAD, 642.0, 726.0);
-            each(|f, _| start::draw(f, &st, panel), 642.0 + 2.0 * PAD, 726.0 + 2.0 * PAD, "start layouts");
+            each(|f, _| start::draw(f, &st, panel), 832.0 + 2.0 * PAD, 918.0 + 2.0 * PAD, "start layouts");
         }
-        let panel = Rect::new(PAD, PAD, 642.0, 726.0);
-        let (_, hits) = testing::render(642.0 + 2.0 * PAD, 726.0 + 2.0 * PAD, 1.0, Scheme::Dark, None, None, |f| start::draw(f, &st, panel));
+        let (_, hits) = testing::render(832.0 + 2.0 * PAD, 918.0 + 2.0 * PAD, 1.0, Scheme::Dark, None, None, |f| start::draw(f, &st, panel));
         assert!(hits.iter().filter(|h| matches!(h.action, Action::Start(start::Act::Folder(_)))).count() >= 4, "the folders are there");
+        assert!(hits.iter().any(|h| h.action == Action::Start(start::Act::Recommended(1))), "Firefox is used most");
+        st.desktop.start.recently_added = false;
+        st.desktop.start.most_used = false;
+        let (_, hits) = testing::render(832.0 + 2.0 * PAD, 918.0 + 2.0 * PAD, 1.0, Scheme::Dark, None, None, |f| start::draw(f, &st, panel));
+        assert!(!hits.iter().any(|h| matches!(h.action, Action::Start(start::Act::Recommended(_)))), "Recommended is hidden");
+        // The largest text sizes still fit.
+        for text in [175, 225] {
+            crate::ui::set_text_scale(text);
+            for view in AllView::ALL {
+                st.config.view = view;
+                st.start.reset();
+                each(|f, _| start::draw(f, &st, panel), 832.0 + 2.0 * PAD, 918.0 + 2.0 * PAD, "start with large text");
+            }
+        }
+        crate::ui::set_text_scale(100);
+    }
+
+    /// Many applications, so that the page is longer than its window.
+    fn with_many_apps(mut st: State) -> State {
+        let make = |id: String, name: String, categories: &str| crate::apps::App {
+            id: id.clone(),
+            name,
+            comment: String::new(),
+            icon: id.clone(),
+            exec: vec![id],
+            terminal: false,
+            keywords: Vec::new(),
+            wm_class: String::new(),
+            actions: Vec::new(),
+            categories: categories.split(';').map(str::to_owned).collect(),
+        };
+        for (i, letter) in "BDGHKMNPRSTW".chars().enumerate() {
+            for n in 0..3 {
+                let categories = ["Office", "Graphics", "Utility", "Game", "Network", "System"][(i + n) % 6];
+                st.apps.push(make(format!("app.{letter}{n}"), format!("{letter}app {n}"), categories));
+            }
+        }
+        st.apps.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        st
+    }
+
+    #[test]
+    fn the_keyboard_reaches_every_part_of_start() {
+        use crate::config::AllView;
+        let mut st = with_many_apps(State::for_tests());
+        let panel = Rect::new(PAD, PAD, 640.0, 652.0);
+        let (sw, sh) = (640.0 + 2.0 * PAD, 652.0 + 2.0 * PAD);
+        for view in AllView::ALL {
+            st.config.view = view;
+            st.start.reset();
+            let (_, hits) = testing::render(sw, sh, 1.0, Scheme::Dark, None, None, |f| start::draw(f, &st, panel));
+            let footer: Vec<Hit> = hits.iter().filter(|h| matches!(&h.action, Action::Start(a) if a.in_footer())).cloned().collect();
+            assert!(footer.len() >= 2, "the user and power buttons");
+            let geo = start::geometry(panel, st.desktop.start.layout);
+            let mut text = boswas_ui::text::TextEngine::new();
+            let page = start::page(&st, &geo, &mut text);
+            assert!(page.height > geo.view.h * 1.5, "{view:?}: the page is longer than its window");
+            // Down from the search box: the first pin.
+            let first = start::navigate(&page, &footer, None, Nav::Down).unwrap();
+            assert!(matches!(first, Action::Start(start::Act::App(_))), "{first:?}");
+            assert_eq!(start::navigate(&page, &footer, None, Nav::Up), None);
+            // Down again and again: through every section to the bottom,
+            // scrolling as the focus goes, then the buttons at the bottom.
+            let mut focus = Some(first);
+            let mut seen_all = false;
+            for _ in 0..200 {
+                let next = start::navigate(&page, &footer, focus.as_ref(), Nav::Down);
+                if let Some(Action::Start(act)) = &next {
+                    seen_all |= matches!(act, start::Act::All(_) | start::Act::Letter(_));
+                    if let Some(element) = page.find(act) {
+                        let max = page.max_scroll(geo.view.h);
+                        st.start.reveal(element.rect, geo.view.h, max, Instant::now(), true);
+                        assert!(element.rect.y >= st.start.scroll - 0.5 && element.rect.bottom() <= st.start.scroll + geo.view.h + 0.5, "{view:?}: {act:?} is scrolled into sight");
+                    }
+                }
+                if next == focus {
+                    break;
+                }
+                focus = next;
+            }
+            assert!(seen_all, "{view:?}: Down reaches the applications under All");
+            assert!(matches!(&focus, Some(Action::Start(a)) if a.in_footer()), "{view:?}: and ends at the bottom: {focus:?}");
+            assert!(st.start.scroll > 0.0, "the page scrolled along");
+            // Up from the bottom goes back to the page; Up from the top to the search box.
+            let up = start::navigate(&page, &footer, focus.as_ref(), Nav::Up);
+            assert!(matches!(&up, Some(Action::Start(a)) if a.on_page()), "{up:?}");
+            // Tab reaches every control of the page and the bottom once.
+            let controls = page.hits().len() + footer.len();
+            let mut reached: Vec<Action> = Vec::new();
+            let mut focus: Option<Action> = None;
+            for _ in 0..controls {
+                focus = start::navigate(&page, &footer, focus.as_ref(), Nav::Next);
+                let action = focus.clone().unwrap();
+                assert!(!reached.contains(&action), "{view:?}: {action:?} twice");
+                reached.push(action);
+            }
+            assert_eq!(start::navigate(&page, &footer, focus.as_ref(), Nav::Next), page.hits().first().map(|h| h.action.clone()), "Tab wraps");
+            // The same application under Pinned and under All are two controls.
+            let pins: Vec<usize> = page.hits().iter().filter_map(|h| match h.action {
+                Action::Start(start::Act::App(i)) => Some(i),
+                _ => None,
+            }).collect();
+            assert!(pins.iter().all(|i| page.find(&start::Act::All(*i)).is_some()));
+        }
+        // "Show all" shows every pin; the letters of the list lead to their headings.
+        st.config.view = AllView::List;
+        st.start.reset();
+        st.config.start = Some(st.apps.iter().map(|a| a.id.clone()).collect());
+        let geo = start::geometry(panel, st.desktop.start.layout);
+        let mut text = boswas_ui::text::TextEngine::new();
+        let collapsed = start::page(&st, &geo, &mut text);
+        assert!(collapsed.find(&start::Act::ShowAll).is_some());
+        let tiles = |page: &start::Page| page.hits().iter().filter(|h| matches!(h.action, Action::Start(start::Act::App(_)))).count();
+        assert_eq!(tiles(&collapsed), geo.pin_rows * geo.columns);
+        st.start.expanded = true;
+        let expanded = start::page(&st, &geo, &mut text);
+        assert_eq!(tiles(&expanded), st.apps.len());
+        assert!(expanded.height > collapsed.height);
+        let letters: Vec<char> = st.apps.iter().map(start::letter_of).collect();
+        for letter in &letters {
+            assert!(expanded.find(&start::Act::Letter(*letter)).is_some(), "{letter}");
+        }
+        st.start.index = true;
+        let (_, hits) = testing::render(sw, sh, 1.0, Scheme::Light, None, None, |f| start::draw(f, &st, panel));
+        let jumps = hits.iter().filter(|h| matches!(h.action, Action::Start(start::Act::Jump(_)))).count();
+        let mut distinct = letters.clone();
+        distinct.dedup();
+        assert_eq!(jumps, distinct.len(), "a letter for each heading");
+        assert!(hits.iter().any(|h| h.action == Action::Start(start::Act::CloseIndex)));
+        assert!(!hits.iter().any(|h| matches!(h.action, Action::Start(start::Act::All(_)))), "the index covers the list");
+    }
+
+    /// Drawing Start is cheap enough to scroll it at the refresh rate of a
+    /// fast display.
+    #[test]
+    fn start_draws_quickly() {
+        let st = with_many_apps(State::for_tests());
+        let panel = Rect::new(PAD, PAD, 832.0, 918.0);
+        let mut res = crate::ui::Resources::new(boswas_ui::Theme::of(Scheme::Dark));
+        let mut canvas = boswas_ui::Canvas::new(832.0 + 2.0 * PAD, 918.0 + 2.0 * PAD, 1.0).unwrap();
+        let mut hits = Vec::new();
+        let frame = |res: &mut crate::ui::Resources, canvas: &mut boswas_ui::Canvas, hits: &mut Vec<Hit>| {
+            hits.clear();
+            let mut f = Frame { canvas, res, pointer: None, pressed: false, hits, focus: None, origin: (0.0, 0.0) };
+            start::draw(&mut f, &st, panel);
+        };
+        frame(&mut res, &mut canvas, &mut hits);
+        let started = Instant::now();
+        for _ in 0..10 {
+            frame(&mut res, &mut canvas, &mut hits);
+        }
+        let each = started.elapsed() / 10;
+        // A debug build without optimisation of the dependencies is far
+        // slower than the package; this only catches a drawing that went
+        // wrong (a page drawn whole, icons decoded every time).
+        assert!(each < std::time::Duration::from_millis(250), "{each:?} per frame");
     }
 
     #[test]
@@ -564,6 +742,82 @@ mod tests {
         assert_eq!(lock::weather_shown(&st, now).unwrap().updated, Some("Updated at 14:20"));
     }
 
+    /// Writes pictures of Start over the taskbar and the wallpaper, for
+    /// people to look at: `BOSWAS_SHELL_PICTURES=DIR` (where they go) and
+    /// `BOSWAS_SHELL_APPS=DIR:DIR` (the desktop entries listed), then
+    /// `cargo test -p boswas-shell -- --ignored start_pictures`. Icons come
+    /// from the themes in `XDG_DATA_DIRS`.
+    #[test]
+    #[ignore = "writes pictures for people to look at"]
+    fn start_pictures() {
+        use crate::config::AllView;
+        let Some(out) = std::env::var_os("BOSWAS_SHELL_PICTURES").map(std::path::PathBuf::from) else {
+            return;
+        };
+        let dirs: Vec<std::path::PathBuf> = std::env::var("BOSWAS_SHELL_APPS").unwrap_or_default().split(':').filter(|d| !d.is_empty()).map(Into::into).collect();
+        let mut st = State::for_tests();
+        st.apps = crate::apps::load_apps(&dirs, "en_IN.UTF-8");
+        st.windows.clear();
+        st.usage.counts = [("firefox-esr", 9), ("com.boswas.Files", 5), ("com.boswas.TextEditor", 3), ("com.boswas.Terminal", 2)].iter().map(|(k, v)| ((*k).to_owned(), *v)).collect();
+        let picture = |st: &State, (w, h): (f32, f32), scheme: Scheme, name: &str| {
+            let theme = boswas_ui::Theme::of(scheme);
+            let mut background = crate::wallpaper::Background::default();
+            background.load_picture("");
+            let mut res = crate::ui::Resources::new(theme);
+            res.backdrop = background.reduced(theme, w, h).and_then(|reduced| boswas_ui::material::Backdrop::new(&reduced, w, h));
+            let bar = boswas_ui::tokens::tokens().shell("taskbar-height");
+            let (pw, ph) = start::panel_size((w, h));
+            let left = if st.desktop.taskbar.left { 0.0 } else { ((w - pw - 2.0 * PAD) / 2.0).floor() };
+            let panel = Rect::new(left + PAD, h - bar - ph - PAD, pw, ph);
+            let (taskbar, _) = testing::render_with(crate::ui::Resources::new(theme), w, bar, 1.0, None, None, |f| taskbar::draw(f, st));
+            let (canvas, _) = testing::render_with(res, w, h, 1.0, None, None, |f| {
+                background.paint(f.canvas, theme);
+                f.canvas.draw_pixmap(taskbar.pixmap(), 0.0, h - bar, w, bar, 1.0);
+                start::draw(f, st, panel);
+            });
+            let file = format!("start-{name}-{w}x{h}-{}-{}.png", crate::ui::text_scale() * 100.0, if scheme == Scheme::Dark { "dark" } else { "light" });
+            std::fs::write(out.join(file), boswas_ui::icons::encode_png(canvas.pixmap()).unwrap()).unwrap();
+        };
+        let mut text = boswas_ui::text::TextEngine::new();
+        for output in [(1920.0, 1080.0), (1366.0, 768.0), (2560.0, 1440.0)] {
+            for text_size in [100, 175] {
+                crate::ui::set_text_scale(text_size);
+                for scheme in [Scheme::Dark, Scheme::Light] {
+                    for view in AllView::ALL {
+                        st.config.view = view;
+                        st.start.reset();
+                        picture(&st, output, scheme, &format!("{}-top", view.key()));
+                        // Scrolled to the applications under All.
+                        let (pw, ph) = start::panel_size(output);
+                        let geo = start::geometry(Rect::new(PAD, PAD, pw, ph), st.desktop.start.layout);
+                        let page = start::page(&st, &geo, &mut text);
+                        let all = page.elements.iter().find(|e| e.piece == start::Piece::Title("All")).map_or(0.0, |e| e.rect.y);
+                        st.start.scroll = (all - 8.0).min(page.max_scroll(geo.view.h));
+                        picture(&st, output, scheme, &format!("{}-scrolled", view.key()));
+                    }
+                }
+            }
+        }
+        crate::ui::set_text_scale(100);
+        let output = (1920.0, 1080.0);
+        st.config.view = AllView::List;
+        st.start.reset();
+        st.start.expanded = true;
+        st.config.start = Some(st.apps.iter().map(|a| a.id.clone()).collect());
+        picture(&st, output, Scheme::Dark, "expanded");
+        st.config.start = None;
+        st.start.reset();
+        st.start.index = true;
+        picture(&st, output, Scheme::Dark, "index");
+        st.start.reset();
+        let (apps, usage) = (st.apps.clone(), st.usage.counts.clone());
+        st.start.typed("te", &apps, &usage);
+        picture(&st, output, Scheme::Light, "search");
+        st.start.reset();
+        st.desktop.taskbar.left = true;
+        picture(&st, (1366.0, 768.0), Scheme::Dark, "left");
+    }
+
     /// Writes pictures of the lock screen with the weather card, for people
     /// to look at: `BOSWAS_SHELL_PICTURES=DIR` (where they go) and
     /// `BOSWAS_SHELL_WALLPAPERS=A.png:B.png` (the backgrounds), then
@@ -640,8 +894,8 @@ mod tests {
             testing::render_with(fontless(scheme), 1024.0, 768.0, 1.0, None, None, |f| lock::draw(f, &weather, true));
             let (canvas, _) = testing::render_with(fontless(scheme), 1366.0, 48.0, 1.0, None, None, |f| taskbar::draw(f, &st));
             assert!(canvas.data().chunks_exact(4).any(|p| p[3] > 0), "taskbar drew nothing");
-            let panel = Rect::new(PAD, PAD, 642.0, 726.0);
-            testing::render_with(fontless(scheme), 642.0 + 2.0 * PAD, 726.0 + 2.0 * PAD, 1.0, None, None, |f| start::draw(f, &st, panel));
+            let panel = Rect::new(PAD, PAD, 832.0, 918.0);
+            testing::render_with(fontless(scheme), 832.0 + 2.0 * PAD, 918.0 + 2.0 * PAD, 1.0, None, None, |f| start::draw(f, &st, panel));
             testing::render_with(fontless(scheme), 400.0, 768.0, 1.0, None, None, |f| notify::draw_centre(f, &st, Rect::new(PAD, PAD, 364.0, 720.0)));
         }
     }

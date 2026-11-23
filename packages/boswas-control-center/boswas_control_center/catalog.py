@@ -164,7 +164,7 @@ PAGES = (
           ("drive-removable-media-usb", "drive-removable-media"), ("usb", "plugged in", "connected devices"),
           description="The USB devices connected to this device and the driver each one uses."),
     _page("devices", "hardware", "Hardware & Drivers", "Devices inside this computer, drivers, missing firmware",
-          ("hwinfo", "computer"),
+          ("boswas-hardware", "computer"),
           ("driver", "firmware", "pci", "usb", "device", "graphics", "wifi card", "ethernet"),
           description="The devices in this computer, the driver each one uses, and firmware that is missing."),
 
@@ -247,7 +247,7 @@ PAGES = (
           description="Optional parts of Boswas OS from Debian's signed repositories. Installing and removing "
                       "them needs an administrator password."),
     _page("apps", "windows", "Windows Compatibility", "Run Windows applications, each in its own sandbox",
-          ("boswas-compat-manager", "wine"), ("wine", "exe", "msi", "32-bit", "64-bit"),
+          ("boswas-compat-manager", "boswas-windows-application"), ("wine", "exe", "msi", "32-bit", "64-bit"),
           description="The environment that runs Windows applications on Boswas OS, each in its own sandbox.",
           programs=(COMPAT_MANAGER,), programs_title="Manage"),
     _page("apps", "android", "Android", "Android apps through the optional Waydroid runtime",
