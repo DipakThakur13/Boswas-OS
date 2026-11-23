@@ -4,21 +4,22 @@ Two icon packs, each as a pair of themes with the same icons:
 
 | Pack | Themes | Palette | Generator | Draws |
 |------|--------|---------|-----------|-------|
-| **Boswas Prism** (the default of the native Boswas desktop) | `Boswas-Prism/`, `Boswas-Prism-Light/` | Prism, `desktop/ui/tokens.json` | `tools/build_prism.py` | Applications, places, devices, mimetypes, symbolic status and action icons |
+| **Boswas Prism** (the default of the native Boswas desktop) | `Boswas-Prism/`, `Boswas-Prism-Light/` | Prism, `desktop/ui/tokens.json` | `tools/build_prism.py` | Boswas programs and generic application names, places, devices, mimetypes, symbolic status and action icons |
 | **Boswas** (legacy, navy and gold) | `Boswas/`, `Boswas-Light/` | Brand palette, `desktop/branding/README.md` | `tools/build_icons.py` | Applications and Windows mimetypes |
 
 The two generators are independent: each draws its own shapes. The theme
 names and the icon file names of both packs are an interface (the toolkit,
 the shell, the compositor, the presets and the package tests use them) and
 do not change when a design does. Everything a pack does not draw comes from
-Breeze (and Adwaita, hicolor) through `Inherits`.
+Breeze (and Adwaita, hicolor) through `Inherits`; Boswas Prism leaves every
+other application the icon it installs (see *Other applications' icons*).
 
 ## Boswas Prism
 
 | Theme | Directory | Inherits | Used with |
 |-------|-----------|----------|-----------|
-| Boswas Prism | `Boswas-Prism/` | `breeze-dark,breeze,Adwaita,hicolor` | Dark panels (the default): light symbolic icons |
-| Boswas Prism Light | `Boswas-Prism-Light/` | `breeze,Adwaita,hicolor` | Light panels: dark symbolic icons |
+| Boswas Prism | `Boswas-Prism/` | `hicolor,breeze-dark,breeze,Adwaita` | Dark panels (the default): light symbolic icons |
+| Boswas Prism Light | `Boswas-Prism-Light/` | `hicolor,breeze,Adwaita` | Light panels: dark symbolic icons |
 
 ### Files
 
@@ -45,8 +46,20 @@ drawing is Boswas's own: no Microsoft logo, icon, font or drawing is copied
 or imitated, and there is no vendor logo anywhere (the web browser is a
 generic globe, the Windows family a generic application window).
 
-* **Grid.** 256x256 viewBox, scalable SVG, checked at 256, 48, 32 and 16 px
-  on dark and on light backgrounds.
+* **Grid.** 256x256 viewBox, scalable SVG, checked at 256, 48, 32, 24 and
+  16 px on dark and on light backgrounds.
+* **Fill.** An object fills its square as the application icons of Windows
+  11 fill theirs: its bounding box (the contact shadow aside) is 92 % of the
+  canvas on its longer side, 94 % for round objects (discs, rings, gears: a
+  disc looks smaller than a square of the same width) and 88 % for objects
+  that fill a square box (the chip, the calendar, the grid of tiles, the
+  network socket). At 24 px, the size of a taskbar icon, an object is about
+  22 px on its longer side. The drawings are made on the 256 grid at
+  whatever size is easiest to draw; `fit()` in the generator then scales
+  each object uniformly (strokes and gradients with it), centres it across,
+  and centres the object and its contact shadow together in height, never
+  closer than 2 units to the edge. The Boswas OS mark alone (`boswas-logo`
+  and its aliases) is left exactly as the branding draws it.
 * **Palette.** Every colour is a token of `desktop/ui/tokens.json`: a
   palette colour (`color`), chosen through the colour roles of the pack
   (`icon`, see *Colour families*). The generator holds no colour value of
@@ -69,7 +82,8 @@ generic globe, the Windows family a generic application window).
   upper part, moved a few units, in `ink.950` at 18 % under it.
 * **Contact shadow.** Every object stands on a soft shadow: its first shape
   is an ellipse filled with a radial gradient in `ink.950`, 42 % at the
-  centre and fading out at the edge. No filters.
+  centre and fading out at the edge, at most 20 units high and inside the
+  canvas. No filters.
 * **Edges.** White and metal parts have a faint outline in their family's
   edge colour (4 units), so that they stay visible on white; dark parts
   (the `glass` material) catch a rim of light in `slate.400`, brighter at
@@ -131,11 +145,11 @@ The colour roles of the pack are the `icon` section of the tokens:
 | Azure | 300, 400, 600, 700 | System and applications: the globe, Help, Accessibility, Bluetooth, Network, Users, title bars, folder emblems, screens, Boswas Store, the launcher |
 | Sky | 300, 400, 600, 700 | The Windows compatibility family; the sky of pictures |
 | Iris | 300, 400, 600, 700 | Settings and the accent: Control Center, Display, Clock, Personalization, Software Center, Device Agent, Lock Screen |
-| Mint | 300, 400, 600, 700 | Security and updates: Security Center, Updates, Update Center, Wallet; charge levels and status lights |
+| Mint | 300, 400, 600, 700 | Security and updates: Security Center, Updates, Update Center; charge levels and status lights |
 | Sun | 300, 400, 600, 700 | Folders, padlocks, the bell, Emoji, the sun of Weather, the archive box, the badges of the Windows family |
 | Coral | 300, 400, 600, 700 | Media and alerts: Media Player, Calendar, Document Viewer, Snipping Tool, Firewall, Report a Bug |
 | Orchid | 300, 400, 600, 700 | Fonts; audio and font files |
-| Slate | 300, 400, 600, 700 | Settings, Camera, keyboards, headphones, the external drive, the partition pie |
+| Slate | 300, 400, 600, 700 | Settings, Camera, keyboards, headphones, the external drive |
 | Paper (material) | white, white, Neutral 100, Neutral 200 | Pages, sheets, window bodies, the cloud |
 | Metal (material) | white, Neutral 50, Neutral 300, Neutral 400 | Devices, stands, keys, the trash |
 | Glass (material) | Ink 500, Ink 500, Ink 900, Ink 950 | Dark bodies and bezels: Terminal, Calculator, the chip, the gauge, phones and screens |
@@ -145,7 +159,7 @@ mostly drawn in.
 
 ### Icons
 
-324 designs, written as 583 files: 375 in `Boswas-Prism/` (99 applications,
+318 designs, written as 555 files: 347 in `Boswas-Prism/` (71 applications,
 19 places, 17 devices, 32 mimetypes, 48 status, 160 actions) and the 208
 symbolic icons again in `Boswas-Prism-Light/`. Aliases are separate files
 with the same drawing and their own id prefix. This table is printed by
@@ -154,24 +168,19 @@ with the same drawing and their own id prefix. This table is printed by
 <!-- BEGIN PRISM ICON TABLE -->
 | Context | Design | Colour | Drawing | Theme icon names |
 |---|---|---|---|---|
-| apps | Settings | slate | Slate gear with a hub hole and a groove. | `preferences-system`, `systemsettings` |
-| apps | System Information | azure | Processor chip with metal pins and an azure "i" disc. | `hwinfo` |
-| apps | Terminal | glass | Dark console window with a white prompt chevron and a mint cursor. | `utilities-terminal`, `org.kde.konsole`, `boswas-terminal` |
-| apps | File Manager | sun | Folder holding a white sheet and an azure sheet that rises out of it. | `system-file-manager`, `org.kde.dolphin`, `boswas-files` |
-| apps | System Monitor | glass | Dark gauge with a mint to coral scale and a white needle. | `utilities-system-monitor`, `org.kde.plasma-systemmonitor` |
-| apps | Web Browser | azure | Azure globe with white meridians and equator (a generic browser, not a vendor logo). | `web-browser`, `firefox-esr`, `konqueror` |
-| apps | Calculator | glass | Dark calculator with an azure display, light keys and a coral equals key. | `accessories-calculator`, `org.kde.kcalc` |
-| apps | Text Editor | azure | Page with azure text lines and a pencil writing on it. | `accessories-text-editor`, `kwrite`, `org.kde.kwrite`, `kate`, `org.kde.kate`, `gvim` |
-| apps | Image Viewer | sky | Photo in a white frame (sky, hills and a sun) in front of an iris print. | `gwenview`, `org.kde.gwenview`, `preferences-desktop-wallpaper`, `boswas-photos` |
-| apps | Document Viewer | coral | Open book on a coral cover, a sun bookmark ribbon. | `okular`, `org.kde.okular`, `boswas-document-viewer` |
-| apps | Archive Manager | sun | Cardboard box with a lighter lid and a metal zip running down its front. | `utilities-file-archiver`, `ark`, `org.kde.ark` |
-| apps | Screenshot | coral | A screen region (sky, hills) inside four coral selection corners. | `spectacle`, `org.kde.spectacle`, `boswas-snipping-tool` |
-| apps | Help | azure | Azure disc with a white question mark. | `help-browser`, `org.kde.khelpcenter` |
-| apps | Find Files | azure | Magnifying glass: metal ring around azure glass, dark handle. | `kfind` |
-| apps | Wallet | mint | Mint wallet with a deeper pocket flap, a sun clasp and a card inside. | `kwalletmanager` |
-| apps | Partition Manager | slate | Slate disc as a pie, one azure partition pulled out. | `partitionmanager` |
-| apps | Menu Editor | azure | Menu card with slate rows, one highlighted in azure, and a pencil. | `kmenuedit` |
-| apps | Process Viewer | glass | Dark console window with mint, sun and coral load bars. | `htop` |
+| apps | Settings | slate | Slate gear with a hub hole and a groove. | `preferences-system` |
+| apps | Hardware | azure | Processor chip with metal pins and an azure "i" disc. | `boswas-hardware` |
+| apps | Terminal | glass | Dark console window with a white prompt chevron and a mint cursor. | `utilities-terminal`, `boswas-terminal` |
+| apps | File Manager | sun | Folder holding a white sheet and an azure sheet that rises out of it. | `system-file-manager`, `boswas-files` |
+| apps | System Monitor | glass | Dark gauge with a mint to coral scale and a white needle. | `utilities-system-monitor` |
+| apps | Web Browser | azure | Azure globe with white meridians and equator (a generic browser, not a vendor logo). | `web-browser` |
+| apps | Calculator | glass | Dark calculator with an azure display, light keys and a coral equals key. | `accessories-calculator` |
+| apps | Text Editor | azure | Page with azure text lines and a pencil writing on it. | `accessories-text-editor` |
+| apps | Image Viewer | sky | Photo in a white frame (sky, hills and a sun) in front of an iris print. | `boswas-photos`, `preferences-desktop-wallpaper` |
+| apps | Document Viewer | coral | Open book on a coral cover, a sun bookmark ribbon. | `boswas-document-viewer` |
+| apps | Archive Manager | sun | Cardboard box with a lighter lid and a metal zip running down its front. | `utilities-file-archiver` |
+| apps | Screenshot | coral | A screen region (sky, hills) inside four coral selection corners. | `boswas-snipping-tool` |
+| apps | Help | azure | Azure disc with a white question mark. | `help-browser` |
 | apps | Report a Bug | coral | Coral beetle with a dark head, legs and antennae. | `tools-report-bug` |
 | apps | Emoji | sun | Sun-yellow face with dark eyes and a smile. | `preferences-desktop-emoticons` |
 | apps | Network | azure | Azure wireless arcs above a sun dot. | `preferences-system-network` |
@@ -207,7 +216,6 @@ with the same drawing and their own id prefix. This table is printed by
 | apps | Install Boswas OS | mark | The Boswas OS mark with an azure download badge. | `boswas-install` |
 | apps | Windows Application | sky | Application window with a sky title bar, a sun sandbox shield. | `boswas-windows-application` |
 | apps | Windows Installer | sky | Application window with a sky title bar, a sun badge with a download arrow. | `boswas-windows-installer` |
-| apps | Windows Program Loader | sky | Application window with a sky title bar, a sun badge with a run (play) triangle. | `wine`, `wine-stable` |
 | apps | Compatibility Status | sky | Application window with a sky title bar, a mint badge with a check mark. | `boswas-compat-status` |
 | apps | Repair Application | sky | Application window with a sky title bar, a metal wrench. | `boswas-repair` |
 | apps | Application Sandbox | sky | Sky shield enclosing an application window. | `boswas-sandbox` |
@@ -482,9 +490,18 @@ with the same drawing and their own id prefix. This table is printed by
 
 Notes on names:
 
-* **Every legacy name is kept.** Each icon name of the legacy pack exists in
-  Prism, so a component that asks for `boswas-control-center` or
-  `org.kde.dolphin` finds it in either pack.
+* **Only Boswas and generic names.** An application icon is named
+  `boswas-*` (a Boswas program or a Boswas settings page: `boswas-hardware`
+  is the Hardware and Drivers page) or is a generic name of the icon naming
+  specification and the desktops (`utilities-terminal`, `web-browser`,
+  `accessories-calculator`, `system-file-manager`, `multimedia-player`,
+  `office-calendar`, the `preferences-*` names, ...): what a desktop entry
+  without an icon of its own falls back to. The distributor logo slots
+  (`start-here`, `start-here-kde`, `start-here-kde-plasma`,
+  `distributor-logo`) show the Boswas OS mark. No icon is named after
+  another program (`firefox-esr`, `org.kde.dolphin`, `okular`, `wine`,
+  `hwinfo`, ...): those programs show their own icons. Every other name of
+  the legacy pack exists in Prism.
 * **Native desktop.** `boswas-launcher` (`boswas-shell`), `boswas-lock`,
   `boswas-files` and `boswas-terminal` are the names of the native shell;
   `boswas-photos`, `boswas-document-viewer`, `boswas-snipping-tool` and
@@ -497,6 +514,25 @@ Notes on names:
 * **Windows programs.** As in the legacy pack, the program page is installed
   under all four names that shared-mime-info and KDE use for `.exe` files.
 
+### Other applications' icons
+
+An application that is not a Boswas program keeps the icon it installs into
+`hicolor`, even where Breeze draws its own version of it (Breeze draws VLC,
+GIMP, LibreOffice, Kate, Okular, Wine and many more). That is why `hicolor`
+comes first in `Inherits`: the icon theme specification looks a name up in
+the theme, then in each theme it inherits in the order listed (depth first),
+then in `hicolor`, and takes it from the first theme that has it. So a name
+resolves to the Boswas Prism drawing, else the application's own icon, else
+Breeze Dark (Breeze on light panels), else Adwaita. The generic action and
+status icons that Prism does not draw still come from Breeze, because
+applications do not install those into `hicolor`. GTK follows this order.
+Qt's own icon loader (`QIconLoader`, checked with Qt 6.12) and KDE's
+`KIconLoader` always search `hicolor` last, whatever its place in
+`Inherits`: in Qt programs Breeze's drawing still wins for the names Breeze
+draws. `tests/test_prism.py` resolves names through the installed
+`index.theme` files the way the specification does, next to stand-ins for
+`hicolor`, Breeze, Breeze Dark and Adwaita.
+
 ### Regenerating
 
 The generator needs Python 3 (standard library only) and reads
@@ -504,6 +540,7 @@ The generator needs Python 3 (standard library only) and reads
 
 ```sh
 python3 desktop/icons/tools/build_prism.py          # rewrite both Prism themes
+python3 desktop/icons/tools/build_prism.py --check  # exit 1 if the committed icons are stale
 python3 desktop/icons/tools/build_prism.py --table  # print the table above
 ```
 
@@ -515,7 +552,10 @@ the tests fail when they are stale.
 
 1. Write a drawing function in `tools/build_prism.py` with a one-line
    docstring describing the drawing. Return a list of elements. Coloured
-   icons start with `shadow(...)` and are built from lit parts:
+   icons start with `shadow(...)` (under the object's bottom edge) and are
+   built from lit parts; draw at any size on the 256 grid, `fit()` scales
+   the object to fill the square (add the function to `FIT` with `ROUND` or
+   `SQUARE` for a round object or one that fills a square box):
    `obj(d, family, tier)` (a part in a gradient of its family with the
    highlight along its top edge), `part(...)` (the gradient alone),
    `shade(d)` (the shade under an overlapping part), `edge(d)` (the outline
@@ -528,10 +568,12 @@ the tests fail when they are stale.
    `DEVICE_ICONS`, `MIME_ICONS`, `STATUS_ICONS`, `ACTION_ICONS` and the
    other symbolic lists) with its colour family.
 3. Run the generator, render a contact sheet (below) and look at the icon
-   at 256, 48, 32 and 16 px next to its neighbours, on dark and on light.
+   at 256, 48, 32, 24 and 16 px next to its neighbours, on dark and on light.
 4. Paste the new `--table` output between the markers above, add the name
    to the required list of `tests/test_prism.py` if a component depends on
-   it, and run the tests.
+   it (an application name that is not `boswas-*` also to `GENERIC_APPS`,
+   and only if it is a generic name, never another program's), and run the
+   tests.
 
 ### Previewing
 
@@ -570,14 +612,21 @@ user space; that every colour is a token (or the mark's own, in the icons
 that show the mark); that the colour families run from light to deep and
 keep a symbol readable; that no coloured icon has a tile, that every object
 stands on a contact shadow that fades out, that every part is lit from the
-top and every highlight fades out downwards; that the logo icons carry the
+top and every highlight fades out downwards; that every object fills 88 to
+94 % of its square on its longer side, centred, with a low shadow inside the
+canvas; that no icon is named after another program and every application
+icon is a Boswas or a generic name; that the logo icons carry the
 mark's paths and gradients unchanged, `boswas-logo` and its aliases nothing
 else; that symbolic icons have one colour, lines of 16 units with round
 caps and joins, and differ between the themes only in the colour; that the
 caption buttons are sharp at 16 px; that aliases match their design; that
-both `index.theme` files are valid; that `install.sh` installs real files
-with the right modes; that the table above is current; and that the
-committed SVGs match a fresh run of the generator byte for byte.
+both `index.theme` files are valid and inherit `hicolor` first; that,
+resolved the way the icon theme specification says, an application's own
+icon wins over Breeze's drawing of it, the pack's icons win over both and
+the generic action icons come from Breeze (Breeze Dark on dark panels); that
+`install.sh` installs real files with the right modes; that the table above
+is current; and that the committed SVGs match a fresh run of the generator
+byte for byte.
 
 ## Boswas (legacy pack)
 

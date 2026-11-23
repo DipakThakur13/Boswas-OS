@@ -1,7 +1,9 @@
 [Icon Theme]
 Name=Boswas Prism Light
-Comment=Boswas OS icons in the Prism palette, for light panels: coloured objects lit from the top for applications, folders, devices and file types, dark line icons for status and actions; Breeze for everything else
-Inherits=breeze,Adwaita,hicolor
+Comment=Boswas OS icons in the Prism palette, for light panels: coloured objects lit from the top for Boswas programs, folders, devices and file types, dark line icons for status and actions; other applications keep their own icons, Breeze draws everything else
+# hicolor first: an application's own icon (installed into hicolor) wins over
+# Breeze's drawing of it; Breeze still gives the generic action icons.
+Inherits=hicolor,breeze,Adwaita
 Example=boswas-logo
 
 # Default sizes, as in Breeze, so switching icon theme does not resize the desktop

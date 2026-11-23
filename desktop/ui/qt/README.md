@@ -250,7 +250,7 @@ animation.start()
 
 | Name | What it does |
 |------|--------------|
-| `fluent.icon(name, *fallbacks, color=None, symbolic=None)` | A freedesktop icon name from Boswas Prism, then from Qt's icon theme. `*-symbolic` icons are painted in the text colour of the current scheme (disabled: the disabled colour; `color="accent"`: a token colour) and follow a scheme change. `"go-next"` finds `go-next-symbolic` when there is no coloured icon of that name; `symbolic=True` prefers the symbolic one |
+| `fluent.icon(name, *fallbacks, color=None, symbolic=None)` | A freedesktop icon name from Boswas Prism, then the icon a program installed for itself in `hicolor` (so another program shows its own icon, not Breeze's drawing of it; Qt's own loader would search `hicolor` last), then Qt's icon theme. `*-symbolic` icons are painted in the text colour of the current scheme (disabled: the disabled colour; `color="accent"`: a token colour) and follow a scheme change. `"go-next"` finds `go-next-symbolic` when there is no coloured icon of that name; `symbolic=True` prefers the symbolic one |
 | `fluent.glyph_icon(glyph, color="text-secondary")` | The toolkit's own glyphs: `chevron-down/up/left/right`, `check`, `dash`, `close`, `more`, `restore`, `grip` |
 | `fluent.pixmap(icon_or_name, size, *, color=None, enabled=True, ratio=1.0)` | A rendered pixmap (does not follow a scheme change: prefer `IconWidget`) |
 | `fluent.has_icon(name)`, `fluent.icon_path(name)`, `fluent.missing_icons()` | Whether and where; the names asked for and not found |

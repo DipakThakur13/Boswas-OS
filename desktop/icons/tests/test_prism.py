@@ -7,6 +7,8 @@ Standard library only. The install tests need a POSIX sh and install(1).
 from __future__ import annotations
 
 import configparser
+import functools
+import importlib.util
 import json
 import os
 import re
@@ -34,16 +36,13 @@ CONTEXT_NAMES = {"apps": "Applications", "places": "Places", "devices": "Devices
 
 # Icon names the image, the Boswas components and the native shell rely on.
 # Kept here, not taken from the generator, so that dropping an icon there
-# fails a test. The application names include every name of the legacy pack.
+# fails a test. The application names include every name of the legacy pack
+# except those of other programs (THIRD_PARTY).
 REQUIRED = {
     "apps": """
-preferences-system systemsettings hwinfo utilities-terminal org.kde.konsole
-org.kde.dolphin system-file-manager utilities-system-monitor org.kde.plasma-systemmonitor
-firefox-esr web-browser konqueror accessories-calculator org.kde.kcalc
-kwrite org.kde.kwrite accessories-text-editor kate org.kde.kate gvim
-gwenview org.kde.gwenview okular org.kde.okular ark org.kde.ark utilities-file-archiver
-spectacle org.kde.spectacle help-browser org.kde.khelpcenter
-kfind kwalletmanager partitionmanager kmenuedit htop tools-report-bug preferences-desktop-emoticons
+preferences-system boswas-hardware utilities-terminal system-file-manager utilities-system-monitor
+web-browser accessories-calculator accessories-text-editor utilities-file-archiver help-browser
+tools-report-bug preferences-desktop-emoticons
 preferences-system-network preferences-system-bluetooth preferences-desktop-sound
 preferences-desktop-display preferences-desktop-display-randr preferences-system-power-management
 preferences-system-users system-users boswas-storage preferences-desktop-theme-global
@@ -57,7 +56,7 @@ applications-multimedia camera-photo
 boswas-logo boswas-os start-here start-here-kde start-here-kde-plasma distributor-logo
 boswas-store boswas-compat-manager boswas-device-agent boswas-security-center
 boswas-control-center boswas-update-center boswas-software-center boswas-install
-boswas-windows-application boswas-windows-installer wine wine-stable boswas-compat-status
+boswas-windows-application boswas-windows-installer boswas-compat-status
 boswas-repair boswas-sandbox boswas-app-policy
 boswas-launcher boswas-shell boswas-lock boswas-files boswas-terminal
 boswas-photos boswas-document-viewer boswas-snipping-tool boswas-weather
@@ -148,6 +147,39 @@ screenshot-symbolic draw-freehand-symbolic draw-highlight-symbolic draw-eraser-s
 transform-crop-symbolic draw-arrow-symbolic draw-rectangle-symbolic draw-text-symbolic
 """.split(),
 }
+
+# Icon names of other programs (their desktop entries ask for them). Boswas
+# Prism drew its own icons under these names until the pack left every
+# application its own icon: none of them may come back, and a Boswas program
+# must not ask for one (it asks for a Boswas or a generic name instead).
+THIRD_PARTY = set("""
+systemsettings hwinfo org.kde.konsole org.kde.dolphin org.kde.plasma-systemmonitor firefox-esr konqueror
+org.kde.kcalc kwrite org.kde.kwrite kate org.kde.kate gvim gwenview org.kde.gwenview okular org.kde.okular
+ark org.kde.ark spectacle org.kde.spectacle org.kde.khelpcenter kfind kwalletmanager partitionmanager
+kmenuedit htop wine wine-stable
+""".split())
+# The application icons the pack may draw that are not named boswas-*: the
+# generic names of the icon naming specification and of the desktops (what a
+# desktop entry without an icon of its own falls back to, and what settings
+# pages ask for), and the distributor logo slots of the launchers.
+GENERIC_APPS = set("""
+preferences-system utilities-terminal system-file-manager utilities-system-monitor web-browser
+accessories-calculator accessories-text-editor utilities-file-archiver help-browser tools-report-bug
+preferences-desktop-emoticons preferences-system-network preferences-system-bluetooth
+preferences-desktop-sound preferences-desktop-display preferences-desktop-display-randr
+preferences-system-power-management preferences-system-users system-users preferences-desktop-theme-global
+preferences-system-privacy preferences-desktop-user-password preferences-desktop-peripherals
+preferences-desktop-mouse system-software-update preferences-desktop-notification-bell
+preferences-desktop-accessibility preferences-desktop-keyboard preferences-desktop-locale
+preferences-security-firewall preferences-desktop-font preferences-system-windows
+preferences-system-windows-actions preferences-desktop-wallpaper office-calendar x-office-calendar
+preferences-system-time multimedia-player applications-multimedia camera-photo
+start-here start-here-kde start-here-kde-plasma distributor-logo
+""".split())
+# Share of the canvas the bounding box of a coloured object fills on its
+# longer side (build_prism.fit()), and the margin to the edge of the canvas.
+OBJECT_SIZE = (0.88, 0.94)
+EDGE = 2
 
 # The retired teal accent, as hex and as RGB triplets. Assembled from parts so
 # that this file does not match the repository-wide teal check itself.
@@ -241,6 +273,35 @@ def shows_mark(stem: str) -> bool:
     return stem in MARK_ICONS
 
 
+@functools.lru_cache(maxsize=1)
+def generator():
+    """The generator as a module (for its path geometry: extent())."""
+    spec = importlib.util.spec_from_file_location("build_prism", GENERATOR)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def drawn_boxes(root: ET.Element) -> tuple[tuple, list[tuple]]:
+    """The box of the contact shadow (the first path) and the boxes of every
+    other path, strokes included, placed by the transform of their group."""
+    extent = generator().extent
+    boxes = []
+
+    def walk(el, k=1.0, dx=0.0, dy=0.0):
+        for child in el:
+            if child.tag == f"{SVG_NS}g":
+                m = re.fullmatch(r"translate\(([-\d.]+) ([-\d.]+)\) scale\(([\d.]+)\)", child.get("transform"))
+                tx, ty, sk = (float(v) for v in m.groups())
+                walk(child, k * sk, dx + k * tx, dy + k * ty)
+            elif child.tag == f"{SVG_NS}path":
+                x0, y0, x1, y1 = extent(child.get("d"))
+                half = float(child.get("stroke-width", "0")) / 2 if child.get("stroke") else 0
+                boxes.append((dx + k * (x0 - half), dy + k * (y0 - half), dx + k * (x1 + half), dy + k * (y1 + half)))
+    walk(root)
+    return boxes[0], boxes[1:]
+
+
 class SourceTree(unittest.TestCase):
     def test_required_icons_exist(self):
         for context, names in REQUIRED.items():
@@ -250,7 +311,7 @@ class SourceTree(unittest.TestCase):
                     self.assertTrue((LIGHT / "scalable" / context / f"{name}.svg").is_file(), (context, name))
 
     def test_required_names_cover_the_legacy_pack(self):
-        legacy = {p.stem for p in (ICONS / "Boswas/scalable/apps").glob("*.svg")}
+        legacy = {p.stem for p in (ICONS / "Boswas/scalable/apps").glob("*.svg")} - THIRD_PARTY
         self.assertLessEqual(legacy, {p.stem for p in (DARK / "scalable/apps").glob("*.svg")})
         legacy_mime = {p.stem for p in (ICONS / "Boswas/scalable/mimetypes").glob("*.svg")}
         self.assertLessEqual(legacy_mime, {p.stem for p in (DARK / "scalable/mimetypes").glob("*.svg")})
@@ -278,6 +339,27 @@ class SourceTree(unittest.TestCase):
                                capture_output=True, text=True).stdout
         self.assertIn(f"<!-- BEGIN PRISM ICON TABLE -->\n{table}<!-- END PRISM ICON TABLE -->", readme,
                       "README table is stale: paste the output of build_prism.py --table")
+
+
+class Names(unittest.TestCase):
+    """The pack draws Boswas programs and generic names only: every other
+    application keeps the icon it installs."""
+
+    def test_no_icon_is_named_after_another_program(self):
+        for theme in (DARK, LIGHT):
+            for path in svg_files(theme):
+                with self.subTest(icon=path.name):
+                    self.assertNotIn(path.stem, THIRD_PARTY)
+        for path in svg_files(DARK, ("apps",)):
+            with self.subTest(icon=path.name):
+                # A reverse-DNS desktop file id (org.kde.dolphin) is a program's own name.
+                self.assertNotIn(".", path.stem)
+                self.assertTrue(path.stem.startswith("boswas-") or path.stem in GENERIC_APPS,
+                                "an application icon is a Boswas program or a generic name")
+
+    def test_required_names_are_boswas_or_generic(self):
+        self.assertEqual(set(REQUIRED["apps"]) & THIRD_PARTY, set())
+        self.assertLessEqual({name for name in REQUIRED["apps"] if not name.startswith("boswas-")}, GENERIC_APPS)
 
 
 class SvgFiles(unittest.TestCase):
@@ -472,6 +554,24 @@ class Objects(unittest.TestCase):
                 if path.stem not in MARK_ALONE:
                     self.assertGreater(found, 0, "no lit part")
 
+    def test_objects_fill_their_square(self):
+        """The bounding box of every object, its contact shadow aside, is 88 to
+        94 % of the canvas on its longer side and centred across; the shadow is
+        low, and the object and its shadow stay inside the canvas."""
+        low, high = (round(v * 256, 1) for v in OBJECT_SIZE)
+        for path in svg_files(DARK, COLOURED):
+            if path.stem in MARK_ALONE:
+                continue    # the Boswas OS mark, exactly as drawn
+            with self.subTest(icon=path.name):
+                shadow, drawn = drawn_boxes(ET.fromstring(path.read_text(encoding="utf-8")))
+                x0, y0 = min(b[0] for b in drawn), min(b[1] for b in drawn)
+                x1, y1 = max(b[2] for b in drawn), max(b[3] for b in drawn)
+                self.assertTrue(low - 0.5 <= max(x1 - x0, y1 - y0) <= high + 0.5, (x0, y0, x1, y1))
+                self.assertAlmostEqual((x0 + x1) / 2, 128, delta=1)
+                self.assertLessEqual(shadow[3] - shadow[1], 20.5, "the contact shadow is low")
+                self.assertGreaterEqual(min(x0, y0, shadow[0], shadow[1]), EDGE - 0.5)
+                self.assertLessEqual(max(x1, y1, shadow[2], shadow[3]), 256 - EDGE + 0.5)
+
 
 class Symbolic(unittest.TestCase):
     def test_one_flat_colour_per_theme(self):
@@ -576,10 +676,169 @@ class ThemeIndex(unittest.TestCase):
                 self.assertEqual(head[key], value, key)
 
     def test_dark_theme(self):
-        self.check_index(DARK / "index.theme", "Boswas Prism", "breeze-dark,breeze,Adwaita,hicolor")
+        # hicolor first: an application's own icon before Breeze's drawing of it.
+        self.check_index(DARK / "index.theme", "Boswas Prism", "hicolor,breeze-dark,breeze,Adwaita")
 
     def test_light_theme(self):
-        self.check_index(LIGHT / "index.theme", "Boswas Prism Light", "breeze,Adwaita,hicolor")
+        self.check_index(LIGHT / "index.theme", "Boswas Prism Light", "hicolor,breeze,Adwaita")
+
+
+def fake_theme(base: Path, name: str, inherits: str, sections: dict, icons: dict) -> None:
+    """A theme under base: its index (sections: directory -> keys) and empty
+    stand-in icon files (icons: directory -> file names)."""
+    lines = ["[Icon Theme]", f"Name={name}", f"Comment=Test stand-in for {name}"]
+    lines += [f"Inherits={inherits}"] if inherits else []
+    lines.append("Directories=" + ",".join(sections))
+    for directory, keys in sections.items():
+        lines += ["", f"[{directory}]"] + [f"{k}={v}" for k, v in keys.items()]
+    (base / name).mkdir(parents=True, exist_ok=True)
+    (base / name / "index.theme").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    for directory in sections:
+        (base / name / directory).mkdir(parents=True, exist_ok=True)
+    for directory, files in icons.items():
+        for file_name in files:
+            (base / name / directory / file_name).write_bytes(b"stand-in")
+
+
+class SpecLookup:
+    """FindIcon of the freedesktop icon theme specification (scale 1): the
+    theme, then the themes it inherits in the order it lists them (depth
+    first), then hicolor; within a theme an exactly matching directory, else
+    the one nearest in size."""
+
+    def __init__(self, bases: list[Path]):
+        self.bases = bases
+
+    def index(self, theme: str):
+        for base in self.bases:
+            if (base / theme / "index.theme").is_file():
+                return read_theme(base / theme / "index.theme")
+        return None
+
+    @staticmethod
+    def matches(section, size: int) -> bool:
+        nominal, kind = int(section["Size"]), section.get("Type", "Threshold")
+        if kind == "Fixed":
+            return size == nominal
+        if kind == "Scalable":
+            return int(section.get("MinSize", nominal)) <= size <= int(section.get("MaxSize", nominal))
+        threshold = int(section.get("Threshold", "2"))
+        return nominal - threshold <= size <= nominal + threshold
+
+    @staticmethod
+    def distance(section, size: int) -> int:
+        nominal, kind = int(section["Size"]), section.get("Type", "Threshold")
+        if kind == "Fixed":
+            return abs(nominal - size)
+        if kind == "Scalable":
+            low, high = int(section.get("MinSize", nominal)), int(section.get("MaxSize", nominal))
+        else:
+            threshold = int(section.get("Threshold", "2"))
+            low, high = nominal - threshold, nominal + threshold
+        return low - size if size < low else size - high if size > high else 0
+
+    def lookup(self, name: str, size: int, theme: str, index) -> Path | None:
+        nearest = []
+        for directory in index["Icon Theme"]["Directories"].split(","):
+            section = index[directory]
+            for base in self.bases:
+                for extension in ("png", "svg", "xpm"):
+                    candidate = base / theme / directory / f"{name}.{extension}"
+                    if candidate.is_file():
+                        if self.matches(section, size):
+                            return candidate
+                        nearest.append((self.distance(section, size), candidate))
+        return min(nearest, key=lambda item: item[0])[1] if nearest else None
+
+    def helper(self, name: str, size: int, theme: str, visited: set) -> Path | None:
+        index = None if theme in visited else self.index(theme)
+        visited.add(theme)
+        if index is None:
+            return None
+        found = self.lookup(name, size, theme, index)
+        for parent in index["Icon Theme"].get("Inherits", "").split(","):
+            if found is None and parent.strip():
+                found = self.helper(name, size, parent.strip(), visited)
+        return found
+
+    def find(self, name: str, size: int, theme: str) -> Path | None:
+        return self.helper(name, size, theme, set()) or self.helper(name, size, "hicolor", set())
+
+
+@unittest.skipUnless(shutil.which("sh") and shutil.which("install"), "needs sh and install(1)")
+class Lookup(unittest.TestCase):
+    """The installed themes resolved as the icon theme specification says, next
+    to stand-ins for hicolor (where applications install their own icons),
+    Breeze, Breeze Dark and Adwaita laid out as Debian ships them: an
+    application's own icon wins over Breeze's drawing of it, the pack's own
+    icons win over both, and the generic action icons still come from
+    Breeze."""
+
+    APPS = ("vlc", "gimp", "utilities-terminal") + tuple(sorted(THIRD_PARTY))
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        root = Path(cls.tmp.name)
+        subprocess.run(["sh", str(ICONS / "install.sh"), str(root), "prism"], check=True)
+        cls.icons = root / "usr/share/icons"
+        hicolor = {"48x48/apps": {"Size": 48, "Context": "Applications", "Type": "Threshold"},
+                   "scalable/apps": {"Size": 128, "MinSize": 8, "MaxSize": 512, "Context": "Applications",
+                                     "Type": "Scalable"}}
+        # The applications' own icons: PNGs (as most programs install them), one SVG.
+        own = [f"{name}.png" for name in cls.APPS if name != "gimp"]
+        fake_theme(cls.icons, "hicolor", "", hicolor, {"48x48/apps": own, "scalable/apps": ["gimp.svg"]})
+        breeze = {"apps/48": {"Size": 48, "MinSize": 48, "MaxSize": 256, "Context": "Applications",
+                              "Type": "Scalable"},
+                  "actions/22": {"Size": 22, "Context": "Actions", "Type": "Fixed"}}
+        drawn = {"apps/48": [f"{name}.svg" for name in cls.APPS], "actions/22": ["document-save.svg"]}
+        fake_theme(cls.icons, "breeze", "hicolor", breeze, drawn)
+        fake_theme(cls.icons, "breeze-dark", "breeze,hicolor", breeze, drawn)
+        fake_theme(cls.icons, "Adwaita", "hicolor",
+                   {"scalable/apps": {"Size": 128, "MinSize": 8, "MaxSize": 512, "Type": "Scalable"}},
+                   {"scalable/apps": ["vlc.svg"]})
+        cls.spec = SpecLookup([cls.icons])
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def find(self, name: str, size: int, theme: str) -> str:
+        found = self.spec.find(name, size, theme)
+        return str(found.relative_to(self.icons)) if found else None
+
+    def test_an_application_keeps_its_own_icon(self):
+        for theme in ("Boswas-Prism", "Boswas-Prism-Light"):
+            for size in (16, 24, 32, 48, 256):
+                with self.subTest(theme=theme, size=size):
+                    self.assertEqual(self.find("vlc", size, theme), "hicolor/48x48/apps/vlc.png")
+                    self.assertEqual(self.find("gimp", size, theme), "hicolor/scalable/apps/gimp.svg")
+                    for name in sorted(THIRD_PARTY):
+                        self.assertEqual(self.find(name, size, theme), f"hicolor/48x48/apps/{name}.png")
+
+    def test_the_pack_draws_boswas_and_generic_names(self):
+        for theme in ("Boswas-Prism", "Boswas-Prism-Light"):
+            with self.subTest(theme=theme):
+                self.assertEqual(self.find("utilities-terminal", 24, theme),
+                                 f"{theme}/scalable/apps/utilities-terminal.svg")
+                self.assertEqual(self.find("boswas-files", 32, theme), f"{theme}/scalable/apps/boswas-files.svg")
+                self.assertEqual(self.find("network-wired-symbolic", 16, theme),
+                                 f"{theme}/scalable/status/network-wired-symbolic.svg")
+                self.assertIsNone(self.find("no-such-icon", 24, theme))
+
+    def test_generic_actions_still_come_from_breeze(self):
+        self.assertEqual(self.find("document-save", 22, "Boswas-Prism"), "breeze-dark/actions/22/document-save.svg")
+        self.assertEqual(self.find("document-save", 22, "Boswas-Prism-Light"), "breeze/actions/22/document-save.svg")
+
+    def test_breeze_before_hicolor_would_hide_the_applications_own_icon(self):
+        # Why hicolor comes first: with the order the pack had before, Breeze
+        # Dark's drawing of an application hid the icon it installs.
+        index = (self.icons / "Boswas-Prism/index.theme").read_text(encoding="utf-8")
+        old = index.replace("Inherits=hicolor,breeze-dark,breeze,Adwaita", "Inherits=breeze-dark,breeze,Adwaita,hicolor")
+        self.assertNotEqual(old, index)
+        (self.icons / "Old-Prism").mkdir()
+        (self.icons / "Old-Prism/index.theme").write_text(old, encoding="utf-8")
+        self.assertEqual(self.find("vlc", 24, "Old-Prism"), "breeze-dark/apps/48/vlc.svg")
 
 
 class Generator(unittest.TestCase):

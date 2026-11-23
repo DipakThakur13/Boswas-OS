@@ -3,8 +3,12 @@
 ``icon("go-next")`` looks the name up in the Boswas Prism icon themes
 (``desktop/icons`` of the source tree when the toolkit runs from it, then
 ``$XDG_DATA_HOME/icons``, the ``icons`` directories of ``$XDG_DATA_DIRS``),
-then asks Qt's icon theme (Boswas Prism inherits Breeze), and returns an
-empty QIcon when nobody has it.
+then among the icons programs install for themselves in ``hicolor``, then
+asks Qt's icon theme (Breeze), and returns an empty QIcon when nobody has
+it. That is the order Boswas Prism's ``Inherits=hicolor,breeze...`` asks
+for: another program shows its own icon, not Breeze's drawing of it. Qt's
+own loader searches ``hicolor`` last whatever ``Inherits`` says, so the
+toolkit looks there itself.
 
 Symbolic icons (``*-symbolic``: the one-colour line icons of the
 ``actions`` and ``status`` directories) are recoloured: whatever colour the
@@ -35,12 +39,17 @@ from . import theming as _theme
 from .tokens import Theme
 
 THEME_DIRS = ("Boswas-Prism", "Boswas-Prism-Light")
+#: Where programs install their own icons (the icon theme specification's fallback theme).
+HICOLOR = "hicolor"
+#: Fixed sizes looked for in hicolor, largest first.
+HICOLOR_SIZES = (512, 256, 192, 128, 96, 64, 48, 32, 24, 22, 16)
 CONTEXTS = ("actions", "status", "apps", "places", "devices", "mimetypes")
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$")
 _MAX_SVG_BYTES = 2 * 1024 * 1024
 _DISABLED_OPACITY = 0.4
 
 _paths: dict[str, Path | None] = {}
+_hicolor: dict[str, list[tuple[int, Path]]] = {}
 _icons: dict[tuple, QIcon] = {}
 _missing: set[str] = set()
 
@@ -87,9 +96,58 @@ def icon_path(name: str) -> Path | None:
     return found
 
 
+def _is_file(path: Path) -> bool:
+    try:
+        return path.is_file()
+    except OSError:
+        return False
+
+
+def hicolor_files(name: str) -> list[tuple[int, Path]]:
+    """The files a program installed for the icon ``name`` in hicolor: (size, path), size 0 for scalable.
+
+    Only the first directory of :func:`icon_roots` that has the icon counts,
+    as in an icon theme lookup; applications' icons only (``apps``).
+    """
+    if not isinstance(name, str) or not _NAME.match(name) or name.endswith("-symbolic"):
+        return []
+    if name in _hicolor:
+        return _hicolor[name]
+    found: list[tuple[int, Path]] = []
+    for root in icon_roots():
+        base = root / HICOLOR
+        scalable = base / "scalable" / "apps" / f"{name}.svg"
+        if _is_file(scalable):
+            found.append((0, scalable))
+        for size in HICOLOR_SIZES:
+            candidate = base / f"{size}x{size}" / "apps" / f"{name}.png"
+            if _is_file(candidate):
+                found.append((size, candidate))
+        if found:
+            break
+    _hicolor[name] = found
+    return found
+
+
+def _hicolor_icon(name: str) -> QIcon:
+    """The icon a program installed for itself in hicolor, or an empty icon."""
+    files = hicolor_files(name)
+    for size, path in files:
+        if size == 0:
+            data = _read(path)
+            if data is not None:
+                return QIcon(SvgIconEngine(data, None))
+    result = QIcon()
+    for size, path in files:
+        if size:
+            result.addFile(str(path), QSize(size, size))
+    return result
+
+
 def clear_cache() -> None:
     """Forget what was found (called when the theme is applied again; icons already made stay valid)."""
     _paths.clear()
+    _hicolor.clear()
     _icons.clear()
     _missing.clear()
 
@@ -217,6 +275,10 @@ def _lookup(name: str, color: str | None, symbolic: bool | None) -> QIcon:
         tint = (color or "text") if candidate.endswith("-symbolic") else None
         return QIcon(SvgIconEngine(data, tint))
     for candidate in names:
+        own = _hicolor_icon(candidate)
+        if not own.isNull():
+            return own
+    for candidate in names:
         themed = _from_theme(candidate)
         if not themed.isNull():
             return themed
@@ -224,7 +286,7 @@ def _lookup(name: str, color: str | None, symbolic: bool | None) -> QIcon:
 
 
 def _from_theme(name: str) -> QIcon:
-    """The icon ``name`` of Qt's icon theme (Boswas Prism inherits Breeze), or an empty icon."""
+    """The icon ``name`` of Qt's icon theme (Breeze, then hicolor), or an empty icon."""
     return QIcon.fromTheme(name) if QIcon.hasThemeIcon(name) else QIcon()
 
 
