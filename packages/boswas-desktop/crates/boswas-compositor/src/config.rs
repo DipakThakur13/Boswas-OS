@@ -118,12 +118,13 @@ pub struct Touchpad {
     pub gestures: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
 pub struct Output {
     /// Scale factor of outputs that have no setting of their own: 1.0,
-    /// 1.25, 1.5, 1.75 or 2.0.
-    pub scale: f64,
+    /// 1.25, 1.5, 1.75 or 2.0. Not set (the default): each output gets the
+    /// scale recommended for it (`scale::recommended`).
+    pub scale: Option<f64>,
 }
 
 /// What can be set for one output (`[outputs.NAME]`). Everything is
@@ -531,12 +532,6 @@ impl Default for Power {
     }
 }
 
-impl Default for Output {
-    fn default() -> Self {
-        Self { scale: 1.0 }
-    }
-}
-
 impl Default for Lock {
     fn default() -> Self {
         Self {
@@ -694,9 +689,9 @@ impl Config {
         } else {
             0.0
         };
-        if !SCALES.contains(&self.output.scale) {
-            warnings.push(format!("output.scale {} is not supported; using 1.0", self.output.scale));
-            self.output.scale = 1.0;
+        if let Some(scale) = self.output.scale.filter(|scale| !SCALES.contains(scale)) {
+            warnings.push(format!("output.scale {scale} is not supported; using the recommended scale of each output"));
+            self.output.scale = None;
         }
         self.outputs.retain(|name, settings| {
             let valid_name = !name.is_empty()
@@ -809,6 +804,12 @@ impl Config {
             warnings.push(format!("lock.idle_seconds limited to {max} by policy"));
             self.lock.idle_seconds = max;
         }
+    }
+
+    /// The scale of the output `name`: its own setting, else the setting of
+    /// every output, else the scale recommended for it.
+    pub fn output_scale(&self, name: &str, recommended: f64) -> f64 {
+        self.outputs.get(name).and_then(|settings| settings.scale).or(self.output.scale).unwrap_or(recommended)
     }
 
     /// Whether this compositor shows the login screen: its shell is the
@@ -991,7 +992,33 @@ mod tests {
         assert!(warnings.is_empty(), "{warnings:?}");
         assert_eq!(c.keyboard.layout, "in");
         assert_eq!(c.keyboard.repeat_rate, 20);
-        assert_eq!(c.output.scale, 1.5);
+        assert_eq!(c.output.scale, Some(1.5));
+    }
+
+    #[test]
+    fn the_scale_is_the_recommended_one_unless_someone_set_one() {
+        // The shipped defaults set no scale: every output gets its own.
+        let shipped = Config::from_toml(include_str!("../../../config/compositor.toml")).unwrap();
+        assert_eq!(shipped.output.scale, None);
+        assert_eq!(shipped.output_scale("eDP-1", 1.5), 1.5);
+        assert_eq!(Config::default().output, shipped.output);
+        // An explicit 1.0 (a file of an earlier version, or a choice) is kept.
+        let dir = tempfile::tempdir().unwrap();
+        let old = file(dir.path(), "old.toml", "[output]\nscale = 1.0\n");
+        let (c, warnings) = Config::load_from(&[Path::new("/nonexistent")], Some(&old));
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(c.output_scale("eDP-1", 1.5), 1.0);
+        // A monitor's own setting wins over both.
+        let own = file(dir.path(), "own.toml", "[output]\nscale = 1.0\n[outputs.eDP-1]\nscale = 1.25\n");
+        let (c, _) = Config::load_from(&[Path::new("/nonexistent")], Some(&own));
+        assert_eq!((c.output_scale("eDP-1", 1.5), c.output_scale("HDMI-A-1", 1.5)), (1.25, 1.0));
+        let only_one = file(dir.path(), "one.toml", "[outputs.eDP-1]\nscale = 2.0\n");
+        let (c, _) = Config::load_from(&[Path::new("/nonexistent")], Some(&only_one));
+        assert_eq!((c.output_scale("eDP-1", 1.5), c.output_scale("DP-1", 1.25)), (2.0, 1.25), "the others keep their recommendation");
+        // The administrator's choice for every output counts, and a user's file can still say otherwise.
+        let admin = file(dir.path(), "admin.toml", "[output]\nscale = 1.25\n");
+        let (c, _) = Config::load_from(&[&admin], None);
+        assert_eq!(c.output_scale("eDP-1", 1.5), 1.25);
     }
 
     #[test]
@@ -1367,7 +1394,7 @@ mod tests {
         assert_eq!(c.keyboard.repeat_rate, 100);
         assert_eq!(c.pointer.accel_speed, 1.0);
         assert_eq!(c.pointer.cursor_size, 16);
-        assert_eq!(c.output.scale, 1.0);
+        assert_eq!(c.output.scale, None, "an unsupported scale: the recommended one");
         assert_eq!(c.appearance.scheme, "dark");
     }
 }

@@ -456,7 +456,7 @@ mod tests {
     #[test]
     fn the_first_theme_that_has_an_icon_gives_it() {
         let (_dir, icons) = real_chain();
-        let loader = IconLoader::with_base_dirs("Prism", &[icons.clone()]);
+        let loader = IconLoader::with_base_dirs("Prism", std::slice::from_ref(&icons));
         if cfg!(feature = "images") {
             // The application's own icon beats Breeze's scalable one, at the
             // size nearest to the one asked for (not below it if it can).

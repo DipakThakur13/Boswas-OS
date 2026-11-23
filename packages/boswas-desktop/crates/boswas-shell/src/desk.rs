@@ -129,10 +129,12 @@ impl Shell {
     }
 
     /// One of the folders next to Start's power button: Settings and Files
-    /// start their programs, the others open the user's folder.
+    /// start their programs, the others open the user's folder in the file
+    /// manager.
     pub fn open_folder(&mut self, folder: crate::settings::Folder) {
         use crate::settings::Folder;
         self.close_transients();
+        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/"));
         match folder {
             Folder::Settings => {
                 self.spawn(&["boswas-control-center".to_owned()]);
@@ -140,12 +142,10 @@ impl Shell {
             Folder::Files => match self.st.app_index("com.boswas.Files") {
                 Some(index) => self.launch_app(index),
                 None => {
-                    let home = std::env::var("HOME").unwrap_or_else(|_| "/".into());
-                    self.spawn(&["xdg-open".to_owned(), home]);
+                    self.open_path(&home);
                 }
             },
             _ => {
-                let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
                 let user_dirs = std::env::var_os("XDG_CONFIG_HOME")
                     .map(PathBuf::from)
                     .filter(|p| p.is_absolute())
@@ -153,8 +153,26 @@ impl Shell {
                     .join("user-dirs.dirs");
                 let text = std::fs::read_to_string(user_dirs).ok();
                 if let Some(path) = capture::user_dir(&home, text.as_deref(), folder) {
-                    self.spawn(&["xdg-open".to_owned(), path.to_string_lossy().into_owned()]);
+                    let _ = std::fs::create_dir_all(&path);
+                    self.open_path(&path);
                 }
+            }
+        }
+    }
+
+    /// Opens a file or a folder with its default application (the shell
+    /// resolves it itself; `xdg-open` only when no application is known).
+    pub fn open_path(&mut self, path: &std::path::Path) -> bool {
+        match crate::open::open(path) {
+            Ok(plan) => {
+                tracing::info!("opening {} with {plan:?}", path.display());
+                true
+            }
+            Err(err) => {
+                tracing::warn!("could not open {}: {err}", path.display());
+                let name = path.file_name().map_or_else(|| path.display().to_string(), |n| n.to_string_lossy().into_owned());
+                self.notice("The file could not be opened", &format!("{name}: {err}"), None);
+                false
             }
         }
     }
@@ -173,14 +191,16 @@ impl Shell {
         self.close_transients();
     }
 
-    /// Shows a notification of the shell's own.
+    /// Shows a notification of the shell's own. With a file, a click on
+    /// it opens the file (its default action) and its button opens the
+    /// folder the file is in.
     pub fn notice(&mut self, summary: &str, body: &str, open: Option<PathBuf>) {
         let id = self.next_note_id;
         self.next_note_id = self.next_note_id.wrapping_sub(1).max(u32::MAX / 2);
         let mut actions = Vec::new();
         if let Some(path) = open {
             actions.push(("default".to_owned(), "Open".to_owned()));
-            actions.push(("open".to_owned(), "Open".to_owned()));
+            actions.push(("folder".to_owned(), "Open folder".to_owned()));
             self.shell_notes.insert(id, path);
             if self.shell_notes.len() > 32 {
                 let oldest = self.shell_notes.keys().copied().max();
@@ -483,6 +503,7 @@ impl Shell {
         self.res.transparency = new.transparency;
         crate::ui::set_text_scale(new.text_scale);
         self.res.backdrop = None;
+        self.res.backdrop_generation += 1;
         self.background.load_picture(&new.wallpaper);
         if self.st.mode == Mode::Desktop {
             // Do not disturb follows the setting when it changes (and at
@@ -1618,15 +1639,24 @@ impl Shell {
         }
     }
 
-    /// The default action of one of the shell's own notifications.
-    pub fn open_note_file(&mut self, id: u32) -> bool {
-        match self.shell_notes.get(&id).cloned() {
-            Some(path) => {
-                self.spawn(&["xdg-open".into(), path.to_string_lossy().into_owned()]);
-                true
+    /// An action of one of the shell's own notifications: `default` opens
+    /// its file, `folder` the folder the file is in. Returns whether the
+    /// notification was one of the shell's own.
+    pub fn open_note(&mut self, id: u32, action: &str) -> bool {
+        let Some(path) = self.shell_notes.get(&id).cloned() else {
+            return false;
+        };
+        match action {
+            "folder" => {
+                if let Some(folder) = path.parent().map(std::path::Path::to_path_buf) {
+                    self.open_path(&folder);
+                }
             }
-            None => false,
+            _ => {
+                self.open_path(&path);
+            }
         }
+        true
     }
 
     /// Runs a search result of Start.

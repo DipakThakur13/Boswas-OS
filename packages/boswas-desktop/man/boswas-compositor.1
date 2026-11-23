@@ -35,6 +35,10 @@ Size of the headless output (default 1920x1080).
 Refresh rate of the headless output, 1 to 1000 (default 60): frames are
 paced to it as to a monitor's.
 .TP
+.BI \-\-headless\-physical\-size " WIDTH" x HEIGHT
+The size in millimetres the headless output reports, as a monitor's EDID
+does (default: none). Its recommended scale follows from it.
+.TP
 .BI \-\-socket " NAME"
 Wayland socket name (default: the first free \fBwayland\-\fIN\fR).
 .TP
@@ -304,7 +308,14 @@ Mice and trackballs: \fBnatural_scroll\fR, \fBaccel_speed\fR (\-1.0 to 1.0),
 .TP
 .B [output]
 \fBscale\fR: 1.0, 1.25, 1.5, 1.75 or 2.0, for every output that has no
-setting of its own.
+setting of its own. Not set (the shipped default): each output gets the
+scale recommended for it, from the size its EDID reports and the
+resolution it shows, as Windows recommends one (a 14-inch 1920x1080 panel
+150 %, a 15.6-inch one 125 %, a 24-inch 1920x1080 monitor 100 %, a 27-inch
+3840x2160 one 150 %), never leaving less than 1024x720 logical pixels; 100 %
+where the size is unknown or implausible, more than 1.6 m wide, and on the
+virtual graphics devices of virtual machines (virtio_gpu, qxl, bochs,
+vmwgfx, vboxvideo, cirrus, hyperv_drm).
 .TP
 .BI [outputs. NAME ]
 One monitor, by connector name (\fBeDP\-1\fR, \fBHDMI\-A\-1\fR; see
@@ -492,7 +503,8 @@ capability.
 object per line, for example {"cmd": "outputs"}. Connections to this socket
 may ask for \fBversion\fR (with "color_filters": whether the renderer can
 draw the colour filters), \fBlock\fR, \fBreload\-config\fR, \fBoutputs\fR
-(every monitor with its modes, scale, position, rotation and
+(every monitor with its modes, scale, "recommended_scale" (the scale it
+uses when none is set), position, rotation and
 "adaptive_sync": whether it offers variable refresh rate and whether it is
 on) and
 \fBcapture\fR (opens the capture screen; "mode": "screen" or "region").

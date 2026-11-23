@@ -401,6 +401,9 @@ impl Boswas {
                     "width": geo.size.w,
                     "height": geo.size.h,
                     "scale": output.current_scale().fractional_scale(),
+                    // What the output uses when no scale is set (Settings
+                    // marks it "Recommended").
+                    "recommended_scale": crate::backend::RecommendedScale::of(output),
                     "rotation": rotation,
                     "mode": current.map(|m| json!({ "width": m.size.w, "height": m.size.h, "refresh": m.refresh })),
                     "adaptive_sync": adaptive_sync_json(crate::backend::AdaptiveSync::of(output)),

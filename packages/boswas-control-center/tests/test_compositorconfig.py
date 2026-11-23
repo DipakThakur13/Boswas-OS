@@ -38,7 +38,8 @@ HEADLESS = [{"adaptive_sync": {"enabled": False, "supported": False},
              "description": "Boswas - Headless - HEADLESS-1", "enabled": True, "height": 1080, "make": "Boswas",
              "mode": {"height": 1080, "refresh": 60000, "width": 1920}, "model": "Headless",
              "modes": [{"height": 1080, "preferred": True, "refresh": 60000, "width": 1920}], "name": "HEADLESS-1",
-             "physical_height_mm": 0, "physical_width_mm": 0, "rotation": "normal", "scale": 1.0,
+             "physical_height_mm": 0, "physical_width_mm": 0, "recommended_scale": 1.0, "rotation": "normal",
+             "scale": 1.0,
              "usable": {"height": 1080, "width": 1920, "x": 0, "y": 0}, "width": 1920, "x": 0, "y": 0}]
 PRESET_FILE = ("# Written by boswas-preset; changes made here are replaced by the next preset.\n"
                "[appearance]\nscheme = \"dark\"\n"
@@ -191,7 +192,7 @@ class SchemaTest(unittest.TestCase):
         self.assertEqual((config["power"]["screen_off_seconds"], config["lock"]["idle_seconds"],
                           config["policy"]["lock_idle_max_seconds"], config["pointer"]["cursor_size"],
                           config["output"]["scale"], config["appearance"]["scheme"]),
-                         (300, 600, 600, 24, 1.0, "dark"))
+                         (300, 600, 600, 24, None, "dark"))         # no scale: each output its recommended one
         config["apps"]["terminal"].append("x")
         self.assertEqual(cc.defaults()["apps"]["terminal"], ["boswas-terminal"])
         self.assertEqual(cc.defaults()["apps"]["files"], ["boswas-files"])
@@ -283,7 +284,7 @@ class SnapshotTest(Files):
                           get("pointer", "accel_profile"), get("touchpad", "accel_speed"),
                           get("output", "scale"), get("appearance", "scheme"), get("night_light", "temperature"),
                           get("night_light", "from"), get("night_light", "to"), get("power", "screen_off_seconds")],
-                         [100, 100, 1.0, 16, "adaptive", -1.0, 1.0, "dark", 2500, "20:00", "06:00", 30])
+                         [100, 100, 1.0, 16, "adaptive", -1.0, None, "dark", 2500, "20:00", "06:00", 30])
         self.put(self.user, "[pointer]\naccel_speed = nan\n[power]\nscreen_off_seconds = 0\n")
         get = self.settings.snapshot().get
         self.assertEqual((get("pointer", "accel_speed"), get("power", "screen_off_seconds")), (0.0, 0))
@@ -375,6 +376,7 @@ class WriterTest(unittest.TestCase):
                                        "rotation": "90", "adaptive_sync": True}, "HDMI-A-1": {"enabled": False},
                              "bad name": {"scale": 1.0}, "DP-3": {}}
         config["appearance"]["wallpaper"] = "/home/a/My \"best\" \\ picture ä世.png"
+        config["output"]["scale"] = 1.0                      # not set by default: the recommended scale
         text = cc.serialize(config)
         parsed = tomllib.loads(text)
         self.assertTrue(text.startswith(cc.HEADER))
@@ -865,6 +867,19 @@ class ControlTest(unittest.TestCase):
             self.assertEqual(cc.parse_outputs(junk), [])
         self.assertEqual(len(cc.parse_outputs([dict(HEADLESS[0], name=f"DP-{n}") for n in range(40)])), 16)
         self.assertEqual(cc.parse_outputs(HEADLESS)[0].adaptive_sync, cc.AdaptiveSync(False, False))
+
+    def test_the_recommended_scale_is_read_with_the_monitors(self):
+        def recommended(value):
+            return cc.parse_outputs([dict(HEADLESS[0], recommended_scale=value)])[0].recommended_scale
+        for scale in cc.SCALES:
+            self.assertEqual(recommended(scale), scale)
+        self.assertEqual(recommended(2), 2.0)
+        for junk in (1.1, 3.0, "1.5", True, None, float("nan"), [1.5]):
+            self.assertEqual(recommended(junk), 1.0, junk)
+        older = {key: value for key, value in HEADLESS[0].items() if key != "recommended_scale"}
+        self.assertEqual(cc.parse_outputs([older])[0].recommended_scale, 1.0, "a compositor that does not say")
+        # Settings writes no scale unless the user chooses one: the default is the recommendation.
+        self.assertIsNone(cc.defaults()["output"]["scale"])
 
     def test_variable_refresh_rate_is_read_as_the_compositor_reports_it(self):
         def sync(report):

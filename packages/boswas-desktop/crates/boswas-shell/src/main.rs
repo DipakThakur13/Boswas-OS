@@ -29,6 +29,7 @@ mod input;
 mod lock;
 mod menu;
 mod notify;
+mod open;
 mod osd;
 mod pam;
 mod quick;
@@ -813,6 +814,7 @@ impl Shell {
         }
         self.res.backdrop = self.background.reduced(self.res.theme, size.0, size.1).and_then(|reduced| Backdrop::new(&reduced, size.0, size.1));
         self.res.backdrop_key = key;
+        self.res.backdrop_generation += 1;
     }
 
     fn draw(&mut self, index: usize) {
@@ -1082,6 +1084,7 @@ impl Shell {
                 Some(entry) if entry.1 != size => {
                     entry.1 = size;
                     self.res.backdrop = None;
+                    self.res.backdrop_generation += 1;
                 }
                 Some(_) => return,
                 None => self.output_sizes.push((output.clone(), size)),

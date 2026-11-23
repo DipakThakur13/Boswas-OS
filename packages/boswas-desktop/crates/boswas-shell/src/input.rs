@@ -652,7 +652,7 @@ impl Shell {
         let reduced = self.res.reduced_motion;
         match act {
             Act::ToastBody(id) | Act::Body(id) => {
-                if !self.open_note_file(id) {
+                if !self.open_note(id, "default") {
                     self.service(Command::NotificationAction { id, action: "default".into() });
                 }
                 self.st.notes.dismiss(id, now, reduced);
@@ -661,7 +661,7 @@ impl Shell {
                 }
             }
             Act::ToastAction(id, key) | Act::Invoke(id, key) => {
-                if !self.open_note_file(id) {
+                if !self.open_note(id, &key) {
                     self.service(Command::NotificationAction { id, action: key });
                 }
                 self.st.notes.dismiss(id, now, reduced);

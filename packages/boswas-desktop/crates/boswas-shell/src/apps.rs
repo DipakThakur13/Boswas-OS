@@ -212,7 +212,7 @@ pub fn parse_entry(id: &str, text: &str, locale: &str) -> Option<App> {
 }
 
 /// Desktop entry string escapes: `\s`, `\n`, `\t`, `\r`, `\\`.
-fn unescape(value: &str) -> String {
+pub(crate) fn unescape(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     let mut chars = value.chars();
     while let Some(c) = chars.next() {
@@ -358,15 +358,21 @@ pub fn spawn(argv: &[String]) -> std::io::Result<()> {
 
 /// Starts an application, in a terminal when its entry asks for one.
 pub fn launch(app: &App) -> std::io::Result<()> {
-    if !app.terminal {
-        return spawn(&app.exec);
+    run(&app.exec, app.terminal)
+}
+
+/// Starts a command, in a terminal when `terminal` (a desktop entry's
+/// `Terminal=true`).
+pub fn run(argv: &[String], terminal: bool) -> std::io::Result<()> {
+    if !terminal {
+        return spawn(argv);
     }
-    for (terminal, flag) in [("boswas-terminal", Some("-e")), ("konsole", Some("-e")), ("foot", None), ("x-terminal-emulator", Some("-e"))] {
-        if program_exists(terminal) {
-            let mut argv = vec![terminal.to_owned()];
-            argv.extend(flag.map(str::to_owned));
-            argv.extend(app.exec.iter().cloned());
-            return spawn(&argv);
+    for (program, flag) in [("boswas-terminal", Some("-e")), ("konsole", Some("-e")), ("foot", None), ("x-terminal-emulator", Some("-e"))] {
+        if program_exists(program) {
+            let mut command = vec![program.to_owned()];
+            command.extend(flag.map(str::to_owned));
+            command.extend(argv.iter().cloned());
+            return spawn(&command);
         }
     }
     Err(std::io::Error::new(std::io::ErrorKind::NotFound, "no terminal emulator is installed"))

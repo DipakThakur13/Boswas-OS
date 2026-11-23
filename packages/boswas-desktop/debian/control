@@ -29,6 +29,7 @@ Depends: dbus-user-session,
          libpam-runtime,
          libpam-systemd,
          polkitd,
+         xdg-utils,
          xkb-data,
          ${misc:Depends},
          ${shlibs:Depends}

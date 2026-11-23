@@ -19,7 +19,7 @@ use std::{
 use boswas_ui::{
     text::TextEngine,
     tokens::{cubic_bezier, tokens},
-    Canvas, Rgba,
+    Rgba,
 };
 use smithay_client_toolkit::seat::keyboard::Keysym;
 
@@ -808,8 +808,16 @@ pub fn draw(f: &mut Frame, st: &State, panel: Rect) {
     let t = tokens();
     let radius = t.radius_control;
     let geo = geometry(panel, st.desktop.start.layout);
-    f.panel(panel, "acrylic");
+    let chrome = f.panel(panel, "acrylic");
     f.area(panel, Action::None);
+
+    if st.start.searching() {
+        draw_results(f, st, &geo);
+    } else {
+        let page = page(st, &geo, &mut f.res.text);
+        let offset = st.start.offset(Instant::now()).clamp(0.0, page.max_scroll(geo.view.h));
+        draw_page(f, st, &geo, &page, offset, chrome.as_deref());
+    }
 
     // Search box: always has the caret, whatever else is focused.
     let touch = f.area(geo.search, Action::Start(Act::SearchBox));
@@ -832,16 +840,8 @@ pub fn draw(f: &mut Frame, st: &State, panel: Rect) {
         f.text(st.start.query.text(), text_x, text_y, Some(geo.search.w - 56.0), &style);
         f.canvas.fill_rect((text_x + caret).min(geo.search.right() - 16.0), caret_y, 1.0, 18.0, theme.text);
     }
-
-    if st.start.searching() {
-        draw_results(f, st, &geo);
-    } else {
-        let page = page(st, &geo, &mut f.res.text);
-        let offset = st.start.offset(Instant::now()).clamp(0.0, page.max_scroll(geo.view.h));
-        draw_page(f, st, &geo, &page, offset);
-        if st.start.index && st.config.view == AllView::List {
-            draw_index(f, st, &geo);
-        }
+    if !st.start.searching() && st.start.index && st.config.view == AllView::List {
+        draw_index(f, st, &geo);
     }
 
     // Footer: the user at the left, power at the right.
@@ -880,52 +880,44 @@ pub fn folder_slots(folders: &[Folder], room: f32) -> Vec<Folder> {
 }
 
 /// Draws the part of the page that shows in its window, scrolled by
-/// `offset`. It is drawn on a canvas of the window's size, so that what
-/// is half scrolled out is cut at the window's edges, and its controls
-/// react only where they show.
-fn draw_page(f: &mut Frame, st: &State, geo: &Geometry, page: &Page, offset: f32) {
+/// `offset`: straight onto the panel, and then what fell above or below
+/// the window is wiped by putting those rows back as the panel (`chrome`)
+/// has them, so that a row half scrolled out is cut at the window's edge
+/// (the canvas is Start's own surface: the panel and its shadow).
+/// Its controls react only where they show. Nothing else is drawn again
+/// per frame: the panel itself is reused.
+fn draw_page(f: &mut Frame, st: &State, geo: &Geometry, page: &Page, offset: f32, chrome: Option<&tiny_skia::Pixmap>) {
     let scale = f.canvas.scale();
     // Whole device pixels: the page is drawn as sharp as when it stands.
     let offset = (offset * scale).round() / scale;
-    // The window on whole device pixels, so the page is copied 1:1.
-    let (px, py) = ((geo.view.x * scale).round(), (geo.view.y * scale).round());
-    let (pw, ph) = ((geo.view.w * scale).round().max(1.0), (geo.view.h * scale).round().max(1.0));
-    let window = Rect::new(px / scale, py / scale, pw / scale, ph / scale);
-    let Some(mut canvas) = Canvas::new(window.w, window.h, scale) else {
-        return;
-    };
+    let window = geo.view;
     let first_hit = f.hits.len();
-    {
-        let mut sub = Frame {
-            canvas: &mut canvas,
-            res: &mut *f.res,
-            pointer: f.pointer.filter(|p| window.contains(*p)).map(|p| (p.0 - window.x, p.1 - window.y)),
-            pressed: f.pressed,
-            hits: &mut *f.hits,
-            focus: f.focus,
-            origin: (f.origin.0 + window.x, f.origin.1 + window.y),
-        };
-        for element in &page.elements {
-            if element.rect.bottom() + 4.0 < offset || element.rect.y - 4.0 > offset + window.h {
-                continue;
-            }
-            let rect = Rect::new(element.rect.x - window.x, element.rect.y - offset, element.rect.w, element.rect.h);
-            draw_element(&mut sub, st, geo, element, rect);
+    let pointer = f.pointer;
+    f.pointer = pointer.filter(|p| window.contains(*p));
+    for element in &page.elements {
+        if element.rect.bottom() + 4.0 < offset || element.rect.y - 4.0 > offset + window.h {
+            continue;
         }
+        let rect = Rect::new(element.rect.x, window.y + element.rect.y - offset, element.rect.w, element.rect.h);
+        draw_element(f, st, geo, element, rect);
     }
-    // The controls in surface coordinates, cut to the window.
+    f.pointer = pointer;
+    if let Some(chrome) = chrome {
+        let height = f.canvas.height();
+        f.restore_rows(chrome, 0.0, window.y);
+        f.restore_rows(chrome, window.bottom(), height);
+    }
+    // The controls, cut to the window.
     let mut kept = Vec::new();
     for mut hit in f.hits.drain(first_hit..) {
-        let r = Rect::new(hit.rect.x + window.x, hit.rect.y + window.y, hit.rect.w, hit.rect.h);
-        let (x0, y0) = (r.x.max(window.x), r.y.max(window.y));
-        let (x1, y1) = (r.right().min(window.right()), r.bottom().min(window.bottom()));
-        if x1 - x0 >= 1.0 && y1 - y0 >= 1.0 {
-            hit.rect = Rect::new(x0, y0, x1 - x0, y1 - y0);
+        let r = hit.rect;
+        let (y0, y1) = (r.y.max(window.y), r.bottom().min(window.bottom()));
+        if y1 - y0 >= 1.0 {
+            hit.rect = Rect::new(r.x, y0, r.w, y1 - y0);
             kept.push(hit);
         }
     }
     f.hits.extend(kept);
-    f.canvas.draw_pixmap(canvas.pixmap(), window.x, window.y, window.w, window.h, 1.0);
     f.scrollbar(Rect::new(window.x, window.y, window.w - 4.0, window.h), page.height, offset);
 }
 

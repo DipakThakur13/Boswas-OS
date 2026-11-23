@@ -36,11 +36,13 @@ def app_icon(item: vm.AppItem) -> QIcon:
     result = QIcon()
     if item.icon.startswith("/"):
         result = QIcon(item.icon)
-    elif item.icon:
-        result = QIcon.fromTheme(item.icon)
     if result.isNull():
+        # The toolkit looks in Boswas Prism, then in hicolor (where a program
+        # installs its own icon), then in Qt's theme: QIcon.fromTheme would
+        # search hicolor last and show Breeze's drawing of other programs.
+        themed = (item.icon,) if item.icon and not item.icon.startswith("/") else ()
         names = ("application-x-ms-dos-executable",) if item.group == vm.WINDOWS else ()
-        result = icon(*names, "application-x-executable", fallback=SP.SP_FileIcon)
+        result = icon(*themed, *names, "application-x-executable", fallback=SP.SP_FileIcon)
     _icon_cache[item.key] = result
     return result
 

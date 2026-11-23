@@ -77,6 +77,26 @@ impl AdaptiveSync {
     }
 }
 
+/// The scale recommended for an output (`crate::scale::recommended`), as
+/// its backend worked it out from the monitor; the output uses it unless
+/// the configuration sets a scale.
+pub struct RecommendedScale(Cell<f64>);
+
+impl RecommendedScale {
+    /// What was recorded for `output` (nothing: 100 %).
+    pub fn of(output: &Output) -> f64 {
+        output.user_data().get::<RecommendedScale>().map_or(1.0, |r| r.0.get())
+    }
+
+    /// Records the recommendation for `output`.
+    pub fn record(output: &Output, scale: f64) {
+        output.user_data().insert_if_missing(|| RecommendedScale(Cell::new(1.0)));
+        if let Some(recorded) = output.user_data().get::<RecommendedScale>() {
+            recorded.0.set(scale);
+        }
+    }
+}
+
 /// The running backend. While a backend renders it is taken out of the
 /// state (leaving `None`), so rendering can borrow the rest of the state.
 #[derive(Default)]

@@ -394,7 +394,8 @@ SCHEMA: dict[str, dict[str, Key]] = {
         "disable_while_typing": _boolean(True),
         "gestures": _boolean(True),
     },
-    "output": {"scale": _scale(1.0)},
+    # Not set: each monitor gets the scale the compositor recommends for it.
+    "output": {"scale": _scale(None)},
     "night_light": {
         "enabled": _boolean(False),
         "temperature": _integer(4500, *TEMPERATURE, storage=_U32, what="colour temperature"),
@@ -917,6 +918,7 @@ class Output:
     modes: tuple[Mode, ...] = ()              # "preferred": what the compositor uses without a mode setting
     physical_mm: tuple[int, int] = (0, 0)
     adaptive_sync: AdaptiveSync = AdaptiveSync()
+    recommended_scale: float = 1.0       # what the monitor gets without a scale setting
 
     @property
     def label(self) -> str:
@@ -975,6 +977,8 @@ def parse_outputs(data: object) -> list[Output]:
             continue
         scale = entry.get("scale")
         scale = float(scale) if _is_number(scale) and math.isfinite(scale) and 0.25 <= scale <= 8 else 1.0
+        recommended = entry.get("recommended_scale")
+        recommended = float(recommended) if _is_number(recommended) and float(recommended) in SCALES else 1.0
         rotation = entry.get("rotation") if entry.get("rotation") in ROTATIONS else "normal"
         sync = entry.get("adaptive_sync") if isinstance(entry.get("adaptive_sync"), dict) else {}
         supported = sync.get("supported") is True
@@ -983,7 +987,7 @@ def parse_outputs(data: object) -> list[Output]:
             _whole(entry.get("x"), -65536, 65536), _whole(entry.get("y"), -65536, 65536), width, height, scale,
             rotation, current, tuple(modes),
             (_whole(entry.get("physical_width_mm"), 0, 100000), _whole(entry.get("physical_height_mm"), 0, 100000)),
-            AdaptiveSync(supported, supported and sync.get("enabled") is True)))
+            AdaptiveSync(supported, supported and sync.get("enabled") is True), recommended))
     return sorted(found.values(), key=lambda output: _natural(output.name))
 
 

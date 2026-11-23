@@ -66,7 +66,8 @@ pub fn init(state: &mut Boswas) -> Result<(), Box<dyn std::error::Error>> {
     output.change_current_state(
         Some(mode),
         Some(Transform::Flipped180),
-        Some(Scale::Fractional(state.config.output.scale)),
+        // A window has no physical size: 100 % unless the configuration says.
+        Some(Scale::Fractional(state.config.output.scale.unwrap_or(1.0))),
         Some((0, 0).into()),
     );
     output.set_preferred(mode);

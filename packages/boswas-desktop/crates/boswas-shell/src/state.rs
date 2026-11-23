@@ -400,7 +400,7 @@ mod tests {
                 st.apps.push(make(format!("app.{letter}{n}"), format!("{letter}app {n}"), categories));
             }
         }
-        st.apps.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        st.apps.sort_by_key(|a| a.name.to_lowercase());
         st
     }
 
@@ -767,13 +767,19 @@ mod tests {
             res.backdrop = background.reduced(theme, w, h).and_then(|reduced| boswas_ui::material::Backdrop::new(&reduced, w, h));
             let bar = boswas_ui::tokens::tokens().shell("taskbar-height");
             let (pw, ph) = start::panel_size((w, h));
-            let left = if st.desktop.taskbar.left { 0.0 } else { ((w - pw - 2.0 * PAD) / 2.0).floor() };
-            let panel = Rect::new(left + PAD, h - bar - ph - PAD, pw, ph);
+            // Start on a surface of its own, as the compositor puts it over
+            // the desktop: above the taskbar, centred or at the left.
+            let (sw, sh) = (pw + 2.0 * PAD, ph + 2.0 * PAD);
+            let origin = (if st.desktop.taskbar.left { 0.0 } else { ((w - sw) / 2.0).floor() }, h - bar - sh);
             let (taskbar, _) = testing::render_with(crate::ui::Resources::new(theme), w, bar, 1.0, None, None, |f| taskbar::draw(f, st));
-            let (canvas, _) = testing::render_with(res, w, h, 1.0, None, None, |f| {
+            let (flyout, _) = testing::render_with(res, sw, sh, 1.0, None, None, |f| {
+                f.origin = origin;
+                start::draw(f, st, Rect::new(PAD, PAD, pw, ph));
+            });
+            let (canvas, _) = testing::render(w, h, 1.0, scheme, None, None, |f| {
                 background.paint(f.canvas, theme);
                 f.canvas.draw_pixmap(taskbar.pixmap(), 0.0, h - bar, w, bar, 1.0);
-                start::draw(f, st, panel);
+                f.canvas.draw_pixmap(flyout.pixmap(), origin.0, origin.1, sw, sh, 1.0);
             });
             let file = format!("start-{name}-{w}x{h}-{}-{}.png", crate::ui::text_scale() * 100.0, if scheme == Scheme::Dark { "dark" } else { "light" });
             std::fs::write(out.join(file), boswas_ui::icons::encode_png(canvas.pixmap()).unwrap()).unwrap();

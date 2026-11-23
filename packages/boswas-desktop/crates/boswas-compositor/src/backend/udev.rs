@@ -185,6 +185,9 @@ struct Surface {
 struct Device {
     node: DrmNode,
     path: PathBuf,
+    /// The DRM driver's name (`i915`, `amdgpu`, `virtio_gpu`): a virtual
+    /// machine's display gets no recommended scale above 100 %.
+    driver: String,
     token: RegistrationToken,
     gpu: Gpu,
     surfaces: HashMap<crtc::Handle, Surface>,
@@ -793,6 +796,7 @@ impl Udev {
         path: &Path,
         fd: DrmDeviceFd,
     ) -> Result<Device, Box<dyn std::error::Error>> {
+        let driver = drm::Device::get_driver(&fd).map(|d| d.name().to_string_lossy().into_owned()).unwrap_or_default();
         let (drm, notifier) = DrmDevice::new(fd.clone(), true)?;
         let choice = RendererChoice::from_env(std::env::var("BOSWAS_RENDERER").ok().as_deref());
         let gpu = match choice {
@@ -828,9 +832,11 @@ impl Udev {
             }
             DrmEvent::Error(err) => error!("display device error: {err}"),
         })?;
+        info!("{}: driver {}", path.display(), if driver.is_empty() { "unknown" } else { driver.as_str() });
         Ok(Device {
             node,
             path: path.to_owned(),
+            driver,
             token,
             gpu,
             surfaces: HashMap::new(),
@@ -1034,8 +1040,13 @@ impl Udev {
                 // Variable refresh rate.
                 let sync = apply_adaptive_sync(&device.gpu, crtc, surface.connector, &name, settings.adaptive_sync.unwrap_or(false));
                 sync.record(&surface.output);
-                // Scale and rotation.
-                let scale = settings.scale.unwrap_or(state.config.output.scale);
+                // Scale (recommended for the mode in use, unless set) and
+                // rotation.
+                let size = surface.output.physical_properties().size;
+                let pixels = surface.output.current_mode().map_or((0, 0), |mode| (mode.size.w, mode.size.h));
+                let recommended = crate::scale::recommended(&name, (size.w, size.h), pixels, &device.driver);
+                super::RecommendedScale::record(&surface.output, recommended);
+                let scale = state.config.output_scale(&name, recommended);
                 let transform = rotation(settings.rotation.as_deref());
                 surface.output.change_current_state(None, Some(transform), Some(Scale::Fractional(scale)), None);
             }
@@ -1410,10 +1421,13 @@ fn connect(
         if let Some((previous, why)) = &refused {
             warn!("output {name}: {} could not be set ({why}); using the mode the monitor prefers", describe(previous));
         }
+        let (w, h) = candidate.size();
+        let recommended = crate::scale::recommended(&name, (width_mm as i32, height_mm as i32), (i32::from(w), i32::from(h)), &device.driver);
+        super::RecommendedScale::record(&output, recommended);
         output.change_current_state(
             Some(OutputMode::from(candidate)),
             Some(rotation(settings.rotation.as_deref())),
-            Some(Scale::Fractional(settings.scale.unwrap_or(state.config.output.scale))),
+            Some(Scale::Fractional(state.config.output_scale(&name, recommended))),
             None,
         );
         let initialized: Result<(), String> = match &mut device.gpu {

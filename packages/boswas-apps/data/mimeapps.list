@@ -1,0 +1,92 @@
+# Default applications of Boswas OS: what opens a file, a folder or a web
+# address on a new system (installed as /usr/share/applications/mimeapps.list;
+# freedesktop "MIME Applications Associations"). A choice of the user in
+# Settings > Apps > Default apps (~/.config/mimeapps.list) and a file of the
+# administrator in /etc/xdg come first. The Windows programs and installers
+# are in boswas-mimeapps.list of boswas-compat-manager, which is read before
+# this file. Every type below is one its application declares in its desktop
+# entry (Firefox ESR: Debian's firefox-esr.desktop).
+[Default Applications]
+# Pictures: Photos
+image/png=com.boswas.Photos.desktop
+image/jpeg=com.boswas.Photos.desktop
+image/gif=com.boswas.Photos.desktop
+image/bmp=com.boswas.Photos.desktop
+image/webp=com.boswas.Photos.desktop
+image/svg+xml=com.boswas.Photos.desktop
+image/svg+xml-compressed=com.boswas.Photos.desktop
+image/tiff=com.boswas.Photos.desktop
+image/x-icon=com.boswas.Photos.desktop
+image/vnd.microsoft.icon=com.boswas.Photos.desktop
+image/x-portable-bitmap=com.boswas.Photos.desktop
+image/x-portable-graymap=com.boswas.Photos.desktop
+image/x-portable-pixmap=com.boswas.Photos.desktop
+image/x-xbitmap=com.boswas.Photos.desktop
+image/x-xpixmap=com.boswas.Photos.desktop
+# Documents: Document Viewer
+application/pdf=com.boswas.DocumentViewer.desktop
+# Text: Text Editor
+text/plain=com.boswas.TextEditor.desktop
+text/x-log=com.boswas.TextEditor.desktop
+text/markdown=com.boswas.TextEditor.desktop
+application/x-shellscript=com.boswas.TextEditor.desktop
+text/x-python=com.boswas.TextEditor.desktop
+text/csv=com.boswas.TextEditor.desktop
+application/json=com.boswas.TextEditor.desktop
+application/xml=com.boswas.TextEditor.desktop
+text/x-ini=com.boswas.TextEditor.desktop
+# Music and videos: Media Player
+audio/mpeg=com.boswas.MediaPlayer.desktop
+audio/mp3=com.boswas.MediaPlayer.desktop
+audio/flac=com.boswas.MediaPlayer.desktop
+audio/x-flac=com.boswas.MediaPlayer.desktop
+audio/ogg=com.boswas.MediaPlayer.desktop
+audio/x-vorbis+ogg=com.boswas.MediaPlayer.desktop
+audio/x-opus+ogg=com.boswas.MediaPlayer.desktop
+audio/opus=com.boswas.MediaPlayer.desktop
+audio/vorbis=com.boswas.MediaPlayer.desktop
+audio/wav=com.boswas.MediaPlayer.desktop
+audio/x-wav=com.boswas.MediaPlayer.desktop
+audio/vnd.wave=com.boswas.MediaPlayer.desktop
+audio/mp4=com.boswas.MediaPlayer.desktop
+audio/x-m4a=com.boswas.MediaPlayer.desktop
+audio/aac=com.boswas.MediaPlayer.desktop
+audio/x-aac=com.boswas.MediaPlayer.desktop
+audio/x-ms-wma=com.boswas.MediaPlayer.desktop
+audio/x-matroska=com.boswas.MediaPlayer.desktop
+audio/x-mpegurl=com.boswas.MediaPlayer.desktop
+audio/mpegurl=com.boswas.MediaPlayer.desktop
+audio/x-scpls=com.boswas.MediaPlayer.desktop
+video/mp4=com.boswas.MediaPlayer.desktop
+video/x-m4v=com.boswas.MediaPlayer.desktop
+video/x-matroska=com.boswas.MediaPlayer.desktop
+video/webm=com.boswas.MediaPlayer.desktop
+video/quicktime=com.boswas.MediaPlayer.desktop
+video/x-msvideo=com.boswas.MediaPlayer.desktop
+video/avi=com.boswas.MediaPlayer.desktop
+video/mpeg=com.boswas.MediaPlayer.desktop
+video/ogg=com.boswas.MediaPlayer.desktop
+video/x-ms-wmv=com.boswas.MediaPlayer.desktop
+video/3gpp=com.boswas.MediaPlayer.desktop
+video/x-flv=com.boswas.MediaPlayer.desktop
+video/mp2t=com.boswas.MediaPlayer.desktop
+# Archives: Archive Manager (not the Android packages, books and Java archives it can also read)
+application/zip=com.boswas.ArchiveManager.desktop
+application/x-tar=com.boswas.ArchiveManager.desktop
+application/gzip=com.boswas.ArchiveManager.desktop
+application/x-compressed-tar=com.boswas.ArchiveManager.desktop
+application/x-bzip-compressed-tar=com.boswas.ArchiveManager.desktop
+application/x-xz-compressed-tar=com.boswas.ArchiveManager.desktop
+application/x-bzip2=com.boswas.ArchiveManager.desktop
+application/x-xz=com.boswas.ArchiveManager.desktop
+application/zstd=com.boswas.ArchiveManager.desktop
+application/x-zstd-compressed-tar=com.boswas.ArchiveManager.desktop
+# Folders: Files
+inode/directory=com.boswas.Files.desktop
+# Calendars: Calendar
+text/calendar=com.boswas.Calendar.desktop
+# The web: Firefox ESR
+x-scheme-handler/http=firefox-esr.desktop
+x-scheme-handler/https=firefox-esr.desktop
+text/html=firefox-esr.desktop
+application/xhtml+xml=firefox-esr.desktop
