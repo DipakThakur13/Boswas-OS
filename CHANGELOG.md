@@ -744,10 +744,11 @@ Verification status of the native desktop
 - **X11 applications** *(native desktop)* are drawn at scale 1 and look
   soft on a scaled monitor, which since the recommended scale (ADR-0055)
   is the default on many laptops.
-- **The recommended scale** (ADR-0055) and the default applications
-  (ADR-0054) have not met real hardware or a real Photos: the DRM driver's
-  name and real monitors' sizes were not read on a device, and the tests
-  open pictures in stand-ins.
+- **The recommended scale, opening files and other programs' icons**
+  (ADR-0055, ADR-0054, ADR-0052) have not been seen on a real system: the
+  DRM driver's name and real monitors' sizes were not read on a device,
+  the tests open pictures in stand-ins for Photos and Files, and Firefox
+  ESR's own icon was stood in for too.
 - **No live blur** *(native desktop)*: the taskbar and the flyouts are
   drawn on a blurred copy of the wallpaper; windows behind them do not
   show through.

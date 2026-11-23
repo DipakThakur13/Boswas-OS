@@ -548,12 +548,13 @@ freedesktop MIME Applications Associations specification:
    entry is installed; else the `[Added Associations]` of the lists in
    order, less those a more important list names under `[Removed
    Associations]`; else the installed desktop entries whose `MimeType`
-   names the type, sorted by name, less those any list removes. Desktop entries are read from the
-   `applications` directories, the user's first; the first entry of an id
-   wins, `Hidden=true` hides the id further down, an entry in a
-   sub-directory has the directory in its id (`kde/okular.desktop` is
-   `kde-okular.desktop`, at most three levels), an entry whose `TryExec`
-   is missing does not count, and at most 8,000 files are looked at.
+   names the type, sorted by name, less those any list removes. Desktop
+   entries are read from the `applications` directories, the user's
+   first; the first entry of an id wins, `Hidden=true` hides the id
+   further down, an entry in a sub-directory has the directory in its id
+   (`kde/okular.desktop` is `kde-okular.desktop`, at most three levels),
+   an entry whose `TryExec` is missing does not count, and at most 8,000
+   files are looked at.
 4. **The command:** the entry's `Exec`, split by the desktop entry quoting
    rules into an argument list and started without a shell. `%f` and `%F`
    become the path, `%u` and `%U` its `file://` address (every byte but
@@ -578,12 +579,12 @@ and compressed archives in `com.boswas.ArchiveManager.desktop`,
 `com.boswas.Calendar.desktop`, and `x-scheme-handler/http`, `https`,
 `text/html` and `application/xhtml+xml` in `firefox-esr.desktop`. Every
 type is one the named entry declares (the shell's tests check that, and
-the package stage that each named entry is installed). `boswas-mimeapps.list` belongs to
-`boswas-compat-manager` (the Windows programs and installers) and names
-none of these types. A user's choice in Settings > Apps > Default apps is
-written to `~/.config/mimeapps.list` and comes first; an administrator's
-`/etc/xdg/mimeapps.list` comes before the shipped file. Settings reads the
-same files in the same order.
+the package stage that each named entry is installed).
+`boswas-mimeapps.list` belongs to `boswas-compat-manager` (the Windows
+programs and installers) and names none of these types. A user's choice
+in Settings > Apps > Default apps is written to `~/.config/mimeapps.list`
+and comes first; an administrator's `/etc/xdg/mimeapps.list` comes before
+the shipped file. Settings reads the same files in the same order.
 
 Other programs open files and addresses through the portal or with
 `xdg-open`; the toolkit (`boswas_fluent.desktop`) asks the portal and falls

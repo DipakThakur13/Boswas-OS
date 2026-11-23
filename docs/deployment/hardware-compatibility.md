@@ -89,12 +89,11 @@ Plymouth:
   more than 15 % off the picture's, more than 1.6 m wide, under 10 inches
   for an external monitor, which catches an aspect ratio stored as the
   size, or under 4 inches for a built-in panel), the display stays at
-  100 %. The compositor logs the
-  DRM driver of each graphics device. A monitor runs at the fastest
-  refresh rate it offers at its native size (120, 144, 165 Hz...) unless
-  another mode is chosen; variable refresh rate (adaptive sync) can be
-  turned on per monitor where the monitor and driver support it
-  (ADR-0048). No HDR. The proprietary NVIDIA driver is not supported.
+  100 %. The compositor logs the DRM driver of each graphics device. A
+  monitor runs at the fastest refresh rate it offers at its native size
+  (120, 144, 165 Hz...) unless another mode is chosen; variable refresh
+  rate (adaptive sync) can be turned on per monitor where the monitor and
+  driver support it (ADR-0048). No HDR. The proprietary NVIDIA driver is not supported.
   Night light needs a driver with gamma tables. X11 applications run
   through Xwayland and are drawn at scale 1, so they look soft on a
   display above 100 %, which many laptop panels now are by default.
@@ -161,10 +160,9 @@ real hardware:
    display arranged in Control Center, night light. Settings > System >
    Display recommends a scale for the built-in panel and for an external
    display that suits their size (and the compositor's log names the
-   graphics driver). The desktop renders
-   with the hardware driver, not in software (the compositor's log says
-   "drawing with OpenGL ES"), window corners are round, and the session is
-   locked when the device resumes. Moving a window and opening Start are
+   graphics driver). The desktop renders with the hardware driver, not in
+   software (the compositor's log says "drawing with OpenGL ES"), window
+   corners are round, and the session is locked when the device resumes. Moving a window and opening Start are
    smooth: with `BOSWAS_LOG=info,boswas_compositor::stats=debug` the log
    shows about one frame per refresh and a few milliseconds each.
 5. **Firmware:** `fwupdmgr get-devices` lists the system firmware where the
