@@ -93,10 +93,11 @@ Plymouth:
   monitor runs at the fastest refresh rate it offers at its native size
   (120, 144, 165 Hz...) unless another mode is chosen; variable refresh
   rate (adaptive sync) can be turned on per monitor where the monitor and
-  driver support it (ADR-0048). No HDR. The proprietary NVIDIA driver is not supported.
-  Night light needs a driver with gamma tables. X11 applications run
-  through Xwayland and are drawn at scale 1, so they look soft on a
-  display above 100 %, which many laptop panels now are by default.
+  driver support it (ADR-0048). No HDR. The proprietary NVIDIA driver is
+  not supported. Night light needs a driver with gamma tables. X11
+  applications run through Xwayland and are drawn at scale 1, so they
+  look soft on a display above 100 %, which many laptop panels now are by
+  default.
 - **Software rendering:** where Mesa has no hardware driver (virtual
   machines without 3D acceleration, the firmware frame buffer) the
   compositor draws with pixman instead of Mesa's software OpenGL
@@ -162,9 +163,10 @@ real hardware:
    display that suits their size (and the compositor's log names the
    graphics driver). The desktop renders with the hardware driver, not in
    software (the compositor's log says "drawing with OpenGL ES"), window
-   corners are round, and the session is locked when the device resumes. Moving a window and opening Start are
-   smooth: with `BOSWAS_LOG=info,boswas_compositor::stats=debug` the log
-   shows about one frame per refresh and a few milliseconds each.
+   corners are round, and the session is locked when the device resumes.
+   Moving a window and opening Start are smooth: with
+   `BOSWAS_LOG=info,boswas_compositor::stats=debug` the log shows about
+   one frame per refresh and a few milliseconds each.
 5. **Firmware:** `fwupdmgr get-devices` lists the system firmware where the
    vendor publishes to LVFS.
 6. **Battery:** life is within 20% of the vendor's Linux or Windows figure.

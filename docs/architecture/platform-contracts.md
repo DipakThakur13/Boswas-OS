@@ -596,10 +596,11 @@ The icon theme of the desktop is `Boswas-Prism` (`Boswas-Prism-Light` on
 light panels), with `Inherits=hicolor,breeze-dark,breeze,Adwaita`
 (`hicolor,breeze,Adwaita`): a name resolves to Boswas Prism's drawing,
 else the icon a program installed for itself in `hicolor`, else Breeze
-(Dark), else Adwaita (ADR-0052). Boswas Prism draws only Boswas names
-(`boswas-*`) and generic names of the icon naming specification, never a
-name of another program, so a program's own icon is what shows for it.
-`desktop/icons/README.md` lists every name.
+(Dark), else Adwaita (ADR-0052). Boswas Prism's application icons have
+Boswas names (`boswas-*`) or generic names of the icon naming
+specification and the desktops, never the name of another program, so a
+program's own icon is what shows for it. `desktop/icons/README.md` lists
+every name.
 
 - **GTK** follows `Inherits` as written.
 - **`boswas-ui`** (the shell, and the compositor's window frames, window

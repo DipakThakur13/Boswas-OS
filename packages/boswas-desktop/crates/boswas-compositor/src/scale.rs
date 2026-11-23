@@ -25,6 +25,11 @@
 
 use crate::config::SCALES;
 
+/// Aspect ratios some EDIDs store in their size fields instead of a size,
+/// read by DRM as centimetres (16 x 9 becomes 160 x 90 mm). A real panel of
+/// exactly these sizes is far less likely than a display that does this.
+const ASPECT_AS_SIZE: [(i32, i32); 8] = [(16, 9), (16, 10), (4, 3), (5, 4), (3, 2), (21, 9), (64, 27), (32, 9)];
+
 /// DRM drivers of virtual graphics devices.
 const VIRTUAL_DRIVERS: [&str; 9] = ["virtio_gpu", "virtio-gpu", "qxl", "bochs", "bochs-drm", "vmwgfx", "vboxvideo", "cirrus", "hyperv_drm"];
 
@@ -53,6 +58,10 @@ pub fn recommended(connector: &str, physical_mm: (i32, i32), mode: (i32, i32), d
     // the room), and the size must have the picture's shape: some monitors
     // store their aspect ratio (16 x 9 cm) or nonsense instead.
     if w_mm.max(h_mm) > 1600.0 {
+        return 1.0;
+    }
+    let (a, b) = (physical_mm.0.max(physical_mm.1), physical_mm.0.min(physical_mm.1));
+    if ASPECT_AS_SIZE.iter().any(|&(x, y)| (a, b) == (x * 10, y * 10)) {
         return 1.0;
     }
     let shape = |a: f64, b: f64| a.max(b) / a.min(b);
@@ -155,6 +164,11 @@ mod tests {
         // The aspect ratio stored as the size (16 x 9 cm), or a shape that
         // does not fit the picture.
         assert_eq!(recommended("HDMI-A-1", (160, 90), fhd, "amdgpu"), 1.0);
+        // Also on a built-in panel, where 16 x 9 cm would pass as a 7" screen.
+        assert_eq!(recommended("eDP-1", (160, 90), fhd, "i915"), 1.0);
+        assert_eq!(recommended("eDP-1", (160, 100), (1920, 1200), "i915"), 1.0);
+        assert_eq!(recommended("DSI-1", (90, 160), (1080, 1920), "msm"), 1.0);
+        assert_eq!(recommended("eDP-1", (40, 30), (1024, 768), "i915"), 1.0);
         assert_eq!(recommended("eDP-1", (290, 290), fhd, "i915"), 1.0);
         // A television or a projector screen more than 1.6 m wide.
         assert_eq!(recommended("HDMI-A-1", (1650, 930), (3840, 2160), "amdgpu"), 1.0);

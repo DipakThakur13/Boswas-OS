@@ -213,6 +213,22 @@ checks. The unit stage and the boot in the virtual machine were not
 repeated for this run, so the new boot screen has not yet been seen on a
 display.
 
+The run after the icons, Start, opening files and the recommended scale
+(ADR-0052 to ADR-0055) (2026-11-23, version 3.0~alpha1, the same build
+environment): the 13 device packages and the Control Plane built with all
+their test suites (458 Rust tests in `boswas-desktop` with three ignored,
+187 in `boswas-bootsplash`, 3,980 Python tests in the other device
+packages, 50 in the Control Plane; none failed); lintian reported no
+errors or warnings; the package stage passed 103 checks (the two new
+ones: boswas-desktop depends on xdg-utils, and boswas-apps installs
+`/usr/share/applications/mimeapps.list` with entries the image has),
+failed none and skipped the same three; the static stage passed 82
+checks. After the build one guard was added to the recommended scale (an
+aspect ratio stored as the size counts as unknown on built-in panels too);
+the compositor's 123 unit tests were run again with it, the package was
+not rebuilt. The unit stage and the boot in the virtual machine were not
+repeated.
+
 Qt Multimedia in this environment: the sandbox has PySide6 6.12, whose
 audio back end is PipeWire, and `libpipewire` without its configuration
 files. Creating an audio output then crashes inside Qt, which is why the

@@ -1655,9 +1655,9 @@ configuration are missing. The feature list is in
   setting. *(Changed by ADR-0055: `[output] scale` is optional and the
   shipped file sets none; a monitor without a scale of its own or for all
   gets the scale recommended for its size and resolution.)* There is no
-  output-configuration protocol; a program reads the
-  monitors and their modes with the public `outputs` command and changes
-  them by writing the user's file and asking for a reload.
+  output-configuration protocol; a program reads the monitors and their
+  modes with the public `outputs` command and changes them by writing the
+  user's file and asking for a reload.
 - **Desktops are created and closed as needed.** A session starts with
   one; Task View and Super+Ctrl+D add more.
 - **Shortcuts follow Windows,** and stay fixed: there is no shortcut
@@ -2073,9 +2073,9 @@ system applications.
   of a new user pin the Boswas applications *(changed by ADR-0053: the
   taskbar pins Files, Firefox ESR and the Software Center, as Windows
   does; Start begins with Firefox ESR, Files, the Software Center and
-  Settings)*; a desktop entry that asks
-  for a terminal runs in `boswas-terminal`, which the package also
-  registers as Debian's `x-terminal-emulator`. Files answers
+  Settings)*; a desktop entry that asks for a terminal runs in
+  `boswas-terminal`, which the package also registers as Debian's
+  `x-terminal-emulator`. Files answers
   `org.freedesktop.FileManager1`, so other programs can show a file in
   it. The reminders service starts with the Boswas session through an
   XDG autostart entry.
@@ -3568,15 +3568,16 @@ Windows icons; third-party apps should use their own icons".
   about a fifth smaller than the application icons of Windows 11.
 - Prism drew icons under other programs' names (`firefox-esr`,
   `org.kde.dolphin`, `okular`, `wine`, `hwinfo` and more), and both themes
-  inherited `breeze-dark,breeze,Adwaita,hicolor`: a program's own icon,
-  which it installs into `hicolor`, came after Breeze's drawing of it, or
-  after Boswas's.
+  listed `hicolor` last in `Inherits` (`breeze-dark,breeze,Adwaita,hicolor`
+  for dark panels): a program's own icon, which it installs into
+  `hicolor`, came after Breeze's drawing of it, or after Boswas's.
 - Qt's icon loader (`QIconLoader`, checked with Qt 6.12) and KDE's
   `KIconLoader` search `hicolor` last whatever `Inherits` says. The
   shell's loader (`boswas-ui`) took scalable artwork from any theme of
-  the chain before a fixed size of an earlier one, so a program that
-  installs only PNG files (Firefox ESR in Debian) lost to Breeze's SVG;
-  the compositor read no PNG icons at all.
+  the chain before a fixed size of an earlier one, so even with `hicolor`
+  first a program that installs only PNG files (Firefox ESR in Debian)
+  would have lost to Breeze's SVG; the compositor read no PNG icons at
+  all.
 
 **Decision.**
 
@@ -3599,12 +3600,13 @@ Windows icons; third-party apps should use their own icons".
   `okular`, `ark`, `spectacle`, `khelpcenter`, `kfind`, `kwalletmanager`,
   `partitionmanager`, `kmenuedit`, `htop`, `wine` and `wine-stable`. An
   application icon is a `boswas-*` name or a generic name of the icon
-  naming specification; the designs live on under those (`boswas-hardware`
-  replaces `hwinfo`; Photos, Document Viewer and Snipping Tool have their
-  Boswas names), and six designs that only other programs' names used are
-  dropped. 318 designs in 555 files: 347 in `Boswas-Prism` (71
-  applications, 19 places, 17 devices, 32 file types, 48 status, 160
-  actions) and the 208 symbolic icons again in `Boswas-Prism-Light`.
+  naming specification and the desktops; the designs live on under those
+  (`boswas-hardware` replaces `hwinfo`; Photos, Document Viewer and
+  Snipping Tool have their Boswas names), and six designs that only other
+  programs' names used are dropped. 318 designs in 555 files: 347 in
+  `Boswas-Prism` (71 applications, 19 places, 17 devices, 32 file types,
+  48 status, 160 actions) and the 208 symbolic icons again in
+  `Boswas-Prism-Light`.
 - **`hicolor` first.** `Inherits=hicolor,breeze-dark,breeze,Adwaita`
   (Boswas Prism Light: `hicolor,breeze,Adwaita`). A name resolves to the
   Prism drawing, else the program's own icon, else Breeze (Dark), else
@@ -3911,9 +3913,11 @@ starts at 150 %.
   A portrait panel is judged as it stands.
 - **100 % where nothing sensible is known:** no size or a zero size; no
   mode; more than 1.6 m on the longer side; a size whose shape differs
-  from the picture's by more than 15 %; under 10 inches for an external
-  monitor (some store their aspect ratio, 16 by 9 cm, as the size) or 4
-  inches for a built-in panel; and on the virtual graphics devices of
+  from the picture's by more than 15 %; a size that is a common aspect
+  ratio in centimetres (16 by 9, 16 by 10, 4 by 3, 5 by 4, 3 by 2, 21 by 9,
+  64 by 27, 32 by 9: some displays store their aspect ratio there), on any
+  output; under 10 inches for an external monitor or 4 inches for a
+  built-in panel; and on the virtual graphics devices of
   virtual machines (DRM drivers `virtio_gpu`, `qxl`, `bochs`, `vmwgfx`,
   `vboxvideo`, `cirrus`, `hyperv_drm`).
 - Examples from the tests: built-in 13.3 or 14 inches at 1920x1080 150 %,
