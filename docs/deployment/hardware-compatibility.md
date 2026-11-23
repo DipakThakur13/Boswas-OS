@@ -76,13 +76,28 @@ Plymouth:
   renders with OpenGL ES 2 through GBM and EGL (Mesa). Outputs of the
   primary GPU are used; displays connected to a second GPU are not driven
   yet. Each display has its own mode, scale, position and rotation
-  (Control Center > System > Display). A monitor runs at the fastest
+  (Control Center > System > Display). A display without a scale of its
+  own starts at the scale recommended for it (ADR-0055), worked out from
+  the size its EDID reports and the resolution it shows: built-in panels
+  (`eDP`, `LVDS`, `DSI`) against 110 pixels per inch, external monitors
+  against a density that falls with their size (about 118 pixels per inch
+  for 24 inches, 93 for 32); 13.3- and 14-inch 1920x1080 panels get 150 %,
+  15.6-inch ones 125 %, 1366x768 panels 100 %, 24-inch 1920x1080 and
+  27-inch 2560x1440 monitors 100 %, 27- and 32-inch 3840x2160 monitors
+  150 %, never so much that less than 1024x720 logical pixels remain.
+  Where the EDID gives no size or an implausible one (a zero, a shape
+  more than 15 % off the picture's, more than 1.6 m wide, under 10 inches
+  for an external monitor, which catches an aspect ratio stored as the
+  size, or under 4 inches for a built-in panel), the display stays at
+  100 %. The compositor logs the
+  DRM driver of each graphics device. A monitor runs at the fastest
   refresh rate it offers at its native size (120, 144, 165 Hz...) unless
   another mode is chosen; variable refresh rate (adaptive sync) can be
   turned on per monitor where the monitor and driver support it
   (ADR-0048). No HDR. The proprietary NVIDIA driver is not supported.
   Night light needs a driver with gamma tables. X11 applications run
-  through Xwayland and are drawn at scale 1.
+  through Xwayland and are drawn at scale 1, so they look soft on a
+  display above 100 %, which many laptop panels now are by default.
 - **Software rendering:** where Mesa has no hardware driver (virtual
   machines without 3D acceleration, the firmware frame buffer) the
   compositor draws with pixman instead of Mesa's software OpenGL
@@ -94,7 +109,10 @@ Plymouth:
   is no KMS device at all: the compositor cannot start and the text login
   is shown. In a virtual machine, give it 3D acceleration where the
   hypervisor offers it (virtio-gpu with virgl, VMware/VirtualBox 3D) and
-  the compositor uses OpenGL ES on the host's GPU.
+  the compositor uses OpenGL ES on the host's GPU. On the virtual
+  graphics devices of virtual machines (`virtio_gpu`, `qxl`, `bochs`,
+  `vmwgfx`, `vboxvideo`, `cirrus`, `hyperv_drm`) the recommended scale is
+  always 100 %, whatever size the virtual display reports.
 - **Boot screen (`boswas-bootsplash`):** needs only a KMS device with dumb
   buffers, or a frame buffer (`/dev/fb0`). It follows the switch from the
   firmware frame buffer to the real driver. Without either, boot messages
@@ -140,7 +158,10 @@ real hardware:
    audio (speakers, microphone), webcam, touchpad and suspend/resume all
    work, from the desktop: Wi-Fi and Bluetooth from quick settings, sound
    and brightness from their keys, the webcam in Camera, an external
-   display arranged in Control Center, night light. The desktop renders
+   display arranged in Control Center, night light. Settings > System >
+   Display recommends a scale for the built-in panel and for an external
+   display that suits their size (and the compositor's log names the
+   graphics driver). The desktop renders
    with the hardware driver, not in software (the compositor's log says
    "drawing with OpenGL ES"), window corners are round, and the session is
    locked when the device resumes. Moving a window and opening Start are

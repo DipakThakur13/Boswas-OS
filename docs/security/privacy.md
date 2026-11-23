@@ -53,7 +53,7 @@ messages have closed field lists (below).
 | `~/.local/state/boswas/run-history.json` | The last 50 commands typed into the Run dialog | The arrow keys recall them |
 | `~/.local/state/boswas/notification-senders.json` | The applications that sent notifications: the name each gives itself, its icon and desktop entry, and when it last sent one; at most 100, never what a notification said | Settings > System > Notifications lists them, to turn their banners off (ADR-0049) |
 | `~/.local/state/boswas/apps-seen.json` | When each installed application was first seen | Start's "Recently added" (the last two weeks) |
-| `~/.config/boswas/shell.toml` | The applications pinned to the taskbar and to Start | The user's arrangement |
+| `~/.config/boswas/shell.toml` | The applications pinned to the taskbar and to Start, and how Start lists all applications (by category, as a grid or as a list) | The user's arrangement |
 
 Each is an ordinary file of the user and can be deleted; the shell reads
 it when it starts.

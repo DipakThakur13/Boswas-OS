@@ -7,8 +7,10 @@ fakes of the others; a change here changes all three.
 Section 4 describes the interfaces of the native desktop (`boswas-desktop`,
 ADR-0026) that other Boswas components use: its configuration files, its
 control socket, the service bridge for Settings (ADR-0035), the design
-tokens, the version file, and the weather summary that Weather writes for
-the lock screen (ADR-0051).
+tokens, the version file, the weather summary that Weather writes for
+the lock screen (ADR-0051), the default applications and how the shell
+opens files (ADR-0054), and the order in which icons are looked up
+(ADR-0052).
 
 ## 1. boswas-sysops: the only privileged helper
 
@@ -229,7 +231,7 @@ layers (the login screen uses `/usr/share/boswas/compositor/greeter.toml`).
 | `[keyboard]` | `layout`, `variant`, `model`, `options` (XKB names); `repeat_delay` (ms, 100–2000); `repeat_rate` (per second, 1–100); `numlock` (on when the session starts). Accessibility: `sticky_keys` (Shift, Ctrl, Alt and AltGr pressed alone stay down for the next key; Super keeps its own behaviour), `sticky_keys_lock` (pressed twice, a modifier stays down until pressed again; default `true`), `filter_keys` (turns on the two times that follow), `slow_keys_ms` (0, the default, or 100–5000: a key counts only after it was held this long), `bounce_keys_ms` (0 or 100–5000, default 500: a key pressed again this soon after its release is ignored) |
 | `[pointer]` | mice and trackballs: `natural_scroll`, `accel_speed` (−1.0 to 1.0), `accel_profile` (`"adaptive"` or `"flat"`), `left_handed`, `cursor_theme`, `cursor_size` (16–96) |
 | `[touchpad]` | `tap_to_click`, `natural_scroll`, `accel_speed` (−1.0 to 1.0), `disable_while_typing`, `gestures` (three- and four-finger swipes) |
-| `[output]` | `scale`: 1.0, 1.25, 1.5, 1.75 or 2.0, for every output that has no setting of its own |
+| `[output]` | `scale`: 1.0, 1.25, 1.5, 1.75 or 2.0, for every output that has no setting of its own. Optional, and not set in the shipped file: without it each output gets the scale recommended for it (`recommended_scale` in the `outputs` reply; ADR-0055). An unsupported value is reported and means the same as none. A monitor's scale is its `[outputs.NAME] scale`, else this one, else its recommendation |
 | `[outputs.NAME]` | one monitor, by connector name (`eDP-1`, `HDMI-A-1`): `enabled`, `mode` (`"1920x1080"` or `"1920x1080@60"`, one of the modes the monitor offers), `scale`, `position` (`[x, y]` of its top-left corner in logical pixels), `rotation` (`"normal"`, `"90"`, `"180"`, `"270"`), `adaptive_sync` (variable refresh rate where the monitor offers it; default `false`; ADR-0048). An invalid value is ignored alone. The last enabled monitor is never turned off |
 | `[night_light]` | `enabled`; `temperature` (2500–6500 kelvin); `scheduled` with `from` and `to` (`"HH:MM"`, local time) |
 | `[power]` | `screen_off_seconds` (0: never; otherwise 30 to 21600) |
@@ -302,7 +304,7 @@ Commands of every connection (the static test stage pins this set):
 | `version` | – | `name`, `version`, `trusted`, `locked`, `color_filters` (whether the renderer can draw the colour filters: `true` with OpenGL ES, `false` with pixman and on the headless back end) |
 | `lock` | – | `null`; the session is locked when the reply arrives |
 | `reload-config` | – | `{"warnings": [...]}` |
-| `outputs` | – | every monitor: `name`, `description`, `make`, `model`, `physical_width_mm`, `physical_height_mm`, `enabled`, `x`, `y`, `width`, `height`, `scale`, `rotation`, `mode` (`width`, `height`, `refresh` in millihertz), `modes` (the same, with `preferred`), `usable`. A monitor that is connected and turned off is `{name, enabled: false}`. This is what every client already sees as `wl_output`, plus the modes |
+| `outputs` | – | every monitor: `name`, `description`, `make`, `model`, `physical_width_mm`, `physical_height_mm`, `enabled`, `x`, `y`, `width`, `height`, `scale`, `recommended_scale` (the scale the monitor uses when none is set, ADR-0055: 1.0 to 2.0 in steps of 0.25), `rotation`, `mode` (`width`, `height`, `refresh` in millihertz), `modes` (the same, with `preferred`), `adaptive_sync` (`supported`, `enabled`), `usable`. A monitor that is connected and turned off is `{name, enabled: false}`. This is what every client already sees as `wl_output`, plus the modes |
 | `capture` | `mode`: `"region"` (default) or `"screen"` | `null`. Opens the shell's capture screen, where the user chooses and confirms; nothing is captured by the command itself |
 
 Commands of a trusted connection:
@@ -359,6 +361,12 @@ There is no command that unlocks.
 The limits of a public connection, the trust of a started program, the
 lock behaviour and the capture question are pinned down by
 `packages/boswas-desktop/crates/boswas-compositor/tests/headless.rs`.
+
+For tests, the headless back end (`--backend headless`) has one output,
+`HEADLESS-1`, sized by `--headless-size WxH` (default 1920x1080), paced by
+`--headless-refresh HZ` (default 60) and reporting the physical size of
+`--headless-physical-size WxH` in millimetres, as a monitor's EDID does
+(default: none, so its `recommended_scale` is 1.0).
 
 ### Service bridge (for Settings)
 
@@ -427,10 +435,12 @@ native desktop by `Boswas` in `XDG_CURRENT_DESKTOP`.
 | `/usr/lib/boswas/python/boswas_fluent/` | boswas-branding | the Boswas Qt applications | The toolkit (ADR-0039); its interface is `desktop/ui/qt/README.md` |
 | `/usr/share/boswas/kde-settings/kdeglobals` | boswas-branding | KDE and Qt applications (through `XDG_CONFIG_DIRS`) | Prism colour scheme, `Boswas-Prism` icon theme, Breeze widget style where a user has installed it |
 | `/usr/share/icons/Boswas-Cursors/` | boswas-branding | the compositor (`[pointer] cursor_theme`), every client through `XCURSOR_THEME`, and programs that load the theme `default` through Debian's `x-cursor-theme` alternative (registered by the package, priority 150) | The pointer theme (ADR-0043): XCursor files at the nominal sizes 24, 32, 48, 64 and 96 under `cursors/`, `index.theme`, and `cursor.theme` for the alternative |
-| `$XDG_CONFIG_HOME/boswas/shell.toml` | boswas-shell (may be edited by hand) | boswas-shell | `[taskbar] pinned` and `[start] pinned`: lists of desktop file ids |
+| `$XDG_CONFIG_HOME/boswas/shell.toml` | boswas-shell (may be edited by hand) | boswas-shell | `[taskbar] pinned` and `[start] pinned`: lists of desktop file ids (at most 60 each); without a list the defaults of the installed version apply, and the shell writes `[taskbar]` only once the user has arranged the taskbar. `[start] view`: how Start's "All" lists the applications, `"category"` (the default), `"grid"` or `"list"` (ADR-0053) |
 | `$XDG_STATE_HOME/boswas/notification-senders.json` (default `~/.local/state/boswas/`) | boswas-shell, when a notification arrives (atomically) | Control Center (System > Notifications), read only | A JSON list, most recent first, at most 100: `{"name", "icon", "desktop_entry", "last"}` per application that sent notifications; `name` is the `app_name` it sends, which `[notifications] banners_off` names; `last` is seconds since the epoch. No notification content |
 | `$XDG_STATE_HOME/boswas/apps-seen.json` | boswas-shell | boswas-shell (Start's "Recently added") | A JSON object: desktop file id → when the shell first saw the application installed, in seconds since the epoch (0 for those installed when the shell first ran); at most 4000; removed applications are forgotten. Recently added means the last 14 days |
 | `$XDG_STATE_HOME/boswas/weather.json` | Weather (`boswas-apps`): its window and `boswas-weather --update-lock-screen` | `boswas-shell --lock` only | The weather summary of the lock screen, version 1; see below |
+| `/usr/share/applications/mimeapps.list` | boswas-apps | the shell's opener, `xdg-open`, the portal, Settings' Default apps page | The default applications of the system (ADR-0054); see below |
+| `/usr/share/applications/boswas-mimeapps.list` | boswas-compat-manager | the same, in the Boswas session only | Windows programs and installer packages open with "Run with Boswas" (ADR-0042) |
 | `/usr/share/xdg-desktop-portal/boswas-portals.conf` | boswas-desktop | xdg-desktop-portal (`XDG_CURRENT_DESKTOP=Boswas`) | GTK back end by default; the wlroots back end for ScreenCast and Screenshot |
 | `/etc/xdg/xdg-desktop-portal-wlr/Boswas` | boswas-desktop | xdg-desktop-portal-wlr | `chooser_type=none`: the first monitor is shared |
 | `/etc/boswas/greetd.toml` | boswas-desktop; live-config appends `[initial_session]` on the live medium only | greetd | Login configuration |
@@ -510,6 +520,99 @@ too long rejects the whole summary.
   `MemoryMax=128M`, `TasksMax=16` and the other options in the unit). A
   user turns it off with `systemctl --user mask boswas-weather-update.timer`
   or with the setting, which makes each run end at once.
+
+### Opening files: the default applications
+
+The shell opens the files and folders it shows itself (a screenshot from
+its notice, the folders next to Start's power button) with their default
+application (ADR-0054;
+`packages/boswas-desktop/crates/boswas-shell/src/open.rs`), by the
+freedesktop MIME Applications Associations specification:
+
+1. **The type** from the file name: `image/png`, `image/jpeg`,
+   `image/gif`, `image/webp`, `image/bmp`, `image/svg+xml`, `image/tiff`,
+   `image/vnd.microsoft.icon`, `application/pdf`, `text/plain` (`.txt`,
+   `.log`), `text/markdown` and `text/html` (both then `text/plain`), or
+   `inode/directory` for a folder. Any other name goes straight to
+   `xdg-open`.
+2. **The lists,** most important first: `$XDG_CONFIG_HOME` (default
+   `~/.config`), each directory of `$XDG_CONFIG_DIRS` (default `/etc/xdg`),
+   then the `applications` directory of `$XDG_DATA_HOME` and of each
+   directory of `$XDG_DATA_DIRS` (default `/usr/local/share:/usr/share`).
+   In each directory `<desktop>-mimeapps.list` for each name in
+   `XDG_CURRENT_DESKTOP`, in lower case (`boswas-mimeapps.list` in the
+   Boswas session), comes before `mimeapps.list`. Files larger than
+   256 KB are read only that far.
+3. **The default:** for the type, then for the kinds it belongs to, the
+   first entry of `[Default Applications]` in that order whose desktop
+   entry is installed; else the `[Added Associations]` of the lists in
+   order, less those a more important list names under `[Removed
+   Associations]`; else the installed desktop entries whose `MimeType`
+   names the type, sorted by name, less those any list removes. Desktop entries are read from the
+   `applications` directories, the user's first; the first entry of an id
+   wins, `Hidden=true` hides the id further down, an entry in a
+   sub-directory has the directory in its id (`kde/okular.desktop` is
+   `kde-okular.desktop`, at most three levels), an entry whose `TryExec`
+   is missing does not count, and at most 8,000 files are looked at.
+4. **The command:** the entry's `Exec`, split by the desktop entry quoting
+   rules into an argument list and started without a shell. `%f` and `%F`
+   become the path, `%u` and `%U` its `file://` address (every byte but
+   the unreserved characters and `/` percent-encoded), `%c` the entry's
+   name, `%k` the entry's file, `%i` `--icon` and the icon, `%%` a percent
+   sign; other codes are dropped, and an `Exec` without a file code gets
+   the path appended. Quoted arguments are passed as they are.
+   `Terminal=true` runs it in `boswas-terminal -e` (else `konsole -e`,
+   `foot`, `x-terminal-emulator -e`).
+5. **No application:** `xdg-open PATH` (package `xdg-utils`, a dependency
+   of `boswas-desktop`). When even that cannot start, the shell shows "The
+   file could not be opened".
+
+`boswas-apps` installs the system's defaults as
+`/usr/share/applications/mimeapps.list`: the picture types in
+`com.boswas.Photos.desktop`, `application/pdf` in
+`com.boswas.DocumentViewer.desktop`, text (plain, logs, Markdown, shell
+scripts, Python, CSV, JSON, XML, INI) in `com.boswas.TextEditor.desktop`,
+music, videos and playlists in `com.boswas.MediaPlayer.desktop`, ZIP, TAR
+and compressed archives in `com.boswas.ArchiveManager.desktop`,
+`inode/directory` in `com.boswas.Files.desktop`, `text/calendar` in
+`com.boswas.Calendar.desktop`, and `x-scheme-handler/http`, `https`,
+`text/html` and `application/xhtml+xml` in `firefox-esr.desktop`. Every
+type is one the named entry declares (the shell's tests check that, and
+the package stage that each named entry is installed). `boswas-mimeapps.list` belongs to
+`boswas-compat-manager` (the Windows programs and installers) and names
+none of these types. A user's choice in Settings > Apps > Default apps is
+written to `~/.config/mimeapps.list` and comes first; an administrator's
+`/etc/xdg/mimeapps.list` comes before the shipped file. Settings reads the
+same files in the same order.
+
+Other programs open files and addresses through the portal or with
+`xdg-open`; the toolkit (`boswas_fluent.desktop`) asks the portal and falls
+back to `xdg-open` with an argument list.
+
+### Icon lookup
+
+The icon theme of the desktop is `Boswas-Prism` (`Boswas-Prism-Light` on
+light panels), with `Inherits=hicolor,breeze-dark,breeze,Adwaita`
+(`hicolor,breeze,Adwaita`): a name resolves to Boswas Prism's drawing,
+else the icon a program installed for itself in `hicolor`, else Breeze
+(Dark), else Adwaita (ADR-0052). Boswas Prism draws only Boswas names
+(`boswas-*`) and generic names of the icon naming specification, never a
+name of another program, so a program's own icon is what shows for it.
+`desktop/icons/README.md` lists every name.
+
+- **GTK** follows `Inherits` as written.
+- **`boswas-ui`** (the shell, and the compositor's window frames, window
+  picker and Task View): theme by theme in the specification's order (the
+  theme, the themes it inherits depth first, `hicolor`); the first theme
+  that has the name at any size gives it, scalable artwork first, else the
+  fixed size nearest to the one asked for and preferably not below it;
+  then the `pixmaps` directories. SVG and PNG are read (the compositor
+  gained PNG with ADR-0052).
+- **The toolkit's `fluent.icon()`** (the Boswas applications and Control
+  Center): Boswas Prism, then the program's own icon in `hicolor` (`apps`:
+  scalable, else PNG at 512 down to 16 pixels, from the first icon
+  directory that has the name), then Qt's icon theme. Qt's own loader, and
+  KDE's, search `hicolor` last whatever `Inherits` says.
 
 The boot screen's control protocol (`/run/boswas-bootsplash/socket`, root
 only) is described in `packages/boswas-bootsplash/README.md`.
