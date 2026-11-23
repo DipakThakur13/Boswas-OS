@@ -232,7 +232,7 @@ are bounded and stay on the device. See `docs/security/privacy.md`.
 | `/etc/boswas/compositor.toml` | administrator (not shipped) | Compositor settings for this device, `[policy]` and the trusted programs (`[shell]`, `[lock]`, `[input_method]` `command`) |
 | `~/.config/boswas/compositor.toml`, `appearance.toml` | user, Control Center, `boswas-preset` | The user's compositor settings (never `[policy]` or a trusted program), written by Settings; the colour mode and wallpaper chosen with a preset or in Settings |
 | `~/.config/<application id>/`, `~/.local/state/<application id>/` | the Boswas applications | Each application's settings and state (for example `com.boswas.Terminal/settings.json`) |
-| `~/.config/boswas/shell.toml` | boswas-shell | The applications pinned to the taskbar and to Start |
+| `~/.config/boswas/shell.toml` | boswas-shell | The applications pinned to the taskbar and to Start, and how Start lists all applications (ADR-0053) |
 | `~/.local/state/boswas/weather.json` | Weather (`boswas-apps`) | The weather summary the lock screen shows (ADR-0051); the lock screen reads it and never uses the network |
 | `/usr/lib/systemd/user/boswas-weather-update.timer`, `.service` | boswas-apps | Weather's update for the lock screen, every half hour during a Boswas session |
 | `~/.local/state/boswas/launcher-usage.json`, `run-history.json`, `notification-senders.json`, `apps-seen.json` | boswas-shell | How often each application was started (ranks search); the last commands typed into Run; the applications that sent notifications (Settings reads it to turn banners off); when each application was first seen (Start's "Recently added"). Local only |

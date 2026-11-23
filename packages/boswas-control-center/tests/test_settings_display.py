@@ -4,6 +4,7 @@ FakeCompositor stands in for the control socket: asked to reload, it reads
 the user's file the way boswas-compositor does (through
 compositorconfig.Snapshot) and its ``outputs`` follow: mode, scale,
 rotation, position, variable refresh rate, monitors turned off. Without a
+scale setting a monitor gets the scale recommended for it. Without a
 mode setting a monitor runs at its native size (that of the mode it
 prefers) at the highest rate it offers there, and that mode is the one
 reported as preferred, as boswas-compositor does. Several monitors exist
@@ -42,6 +43,9 @@ BEAMER = {"name": "HDMI-A-1", "make": "EPSON", "model": "EB-U05", "mm": (0, 0),
           "modes": [(1920, 1080, 60000, True), (1280, 720, 60000, False)]}
 HEADLESS = {"name": "HEADLESS-1", "make": "Boswas", "model": "Headless", "mm": (0, 0),
             "modes": [(1920, 1080, 60000, True)]}
+# A 14-inch 1920x1080 laptop panel: the compositor recommends 150 % for it ("recommended"; 100 % for the others here).
+SLIM = {"name": "eDP-1", "make": "SHP", "model": "0x14D1", "mm": (309, 174), "recommended": 1.5,
+        "modes": [(1920, 1080, 60000, True), (1280, 720, 60000, False)]}
 # A fast monitor as it describes itself: its 60 Hz mode is the preferred one. It offers variable refresh rate.
 GAMING = {"name": "DP-2", "make": "AOC", "model": "Q27G2", "mm": (597, 336), "vrr": True,
           "modes": [(2560, 1440, 59951, True), (2560, 1440, 165000, False), (2560, 1440, 144000, False),
@@ -97,13 +101,14 @@ class FakeCompositor:
             if asked is not None and any(m.size == asked[:2] for m in modes):
                 same = [m for m in modes if m.size == asked[:2]]
                 mode = min(same, key=lambda m: abs(m.refresh - asked[2]) if asked[2] else -m.refresh)
-            scale = wanted.get("scale", snapshot.get("output", "scale"))
+            recommended = monitor.get("recommended", 1.0)
+            scale = wanted.get("scale", snapshot.get("output", "scale")) or recommended
             rotation = wanted.get("rotation", "normal")
             width, height = cc.logical_size(mode.width, mode.height, scale, rotation)
             vrr = monitor.get("vrr", False)
             sync = cc.AdaptiveSync(vrr, vrr and wanted.get("adaptive_sync") is True)
             output = cc.Output(name, True, monitor["make"], monitor["model"], 0, 0, width, height, scale, rotation,
-                               mode, modes, monitor["mm"], sync)
+                               mode, modes, monitor["mm"], sync, recommended)
             (placed if "position" in wanted else waiting).append((output, wanted.get("position")))
         result, right = [], 0
         for entry in placed:
@@ -203,11 +208,11 @@ if HAVE_QT:
             self.assertEqual([section.monitor_box.itemText(i) for i in range(2)],
                              ["1: DELL U2720Q (DP-1)", "2: Built-in display (eDP-1)"])
             self.assertEqual([section.resolution_box.itemText(i) for i in range(section.resolution_box.count())],
-                             ["3840 × 2160 (recommended)", "2560 × 1440", "1920 × 1080"])
+                             ["3840 × 2160 (Recommended)", "2560 × 1440", "1920 × 1080"])
             self.assertEqual([section.rate_box.itemText(i) for i in range(section.rate_box.count())],
                              ["60 Hz (default)", "30 Hz"])
             self.assertEqual((section.scale_box.currentText(), section.orientation_box.currentText()),
-                             ("100 %", "Landscape"))
+                             ("100 % (Recommended)", "Landscape"))
             self.assertIn("2 monitors", canvas.accessibleDescription())
             testing.grab(section, self.tmp / "monitors.png")
 
@@ -216,7 +221,7 @@ if HAVE_QT:
             testing.click(section.canvas, section.canvas.view_rect("eDP-1").center().toPoint())
             self.assertEqual(section.current, "eDP-1")
             self.assertEqual(section.monitor_box.currentData(), "eDP-1")
-            self.assertEqual(section.resolution_box.currentText(), "1920 × 1200 (recommended)")
+            self.assertEqual(section.resolution_box.currentText(), "1920 × 1200 (Recommended)")
             self.assertEqual([section.rate_box.itemText(i) for i in range(2)], ["60 Hz (default)", "48 Hz"])
             choose(section.monitor_box, "DP-1")
             self.assertEqual((section.current, section.canvas.current), ("DP-1", "DP-1"))
@@ -241,6 +246,48 @@ if HAVE_QT:
             self.assertEqual(section.rects(), {"DP-1": cc.Rect(0, 0, 2560, 1440),
                                                "eDP-1": cc.Rect(2560, 0, 1920, 1200)})
             self.assertEqual(self.compositor.reloads, 1)
+
+        def test_the_recommended_scale_is_marked_and_used_without_a_setting(self):
+            section = self.monitors(SLIM)
+            texts = [section.scale_box.itemText(i) for i in range(section.scale_box.count())]
+            self.assertEqual(texts, ["100 %", "125 %", "150 % (Recommended)", "175 %", "200 %"])
+            self.assertEqual(section.scale_box.currentText(), "150 % (Recommended)")
+            self.assertEqual(section.rects(), {"eDP-1": cc.Rect(0, 0, 1280, 720)})
+            self.assertFalse(self.user.exists())                                   # looking changes nothing
+            testing.grab(section, self.tmp / "recommended.png")
+            # A scale of one's own, kept.
+            choose(section.scale_box, 1.25)
+            settle(section)
+            self.answer(section, "keep")
+            self.assertEqual(cc.Settings(dict(os.environ)).snapshot().output("eDP-1")["scale"], 1.25)
+            self.assertEqual(section.scale_box.currentText(), "125 %")
+            self.assertEqual(section.scale_box.itemText(2), "150 % (Recommended)", "still marked")
+            # The recommended one again: left to the desktop, no setting of the monitor.
+            choose(section.scale_box, 1.5)
+            settle(section)
+            self.answer(section, "keep")
+            self.assertNotIn("scale", cc.Settings(dict(os.environ)).snapshot().output("eDP-1"))
+            self.assertEqual(self.compositor.current[0].scale, 1.5)
+            self.assertEqual(section.scale_box.currentText(), "150 % (Recommended)")
+            # Choosing what is already in use changes nothing and asks nothing.
+            reloads = self.compositor.reloads
+            choose(section.scale_box, 1.5)
+            settle(section)
+            self.assertIsNone(section.keep_dialog)
+            self.assertEqual(self.compositor.reloads, reloads)
+
+        def test_a_scale_for_every_monitor_beats_the_recommendation(self):
+            self.user.parent.mkdir(parents=True)
+            self.user.write_text("[output]\nscale = 1.0\n")
+            section = self.monitors(SLIM)
+            self.assertEqual(section.scale_box.currentText(), "100 %")
+            self.assertEqual(section.scale_box.itemText(2), "150 % (Recommended)")
+            # The recommended scale is then written for the monitor: without it 100 % would apply.
+            choose(section.scale_box, 1.5)
+            settle(section)
+            self.answer(section, "keep")
+            self.assertEqual(cc.Settings(dict(os.environ)).snapshot().output("eDP-1")["scale"], 1.5)
+            self.assertEqual(self.compositor.current[0].scale, 1.5)
 
         def test_without_an_answer_the_previous_file_comes_back_exactly(self):
             original = b"# my notes\n[outputs.DP-1]\nscale = 1.25   # as I like it\n\n[keyboard]\nlayout = \"de\"\n"
@@ -271,7 +318,7 @@ if HAVE_QT:
                 self.assertEqual(self.compositor.current[0].mode, cc.Mode(1920, 1080, 60000))
                 self.answer(section, answer)
                 self.assertFalse(self.user.exists(), answer)                         # there was no file before
-                self.assertEqual(section.resolution_box.currentText(), "3840 × 2160 (recommended)")
+                self.assertEqual(section.resolution_box.currentText(), "3840 × 2160 (Recommended)")
 
         def test_resolution_and_refresh_rate(self):
             section = self.monitors(DELL, LAPTOP)
@@ -296,7 +343,7 @@ if HAVE_QT:
             section = self.monitors(GAMING)
             rates = lambda: [section.rate_box.itemText(i) for i in range(section.rate_box.count())]  # noqa: E731
             # Without a setting the desktop runs it at 165 Hz, not at the 60 Hz of the mode it prefers.
-            self.assertEqual(section.resolution_box.currentText(), "2560 × 1440 (recommended)")
+            self.assertEqual(section.resolution_box.currentText(), "2560 × 1440 (Recommended)")
             self.assertEqual(rates(), ["165 Hz (default)", "144 Hz", "120 Hz", "59.95 Hz"])
             self.assertEqual(section.rate_box.currentText(), "165 Hz (default)")
             self.assertTrue(section.rate_box.isEnabled())
@@ -425,7 +472,7 @@ if HAVE_QT:
             self.assertTrue(section.canvas_card.isVisible())
             self.assertFalse(section.monitor_card.isVisible() or section.use_card.isVisible()
                              or section.hint.isVisible())
-            self.assertEqual(section.resolution_box.currentText(), "1920 × 1080 (recommended)")
+            self.assertEqual(section.resolution_box.currentText(), "1920 × 1080 (Recommended)")
             self.assertFalse(section.rate_box.isEnabled())
             choose(section.scale_box, 2.0)
             settle(section)
@@ -459,7 +506,7 @@ if HAVE_QT:
             self.assertIsNone(section.keep_dialog)
             self.assertEqual((section.notice.severity(), section.notice.message()),
                              ("error", "Your settings folder is read-only."))
-            self.assertEqual(section.scale_box.currentText(), "100 %")
+            self.assertEqual(section.scale_box.currentText(), "100 % (Recommended)")
 
         def test_leaving_the_page_does_not_keep_an_unconfirmed_change(self):
             section = self.monitors(DELL, LAPTOP)

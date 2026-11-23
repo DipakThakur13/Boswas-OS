@@ -41,6 +41,9 @@ override_dh_auto_install:
 		case "$$entry" in data/reminders/*) continue ;; esac; \
 		install -m 0644 "$$entry" $(APPS)/; \
 	done
+	# The default applications of Boswas OS (pictures, documents, text,
+	# music and videos, archives, folders, calendars, the web).
+	install -m 0644 data/mimeapps.list $(APPS)/mimeapps.list
 	# The reminders service starts with the session (XDG autostart; the
 	# entry is for the Boswas desktop only). It rings alarms and shows
 	# calendar reminders while Clock and Calendar are closed.

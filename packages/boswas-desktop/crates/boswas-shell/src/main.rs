@@ -29,6 +29,7 @@ mod input;
 mod lock;
 mod menu;
 mod notify;
+mod open;
 mod osd;
 mod pam;
 mod quick;
@@ -813,6 +814,7 @@ impl Shell {
         }
         self.res.backdrop = self.background.reduced(self.res.theme, size.0, size.1).and_then(|reduced| Backdrop::new(&reduced, size.0, size.1));
         self.res.backdrop_key = key;
+        self.res.backdrop_generation += 1;
     }
 
     fn draw(&mut self, index: usize) {
@@ -851,6 +853,9 @@ impl Shell {
         let transition = surface.anim.as_ref().and_then(|anim| anim.frame(now));
         let presence = transition.unwrap_or(1.0);
         let animating = transition.is_some();
+        // Start's page scrolling smoothly: drawn again at the display's pace
+        // until it stands.
+        let scrolling = role == Role::Flyout && st.flyout == Some(state::Flyout::Start) && st.start.animating(now);
         let reuse = animating && surface.snapshot.as_ref().is_some_and(|s| (s.width(), s.height()) == canvas.pixel_size());
         if !reuse {
             let mut hits = Vec::new();
@@ -959,14 +964,14 @@ impl Shell {
         };
         let wl = surface.wl_surface().clone();
         let Some((dx, dy, dw, dh)) = changed else {
-            if animating {
+            if animating || scrolling {
                 // Still asked for a frame, so the transition goes on at the
                 // display's pace.
                 wl.frame(qh, wl.clone());
                 wl.commit();
                 surface.frame_pending = true;
             }
-            surface.dirty = animating;
+            surface.dirty = animating || scrolling;
             return;
         };
         let bytes = pw as usize * ph as usize * 4;
@@ -1022,7 +1027,7 @@ impl Shell {
         }
         wl.commit();
         surface.frame_pending = true;
-        surface.dirty = animating;
+        surface.dirty = animating || scrolling;
         surface.sent.clear();
         surface.sent.extend_from_slice(canvas.data());
         surface.sent_key = key;
@@ -1079,6 +1084,7 @@ impl Shell {
                 Some(entry) if entry.1 != size => {
                     entry.1 = size;
                     self.res.backdrop = None;
+                    self.res.backdrop_generation += 1;
                 }
                 Some(_) => return,
                 None => self.output_sizes.push((output.clone(), size)),

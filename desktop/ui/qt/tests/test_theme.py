@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import unittest
 from pathlib import Path
 
@@ -10,7 +11,7 @@ import support
 
 if support.PYSIDE:
     from PySide6.QtCore import QSize, Qt
-    from PySide6.QtGui import QColor, QIcon, QPalette
+    from PySide6.QtGui import QColor, QIcon, QImage, QPalette
     from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QLabel, QLineEdit, QListWidget, QMenu,
                                    QPushButton, QSpinBox, QTableWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
                                    QWidget)
@@ -353,6 +354,45 @@ class IconTest(Base):
             self.assertIsNotNone(icons.icon_path("folder"), "the next directory still answers")
             self.assertIsNone(icons.icon_path("no-such-icon-in-any-directory"))
         icons.clear_cache()
+
+    def test_a_program_keeps_its_own_icon(self):
+        """Prism, then the icon the program installed in hicolor, and only then Qt's theme (Breeze)."""
+        import tempfile
+        from unittest import mock
+        work = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, work, True)
+        first, second = work / "a" / "icons", work / "b" / "icons"
+        for size in (48, 128):
+            directory = first / "hicolor" / f"{size}x{size}" / "apps"
+            directory.mkdir(parents=True, exist_ok=True)
+            image = QImage(size, size, QImage.Format.Format_ARGB32)
+            image.fill(QColor("#13a10e"))
+            self.assertTrue(image.save(str(directory / "some-other-program.png")))
+        scalable = second / "hicolor" / "scalable" / "apps"
+        scalable.mkdir(parents=True)
+        (scalable / "some-other-program.svg").write_text(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" fill="#c42b1c"/></svg>')
+        (scalable / "vector-program.svg").write_text(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" fill="#0078d4"/></svg>')
+        breeze = QIcon(fluent.pixmap("folder", 48))       # stands in for Breeze's drawing of the same name
+        roots = [first, second] + icons.icon_roots()
+        icons.clear_cache()
+        self.addCleanup(icons.clear_cache)
+        with mock.patch.object(icons, "icon_roots", return_value=roots), \
+                mock.patch.object(icons, "_from_theme", return_value=breeze):
+            files = icons.hicolor_files("some-other-program")
+            self.assertEqual([size for size, _path in files], [128, 48], "the first directory that has it, largest first")
+            own = fluent.icon("some-other-program")
+            self.assertIsNot(own, breeze)
+            self.assertEqual(colours_of(self.render(own, 48)), {"#13a10e"}, "the program's own PNG, not Breeze's")
+            vector = fluent.icon("vector-program")
+            self.assertEqual(colours_of(self.render(vector, 32)), {"#0078d4"}, "a scalable icon of its own")
+            self.assertEqual(icons.hicolor_files("some-other-program-symbolic"), [], "no symbolic names")
+            self.assertEqual(icons.hicolor_files("../escape"), [])
+            # Prism's own names still come from Prism, and names hicolor lacks still reach Qt's theme.
+            self.assertIsNotNone(icons.icon_path("boswas-files"))
+            self.assertGreater(len(colours_of(self.render(fluent.icon("boswas-files"), 48))), 3)
+            self.assertIs(fluent.icon("only-breeze-draws-this"), breeze)
 
     def test_symbolic_icons_take_the_text_colour(self):
         icon = fluent.icon("go-next-symbolic")

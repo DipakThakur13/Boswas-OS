@@ -815,5 +815,29 @@ class AccessibilityTest(UiTestCase):
             self.assertEqual(widget.styleSheet(), "")
 
 
+
+class AppIconTest(UiTestCase):
+    def test_a_programs_own_icon_in_hicolor_is_used(self):
+        """Software Center shows another program's own icon (hicolor), not the Qt theme's drawing of it."""
+        from PySide6.QtGui import QImage, QPixmap
+        from boswas_control_center.ui import applications
+        data = Path(self.tmp.name, "share")
+        icons = data / "icons" / "hicolor" / "48x48" / "apps"
+        icons.mkdir(parents=True)
+        image = QImage(48, 48, QImage.Format.Format_ARGB32)
+        image.fill(0xFF12AB34)
+        self.assertTrue(image.save(str(icons / "org.example.OwnIcon.png")))
+        previous = os.environ.get("XDG_DATA_DIRS")
+        os.environ["XDG_DATA_DIRS"] = f"{data}:/usr/share"
+        self.addCleanup(lambda: os.environ.__setitem__("XDG_DATA_DIRS", previous) if previous is not None
+                        else os.environ.pop("XDG_DATA_DIRS", None))
+        item = vm.AppItem("desktop:org.example.OwnIcon.desktop", vm.NATIVE, "Own icon", "", "", "org.example.OwnIcon")
+        pixel = applications.app_icon(item).pixmap(48, 48).toImage().pixelColor(24, 24)
+        self.assertEqual((pixel.red(), pixel.green(), pixel.blue()), (0x12, 0xAB, 0x34))
+        # An icon nobody has: the generic application icon, never nothing.
+        unknown = vm.AppItem("desktop:org.example.None.desktop", vm.NATIVE, "None", "", "", "org.example.NoSuchIcon")
+        self.assertFalse(applications.app_icon(unknown).isNull())
+        self.assertIsInstance(applications.app_icon(unknown).pixmap(32, 32), QPixmap)
+
 if __name__ == "__main__":
     unittest.main()

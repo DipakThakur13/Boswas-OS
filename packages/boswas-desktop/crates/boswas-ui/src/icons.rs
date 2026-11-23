@@ -1,10 +1,15 @@
 //! Icon theme lookup and rasterisation.
 //!
-//! Follows the freedesktop icon theme layout: an icon name is searched in
-//! the selected theme, the themes it inherits, and `hicolor`, preferring
-//! scalable artwork and then the nearest fixed size. SVG is rendered with
-//! resvg (no text, no external references); PNG is decoded when the
-//! `images` feature is on.
+//! Follows the freedesktop icon theme specification: an icon name is looked
+//! up theme by theme, in the selected theme, then in the themes it inherits
+//! (depth first, in the order `Inherits` lists them), then in `hicolor`;
+//! the first theme that has the icon at any size wins, with its best size
+//! (scalable artwork, else the fixed size nearest to the one asked for);
+//! then the `pixmaps` directories. So an application's own icon in
+//! `hicolor` (PNG files only, for some) wins over another theme's drawing
+//! of the same name further down the chain. SVG is rendered with resvg (no
+//! text, no external references); PNG is decoded when the `images` feature
+//! is on.
 
 use std::{
     collections::HashMap,
@@ -27,6 +32,8 @@ struct IconDir {
     path: PathBuf,
     size: u32,
     scalable: bool,
+    /// The theme's place in the lookup order (0: the selected theme).
+    theme: usize,
 }
 
 /// Finds and renders themed icons, caching the results.
@@ -53,12 +60,13 @@ impl IconLoader {
                 continue;
             }
             seen.push(name.clone());
+            let theme = seen.len() - 1;
             let mut inherits = Vec::new();
             for base in bases {
                 let root = base.join(&name);
                 if let Some(index) = read_capped(&root.join("index.theme"), MAX_INDEX_BYTES) {
                     let index = String::from_utf8_lossy(&index);
-                    let (theme_dirs, parents) = parse_index(&index, &root);
+                    let (theme_dirs, parents) = parse_index(&index, &root, theme);
                     dirs.extend(theme_dirs);
                     if inherits.is_empty() {
                         inherits = parents;
@@ -71,10 +79,11 @@ impl IconLoader {
             }
         }
         if !seen.iter().any(|name| name == "hicolor") {
+            let theme = seen.len();
             for base in bases {
                 let root = base.join("hicolor");
                 if let Some(index) = read_capped(&root.join("index.theme"), MAX_INDEX_BYTES) {
-                    dirs.extend(parse_index(&String::from_utf8_lossy(&index), &root).0);
+                    dirs.extend(parse_index(&String::from_utf8_lossy(&index), &root, theme).0);
                 }
             }
         }
@@ -119,10 +128,14 @@ impl IconLoader {
         if !is_safe_name(name) {
             return None;
         }
-        // Scalable artwork first, then the fixed size nearest to (and
-        // preferably not below) the requested one.
-        let mut best: Option<(u32, PathBuf)> = None;
+        // Theme by theme: the first theme that has the icon at all gives
+        // it, at its best size: scalable artwork (any size), else the fixed
+        // size nearest to (and preferably not below) the requested one.
+        let mut best: Option<(usize, u32, PathBuf)> = None;
         for dir in &self.dirs {
+            if best.as_ref().is_some_and(|(theme, _, _)| *theme != dir.theme) {
+                break;
+            }
             for extension in ["svg", "png"] {
                 if !cfg!(feature = "images") && extension == "png" {
                     continue;
@@ -131,16 +144,19 @@ impl IconLoader {
                 if !candidate.is_file() {
                     continue;
                 }
-                if dir.scalable && extension == "svg" {
-                    return Some(candidate);
-                }
-                let penalty = if dir.size >= size { dir.size - size } else { (size - dir.size) * 4 };
-                if best.as_ref().is_none_or(|(p, _)| penalty < *p) {
-                    best = Some((penalty, candidate));
+                let penalty = if dir.scalable && extension == "svg" {
+                    0
+                } else if dir.size >= size {
+                    dir.size - size + 1
+                } else {
+                    (size - dir.size) * 4 + 1
+                };
+                if best.as_ref().is_none_or(|(_, p, _)| penalty < *p) {
+                    best = Some((dir.theme, penalty, candidate));
                 }
             }
         }
-        if let Some((_, path)) = best {
+        if let Some((_, _, path)) = best {
             return Some(path);
         }
         self.pixmap_dirs.iter().find_map(|dir| {
@@ -194,7 +210,7 @@ fn read_capped(path: &Path, limit: u64) -> Option<Vec<u8>> {
 }
 
 /// The icon directories of a theme and the themes it inherits.
-fn parse_index(index: &str, root: &Path) -> (Vec<IconDir>, Vec<String>) {
+fn parse_index(index: &str, root: &Path, theme: usize) -> (Vec<IconDir>, Vec<String>) {
     let mut directories: Vec<String> = Vec::new();
     let mut inherits = Vec::new();
     let mut sections: HashMap<String, (u32, bool)> = HashMap::new();
@@ -235,6 +251,7 @@ fn parse_index(index: &str, root: &Path) -> (Vec<IconDir>, Vec<String>) {
                 path: root.join(&dir),
                 size,
                 scalable,
+                theme,
             }
         })
         .collect();
@@ -411,6 +428,50 @@ mod tests {
         assert_eq!(loader.find("fallback", 32), Some(icons.join("hicolor/scalable/apps/fallback.svg")));
         assert_eq!(loader.find("missing", 32), None);
         assert_eq!(loader.find("terminal.svg", 32), Some(icons.join("Prism/scalable/apps/terminal.svg")));
+    }
+
+    /// Prism inheriting hicolor first, then Breeze, as the real theme does.
+    fn real_chain() -> (tempdir::Dir, PathBuf) {
+        let dir = tempdir::Dir::new();
+        let icons = dir.path().join("icons");
+        theme(&icons, "Prism", "hicolor,breeze-dark,breeze", &[("scalable/apps", 256, true), ("scalable/actions", 16, true)]);
+        theme(&icons, "hicolor", "", &[("16x16/apps", 16, false), ("48x48/apps", 48, false), ("128x128/apps", 128, false), ("scalable/apps", 256, true)]);
+        theme(&icons, "breeze-dark", "breeze", &[("actions/16", 16, false)]);
+        theme(&icons, "breeze", "hicolor", &[("apps/48", 48, true), ("actions/16", 16, true), ("actions/22", 22, false)]);
+        // An application that installs only PNG files into hicolor, and
+        // Breeze's drawing of the same name.
+        for size in [16, 48, 128] {
+            fs::write(icons.join(format!("hicolor/{size}x{size}/apps/firefox-esr.png")), b"png").unwrap();
+        }
+        fs::write(icons.join("breeze/apps/48/firefox-esr.svg"), SVG).unwrap();
+        // A generic action that only Breeze draws (in two sizes).
+        fs::write(icons.join("breeze/actions/16/edit-copy.svg"), SVG).unwrap();
+        fs::write(icons.join("breeze/actions/22/edit-copy.svg"), SVG).unwrap();
+        // Prism's own drawing, also in hicolor.
+        fs::write(icons.join("Prism/scalable/apps/boswas-files.svg"), SVG).unwrap();
+        fs::write(icons.join("hicolor/48x48/apps/boswas-files.png"), b"png").unwrap();
+        (dir, icons)
+    }
+
+    #[test]
+    fn the_first_theme_that_has_an_icon_gives_it() {
+        let (_dir, icons) = real_chain();
+        let loader = IconLoader::with_base_dirs("Prism", std::slice::from_ref(&icons));
+        if cfg!(feature = "images") {
+            // The application's own icon beats Breeze's scalable one, at the
+            // size nearest to the one asked for (not below it if it can).
+            assert_eq!(loader.find("firefox-esr", 32), Some(icons.join("hicolor/48x48/apps/firefox-esr.png")));
+            assert_eq!(loader.find("firefox-esr", 16), Some(icons.join("hicolor/16x16/apps/firefox-esr.png")));
+            assert_eq!(loader.find("firefox-esr", 96), Some(icons.join("hicolor/128x128/apps/firefox-esr.png")));
+        } else {
+            assert_eq!(loader.find("firefox-esr", 32), Some(icons.join("breeze/apps/48/firefox-esr.svg")), "without PNG support");
+        }
+        // A generic action still comes from Breeze, scalable first.
+        assert_eq!(loader.find("edit-copy", 22), Some(icons.join("breeze/actions/16/edit-copy.svg")));
+        // Prism's own names come from Prism.
+        assert_eq!(loader.find("boswas-files", 48), Some(icons.join("Prism/scalable/apps/boswas-files.svg")));
+        let themes: Vec<usize> = loader.dirs.iter().map(|d| d.theme).collect();
+        assert!(themes.windows(2).all(|w| w[0] <= w[1]), "directories in lookup order: {themes:?}");
     }
 
     #[test]

@@ -13,11 +13,15 @@
 # Login (boswas-desktop configures it) and session services. The shell is
 # the polkit agent. X11 applications run through Xwayland. The wlroots
 # portal back end serves screen sharing (the compositor asks the user).
+# xdg-open (xdg-utils) opens files and addresses for other programs and for
+# the toolkit when there is no portal; the shell opens files with the
+# default applications itself.
 greetd
 xwayland
 xdg-desktop-portal-gtk
 xdg-desktop-portal-wlr
 xdg-user-dirs
+xdg-utils
 
 # What the shell and Settings show and control (boswas-services): sound
 # devices (pw-dump, wpctl), battery and power mode, user accounts.

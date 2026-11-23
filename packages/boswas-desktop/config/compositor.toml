@@ -36,7 +36,9 @@ disable_while_typing = true
 gestures = true
 
 [output]
-scale = 1.0
+# No scale here: each monitor gets the scale recommended for its size and
+# resolution (100 % in a virtual machine and where the monitor does not
+# say). "scale = 1.25" here or in [outputs.NAME] sets one.
 
 [lock]
 # The session locks after ten minutes without input.

@@ -76,7 +76,31 @@ pub struct Resources {
     /// Materials show the blurred wallpaper through their tint; without
     /// transparency they are the tint alone.
     pub transparency: bool,
+    /// Counts the changes of `backdrop` (a panel drawn on the old one is
+    /// not reused).
+    pub backdrop_generation: u64,
+    /// Overlay panels as drawn last (shadow, material, outline), reused
+    /// while nothing they depend on changed: a flyout that is drawn frame
+    /// by frame (Start's page scrolling) does not blur its shadow and its
+    /// material again each time.
+    panels: Vec<(PanelKey, Rc<Pixmap>)>,
 }
+
+/// What an overlay panel's look depends on.
+#[derive(Clone, Debug, PartialEq)]
+struct PanelKey {
+    canvas: (u32, u32),
+    scale: u32,
+    rect: [u32; 4],
+    origin: [u32; 2],
+    material: String,
+    theme: usize,
+    transparency: bool,
+    backdrop: Option<u64>,
+}
+
+/// Panels kept by [`Resources`].
+const MAX_PANELS: usize = 3;
 
 impl Resources {
     pub fn new(theme: &'static Theme) -> Self {
@@ -98,6 +122,8 @@ impl Resources {
             backdrop_key: (0, 0),
             reduced_motion: false,
             transparency: true,
+            backdrop_generation: 0,
+            panels: Vec::new(),
         }
     }
 
@@ -369,8 +395,79 @@ impl Frame<'_> {
         }
     }
 
-    /// An overlay panel: shadow, material and a one-pixel outline.
-    pub fn panel(&mut self, rect: Rect, material: &str) {
+    /// An overlay panel: shadow, material and a one-pixel outline. Drawn
+    /// once and then reused while its size, place, material, theme and the
+    /// wallpaper behind it stay the same. Returns the panel as drawn on
+    /// the whole canvas (see [`Frame::restore_rows`]).
+    pub fn panel(&mut self, rect: Rect, material: &str) -> Option<Rc<Pixmap>> {
+        let key = PanelKey {
+            canvas: self.canvas.pixel_size(),
+            scale: self.canvas.scale().to_bits(),
+            rect: [rect.x.to_bits(), rect.y.to_bits(), rect.w.to_bits(), rect.h.to_bits()],
+            origin: [self.origin.0.to_bits(), self.origin.1.to_bits()],
+            material: material.to_owned(),
+            theme: std::ptr::from_ref(self.res.theme) as usize,
+            transparency: self.res.transparency,
+            backdrop: self.res.backdrop.as_ref().map(|_| self.res.backdrop_generation),
+        };
+        let cached = self.res.panels.iter().find(|(k, _)| *k == key).map(|(_, p)| p.clone());
+        let pixmap = match cached {
+            Some(pixmap) => pixmap,
+            None => {
+                let mut chrome = Canvas::new(self.canvas.width(), self.canvas.height(), self.canvas.scale())?;
+                {
+                    let mut frame = Frame {
+                        canvas: &mut chrome,
+                        res: &mut *self.res,
+                        pointer: None,
+                        pressed: false,
+                        hits: &mut Vec::new(),
+                        focus: None,
+                        origin: self.origin,
+                    };
+                    frame.paint_panel(rect, material);
+                }
+                let pixmap = Rc::new(chrome.into_pixmap());
+                if self.res.panels.len() >= MAX_PANELS {
+                    self.res.panels.remove(0);
+                }
+                self.res.panels.push((key, pixmap.clone()));
+                pixmap
+            }
+        };
+        // Usually the first thing drawn: then a copy does. (The check works
+        // on blocks: a byte-wise test of a large canvas costs more than the
+        // copy.)
+        if self.canvas.data().chunks(4096).all(|block| block.iter().fold(0, |a, b| a | b) == 0) {
+            self.canvas.pixmap_mut().data_mut().copy_from_slice(pixmap.data());
+        } else {
+            let (w, h) = (self.canvas.width(), self.canvas.height());
+            self.canvas.draw_pixmap(&pixmap, 0.0, 0.0, w, h, 1.0);
+        }
+        Some(pixmap)
+    }
+
+    /// Puts the rows from `top` to `bottom` (logical pixels, widened to
+    /// whole device pixels inwards) back as `panel` has them: what was
+    /// drawn there since is gone. A scrolling part is drawn as it falls
+    /// and cut at its window's edges this way.
+    pub fn restore_rows(&mut self, panel: &Pixmap, top: f32, bottom: f32) {
+        let scale = self.canvas.scale();
+        let (w, h) = self.canvas.pixel_size();
+        if (panel.width(), panel.height()) != (w, h) {
+            return;
+        }
+        let first = ((top * scale).floor().max(0.0) as usize).min(h as usize);
+        let last = ((bottom * scale).ceil().max(0.0) as usize).min(h as usize);
+        if first >= last {
+            return;
+        }
+        let stride = w as usize * 4;
+        let range = first * stride..last * stride;
+        self.canvas.pixmap_mut().data_mut()[range.clone()].copy_from_slice(&panel.data()[range]);
+    }
+
+    fn paint_panel(&mut self, rect: Rect, material: &str) {
         let t = tokens();
         let e = t.elevation("flyout");
         self.canvas.shadow(rect.x, rect.y, rect.w, rect.h, t.radius_flyout, e.blur, e.y, e.alpha);

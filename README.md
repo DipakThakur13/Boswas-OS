@@ -31,7 +31,8 @@ hardware, not a public Linux distribution.
 >   user accounts, privacy and accessibility
 > - the Boswas OS experience: Boswas OS identity, Boswas UI (the Fluent
 >   design language with the Prism colours, in one token file), the Boswas
->   Prism icon pack, the Boswas-Cursors pointer theme, ten presets, Boswas
+>   Prism icon pack (other programs keep their own icons), the
+>   Boswas-Cursors pointer theme, ten presets, Boswas
 >   Control Center (with the Security, Software and Update Centers) and a
 >   branded terminal, on a Debian 13 base
 > - a Live USB that boots straight to a usable desktop; installation only
@@ -85,19 +86,25 @@ What it does today:
   animations, snap layouts, a window picker (Alt+Tab), Task View with
   several desktops, a window menu, and the Windows shortcuts.
 - **Shell:** a centred or left-aligned taskbar that can hide itself, with
-  Start and search, the tray and the clock; quick settings for Wi-Fi,
+  Start and search, the tray and the clock; Start laid out like the 2025
+  Windows 11 Start (one scrolling page of pinned, recommended and all
+  applications, by category, as a grid or as a list; ADR-0053), and pins
+  for a new user as Windows sets them; quick settings for Wi-Fi,
   Bluetooth, sound, brightness, night light and the power mode;
   notifications with a calendar and a do-not-disturb schedule; Run;
-  screen capture; the password dialog for administrator actions; a lock
-  screen with the weather of the home place chosen in Weather, which it
-  reads from a file, never from the network (ADR-0051).
+  screen capture, whose notice opens the picture with the default
+  application (ADR-0054); the password dialog for administrator actions;
+  a lock screen with the weather of the home place chosen in Weather,
+  which it reads from a file, never from the network (ADR-0051).
 - **Boot screen:** the mark assembles itself on a softly lit background,
   with a progress ring under it, a passphrase prompt that glides in, and
   shutdown and restart screens, all drawn from vector outlines at the
   display's exact size and moving at its refresh rate (ADR-0050).
 - **Displays and input:** settings per monitor (mode, scale, position,
-  rotation), night light, touch screens, touchpad gestures, drawing
-  tablets, support for an input method.
+  rotation), with the scale recommended for each monitor's size and
+  resolution as the default, as on Windows (ADR-0055); night light, touch
+  screens, touchpad gestures, drawing tablets, support for an input
+  method.
 - **Accessibility:** text size up to 225 %, a magnifier, colour filters
   (greyscale, inverted, corrections for colour blindness), sticky keys and
   filter keys, always visible scroll bars; animations can be turned off.

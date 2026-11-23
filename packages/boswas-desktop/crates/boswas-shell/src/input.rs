@@ -15,11 +15,11 @@ use crate::{
     lock::{self, AuthState, Stage},
     notify, quick,
     quick::Page,
-    start::{self, KeyOutcome, View},
+    start::{self, KeyOutcome},
     state::{Flyout, Mode},
     svc,
     taskbar::{self, PreviewAct},
-    ui::{self, Nav},
+    ui::{self, Hit, Nav},
     Role, Shell,
 };
 
@@ -135,6 +135,11 @@ impl Shell {
                 }
             }
             PointerEventKind::Axis { vertical, .. } => {
+                // Start's page follows a touchpad's fingers pixel by pixel,
+                // and moves smoothly by a row of tiles per step of a wheel.
+                if role == Role::Flyout && self.open_kind() == Some(Flyout::Start) {
+                    return self.scroll_start(vertical.discrete, vertical.absolute);
+                }
                 let steps = if vertical.discrete != 0 { vertical.discrete } else { (vertical.absolute / 30.0).round() as i32 };
                 if steps != 0 {
                     self.scroll(index, position, steps);
@@ -209,15 +214,6 @@ impl Shell {
         let role = surface.role;
         let under = ui::hit_at(&surface.hits, position).map(|h| surface.hits[h].action.clone());
         match (role, self.open_kind()) {
-            (Role::Flyout, Some(Flyout::Start)) => {
-                let panel = crate::ui::Rect::new(crate::PAD, crate::PAD, surface.width as f32 - 2.0 * crate::PAD, surface.height as f32 - 2.0 * crate::PAD);
-                let geo = start::geometry(panel, self.st.desktop.start.layout);
-                let pages = start::page_count(self.st.start_pins().len(), geo.rows);
-                let rows = start::all_rows(&self.st.apps).len();
-                if !self.st.start.searching() && self.st.start.scroll_by(steps, pages, rows, geo.list_rows) {
-                    self.mark(Role::Flyout);
-                }
-            }
             (Role::Flyout, Some(Flyout::Quick)) => {
                 let count = match self.st.quick.page {
                     Page::Wifi => self.st.sys.network.access_points.len(),
@@ -246,6 +242,36 @@ impl Shell {
                 _ => {}
             },
             _ => {}
+        }
+    }
+
+    /// Start's geometry and page as the open flyout shows them.
+    pub(crate) fn start_page(&mut self) -> Option<(start::Geometry, start::Page)> {
+        let surface = self.surfaces.iter().find(|s| s.role == Role::Flyout)?;
+        let (w, h) = (surface.width as f32, surface.height as f32);
+        let panel = ui::Rect::new(crate::PAD, crate::PAD, w - 2.0 * crate::PAD, h - 2.0 * crate::PAD);
+        let geo = start::geometry(panel, self.st.desktop.start.layout);
+        let page = start::page(&self.st, &geo, &mut self.res.text);
+        Some((geo, page))
+    }
+
+    /// The wheel or the touchpad over Start.
+    fn scroll_start(&mut self, discrete: i32, absolute: f64) {
+        if self.st.start.searching() || self.st.start.index {
+            return;
+        }
+        let Some((geo, page)) = self.start_page() else {
+            return;
+        };
+        let max = page.max_scroll(geo.view.h);
+        let now = Instant::now();
+        let moved = if discrete != 0 {
+            self.st.start.scroll_by(discrete as f32 * geo.m.cell_h, max, now, self.res.reduced_motion)
+        } else {
+            self.st.start.scroll_by(absolute as f32, max, now, true)
+        };
+        if moved {
+            self.mark(Role::Flyout);
         }
     }
 
@@ -285,7 +311,7 @@ impl Shell {
                 self.tray_menu = Some((key.clone(), at.0, self.surfaces[index].origin.1 - 4.0, output));
                 self.service(Command::TrayMenu { key });
             }
-            Action::Start(start::Act::App(app) | start::Act::Recommended(app)) => {
+            Action::Start(start::Act::App(app) | start::Act::Recommended(app) | start::Act::All(app)) => {
                 let items = self.app_menu(app);
                 self.open_menu(items, at.0, at.1, false, &output);
             }
@@ -430,18 +456,36 @@ impl Shell {
         use start::Act;
         let output = self.surfaces.get(index).map(|s| s.output.clone());
         match act {
-            Act::SearchBox => self.st.focus = None,
-            Act::App(app) | Act::Recommended(app) => return self.launch_app(app),
-            Act::AllApps => {
-                self.st.start.view = View::AllApps;
-                self.st.start.scroll = 0;
+            Act::SearchBox => {
+                self.st.focus = None;
+                self.st.start.index = false;
+            }
+            Act::App(app) | Act::Recommended(app) | Act::All(app) => return self.launch_app(app),
+            Act::ShowAll => {
+                self.st.start.expanded = !self.st.start.expanded;
+                self.clamp_start();
+            }
+            Act::View(view) => {
+                self.st.config.set_view(view);
+                self.st.start.index = false;
+                self.clamp_start();
+            }
+            Act::Letter(_) => {
+                self.st.start.index = true;
                 self.st.focus = None;
             }
-            Act::Back => {
-                self.st.start.view = View::Home;
-                self.st.focus = None;
+            Act::Jump(letter) => {
+                self.st.start.index = false;
+                let heading = Act::Letter(letter);
+                if let Some((geo, page)) = self.start_page() {
+                    if let Some(element) = page.find(&heading) {
+                        let max = page.max_scroll(geo.view.h);
+                        self.st.start.scroll_to(element.rect.y - 4.0, max, Instant::now(), self.res.reduced_motion);
+                    }
+                }
+                self.st.focus = Some(Action::Start(heading));
             }
-            Act::Page(page) => self.st.start.page = page,
+            Act::CloseIndex => self.st.start.index = false,
             Act::Result(position) => {
                 if let Some(result) = self.st.start.results.get(position).cloned() {
                     return self.activate_result(result);
@@ -608,7 +652,7 @@ impl Shell {
         let reduced = self.res.reduced_motion;
         match act {
             Act::ToastBody(id) | Act::Body(id) => {
-                if !self.open_note_file(id) {
+                if !self.open_note(id, "default") {
                     self.service(Command::NotificationAction { id, action: "default".into() });
                 }
                 self.st.notes.dismiss(id, now, reduced);
@@ -617,7 +661,7 @@ impl Shell {
                 }
             }
             Act::ToastAction(id, key) | Act::Invoke(id, key) => {
-                if !self.open_note_file(id) {
+                if !self.open_note(id, &key) {
                     self.service(Command::NotificationAction { id, action: key });
                 }
                 self.st.notes.dismiss(id, now, reduced);
@@ -777,6 +821,66 @@ impl Shell {
         }
     }
 
+    /// Keeps Start's page within its end after it became shorter.
+    fn clamp_start(&mut self) {
+        if let Some((geo, page)) = self.start_page() {
+            self.st.start.clamp(page.max_scroll(geo.view.h));
+        }
+    }
+
+    /// Moves the keyboard focus through Start: the whole page (scrolling
+    /// to what it reaches), the buttons at the bottom, or the index of
+    /// letters while it is open.
+    fn start_navigate(&mut self, nav: Nav) {
+        let Some(index) = self.surfaces.iter().position(|s| s.role == Role::Flyout) else {
+            return;
+        };
+        let pick = |hits: &[Hit], wanted: fn(&start::Act) -> bool| -> Vec<Hit> {
+            hits.iter().filter(|h| matches!(&h.action, Action::Start(act) if wanted(act))).cloned().collect()
+        };
+        if self.st.start.index {
+            let letters = pick(&self.surfaces[index].hits, |act| matches!(act, start::Act::Jump(_)));
+            if let Some(action) = ui::navigate(&letters, self.st.focus.as_ref(), nav) {
+                self.st.focus = Some(action);
+                self.mark(Role::Flyout);
+            }
+            return;
+        }
+        let footer = pick(&self.surfaces[index].hits, start::Act::in_footer);
+        let Some((geo, page)) = self.start_page() else {
+            return;
+        };
+        let next = start::navigate(&page, &footer, self.st.focus.as_ref(), nav);
+        if let Some(element) = next.as_ref().and_then(|action| match action {
+            Action::Start(act) => page.find(act),
+            _ => None,
+        }) {
+            let max = page.max_scroll(geo.view.h);
+            self.st.start.reveal(element.rect, geo.view.h, max, Instant::now(), self.res.reduced_motion);
+        }
+        self.st.focus = next;
+        self.mark(Role::Flyout);
+    }
+
+    /// Page Up and Page Down scroll Start's page by a window's height,
+    /// Home and End go to its ends.
+    fn start_page_key(&mut self, keysym: Keysym) {
+        let Some((geo, page)) = self.start_page() else {
+            return;
+        };
+        let max = page.max_scroll(geo.view.h);
+        let step = (geo.view.h - geo.m.header_h).max(geo.m.cell_h);
+        let target = match keysym {
+            Keysym::Page_Up | Keysym::KP_Page_Up => self.st.start.scroll - step,
+            Keysym::Page_Down | Keysym::KP_Page_Down => self.st.start.scroll + step,
+            Keysym::Home | Keysym::KP_Home => 0.0,
+            _ => max,
+        };
+        if self.st.start.scroll_to(target, max, Instant::now(), self.res.reduced_motion) {
+            self.mark(Role::Flyout);
+        }
+    }
+
     fn start_key(&mut self, event: &KeyEvent, typed: Option<&str>) {
         let shift = self.modifiers.shift;
         let outcome = self.st.start.key(event.keysym, self.modifiers.ctrl, &self.st.apps, &self.st.usage.counts);
@@ -789,14 +893,22 @@ impl Shell {
             }
             KeyOutcome::Ignored => {}
         }
-        // Not a search key: the grid and the buttons take it.
+        // Not a search key: the page and the buttons take it.
         match event.keysym {
             Keysym::Return | Keysym::KP_Enter => {
-                self.activate_focus(Role::Flyout);
+                // The focused control may be scrolled to and not drawn yet.
+                if let Some(Action::Start(act)) = self.st.focus.clone() {
+                    if let Some(index) = self.surfaces.iter().position(|s| s.role == Role::Flyout) {
+                        self.start_action(act, index);
+                    }
+                }
+            }
+            Keysym::Page_Up | Keysym::Page_Down | Keysym::KP_Page_Up | Keysym::KP_Page_Down | Keysym::Home | Keysym::End | Keysym::KP_Home | Keysym::KP_End => {
+                self.start_page_key(event.keysym);
             }
             keysym => {
                 if let Some(nav) = Self::nav_key(keysym, shift) {
-                    self.navigate(Role::Flyout, nav);
+                    self.start_navigate(nav);
                 } else if let Some(text) = typed {
                     if self.st.start.typed(text, &self.st.apps, &self.st.usage.counts) == KeyOutcome::Redraw {
                         self.st.focus = None;

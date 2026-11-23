@@ -408,6 +408,31 @@ fn the_public_control_socket_is_limited() {
     compositor.control().ok(json!({"cmd": "version"}));
 }
 
+/// Settings reads the recommended scale with the monitors; an output
+/// without a scale of its own (the shipped defaults set none) uses it.
+#[test]
+fn an_output_without_a_scale_setting_takes_the_recommended_one() {
+    // A 27-inch 4K monitor (597 x 336 mm): 150 %, as Windows recommends.
+    let monitor = ["--headless-size", "3840x2160", "--headless-physical-size", "597x336"];
+    let compositor = Compositor::start_with(LOCKED_DOWN, "none", &monitor);
+    let outputs = compositor.control().ok(json!({"cmd": "outputs"}));
+    assert_eq!((outputs[0]["physical_width_mm"].as_i64(), outputs[0]["physical_height_mm"].as_i64()), (Some(597), Some(336)));
+    assert_eq!(outputs[0]["recommended_scale"], 1.5);
+    assert_eq!(outputs[0]["scale"], 1.5);
+    assert_eq!((outputs[0]["width"].as_i64(), outputs[0]["height"].as_i64()), (Some(2560), Some(1440)), "the desktop is 3840x2160 at 150 %");
+    drop(compositor);
+    // A scale that is set wins: for every output, and an output's own.
+    for (setting, expected) in [("[output]\nscale = 1.0\n", 1.0), ("[output]\nscale = 1.0\n[outputs.HEADLESS-1]\nscale = 1.25\n", 1.25)] {
+        let compositor = Compositor::start_with(&format!("{LOCKED_DOWN}{setting}"), "none", &monitor);
+        let outputs = compositor.control().ok(json!({"cmd": "outputs"}));
+        assert_eq!((outputs[0]["scale"].as_f64(), outputs[0]["recommended_scale"].as_f64()), (Some(expected), Some(1.5)), "{setting}");
+    }
+    // Without a size (and so in the other tests): 100 %.
+    let compositor = Compositor::start(LOCKED_DOWN, "none");
+    let outputs = compositor.control().ok(json!({"cmd": "outputs"}));
+    assert_eq!((outputs[0]["scale"].as_f64(), outputs[0]["recommended_scale"].as_f64()), (Some(1.0), Some(1.0)));
+}
+
 #[test]
 fn a_program_the_compositor_starts_is_trusted() {
     let config = "[shell]\ncommand = @HELPER@\n[lock]\nidle_seconds = 0\ncommand = []\n[policy]\nlock_idle_max_seconds = 0\n";

@@ -43,6 +43,18 @@ Verification status of the native desktop
   resolution of the new image manifest on Debian trixie.
 
 ### Fixed
+- **Opening a screenshot from its notification** (ADR-0054): a click on
+  the notice of a screenshot, as a toast or in the notification centre,
+  did nothing. The shell opened the picture with `xdg-open`, and no
+  package installed `xdg-utils`. The shell now finds the default
+  application itself, by the freedesktop MIME applications rules (the
+  `mimeapps.list` files, then the applications that declare the type), and
+  starts it with an argument list, never through a shell; `xdg-open` is
+  only the last resort. The picture opens in Photos, and the notice's
+  second button, which was a second "Open", is now "Open folder" (the
+  Screenshots folder, in Files). The folders next to Start's power button
+  open the same way. `xdg-utils` is now a dependency of `boswas-desktop`
+  and in the image, for the other programs that use `xdg-open`.
 - **Control Center's path above the page** (`BreadcrumbBar` of the
   toolkit): the crumbs of the previous place were still painted under
   the new path for a moment; they are hidden at once.
@@ -176,6 +188,26 @@ Verification status of the native desktop
   also dropped an administrator's stricter lock policy.
 
 ### Added
+- **A recommended display scale** (ADR-0055), as Windows recommends one:
+  each monitor without a scale of its own gets one from its size (the
+  EDID) and resolution, built-in panels judged from closer than external
+  monitors, and never so large that less than 1024x720 logical pixels
+  are left. A 13.3- or 14-inch 1920x1080 laptop panel gets 150 %, a
+  15.6-inch one 125 %, a 24-inch 1920x1080 monitor 100 % and a 27-inch
+  3840x2160 one 150 %. Unknown or implausible sizes, and the virtual
+  graphics devices of virtual machines, stay at 100 %. `[output] scale` is
+  now optional and the shipped `compositor.toml` sets none; a scale set by
+  the user or the administrator, an old `scale = 1.0` included, is kept.
+  Settings > System > Display marks the scale "(Recommended)" and
+  choosing it again leaves the monitor automatic. The control socket's
+  `outputs` reply carries `recommended_scale`, and the headless back end
+  has `--headless-physical-size WxH` (millimetres).
+- **Default applications** (ADR-0054): `boswas-apps` ships
+  `/usr/share/applications/mimeapps.list`, so on a new system pictures
+  open in Photos, PDF files in Document Viewer, text in Text Editor, music
+  and videos in Media Player, archives in Archive Manager, folders in
+  Files, calendars in Calendar, and web addresses and HTML in Firefox ESR.
+  A choice in Settings > Apps > Default apps comes first.
 - **Weather on the lock screen** (ADR-0051): the clock view of the lock
   screen shows a card in the bottom-left corner with the weather of the
   home place chosen in Weather (or its first place): the condition and the
@@ -487,6 +519,42 @@ Verification status of the native desktop
   instead of being deleted.
 
 ### Changed
+- **Start like the 2025 Windows 11 Start** (ADR-0053): one scrolling page
+  under the search box with Pinned (the first rows, "Show all" for the
+  rest), Recommended and All; All lists the applications by category
+  (Productivity, Creativity, Utilities & tools, Entertainment, Internet,
+  System, Other), as a grid, or as a list under letter headings with an
+  index of letters, and Start remembers the view (`[start] view` in
+  `~/.config/boswas/shell.toml`). Start grows with the screen: eight
+  columns of pins where the screen is at least 1600x900 logical pixels
+  (832 pixels wide at 1920x1080), six on smaller ones, and up to 85 % of
+  the screen's height (at most 1200 pixels); it was 642 by 726 pixels with
+  six columns. Pins are 36 px (were 32). It scrolls smoothly with the
+  wheel, follows a touchpad pixel by pixel, and can be used entirely from
+  the keyboard; every application on its page has its right-click menu.
+  The layouts are two rows of pins and two of recommendations by default,
+  three and one, or one and three. The token file's `start-width` and
+  `start-height` are replaced by the sizes of this layout.
+- **Default pins like Windows'** (ADR-0053): a new user's taskbar holds
+  Files, Firefox ESR and the Software Center (no longer Terminal, Settings
+  and the Compatibility Manager); Start begins with Firefox ESR, Files,
+  the Software Center, Settings, Photos, Calendar, Weather and Clock,
+  then the other Boswas applications. Missing applications are skipped
+  and Start is filled up with others; pins a user arranged are kept.
+- **Bigger icons** (ADR-0052): the coloured Boswas Prism icons
+  (applications, folders, devices, file types) fill their square as the
+  Windows 11 icons do: 92 % of the canvas on the longer side (94 % for
+  round objects, 88 % for square boxes), where they used about 64 to
+  86 %. At the taskbar's 24 px an object is now about 22 px. The line
+  icons and the Boswas OS mark do not change.
+- **Other programs keep their own icons** (ADR-0052): Boswas Prism no
+  longer draws icons under other programs' names (Firefox ESR, KDE's
+  programs, Wine, htop and others), and both Prism themes look in
+  `hicolor`, where programs install their own icons, before Breeze. The
+  Qt toolkit, the shell and the compositor follow that order (the
+  compositor now also reads PNG application icons), so Firefox ESR shows
+  its own icon on the taskbar, in Start, in window frames and in Settings.
+  318 designs in 555 files.
 - **The boot screen, drawn from vectors and in motion** (ADR-0050): the
   mark and the text are no longer a bitmap and glyph atlases scaled to
   the display but vector outlines drawn at its exact size, sharp on every
@@ -674,7 +742,13 @@ Verification status of the native desktop
   dialog for administrator actions in particular has run against a
   stand-in for polkit only.
 - **X11 applications** *(native desktop)* are drawn at scale 1 and look
-  soft on a scaled monitor.
+  soft on a scaled monitor, which since the recommended scale (ADR-0055)
+  is the default on many laptops.
+- **The recommended scale, opening files and other programs' icons**
+  (ADR-0055, ADR-0054, ADR-0052) have not been seen on a real system: the
+  DRM driver's name and real monitors' sizes were not read on a device,
+  the tests open pictures in stand-ins for Photos and Files, and Firefox
+  ESR's own icon was stood in for too.
 - **No live blur** *(native desktop)*: the taskbar and the flyouts are
   drawn on a blurred copy of the wallpaper; windows behind them do not
   show through.

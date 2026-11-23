@@ -14,6 +14,11 @@ file is put back exactly as it was and the compositor reads it again.
 
 The refresh rate box lists every rate the monitor offers at the chosen
 resolution; the highest is the compositor's default and is marked so. The
+scale box marks the scale the compositor recommends for the monitor (from
+its size and resolution, as Windows does) "(Recommended)", and shows it
+while no scale is set; choosing it again leaves the scale to the
+compositor (the monitor's setting is removed) unless a scale is set for
+every monitor. The
 variable refresh rate switch writes ``[outputs.NAME] adaptive_sync``; it can
 be turned on only where the compositor reports the monitor and its driver
 offer it.
@@ -36,6 +41,12 @@ from ... import compositorconfig as cc
 
 CONFIRM_SECONDS = 15
 SCALE_LABELS = {1.0: "100 %", 1.25: "125 %", 1.5: "150 %", 1.75: "175 %", 2.0: "200 %"}
+
+
+def scale_text(scale: float, recommended: bool = False) -> str:
+    """A scale in the scale box: "150 % (Recommended)" for the one the compositor recommends."""
+    text = SCALE_LABELS.get(scale, f"{round(scale * 100)} %")
+    return text + " (Recommended)" if recommended else text
 # [outputs.NAME] rotation: the compositor turns "90", "180" and "270" into the output transforms of those names.
 ORIENTATIONS = (("Landscape", "normal"), ("Portrait", "90"), ("Landscape (flipped)", "180"),
                 ("Portrait (flipped)", "270"))
@@ -469,6 +480,7 @@ class MonitorsSection(ConfigSection):
 
     def __init__(self, parent: QWidget | None = None, *, config: cc.Settings | None = None) -> None:
         self.outputs: list[cc.Output] = []
+        self.snapshot: cc.Snapshot | None = None
         self.current = ""                      # the selected monitor (connector name)
         self.confirm_seconds = CONFIRM_SECONDS
         self.tick_ms = 1000
@@ -497,7 +509,7 @@ class MonitorsSection(ConfigSection):
         self.use_switch = fluent.ToggleSwitch()
         self.use_card = self.card("Use this monitor", "", "eye-open-symbolic", self.use_switch)
         self.use_switch.clicked.connect(self._use_changed)
-        self.resolution_box = combo()
+        self.resolution_box = combo(width=CONTROL_WIDTH + 40)     # "3840 × 2160 (Recommended)" in full
         self.resolution_card = self.card("Resolution", "How many pixels the monitor shows",
                                          "view-fullscreen-symbolic", self.resolution_box)
         self.resolution_box.activated.connect(self._resolution_changed)
@@ -545,7 +557,7 @@ class MonitorsSection(ConfigSection):
     def show_state(self, state: object) -> None:
         if self.canvas.dragging():
             return
-        _snapshot, self.outputs, problem = state
+        self.snapshot, self.outputs, problem = state
         shown = bool(self.outputs)
         self.unavailable.setVisible(not shown)
         if not shown:
@@ -588,7 +600,7 @@ class MonitorsSection(ConfigSection):
             return
         best = cc.preferred_size(output.modes)
         for width, height in cc.sizes(output.modes):
-            self.resolution_box.addItem(f"{width} × {height}" + (" (recommended)" if (width, height) == best
+            self.resolution_box.addItem(f"{width} × {height}" + (" (Recommended)" if (width, height) == best
                                                                          else ""), (width, height))
         select(self.resolution_box, output.mode.size, f"{output.mode.width} × {output.mode.height}")
         offered = cc.rates(output.modes, output.mode.size)
@@ -600,11 +612,18 @@ class MonitorsSection(ConfigSection):
         self.vrr_switch.setChecked(sync.enabled)
         self.vrr_switch.setEnabled(sync.supported)
         self.vrr_card.set_description(VRR_ON if sync.supported else VRR_OFF)
-        for index in reversed(range(self.scale_box.count())):
-            if self.scale_box.itemData(index) not in SCALE_LABELS:
-                self.scale_box.removeItem(index)
-        select(self.scale_box, output.scale, f"{round(output.scale * 100)} %")
+        self.scale_box.clear()
+        for scale in SCALE_LABELS:
+            self.scale_box.addItem(scale_text(scale, scale == output.recommended_scale), scale)
+        shown = output.scale if self.own_scale(output.name) else output.recommended_scale
+        select(self.scale_box, shown, scale_text(shown, shown == output.recommended_scale))
         select(self.orientation_box, output.rotation)
+
+    def own_scale(self, name: str) -> bool:
+        """Whether a scale is set for the monitor, or for every monitor (else the compositor's recommendation counts)."""
+        if self.snapshot is None:
+            return True
+        return self.snapshot.output(name).get("scale") is not None or self.snapshot.get("output", "scale") is not None
 
     def select_monitor(self, name: str) -> None:
         if name and name != self.current and self.output(name) is not None:
@@ -660,7 +679,14 @@ class MonitorsSection(ConfigSection):
         output, scale = self.output(), self.scale_box.currentData()
         if output is None or scale not in cc.SCALES or self.loading:
             return
-        self.change_risky({(f"outputs.{output.name}", "scale"): scale, **self._resized(output, scale=scale)})
+        # The recommended scale is left to the compositor (no setting of the
+        # monitor), unless a scale for every monitor would then apply.
+        automatic = self.snapshot is not None and self.snapshot.get("output", "scale") is None
+        value = None if automatic and scale == output.recommended_scale else scale
+        before = self.snapshot.output(output.name).get("scale") if self.snapshot is not None else object()
+        if value == before:
+            return
+        self.change_risky({(f"outputs.{output.name}", "scale"): value, **self._resized(output, scale=scale)})
 
     def _orientation_changed(self, _index: int) -> None:
         output, rotation = self.output(), self.orientation_box.currentData()

@@ -107,7 +107,9 @@ exits; open windows are not affected. `boswas-shell(1)` is the reference.
   right-click on it opens a short menu.
 - **Taskbar:** 48 px along the bottom edge of each screen.
   - In the centre, as one group: Start (the Boswas mark), Task View, and
-    the pinned and running applications. A click on an application shows
+    the pinned and running applications. A new user finds Files, Firefox
+    ESR and the Software Center pinned, as Windows pins its file manager,
+    browser and store (ADR-0053). A click on an application shows
     its window, starts it, or goes through its windows; the secondary
     button opens its menu (new window, pin or unpin, the application's
     own actions, close); the middle button starts another instance.
@@ -127,21 +129,48 @@ exits; open windows are not affected. `boswas-shell(1)` is the reference.
     at the bottom edge, comes back when the pointer reaches it or while a
     flyout, menu or preview is open, and goes 400 ms after. A right-click
     on the taskbar's background offers "Taskbar settings".
-- **Start:** opens with the Super key (tap it) or its button.
+- **Start:** opens with the Super key (tap it) or its button. It is laid
+  out like the Start of Windows 11 since 2025 (ADR-0053): one page that
+  scrolls under the search box.
   - Search finds applications, pages of Boswas Control Center, and runs a
     command. It ranks applications by how often they were started and is
-    local: nothing is sent anywhere.
-  - Below it: the pinned applications, all applications by letter
-    (Windows applications included, as the menu entries `boswas-winapp`
-    creates), and "Recommended": applications installed in the last two
-    weeks and the applications used most.
+    local: nothing is sent anywhere. While you type, the results take the
+    page's place.
+  - **Pinned:** the first rows of pins; "Show all" shows the rest, "Show
+    less" folds them again. A new user's Start begins with Firefox ESR,
+    Files, the Software Center, Settings, Photos, Calendar, Weather and
+    Clock, then the other Boswas applications; an application that is not
+    installed is left out and Start fills up with others.
+  - **Recommended:** applications installed in the last two weeks and the
+    applications used most, two to a row; the section is gone when both
+    are turned off in Settings.
+  - **All:** every application (Windows applications included, as the
+    menu entries `boswas-winapp` creates), in one of three views chosen
+    at the section's right: **Category** (Productivity, Creativity,
+    Utilities & tools, Entertainment, Internet, System, Other, from what
+    each application says it is), **Grid** (alphabetical) or **List**
+    (under letter headings; a click on a letter opens an index of all
+    letters to jump to). Start remembers the view.
+  - Start grows with the screen: eight columns of pins where the screen
+    is at least 1600 by 900 pixels (at its scale), six on smaller ones,
+    and up to 85 % of the screen's height. At 1920x1080 it is 832 by 918
+    pixels. Pins have 36 px icons.
+  - The wheel scrolls it smoothly, a touchpad follows the fingers, and
+    with reduced motion it jumps. From the keyboard, typing searches, the
+    arrow keys go through the whole page and it scrolls along, Page Up,
+    Page Down, Home and End scroll, and Escape closes the index, clears
+    the search or closes Start. Every application on the page has a
+    right-click menu: open, pin to or unpin from Start and the taskbar,
+    and the application's own actions.
   - The user menu and the power menu, with the folders chosen in Settings
     next to the power button (Settings and Files by default; also
-    Documents, Downloads, Music, Pictures, Videos). Signing out,
-    restarting and shutting down ask first when windows are open.
-  - Settings > Personalization > Start: three layouts (more pins, the
-    default, more recommendations), whether recently added and most used
-    applications are recommended, and the folders.
+    Documents, Downloads, Music, Pictures, Videos, which open in Files).
+    Signing out, restarting and shutting down ask first when windows are
+    open.
+  - Settings > Personalization > Start: three layouts (the default, two
+    rows of pins and two of recommendations; more pins, three and one;
+    more recommendations, one and three), whether recently added and most
+    used applications are recommended, and the folders.
 - **Quick settings** (Super+A): Wi-Fi with the list of networks,
   Bluetooth with the list of devices, airplane mode, night light, the
   power mode, do not disturb, media controls, brightness, and volume with
@@ -166,7 +195,18 @@ exits; open windows are not affected. `boswas-shell(1)` is the reference.
 - **Screen capture** (Print for the screen, Shift+Print or Super+Shift+S
   for a region): the capture screen shows the picture, the user chooses
   what to keep and confirms. The result is saved to the Screenshots
-  folder under Pictures and copied to the clipboard.
+  folder under Pictures and copied to the clipboard. A notice says so: a
+  click on it, or on its entry in the notification centre, opens the
+  picture (in Photos), and its button "Open folder" opens the Screenshots
+  folder in Files.
+- **Opening files:** what the shell opens (a screenshot, the folders next
+  to the power button) opens with its default application, the one
+  chosen in Settings > Apps > Default apps or else the system's default
+  (ADR-0054). On a new system pictures open in Photos, PDF files in
+  Document Viewer, text in Text Editor, music and videos in Media Player,
+  archives in Archive Manager, folders in Files, calendars in Calendar,
+  and web pages in Firefox ESR. Programs that open files through the
+  desktop's defaults follow the same choices.
 - **Passwords for administrator actions:** when polkit needs a password
   (Control Center installing an update, for example) the shell shows the
   dialog, with a choice of administrator when several may authorise the
@@ -191,19 +231,25 @@ exits; open windows are not affected. `boswas-shell(1)` is the reference.
   returns to it.
 - **Icons:** the Boswas Prism icon pack
   ([icons](../../desktop/icons/README.md)): applications, places, devices,
-  file types, and the symbolic status and action icons. It draws every
-  icon the Boswas applications and Settings ask for; what other programs
-  ask for and it does not draw comes from Breeze's icon theme.
+  file types, and the symbolic status and action icons. Coloured icons
+  fill their square as the icons of Windows 11 do, so at the taskbar's
+  24 px an application's icon is about 22 px (ADR-0052). It draws every
+  icon the Boswas applications and Settings ask for, and nothing under
+  another program's name: other programs (Firefox ESR, and whatever you
+  install) show the icons they bring. What neither draws comes from
+  Breeze's icon theme.
 - **Pointer:** Boswas-Cursors
   ([cursors](../../desktop/cursors/README.md)), Boswas's own pointer
   theme: a white arrow with a dark outline, the same family for every
   shape, and a turning ring while a program is busy. It is the default of
   the compositor, of the login screen and of every program (ADR-0043).
 
-The pins are kept in `~/.config/boswas/shell.toml`; how often each
-application was started, when it was first seen (for "Recently added"),
-the applications that sent notifications and the last commands typed
-into Run are in `~/.local/state/boswas/`. None of it leaves the device.
+The pins and Start's view are kept in `~/.config/boswas/shell.toml`;
+pins you arranged yourself stay as they are when the defaults change.
+How often each application was started, when it was first seen (for
+"Recently added"), the applications that sent notifications and the last
+commands typed into Run are in `~/.local/state/boswas/`. None of it
+leaves the device.
 
 ## Windows and shortcuts
 
@@ -383,7 +429,7 @@ page.
 | Category | What it holds |
 |----------|---------------|
 | Home | The device (name, with Rename; maker and model), the account, the network, Boswas Update, dark mode and night light, Bluetooth devices, the background and theme, storage |
-| System | Display (monitors arranged by dragging; resolution, refresh rate, the fastest by default; variable refresh rate; scale; orientation; on or off; night light), Sound, Notifications (do not disturb and its schedule, banners per application), Power & battery (the time until the screens turn off), Storage (cleanup recommendations: temporary files, the Trash, old downloads), Multitasking, Troubleshoot (internet, sound, Bluetooth, display), Recovery (restart into the firmware settings or the boot menu), About (rename the device); in a live session Install Boswas OS. A display change that could leave you without a picture asks "Keep these display settings?" and goes back after fifteen seconds |
+| System | Display (monitors arranged by dragging; resolution, refresh rate, the fastest by default; variable refresh rate; scale, with the one recommended for the monitor marked; orientation; on or off; night light), Sound, Notifications (do not disturb and its schedule, banners per application), Power & battery (the time until the screens turn off), Storage (cleanup recommendations: temporary files, the Trash, old downloads), Multitasking, Troubleshoot (internet, sound, Bluetooth, display), Recovery (restart into the firmware settings or the boot menu), About (rename the device); in a live session Install Boswas OS. A display change that could leave you without a picture asks "Keep these display settings?" and goes back after fifteen seconds |
 | Bluetooth & devices | Bluetooth (add, pair, connect, remove, battery), Printers (CUPS; a test page; installing printing support), Cameras, Mouse, Touchpad, Keyboard (layouts and repeat), USB, Hardware & Drivers |
 | Network & internet | Wi-Fi (networks, passphrase, forget), Ethernet, VPN (WireGuard and OpenVPN: import a file, connect, disconnect, remove), Airplane mode, Proxy (read-only), Advanced network settings (adapters on and off, data used, connection details) |
 | Personalization | Background, Colours (dark or light, the accent colour, transparency), Themes (the ten presets: light or dark, the wallpaper and the colours of KDE applications; `boswas-preset apply <id>` does the same), Start, Taskbar, Fonts (install and remove fonts for your account) |
@@ -460,7 +506,8 @@ The native desktop does not have, or has not shown yet:
 - **Live blur.** The taskbar and the flyouts are drawn on a blurred copy
   of the wallpaper; a window behind them does not show through.
 - **Sharp X11 windows on scaled monitors.** X11 applications are drawn at
-  scale 1 and enlarged. They can also observe each other, as on any X
+  scale 1 and enlarged, so they look soft on the many laptops that now
+  start above 100 %. They can also observe each other, as on any X
   server; they cannot observe Wayland applications.
 - **Tested screen sharing.** The portal for it is installed and
   configured, shares the first monitor, and has not been run.
@@ -564,9 +611,16 @@ of the compositor's configuration:
 - **Text size:** 100 to 225 % (`[accessibility] text_scale`). The shell's
   text, the title bars (as far as their 32 px height allows, about
   180 %) and the text of every Qt application grow; nothing else does.
-- **Scaling:** 1.0 to 2.0 in steps of 0.25, for all screens (`[output]
-  scale`) or per monitor (`[outputs.NAME] scale`), in Settings > System >
-  Display.
+- **Scaling:** each monitor starts at the scale recommended for its size
+  and resolution, as on Windows (ADR-0055): a 13.3- or 14-inch 1920x1080
+  laptop panel at 150 %, a 15.6-inch one at 125 %, a 24-inch 1920x1080
+  monitor at 100 %, a 27-inch 3840x2160 one at 150 %; never so large that
+  less than 1024 by 720 pixels of room are left, and 100 % in a virtual
+  machine and where the monitor does not report a believable size. 1.0 to
+  2.0 in steps of 0.25 can be chosen for all screens (`[output] scale`) or
+  per monitor (`[outputs.NAME] scale`) in Settings > System > Display,
+  which marks the recommended scale; choosing it again leaves the monitor
+  automatic.
 - **Always show scroll bars** in the Qt applications
   (`[accessibility] always_show_scrollbars`), and how long a notification
   stays at least, 5 seconds to 5 minutes (`[notifications]

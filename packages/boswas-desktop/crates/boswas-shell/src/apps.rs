@@ -28,6 +28,9 @@ pub struct App {
     pub wm_class: String,
     /// The entry's additional actions ("New Window", "New Private Window").
     pub actions: Vec<DesktopAction>,
+    /// The entry's `Categories` (`Utility`, `Graphics`, ...), for Start's
+    /// category view.
+    pub categories: Vec<String>,
 }
 
 /// A `[Desktop Action ...]` group of a desktop entry.
@@ -204,11 +207,12 @@ pub fn parse_entry(id: &str, text: &str, locale: &str) -> Option<App> {
         keywords: lists("Keywords").into_iter().map(str::to_lowercase).collect(),
         wm_class: fields.get("StartupWMClass").map(|v| unescape(v)).unwrap_or_default(),
         actions,
+        categories: lists("Categories").into_iter().take(32).map(str::to_owned).collect(),
     })
 }
 
 /// Desktop entry string escapes: `\s`, `\n`, `\t`, `\r`, `\\`.
-fn unescape(value: &str) -> String {
+pub(crate) fn unescape(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     let mut chars = value.chars();
     while let Some(c) = chars.next() {
@@ -354,15 +358,21 @@ pub fn spawn(argv: &[String]) -> std::io::Result<()> {
 
 /// Starts an application, in a terminal when its entry asks for one.
 pub fn launch(app: &App) -> std::io::Result<()> {
-    if !app.terminal {
-        return spawn(&app.exec);
+    run(&app.exec, app.terminal)
+}
+
+/// Starts a command, in a terminal when `terminal` (a desktop entry's
+/// `Terminal=true`).
+pub fn run(argv: &[String], terminal: bool) -> std::io::Result<()> {
+    if !terminal {
+        return spawn(argv);
     }
-    for (terminal, flag) in [("boswas-terminal", Some("-e")), ("konsole", Some("-e")), ("foot", None), ("x-terminal-emulator", Some("-e"))] {
-        if program_exists(terminal) {
-            let mut argv = vec![terminal.to_owned()];
-            argv.extend(flag.map(str::to_owned));
-            argv.extend(app.exec.iter().cloned());
-            return spawn(&argv);
+    for (program, flag) in [("boswas-terminal", Some("-e")), ("konsole", Some("-e")), ("foot", None), ("x-terminal-emulator", Some("-e"))] {
+        if program_exists(program) {
+            let mut command = vec![program.to_owned()];
+            command.extend(flag.map(str::to_owned));
+            command.extend(argv.iter().cloned());
+            return spawn(&command);
         }
     }
     Err(std::io::Error::new(std::io::ErrorKind::NotFound, "no terminal emulator is installed"))
@@ -410,7 +420,7 @@ mod tests {
     use super::*;
 
     const ENTRY: &str = "[Desktop Entry]\nType=Application\nName=Files\nName[hi]=फ़ाइलें\nComment=Browse folders\n\
-        Exec=dolphin %u\nIcon=system-file-manager\nKeywords=folder;browse;\nStartupWMClass=dolphin\nActions=new;\n\
+        Exec=dolphin %u\nIcon=system-file-manager\nKeywords=folder;browse;\nStartupWMClass=dolphin\nActions=new;\nCategories=System;FileManager;\n\
         [Desktop Action new]\nName=New Window\nName[hi]=नई विंडो\nExec=dolphin --new-window %u\n\
         [Desktop Action unlisted]\nName=Hidden\nExec=dolphin --hidden\n";
 
@@ -421,6 +431,7 @@ mod tests {
         assert_eq!(app.exec, ["dolphin"]);
         assert_eq!(app.icon, "system-file-manager");
         assert_eq!(app.keywords, ["folder", "browse"]);
+        assert_eq!(app.categories, ["System", "FileManager"]);
         assert!(!app.terminal);
         assert_eq!(app.actions, [DesktopAction { name: "New Window".into(), exec: vec!["dolphin".into(), "--new-window".into()] }]);
         let hindi = parse_entry("org.kde.dolphin", ENTRY, "hi_IN.UTF-8").unwrap();
@@ -469,6 +480,7 @@ mod tests {
             keywords: keywords.iter().map(|k| k.to_string()).collect(),
             wm_class: String::new(),
             actions: Vec::new(),
+            categories: Vec::new(),
         }
     }
 

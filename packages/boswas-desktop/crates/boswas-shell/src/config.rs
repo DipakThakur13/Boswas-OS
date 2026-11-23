@@ -1,39 +1,77 @@
 //! What the user arranged in the shell: the applications pinned to the
-//! taskbar and to Start (`~/.config/boswas/shell.toml`), and the commands
-//! typed into the Run dialog (kept in the state directory).
+//! taskbar and to Start, and how Start lists all applications
+//! (`~/.config/boswas/shell.toml`), and the commands typed into the Run
+//! dialog (kept in the state directory).
 
 use std::path::{Path, PathBuf};
 
-/// Applications pinned to the taskbar of a new user, by desktop file id.
-pub const DEFAULT_TASKBAR: &[&str] = &[
-    "com.boswas.Files",
-    "firefox-esr",
-    "com.boswas.Terminal",
-    "com.boswas.ControlCenter",
-    "com.boswas.CompatibilityManager",
-];
+/// Applications pinned to the taskbar of a new user, by desktop file id:
+/// the file manager, the browser and the software store, as Windows pins
+/// File Explorer, the browser and the Store.
+pub const DEFAULT_TASKBAR: &[&str] = &["com.boswas.Files", "firefox-esr", "com.boswas.SoftwareCenter"];
 
-/// Applications pinned to Start for a new user, in order; Start fills the
-/// rest of its first page with other installed applications.
+/// Applications pinned to Start for a new user, in order, grouped the way
+/// Windows groups its first pins: the browser, files, the store, Settings
+/// and the everyday applications first; then the tools and media; then the
+/// system's own utilities. With eight columns the first row is the first
+/// group. An application that is not installed is left out and Start
+/// fills its first rows with other installed applications.
 pub const DEFAULT_START: &[&str] = &[
-    "com.boswas.Files",
     "firefox-esr",
+    "com.boswas.Files",
+    "com.boswas.SoftwareCenter",
     "com.boswas.ControlCenter",
-    "com.boswas.Terminal",
-    "com.boswas.TextEditor",
-    "com.boswas.Calculator",
     "com.boswas.Photos",
+    "com.boswas.Calendar",
+    "com.boswas.Weather",
+    "com.boswas.Clock",
+    "com.boswas.Calculator",
+    "com.boswas.TextEditor",
     "com.boswas.MediaPlayer",
     "com.boswas.Camera",
     "com.boswas.SnippingTool",
     "com.boswas.DocumentViewer",
-    "com.boswas.Calendar",
-    "com.boswas.Clock",
-    "com.boswas.Weather",
-    "com.boswas.ArchiveManager",
+    "com.boswas.Terminal",
     "com.boswas.TaskManager",
+    "com.boswas.ArchiveManager",
     "com.boswas.CompatibilityManager",
 ];
+
+/// How Start's "All" section lists the applications (`[start] view`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum AllView {
+    /// Groups by the kind of application (desktop entry `Categories`).
+    #[default]
+    Category,
+    /// An alphabetical grid of icons.
+    Grid,
+    /// An alphabetical list under letter headings.
+    List,
+}
+
+impl AllView {
+    pub const ALL: [AllView; 3] = [AllView::Category, AllView::Grid, AllView::List];
+
+    pub fn key(self) -> &'static str {
+        match self {
+            AllView::Category => "category",
+            AllView::Grid => "grid",
+            AllView::List => "list",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            AllView::Category => "Category",
+            AllView::Grid => "Grid",
+            AllView::List => "List",
+        }
+    }
+
+    fn from_key(key: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|v| v.key() == key)
+    }
+}
 
 /// Most pins of either kind.
 const MAX_PINS: usize = 60;
@@ -49,8 +87,13 @@ fn valid_id(id: &str) -> bool {
 pub struct ShellConfig {
     path: Option<PathBuf>,
     pub taskbar: Vec<String>,
+    /// The user arranged the taskbar (the file has its list); until then
+    /// the defaults of the installed version apply.
+    taskbar_set: bool,
     /// `None`: the user has not arranged Start; the defaults apply.
     pub start: Option<Vec<String>>,
+    /// How Start's "All" section lists the applications.
+    pub view: AllView,
 }
 
 impl Default for ShellConfig {
@@ -58,7 +101,9 @@ impl Default for ShellConfig {
         Self {
             path: None,
             taskbar: DEFAULT_TASKBAR.iter().map(|s| (*s).to_owned()).collect(),
+            taskbar_set: false,
             start: None,
+            view: AllView::default(),
         }
     }
 }
@@ -123,19 +168,35 @@ impl ShellConfig {
         };
         if let Some(taskbar) = pins("taskbar") {
             config.taskbar = taskbar;
+            config.taskbar_set = true;
         }
         config.start = pins("start");
+        let view = table.get("start").and_then(|s| s.get("view")).and_then(|v| v.as_str());
+        config.view = view.and_then(AllView::from_key).unwrap_or_default();
         config
     }
 
     pub fn to_toml(&self) -> String {
         let list = |ids: &[String]| ids.iter().map(|id| format!("\"{id}\"")).collect::<Vec<_>>().join(", ");
-        let mut out = String::from("# Written by boswas-shell: the applications pinned to the taskbar and to Start.\n");
-        out.push_str(&format!("[taskbar]\npinned = [{}]\n", list(&self.taskbar)));
+        let mut out = String::from("# Written by boswas-shell: the applications pinned to the taskbar and to Start,\n# and how Start lists all applications.\n");
+        if self.taskbar_set {
+            out.push_str(&format!("[taskbar]\npinned = [{}]\n\n", list(&self.taskbar)));
+        }
+        out.push_str(&format!("[start]\nview = \"{}\"\n", self.view.key()));
         if let Some(start) = &self.start {
-            out.push_str(&format!("\n[start]\npinned = [{}]\n", list(start)));
+            out.push_str(&format!("pinned = [{}]\n", list(start)));
         }
         out
+    }
+
+    /// Chooses how Start lists all applications. Returns whether it changed.
+    pub fn set_view(&mut self, view: AllView) -> bool {
+        if self.view == view {
+            return false;
+        }
+        self.view = view;
+        self.save();
+        true
     }
 
     fn save(&self) {
@@ -159,6 +220,7 @@ impl ShellConfig {
         } else {
             self.taskbar.retain(|p| p != id);
         }
+        self.taskbar_set = true;
         self.save();
         true
     }
@@ -397,6 +459,44 @@ mod tests {
         assert_eq!(back.taskbar, config.taskbar);
         assert_eq!(back.start, config.start);
         assert!(back.is_on_taskbar("org.kde.okular") && !back.is_on_taskbar("firefox-esr"));
+    }
+
+    #[test]
+    fn new_users_get_windows_like_pins_and_keep_their_own() {
+        // The taskbar: the file manager, the browser and the store; not
+        // Terminal or Settings.
+        assert_eq!(DEFAULT_TASKBAR, ["com.boswas.Files", "firefox-esr", "com.boswas.SoftwareCenter"]);
+        // Start: the browser first, then files, the store and Settings.
+        assert_eq!(&DEFAULT_START[..4], ["firefox-esr", "com.boswas.Files", "com.boswas.SoftwareCenter", "com.boswas.ControlCenter"]);
+        let mut unique = DEFAULT_START.to_vec();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(unique.len(), DEFAULT_START.len(), "each default once");
+        assert!(DEFAULT_START.iter().chain(DEFAULT_TASKBAR).all(|id| valid_id(id)));
+        // Choosing how Start lists everything does not freeze the taskbar's
+        // defaults: a user who never arranged the taskbar gets the defaults
+        // of each new version.
+        let mut config = ShellConfig::default();
+        assert!(config.set_view(AllView::List));
+        assert!(!config.set_view(AllView::List));
+        let text = config.to_toml();
+        assert!(!text.contains("[taskbar]") && !text.contains("pinned ="), "{text}");
+        let back = ShellConfig::parse(&text);
+        assert_eq!(back.view, AllView::List);
+        assert_eq!(back.taskbar, DEFAULT_TASKBAR, "the defaults still apply");
+        assert!(back.start.is_none(), "Start keeps its defaults too");
+        // A user's own taskbar and Start stay as they are, with the view.
+        let old = "[taskbar]\npinned = [\"com.boswas.Files\", \"firefox-esr\", \"com.boswas.Terminal\"]\n\n[start]\npinned = [\"firefox-esr\"]\n";
+        let mut theirs = ShellConfig::parse(old);
+        assert_eq!(theirs.taskbar, ["com.boswas.Files", "firefox-esr", "com.boswas.Terminal"]);
+        assert_eq!(theirs.view, AllView::Category, "files of earlier versions have no view: the default");
+        theirs.set_view(AllView::Grid);
+        let again = ShellConfig::parse(&theirs.to_toml());
+        assert_eq!((again.taskbar, again.start, again.view), (theirs.taskbar.clone(), theirs.start.clone(), AllView::Grid));
+        for bad in ["[start]\nview = \"tiles\"\n", "[start]\nview = 3\n", "[start]\nview = [\"list\"]\n"] {
+            assert_eq!(ShellConfig::parse(bad).view, AllView::Category, "{bad}");
+        }
+        assert_eq!(AllView::ALL.map(AllView::label), ["Category", "Grid", "List"]);
     }
 
     #[test]

@@ -55,8 +55,9 @@ fn next_refresh(due: Instant, now: Instant, frame: Duration) -> Instant {
 }
 
 /// Creates the virtual output and starts the frame timer. `millihertz`:
-/// the output's refresh rate (`None`: 60 Hz).
-pub fn init(state: &mut Boswas, width: i32, height: i32, millihertz: Option<i32>) -> Result<(), Box<dyn std::error::Error>> {
+/// the output's refresh rate (`None`: 60 Hz); `physical_mm`: the size it
+/// reports, as a monitor's EDID does ((0, 0): none).
+pub fn init(state: &mut Boswas, width: i32, height: i32, millihertz: Option<i32>, physical_mm: (i32, i32)) -> Result<(), Box<dyn std::error::Error>> {
     if !(64..=8192).contains(&width) || !(64..=8192).contains(&height) {
         return Err("the headless output must be between 64 and 8192 pixels on each side".into());
     }
@@ -73,19 +74,16 @@ pub fn init(state: &mut Boswas, width: i32, height: i32, millihertz: Option<i32>
     let output = Output::new(
         "HEADLESS-1".into(),
         PhysicalProperties {
-            size: (0, 0).into(),
+            size: physical_mm.into(),
             subpixel: Subpixel::Unknown,
             make: "Boswas".into(),
             model: "Headless".into(),
         },
     );
     let mode = Mode { size, refresh };
-    let scale = state
-        .config
-        .outputs
-        .get("HEADLESS-1")
-        .and_then(|settings| settings.scale)
-        .unwrap_or(state.config.output.scale);
+    let recommended = crate::scale::recommended("HEADLESS-1", physical_mm, (width, height), "");
+    super::RecommendedScale::record(&output, recommended);
+    let scale = state.config.output_scale("HEADLESS-1", recommended);
     output.create_global::<Boswas>(&state.display_handle);
     output.change_current_state(
         Some(mode),

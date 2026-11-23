@@ -15,6 +15,7 @@ mod input;
 mod ipc;
 mod keyaccess;
 mod render;
+mod scale;
 mod shell;
 mod state;
 mod stats;
@@ -44,6 +45,9 @@ Options:
   --headless-size WxH  size of the headless output (default 1920x1080)
   --headless-refresh HZ
                        refresh rate of the headless output (default 60)
+  --headless-physical-size WxH
+                       size in millimetres the headless output reports, as
+                       a monitor's EDID does (default: none)
   --socket NAME        Wayland socket name (default: the first free wayland-N)
   --config FILE        read only this configuration file
   --no-shell           do not start the shell
@@ -73,6 +77,8 @@ struct Args {
     headless_size: Option<(i32, i32)>,
     /// Millihertz.
     headless_refresh: Option<i32>,
+    /// Millimetres.
+    headless_physical_size: Option<(i32, i32)>,
     socket: Option<String>,
     config: Option<PathBuf>,
     no_shell: bool,
@@ -113,6 +119,15 @@ fn parse_args(mut argv: impl Iterator<Item = String>) -> Result<Option<Args>, St
                     .filter(|hertz| (1.0..=1000.0).contains(hertz))
                     .ok_or_else(|| format!("--headless-refresh: \"{text}\" is not a rate from 1 to 1000 Hz"))?;
                 args.headless_refresh = Some((hertz * 1000.0).round() as i32);
+            }
+            "--headless-physical-size" => {
+                let text = value("--headless-physical-size")?;
+                let size = text
+                    .split_once('x')
+                    .and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?)))
+                    .filter(|(w, h): &(i32, i32)| (0..=10_000).contains(w) && (0..=10_000).contains(h))
+                    .ok_or_else(|| format!("--headless-physical-size: \"{text}\" is not WIDTHxHEIGHT in millimetres"))?;
+                args.headless_physical_size = Some(size);
             }
             "--socket" => args.socket = Some(value("--socket")?),
             "--config" => args.config = Some(PathBuf::from(value("--config")?)),
@@ -223,7 +238,7 @@ fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     match backend.as_str() {
         "headless" => {
             let (w, h) = args.headless_size.unwrap_or((1920, 1080));
-            backend::headless::init(&mut state, w, h, args.headless_refresh)?;
+            backend::headless::init(&mut state, w, h, args.headless_refresh, args.headless_physical_size.unwrap_or((0, 0)))?;
         }
         #[cfg(feature = "winit")]
         "winit" => backend::winit::init(&mut state)?,
@@ -313,6 +328,9 @@ mod tests {
         assert_eq!(args.headless_refresh, None, "60 Hz unless asked");
         let fast = parse(&["--backend", "headless", "--headless-refresh", "143.856"]).unwrap().unwrap();
         assert_eq!(fast.headless_refresh, Some(143_856));
+        assert_eq!(fast.headless_physical_size, None, "no size unless asked");
+        let sized = parse(&["--headless-physical-size", "597x336"]).unwrap().unwrap();
+        assert_eq!(sized.headless_physical_size, Some((597, 336)));
         assert!(args.test_input);
         assert_eq!(args.command, ["foot", "-e", "top"]);
     }
@@ -323,6 +341,9 @@ mod tests {
         assert!(parse(&["--backend"]).is_err());
         assert!(parse(&["--headless-size", "big"]).is_err());
         assert!(parse(&["--headless-size", "12xx"]).is_err());
+        for size in ["big", "10x", "-5x300", "20000x10"] {
+            assert!(parse(&["--headless-physical-size", size]).is_err(), "{size}");
+        }
         for rate in ["0", "1001", "fast", "-60", "NaN"] {
             assert!(parse(&["--headless-refresh", rate]).is_err(), "{rate}");
         }

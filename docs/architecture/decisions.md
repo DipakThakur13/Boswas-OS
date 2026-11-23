@@ -1236,7 +1236,9 @@ reviewable and lets a designer change a value without reading Rust.
   presets is still generated and is unused. *(It was removed later:
   ADR-0042.)*
 - Third-party icon coverage is what the pack contains; other icons fall
-  back to Breeze (`breeze-icon-theme`).
+  back to Breeze (`breeze-icon-theme`). *(Changed by ADR-0052: the pack
+  draws no icon under another program's name, and a program's own icon
+  in `hicolor` comes before Breeze's.)*
 - The palette was chosen and contrast-checked by tooling; it has had no
   design review and no test with users.
 
@@ -1457,7 +1459,8 @@ attempted.
   Wine's Wayland driver on Debian 13. Letting chosen Windows
   applications onto Xwayland would be a policy decision of its own.
 - **Scaling.** X11 windows are drawn at scale 1 and enlarged on a scaled
-  monitor, so they look soft there.
+  monitor, so they look soft there. *(Since ADR-0055 many laptops start
+  at 125 or 150 %, the scale recommended for their panel.)*
 - **The administrator can turn it off.** When a system file sets
   `[xwayland] enabled = false`, a user's file does not turn the X server
   back on; a user can turn it off for their own session. A device that
@@ -1649,9 +1652,12 @@ configuration are missing. The feature list is in
   name: on or off, mode, scale, position and rotation, applied at start,
   on hotplug and on `reload-config`. The last enabled monitor is never
   turned off. `[output] scale` is the default for monitors without a
-  setting. There is no output-configuration protocol; a program reads the
-  monitors and their modes with the public `outputs` command and changes
-  them by writing the user's file and asking for a reload.
+  setting. *(Changed by ADR-0055: `[output] scale` is optional and the
+  shipped file sets none; a monitor without a scale of its own or for all
+  gets the scale recommended for its size and resolution.)* There is no
+  output-configuration protocol; a program reads the monitors and their
+  modes with the public `outputs` command and changes them by writing the
+  user's file and asking for a reload.
 - **Desktops are created and closed as needed.** A session starts with
   one; Task View and Super+Ctrl+D add more.
 - **Shortcuts follow Windows,** and stay fixed: there is no shortcut
@@ -2064,9 +2070,12 @@ system applications.
     where it is installed.
 - **Desktop defaults.** Ctrl+Alt+T, Super+E and Ctrl+Shift+Esc start the
   Boswas terminal, file manager and task manager; the taskbar and Start
-  of a new user pin the Boswas applications; a desktop entry that asks
-  for a terminal runs in `boswas-terminal`, which the package also
-  registers as Debian's `x-terminal-emulator`. Files answers
+  of a new user pin the Boswas applications *(changed by ADR-0053: the
+  taskbar pins Files, Firefox ESR and the Software Center, as Windows
+  does; Start begins with Firefox ESR, Files, the Software Center and
+  Settings)*; a desktop entry that asks for a terminal runs in
+  `boswas-terminal`, which the package also registers as Debian's
+  `x-terminal-emulator`. Files answers
   `org.freedesktop.FileManager1`, so other programs can show a file in
   it. The reminders service starts with the Boswas session through an
   XDG autostart entry.
@@ -2446,7 +2455,10 @@ for KDE applications the image no longer has.
   recommends the former. No package of the KDE Frameworks is installed by
   a Boswas list or dependency any more (`libkf6config-bin` went with
   ADR-0042). `breeze-icon-theme` stays: it is data only, the fallback for
-  icons of programs that are not Boswas's.
+  icons of programs that are not Boswas's. *(Changed by ADR-0052: a
+  program's own icon in `hicolor` comes first; Breeze gives the generic
+  icons the pack does not draw and the icons of programs that install
+  none.)*
 - **Icons the applications asked for.** The Prism pack gained 36 symbolic
   icons (300 designs, 535 files), so every icon name that the system
   applications, Settings and the Compatibility Manager request is drawn in
@@ -2776,7 +2788,9 @@ behind the user's consent).
   `/usr/bin`, a desktop entry, a manual page and a test suite.
   `boswas-snipping-tool` (`com.boswas.SnippingTool`) and `boswas-weather`
   (`com.boswas.Weather`). Both are pinned to Start for new users; Start's
-  first page holds them.
+  first page holds them. *(Changed by ADR-0053: Start has no pages;
+  Weather is in the first row of pins, the Snipping Tool in the second row
+  of eight, and behind "Show all" where Start has six columns.)*
 - **The Snipping Tool captures through the desktop, not around it.** A
   program cannot read the screen on Boswas OS (ADR-0037). The Snipping
   Tool hides its window, waits for the screen to be redrawn without it,
@@ -2880,6 +2894,9 @@ new logo and an icon pack that takes its design and colours from Windows
   joins). Nothing is copied from Microsoft: no logo, no product icon, no
   drawing (the browser is a generic globe, the Windows family a generic
   window). The Start button (`boswas-logo`) is the mark itself.
+  *(Changed by ADR-0052: the objects fill 88 to 94 % of their square; the
+  names of other programs are gone from both themes, which inherit
+  `hicolor` first, so those programs show their own icons.)*
 - The token file's `icon` section names the new colour roles (hues from
   light to deep, materials, light and shadow). The legacy navy pack keeps
   drawing the old mark from a kept copy and does not change.
@@ -2895,7 +2912,8 @@ size and can be changed by editing a generator rather than retracing.
   menu, installer, Start button, About, login, wallpapers, favicon.
 - 324 designs in 583 files: 375 in Boswas-Prism (99 applications, 19
   places, 17 devices, 32 mimetypes, 48 status, 160 actions) and 208
-  symbolic in Boswas-Prism-Light.
+  symbolic in Boswas-Prism-Light. *(Since ADR-0052: 318 designs in 555
+  files, 347 in Boswas-Prism with 71 applications.)*
 - Pale objects (folders, metal) are outlined to stay visible on white; at
   16 px some symbols remain hard to read (the charging battery's bolt).
 - **Verified:** the icon tests (45), token tests, the branding tests (18),
@@ -3113,7 +3131,10 @@ light.
   and four); recently added applications (the last 14 days) and the most
   used; folders next to the power button (Settings and Files start their
   programs; Documents, Downloads, Music, Pictures and Videos open with
-  `xdg-open`). Start's search finds the new pages.
+  `xdg-open`). Start's search finds the new pages. *(Changed by ADR-0053:
+  Start is one scrolling page, and the layouts are two rows of pins and
+  two of recommendations, three and one, one and three. Changed by
+  ADR-0054: the folders open with the shell's own opener, in Files.)*
 - **Multitasking:** with snapping off, dragging to an edge and
   Super+Left/Right do nothing, and Super+Up/Down still maximise, restore
   and minimise; snap layouts from the maximise button; new, snap layouts
@@ -3532,3 +3553,432 @@ forecasts only while its window was open.
 **Revisit when** the units have run under a real user manager and their
 sandbox does not start there, when the hours should follow the device's
 time zone, or when the lock screen is to show more than the home place.
+
+## ADR-0052 Coloured icons fill their square; other programs keep their own icons
+
+Follows ADR-0047 (the design of the Prism icons) and changes how a name is
+looked up. Reported on 2026-11-23: "our icons are way smaller than the
+Windows icons; third-party apps should use their own icons".
+
+**Context.**
+
+- The coloured Prism icons (applications, places, devices, file types)
+  were drawn with wide margins: their objects used about 64 to 86 % of
+  the canvas (median about 83 %), so at the taskbar's 24 px they read
+  about a fifth smaller than the application icons of Windows 11.
+- Prism drew icons under other programs' names (`firefox-esr`,
+  `org.kde.dolphin`, `okular`, `wine`, `hwinfo` and more), and both themes
+  listed `hicolor` last in `Inherits` (`breeze-dark,breeze,Adwaita,hicolor`
+  for dark panels): a program's own icon, which it installs into
+  `hicolor`, came after Breeze's drawing of it, or after Boswas's.
+- Qt's icon loader (`QIconLoader`, checked with Qt 6.12) and KDE's
+  `KIconLoader` search `hicolor` last whatever `Inherits` says. The
+  shell's loader (`boswas-ui`) took scalable artwork from any theme of
+  the chain before a fixed size of an earlier one, so even with `hicolor`
+  first a program that installs only PNG files (Firefox ESR in Debian)
+  would have lost to Breeze's SVG; the compositor read no PNG icons at
+  all.
+
+**Decision.**
+
+- **Objects fill their square.** `fit()` in
+  `desktop/icons/tools/build_prism.py` scales each coloured object
+  uniformly so that its bounding box, the contact shadow aside, is 92 % of
+  the canvas on its longer side, 94 % for round objects (discs, rings,
+  gears) and 88 % for objects that fill a square box (the chip, the
+  calendar, the grid of tiles, the network socket); centred across, and
+  centred with its contact shadow in height, never closer than 2 units to
+  the edge. The contact shadow is at most 20
+  units high and inside the canvas. At 24 px an object is about 22 px on
+  its longer side. The Boswas OS mark (`boswas-logo` and its aliases) is
+  left exactly as the branding draws it. The symbolic icons do not change
+  (their median extent, about 78 % of the canvas, is in line with the
+  Fluent system icons).
+- **No icon is named after another program.** Removed from both Prism
+  themes: `systemsettings`, `hwinfo`, the `org.kde.*` names,
+  `firefox-esr`, `konqueror`, `kwrite`, `kate`, `gvim`, `gwenview`,
+  `okular`, `ark`, `spectacle`, `khelpcenter`, `kfind`, `kwalletmanager`,
+  `partitionmanager`, `kmenuedit`, `htop`, `wine` and `wine-stable`. An
+  application icon is a `boswas-*` name or a generic name of the icon
+  naming specification and the desktops; the designs live on under those
+  (`boswas-hardware` replaces `hwinfo`; Photos, Document Viewer and
+  Snipping Tool have their Boswas names), and six designs that only other
+  programs' names used are dropped. 318 designs in 555 files: 347 in
+  `Boswas-Prism` (71 applications, 19 places, 17 devices, 32 file types,
+  48 status, 160 actions) and the 208 symbolic icons again in
+  `Boswas-Prism-Light`.
+- **`hicolor` first.** `Inherits=hicolor,breeze-dark,breeze,Adwaita`
+  (Boswas Prism Light: `hicolor,breeze,Adwaita`). A name resolves to the
+  Prism drawing, else the program's own icon, else Breeze (Dark), else
+  Adwaita. The generic action and status icons that Prism does not draw
+  still come from Breeze.
+- **Every loader of ours follows that order.** GTK does by itself. The
+  toolkit's `fluent.icon()` looks in Prism, then itself in `hicolor` (the
+  `apps` icons: scalable, else the fixed sizes from 512 down to 16, in the
+  first icon directory that has the name), then asks Qt's theme.
+  `boswas-ui`'s loader, which the shell and the compositor use, searches
+  theme by theme in the specification's order: the first theme that has
+  the icon at any size gives it, at its best size (scalable artwork counts
+  as any size, else the fixed size nearest to the one asked for and
+  preferably not below it), and the `pixmaps` directories come last. The
+  compositor builds `boswas-ui` with its `images` feature, so window
+  frames, Alt+Tab and Task View show PNG application icons too, with the
+  shell's size limits. Control Center's application lists ask the toolkit.
+- References to removed names follow: Hardware & Drivers shows
+  `boswas-hardware` in Control Center and in Start's search, and Control
+  Center's Windows Compatibility falls back to
+  `boswas-windows-application` instead of `wine`.
+- The legacy Boswas and Boswas Light packs (not the default) do not
+  change.
+
+**Why.**
+
+- Windows 11 application icons fill their square; with about a sixth of
+  the canvas left as margin the taskbar and Start looked sparse next to
+  it, and the user compared the two.
+- A program's icon is how people recognise it. Breeze's redrawing, or a
+  Boswas drawing under the program's name (Firefox ESR as a generic
+  globe), showed something its maker did not draw; the icon theme
+  specification lets the theme order decide, so `hicolor` goes first.
+- Qt's and KDE's loaders ignore that order for `hicolor`, so the toolkit
+  looks there itself; the shell and the compositor use one loader that
+  follows the specification exactly.
+
+**Left out.**
+
+- Changing `KIconLoader`: a KDE application someone installs still sees
+  Breeze's drawing of a program first.
+- Larger symbolic icons, and any change to the legacy packs.
+- Icons for other programs: they bring their own, or get the generic name
+  their desktop entry falls back to.
+
+**Consequences.**
+
+- Firefox ESR shows its own icon on the taskbar, in Start, in window
+  frames and in Settings; so does any program that installs one into
+  `hicolor`, and a program without one shows Breeze's drawing as before.
+- `test_prism.py` resolves names through the installed `index.theme`
+  files with stand-ins for `hicolor`, Breeze, Breeze Dark and Adwaita, and
+  checks that every object fills 88 to 94 % of its square, centred, with a
+  low shadow inside the canvas, and that no icon is named after another
+  program. `desktop/icons/README.md` is the reference.
+- **Verified:** the icon tests (52; 45 at ADR-0047), the toolkit's 148
+  tests, `boswas-ui`'s 35 (a program with only PNG files in `hicolor`
+  beats Breeze's SVG of the same name; generic actions still come from
+  Breeze), Control Center's 695 (5 skipped). Contact sheets before and
+  after, at 16 to 96 px, were looked at.
+- **Not verified:** the real Firefox icon (the tests use stand-ins),
+  `KIconLoader`'s order, and Qt 6.8 specifically (Qt's own order was
+  checked with Qt 6.12).
+
+**Revisit when** a program's own icon looks wrong next to Prism's in a
+real session, or Qt's loader starts to honour `Inherits` for `hicolor`.
+
+## ADR-0053 Start like the 2025 Windows 11 Start, and default pins like Windows
+
+Changes Start as ADR-0049 left it, and the pins of a new user (ADR-0040,
+ADR-0046). Reported on 2026-11-23: "the Start menu is
+smaller than Windows'; use default applications (pinned)". Asked, the
+user chose a Start like the new 2025 Windows 11 Start, and better default
+pins without new software.
+
+**Context.** Start was a fixed panel of 642 by 726 pixels: a grid of
+pins, six columns and three rows, turned by pages; all applications as a
+second view behind "All apps" with a Back button; the recommendations
+under the grid; 32 px icons (`start-width`, `start-height`,
+`start-columns`, `start-rows`, `start-icon` in the token file). The
+layouts were four rows of pins and one of recommendations, three and
+three, two and four. A new user's taskbar pinned Files, Firefox ESR,
+Terminal, Control Center and the Compatibility Manager.
+
+**Decision.**
+
+- **One scrolling page** under the search box
+  (`packages/boswas-desktop/crates/boswas-shell/src/start.rs`): Pinned
+  (the first rows; "Show all" and "Show less" when there are more pins),
+  Recommended (two applications a row; hidden when `[start]
+  recently_added` and `most_used` are both off), and All. All has three
+  views: Category (Productivity, Creativity, Utilities & tools,
+  Entertainment, Internet, System, Other, from the `Categories` of each
+  desktop entry, by the first rule that matches), Grid (alphabetical) and
+  List (under letter headings; a heading opens an index of the letters,
+  A to Z, the letters of other scripts that names start with, and #).
+  The view is kept in `~/.config/boswas/shell.toml` as `[start] view`
+  (`"category"`, the default, `"grid"`, `"list"`). While something is
+  typed the search results take the page's place. The user and power
+  buttons, with the folders, stay at the bottom.
+- **Its size follows the screen:** eight columns where the output is at
+  least 1600 by 900 logical pixels, else six; a cell of 96 by 88 and 32 px
+  of padding on each side, so 832 px wide with eight columns (at 1920x1080
+  and 100 %) and 640 with six; 85 % of the output's height, at most 1200
+  px and never over the taskbar (918 px at 1920x1080, 652 at 1366x768).
+  Pins and the grid have 36 px icons, a step above the 32 px of Windows;
+  the list 24 px. Rows grow with the text size.
+- **Layouts** (Personalization > Start): by default two rows of pins and
+  two of recommendations; more pins: three and one; more recommendations:
+  one and three.
+- **Moving through it:** the wheel scrolls a row of tiles per notch,
+  smoothly over 200 ms on the token file's decelerate curve; a touchpad
+  scrolls pixel by pixel; with reduced motion the page jumps. Typing
+  always searches; the arrow keys go through the whole page and it
+  scrolls along; Page Up, Page Down, Home and End scroll; Escape closes
+  the index, then clears the search, then closes Start. Every application
+  in Pinned, Recommended and All has the right-click menu (Open, pin to or
+  unpin from Start and the taskbar, the application's own actions).
+- **Drawing:** the panel (shadow, material, outline) is drawn once and
+  kept while its size, place, theme and wallpaper stay the same; while the
+  page scrolls only the page is drawn, and the rows outside its window are
+  put back from the kept panel.
+- **Tokens** (`shell` section; `desktop/ui/README.md`): `start-columns` 8,
+  `start-columns-narrow` 6, `start-wide-output` 1600 by 900, `start-cell`
+  96 by 88, `start-padding` 32, `start-height-fraction` 0.85,
+  `start-max-height` 1200, `start-rows` 2, `start-recommended-rows` 2,
+  `start-icon` 36, `start-list-icon` 24. `start-width` and `start-height`
+  are gone.
+- **Default pins** (`config.rs`), arranged as Windows arranges them. The
+  taskbar: Files, Firefox ESR and the Software Center, as Windows pins
+  File Explorer, the browser and the Store. Start: Firefox ESR, Files, the
+  Software Center, Settings, Photos, Calendar, Weather and Clock (the
+  first row of eight), then Calculator, Text Editor, Media Player, Camera,
+  Snipping Tool, Document Viewer, Terminal, Task Manager, Archive Manager
+  and the Compatibility Manager. An entry that is not installed is
+  skipped, and with fewer than 16 Start is filled up to 16 with other
+  installed applications. A user's own lists are kept. `shell.toml` gets a
+  `[taskbar]` list only once the user arranges the taskbar, so a user who
+  never did gets the defaults of the installed version.
+
+**Why.**
+
+- The user asked for Start as Windows 11 has had it since 2025: one page
+  instead of pages of pins and a second view, and a panel that uses a
+  large screen. On a small one Start keeps six columns.
+- The pins are what a new user reaches for first; Windows starts with the
+  file manager, the browser and the store on the taskbar. Nothing new is
+  installed for it.
+
+**Left out.**
+
+- Files in "Recommended" (the shell keeps no history of files), a side
+  panel for a phone, folders of pins, and arranging pins by dragging.
+
+**Consequences.**
+
+- Start is larger on most screens: 832 by 918 pixels at 1920x1080 instead
+  of 642 by 726.
+- Terminal, Settings and the Compatibility Manager are no longer on a new
+  user's taskbar; they stay in Start. A `shell.toml` written by an earlier
+  version always held a `[taskbar]` list, so a user who had pinned
+  anything keeps the taskbar they had.
+- **Verified:** the shell's 127 tests (115 before), with new ones for the
+  default pins (and that choosing a view does not freeze the taskbar's
+  defaults), the category rules, smooth scrolling and revealing the
+  focused control, keyboard access to every part of Start, and that
+  drawing Start again stays cheap (a bound that catches a page drawn
+  whole or icons decoded each time); one more, ignored, writes pictures of
+  Start. Looked at by the builder: Start in the category, grid and list
+  views, at the top and scrolled, at 1920x1080, 1366x768 and 2560x1440, at
+  100 and 175 % text, in both schemes, expanded, with the index,
+  searching, and with the taskbar at the left; live on the headless
+  compositor, scrolling, the keys, the index, Show all, the menus and
+  Start at 125 % scale.
+- **Not verified:** smooth scrolling by a wheel with notches on the live
+  compositor (injected scrolling only), 225 % text by eye.
+
+**Revisit when** people miss files in Start, or pins should be arranged by
+dragging.
+
+## ADR-0054 The shell opens files with their default applications
+
+Reported on 2026-11-23: clicking a screenshot in the notification panel
+to open it did nothing.
+
+**Context.** The shell opened a screenshot, and the folders next to
+Start's power button, with `xdg-open`, and no package installed
+`xdg-utils`: the program did not exist. The screenshot's notice also had
+two buttons, both called "Open".
+
+**Decision.**
+
+- **The shell resolves the default application itself**
+  (`packages/boswas-desktop/crates/boswas-shell/src/open.rs`), by the
+  freedesktop MIME Applications Associations specification:
+  - the MIME type from the file name, for the names the shell opens
+    (pictures: PNG, JPEG, GIF, WebP, BMP, SVG, TIFF, ICO; PDF; plain text
+    and logs; Markdown and HTML, which also count as plain text), or
+    `inode/directory` for a folder;
+  - then `[Default Applications]` of the `mimeapps.list` files in the
+    specification's order: `$XDG_CONFIG_HOME`, `$XDG_CONFIG_DIRS`, then
+    the `applications` directories of `$XDG_DATA_HOME` and `$XDG_DATA_DIRS`;
+    in each, `boswas-mimeapps.list` (`<desktop>-mimeapps.list` for each
+    name in `XDG_CURRENT_DESKTOP`) before `mimeapps.list`; a default that
+    is not installed is skipped;
+  - then `[Added Associations]` less `[Removed Associations]`, then the
+    desktop entries that declare the type, by name. `Hidden=true` masks an
+    entry of the same id further down the path; an entry in a
+    sub-directory has the directory in its id (`kde/okular.desktop` is
+    `kde-okular.desktop`); `TryExec` is checked;
+  - the entry's `Exec` becomes an argument list without a shell (`%f`,
+    `%F`: the path; `%u`, `%U`: its percent-encoded `file://` address;
+    `%c`, `%k`, `%i`, `%%`; deprecated codes dropped; without a file code
+    the path is appended; quoted arguments stay as they are), and
+    `Terminal=true` runs it in a terminal (Boswas Terminal first);
+  - `xdg-open` only when the type is not one of those or no application
+    is found.
+- **The screenshot notice:** a click on the toast or on its entry in the
+  notification centre opens the picture; its button "Open folder" opens
+  the folder the picture is in (Screenshots) in Files. Start's folder
+  buttons use the same opener (a missing folder is created first). When
+  nothing can open a file the shell says so in a notice ("The file could
+  not be opened").
+- **`xdg-utils`** joins the desktop package list and `boswas-desktop`'s
+  `Depends`, for the other programs that open files and addresses with
+  `xdg-open` (the toolkit does where there is no portal) and as the
+  shell's last resort.
+- **The system's default applications.** `boswas-apps` ships
+  `/usr/share/applications/mimeapps.list`: pictures in Photos, PDF in
+  Document Viewer, text (plain text, logs, Markdown, scripts, CSV, JSON,
+  XML, INI) in Text Editor, music and videos in Media Player, archives
+  (ZIP, TAR and its compressed kinds, gzip, bzip2, xz, zstd) in Archive
+  Manager, folders in Files, calendars in Calendar, and `http`, `https`
+  and HTML in Firefox ESR (`firefox-esr.desktop`). Each type is one its
+  application declares in its desktop entry. The file is not
+  `boswas-mimeapps.list`: `boswas-compat-manager` already ships that one
+  with the Windows programs and installers; the specification reads it
+  first, and the two name no type in common. A choice in Settings > Apps
+  > Default apps (`~/.config/mimeapps.list`) or a file of the
+  administrator in `/etc/xdg` comes before both.
+
+**Why.**
+
+- Opening a file the shell itself made should not depend on a separate
+  script and how it recognises the desktop. The shell reads the same
+  files in the same order as Settings' Default apps page, so the choice
+  made there is the one the shell follows.
+- An argument list means a file name with spaces, quotes, `;` or `$` is
+  passed as one argument and never interpreted by a shell.
+- Without system defaults a new user's picture would open in whatever
+  application sorts first among those that declare PNG.
+
+**Left out.**
+
+- Content sniffing and the whole shared-mime-info database in the shell:
+  it opens few kinds of file; everything else goes to `xdg-open`.
+- An "Open with" choice in the shell's notices.
+
+**Consequences.**
+
+- A screenshot opens in Photos; "Open folder" opens Screenshots in Files.
+- `boswas-desktop` depends on `xdg-utils`. Two new package-stage checks:
+  `xdg-utils` is in `boswas-desktop`'s `Depends`, and `boswas-apps` ships
+  the default applications (pictures in Photos, folders in Files, web
+  addresses in Firefox ESR), each naming a desktop entry that one of the
+  Boswas packages installs (Firefox ESR's comes from Debian).
+- **Verified:** unit tests of the opener (the types, the order of the
+  files, defaults that are not installed, added, removed and hidden
+  entries, sub-directory ids, `Exec` with hostile file names, and the
+  shipped file: every one of its pairs is declared by the entry it names);
+  a new end-to-end test, `crates/boswas-shell/tests/opening.rs`, with the
+  real compositor and shell: Print, the notice, a click, and a stand-in
+  Photos gets the picture as one argument; "Open folder", and a stand-in
+  Files gets the folder's `file://` address. Looked at: the screenshot's
+  toast and its entry in the notification centre.
+- **Not verified:** a real Photos (stand-ins), the file's installed path
+  in a package build (the package-stage check has not run yet).
+
+**Revisit when** the shell has to open more kinds of file, or Settings
+writes default applications to another file.
+
+## ADR-0055 A recommended display scale for each monitor, as Windows has
+
+Changes the scale rule of ADR-0036 (`[output] scale` for every monitor
+without a setting of its own). Asked on 2026-11-23, the user chose a
+recommended display scale like Windows'.
+
+**Context.** Every monitor without its own setting used `[output] scale`,
+which the shipped `compositor.toml` set to 1.0. On a 13.3-inch
+1920x1080 laptop panel that makes text and controls small, where Windows
+starts at 150 %.
+
+**Decision.**
+
+- **The recommended scale**
+  (`packages/boswas-desktop/crates/boswas-compositor/src/scale.rs`) is the
+  monitor's pixel density over a reference: 110 pixels per inch for
+  built-in panels (connectors `eDP`, `LVDS`, `DSI`), seen from arm's
+  length; 95250 / (152.4 + 2.2 × the picture's height in mm) for external
+  monitors, seen from farther the larger they are (about 118 for 24
+  inches, 107 for 27 and 93 for 32). It is the largest supported step
+  (100, 125, 150, 175, 200 %) that the quotient reaches within 0.1, and a
+  smaller one where it would leave less than 1024 by 720 logical pixels.
+  A portrait panel is judged as it stands.
+- **100 % where nothing sensible is known:** no size or a zero size; no
+  mode; more than 1.6 m on the longer side; a size whose shape differs
+  from the picture's by more than 15 %; a size that is a common aspect
+  ratio in centimetres (16 by 9, 16 by 10, 4 by 3, 5 by 4, 3 by 2, 21 by 9,
+  64 by 27, 32 by 9: some displays store their aspect ratio there), on any
+  output; under 10 inches for an external monitor or 4 inches for a
+  built-in panel; and on the virtual graphics devices of
+  virtual machines (DRM drivers `virtio_gpu`, `qxl`, `bochs`, `vmwgfx`,
+  `vboxvideo`, `cirrus`, `hyperv_drm`).
+- Examples from the tests: built-in 13.3 or 14 inches at 1920x1080 150 %,
+  15.6 inches 125 %, 1366x768 100 %, 14 inches at 2560x1600 200 %;
+  monitors of 24 inches at 1920x1080 and 27 inches at 2560x1440 100 %, 27
+  and 32 inches at 3840x2160 150 %.
+- **`[output] scale` is optional,** and the shipped `compositor.toml` sets
+  none. A monitor's scale is its `[outputs.NAME] scale`, else `[output]
+  scale`, else its recommendation. A value someone set, an old `scale =
+  1.0` included, is kept. An unsupported `[output] scale` is reported and
+  means automatic; an unsupported `[outputs.NAME] scale` is ignored.
+- **Where the size comes from:** the hardware back end takes the EDID size
+  and the mode in use, works the recommendation out when a monitor is set
+  up and again when the configuration is applied, and reads the DRM
+  driver's name (logged as "driver NAME"); the headless back end reports
+  `--headless-physical-size WxH` (millimetres; none by default, so 100 %);
+  the nested back end is 100 % unless the configuration says otherwise.
+- **The `outputs` reply** carries `recommended_scale` for each monitor.
+- **Settings > System > Display** marks that scale "(Recommended)" in the
+  scale box and shows it while no scale is set; choosing it removes the
+  monitor's own key, so the monitor stays automatic. Where a scale is set
+  for every monitor, the chosen value is written for the monitor, since
+  without it that scale would apply.
+
+**Why.**
+
+- Windows recommends a scale from the panel's size and resolution, and
+  people coming from it expect a laptop to start readable without a visit
+  to Settings.
+- A built-in panel is seen from closer than a monitor, and a large monitor
+  from farther than a small one. Leaning towards the smaller step keeps
+  more room on the screen, as Windows does; 1024 by 720 logical pixels is
+  the room the taskbar, Start and Settings are made for.
+- A virtual machine's display has no physical size whatever its EDID
+  says, and a projector or a monitor that stores nonsense must not get a
+  huge desktop.
+
+**Left out.**
+
+- Scales above 200 % (the supported steps end there: a 13.3-inch 4K panel
+  gets 200 %), a scale per application, and sharp X11 programs: X11
+  windows are still drawn at scale 1 and enlarged (ADR-0034).
+
+**Consequences.**
+
+- Many laptops now start at 125 or 150 %; a 1920x1080 panel at 150 % is a
+  desktop of 1280 by 720 logical pixels. An installed system that never
+  set a scale gets the recommendation after the update, because the 1.0
+  came from the shipped file.
+- X11 programs look soft on monitors above 100 %, which is now the default
+  on many laptops.
+- **Verified:** the compositor's 123 unit tests (119 before: the tables
+  above for every built-in connector kind and for external connectors,
+  the cases that mean 100 %, the order of the settings, an old explicit
+  1.0) and 21 end-to-end tests (20 before; a 27-inch 3840x2160 monitor of
+  597 by 336 mm gets 150 % and a desktop of 2560 by 1440, a scale that is
+  set wins, no size means 100 %); Control Center's tests for the
+  "(Recommended)" mark and for removing the monitor's key. Looked at:
+  Settings > Display, and the desktop live on the headless compositor at
+  125 %.
+- **Not verified:** real hardware: the DRM driver's name and real EDIDs.
+
+**Revisit when** real monitors' EDIDs give recommendations people change
+back, or X11 programs must be sharp on scaled monitors.
