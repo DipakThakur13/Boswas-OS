@@ -281,6 +281,8 @@ check "desktop: the programs run and report the release version" \
 	bash -c "'$extract/usr/bin/boswas-compositor' --version | grep -q '^boswas-compositor ' &&
 		'$extract/usr/libexec/boswas/boswas-shell' --version | grep -q '^boswas-shell ' &&
 		grep -qx '${BOSWAS_VERSION_ID}' '$extract/usr/share/boswas/compositor/version'"
+check "desktop: depends on xdg-utils (xdg-open, for programs that open files and addresses)" \
+	bash -c "dpkg-deb -f '$desktop_deb' Depends | grep -qE '(^|, )xdg-utils(,|\$| )'"
 check "desktop: session entry, session target, lock-screen PAM service and compositor defaults" \
 	bash -c "grep -qx 'Exec=/usr/bin/boswas-session' '$extract/usr/share/wayland-sessions/boswas.desktop' &&
 		grep -qx 'BindsTo=graphical-session.target' '$extract/usr/lib/systemd/user/boswas-session.target' &&
@@ -421,6 +423,15 @@ check "apps: the reminders service is shipped and starts with the Boswas session
 		f='$extract/etc/xdg/autostart/com.boswas.Reminders.desktop' &&
 		grep -qx 'Exec=boswas-reminders' \"\$f\" && grep -qx 'OnlyShowIn=Boswas;' \"\$f\" && grep -qx 'NoDisplay=true' \"\$f\" &&
 		! test -e '$extract/usr/share/applications/com.boswas.Reminders.desktop'" _ "$apps_listing"
+check "apps: default applications for the Boswas desktop (pictures open in Photos, folders in Files, web addresses in Firefox ESR)" \
+	bash -c "grep -qE ' \\./usr/share/applications/mimeapps\\.list\$' <<<\"\$1\" &&
+		f='$extract/usr/share/applications/mimeapps.list' &&
+		grep -qx '\\[Default Applications\\]' \"\$f\" &&
+		grep -qx 'image/png=com.boswas.Photos.desktop' \"\$f\" &&
+		grep -qx 'inode/directory=com.boswas.Files.desktop' \"\$f\" &&
+		grep -qx 'x-scheme-handler/https=firefox-esr.desktop' \"\$f\" &&
+		for id in \$(sed -n 's/^[^#=]*=//p' \"\$f\" | tr ';' '\\n' | sort -u | grep -v '^firefox-esr.desktop\$'); do
+			test -s '$extract/usr/share/applications/'\"\$id\" || { echo \"no entry \$id\"; exit 1; }; done" _ "$apps_listing"
 check "apps: the weather update for the lock screen is a hardened user service, its timer enabled for every user with the Boswas session" \
 	bash -c "grep -qE ' \\./usr/lib/systemd/user/boswas-weather-update\\.service\$' <<<\"\$1\" &&
 		grep -qE ' \\./usr/lib/systemd/user/boswas-weather-update\\.timer\$' <<<\"\$1\" &&

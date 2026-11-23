@@ -128,7 +128,11 @@ Logical pixels, shared by the shell and the compositor's window frames:
 |-------|-------|
 | `taskbar-height`, `taskbar-button`, `taskbar-icon` | 48, 40, 24 |
 | `taskbar-indicator`, `taskbar-indicator-active` | 6 by 3, 16 by 3 |
-| `start-width`, `start-height`, `start-columns`, `start-rows`, `start-icon` | 642, 726, 6, 3, 32 |
+| `start-columns`, `start-columns-narrow`, `start-wide-output` | 8, 6, 1600 by 900: eight columns of pins on outputs at least that large (logical pixels), six on smaller ones |
+| `start-cell`, `start-padding` | 96 by 88, 32: a pin's cell and the panel's side padding (Start is 832 wide with eight columns) |
+| `start-height-fraction`, `start-max-height` | 0.85, 1200: Start's height as a share of the output's, and its limit |
+| `start-rows`, `start-recommended-rows` | 2, 2: rows of pins and of recommendations in the default layout |
+| `start-icon`, `start-list-icon` | 36, 24: pins and the grid; the list |
 | `flyout-margin`, `quick-settings-width`, `notification-width`, `toast-width` | 12, 360, 364, 364 |
 | `titlebar-height`, `caption-button`, `window-border`, `resize-margin` | 32, 46 by 32, 1, 8 |
 | `caption-close-hover`, `caption-close-pressed` | `#C42B1C`, `#B02A1F`: the red of the close button, the only interface colours in the file that are not palette references |
