@@ -227,6 +227,8 @@ impl Shell {
                     self.mark(Role::Flyout);
                 }
             }
+            (Role::Flyout, Some(Flyout::Clipboard)) => self.clip_scroll(steps),
+            (Role::Flyout, Some(Flyout::Emoji)) => self.emoji_scroll(steps),
             (Role::Flyout, Some(Flyout::Notifications)) => {
                 let max = self.st.notes.history.len().saturating_sub(1) as i64;
                 let scroll = (self.st.notes.scroll as i64 + i64::from(steps)).clamp(0, max) as usize;
@@ -404,6 +406,8 @@ impl Shell {
             },
             Action::Capture(_) => {}
             Action::Lock(act) => self.lock_action(act, index),
+            Action::Clip(act) => self.clip_action(act),
+            Action::Emoji(act) => self.emoji_action(act),
         }
     }
 
@@ -800,6 +804,8 @@ impl Shell {
         match self.open_kind() {
             Some(Flyout::Start) => self.start_key(&event, typed),
             Some(Flyout::Quick) => self.quick_key(&event, typed),
+            Some(Flyout::Clipboard) => self.clip_key(&event, typed),
+            Some(Flyout::Emoji) => self.emoji_key(&event, typed),
             Some(Flyout::Notifications | Flyout::TrayOverflow) => match event.keysym {
                 Keysym::Escape => self.close_flyout(),
                 Keysym::Return | Keysym::KP_Enter | Keysym::space => {

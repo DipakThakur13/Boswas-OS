@@ -39,6 +39,10 @@ pub enum Flyout {
     Notifications,
     /// Tray icons that do not fit on the taskbar.
     TrayOverflow,
+    /// The clipboard history (Super+V).
+    Clipboard,
+    /// The emoji and symbols panel (Super+. and Super+;).
+    Emoji,
 }
 
 /// A tooltip waiting to be shown or showing.
@@ -110,6 +114,11 @@ pub struct State {
     pub seen: crate::config::SeenApps,
     /// The lock screen: the weather summary the Weather application keeps.
     pub weather: crate::weather::Watch,
+    /// The clipboard history and what its flyout shows.
+    pub clips: crate::clipboard::History,
+    pub clipview: crate::clipview::View,
+    /// The emoji panel.
+    pub emoji: crate::emoji::Panel,
 }
 
 #[cfg(test)]
@@ -187,6 +196,9 @@ impl State {
             senders: crate::config::Senders::default(),
             seen: crate::config::SeenApps::default(),
             weather: crate::weather::Watch::default(),
+            clips: crate::clipboard::History::default(),
+            clipview: crate::clipview::View::default(),
+            emoji: crate::emoji::Panel::default(),
         };
         for event in crate::svc::fake::Fake::default().initial() {
             state.sys.apply(&event);

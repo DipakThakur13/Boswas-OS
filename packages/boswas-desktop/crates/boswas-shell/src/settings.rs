@@ -25,6 +25,11 @@ pub struct Desktop {
     pub notifications: Notifications,
     /// The lock screen shows the weather (`[lock] show_weather`).
     pub lock_weather: bool,
+    /// The clipboard history is kept (`[clipboard] history`).
+    pub clipboard_history: bool,
+    /// When Settings last cleared the clipboard data (`[clipboard]
+    /// cleared_at`, Unix seconds; 0 never).
+    pub clipboard_cleared_at: i64,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -146,6 +151,8 @@ impl Default for Desktop {
             start: Start::default(),
             notifications: Notifications::default(),
             lock_weather: true,
+            clipboard_history: true,
+            clipboard_cleared_at: 0,
         }
     }
 }
@@ -269,6 +276,8 @@ impl Desktop {
                 toast_seconds: notes["toast_seconds"].as_u64().map_or(5, |s| s.clamp(1, 300) as u32),
             },
             lock_weather: flag(&value["lock"]["show_weather"], d.lock_weather),
+            clipboard_history: flag(&value["clipboard"]["history"], d.clipboard_history),
+            clipboard_cleared_at: value["clipboard"]["cleared_at"].as_i64().filter(|t| *t >= 0).unwrap_or(d.clipboard_cleared_at),
         })
     }
 }

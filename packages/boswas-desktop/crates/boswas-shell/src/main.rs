@@ -18,11 +18,15 @@ mod action;
 mod apps;
 mod calendar;
 mod capture;
+mod clipboard;
+mod clipview;
 mod config;
 mod control;
 mod damage;
+mod datacontrol;
 mod desk;
 mod dialogs;
+mod emoji;
 mod glyph;
 mod greetd;
 mod input;
@@ -268,6 +272,9 @@ pub(crate) struct Shell {
     data_device: Option<DataDevice>,
     /// What the shell put on the clipboard (a captured picture).
     clipboard: Option<(CopyPasteSource, Arc<Vec<u8>>)>,
+    /// Clipboard control: the clipboard history and the emoji panel's
+    /// insertion (desktop only; datacontrol.rs).
+    pub clip: Option<datacontrol::Watch>,
     viewporter: Option<WpViewporter>,
     fractional_scale: Option<WpFractionalScaleManagerV1>,
     conn: Connection,
@@ -471,6 +478,9 @@ fn run(mode: Mode) -> Result<i32, Box<dyn std::error::Error>> {
         senders: if mode == Mode::Desktop { config::Senders::load() } else { config::Senders::default() },
         seen: if mode == Mode::Desktop { config::SeenApps::load() } else { config::SeenApps::default() },
         weather,
+        clips: if mode == Mode::Desktop { clipboard::History::load() } else { clipboard::History::default() },
+        clipview: clipview::View::default(),
+        emoji: if mode == Mode::Desktop { emoji::Panel::new() } else { emoji::Panel::default() },
     };
 
     let mut shell = Shell {
@@ -485,6 +495,7 @@ fn run(mode: Mode) -> Result<i32, Box<dyn std::error::Error>> {
         data_devices: DataDeviceManagerState::bind(&globals, &qh).ok(),
         data_device: None,
         clipboard: None,
+        clip: None,
         viewporter: globals.bind(&qh, 1..=1, ()).ok(),
         fractional_scale: globals.bind(&qh, 1..=1, ()).ok(),
         conn: conn.clone(),
@@ -537,6 +548,11 @@ fn run(mode: Mode) -> Result<i32, Box<dyn std::error::Error>> {
                 return Err("the compositor does not offer the layer shell to this program".into());
             }
         }
+    }
+
+    // The clipboard history and the emoji panel: the desktop only.
+    if mode == Mode::Desktop {
+        shell.clip = datacontrol::Watch::bind(&globals, &qh, &event_loop.handle());
     }
 
     WaylandSource::new(conn, event_queue).insert(event_loop.handle())?;
@@ -889,6 +905,8 @@ impl Shell {
                         Some(state::Flyout::Quick) => quick::draw(&mut frame, st, panel),
                         Some(state::Flyout::Notifications) => notify::draw_centre(&mut frame, st, panel),
                         Some(state::Flyout::TrayOverflow) => taskbar::draw_overflow(&mut frame, st, panel),
+                        Some(state::Flyout::Clipboard) => clipview::draw(&mut frame, st, panel),
+                        Some(state::Flyout::Emoji) => emoji::draw(&mut frame, st, panel),
                         None => {}
                     },
                     Role::Menu(level) => {
@@ -1317,6 +1335,9 @@ impl SeatHandler for Shell {
         }
         if self.data_device.is_none() && self.st.mode == Mode::Desktop {
             self.data_device = self.data_devices.as_ref().map(|manager| manager.get_data_device(qh, &seat));
+        }
+        if self.st.mode == Mode::Desktop {
+            self.clip_seat(qh, &seat);
         }
     }
 
