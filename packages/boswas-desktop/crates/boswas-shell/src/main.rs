@@ -55,6 +55,15 @@ mod tzif;
 mod weather;
 mod widget_sources;
 mod widgets;
+// The shell round of controls that did nothing and Windows shortcuts.
+mod accounts;
+mod barfocus;
+mod gsettings;
+mod projection;
+mod quicklinks;
+#[cfg(test)]
+mod round_pictures;
+mod security;
 
 use std::{
     collections::HashMap,
@@ -181,6 +190,8 @@ pub(crate) enum Role {
     Auth,
     /// The field over a desktop icon's label while it is renamed.
     Rename,
+    /// The security options screen (Ctrl+Alt+Del), over everything.
+    Security,
 }
 
 /// The Wayland object behind a shell surface.
@@ -542,6 +553,20 @@ fn run(mode: Mode) -> Result<i32, Box<dyn std::error::Error>> {
         }
         Mode::Desktop => {}
     }
+    // The account pictures: the user's own (desktop and lock screen), or
+    // those of the people who can sign in (login screen; the service's
+    // copies only).
+    let mut pictures = accounts::Pictures::default();
+    match mode {
+        Mode::Greeter => {
+            for (login, _) in &auth.users {
+                pictures.refresh(login, None);
+            }
+        }
+        _ => {
+            pictures.refresh(&user, accounts::own_home().as_deref());
+        }
+    }
 
     let st = State {
         mode,
@@ -585,6 +610,12 @@ fn run(mode: Mode) -> Result<i32, Box<dyn std::error::Error>> {
         clips: if mode == Mode::Desktop { clipboard::History::load() } else { clipboard::History::default() },
         clipview: clipview::View::default(),
         emoji: if mode == Mode::Desktop { emoji::Panel::new() } else { emoji::Panel::default() },
+        night_light_available: true,
+        pictures,
+        security: None,
+        projection: projection::Projection::default(),
+        bar_focus: false,
+        gsettings: gsettings::Mirror::default(),
     };
 
     let mut shell = Shell {
@@ -1067,6 +1098,7 @@ impl Shell {
                         Some(state::Flyout::Clipboard) => clipview::draw(&mut frame, st, panel),
                         Some(state::Flyout::Emoji) => emoji::draw(&mut frame, st, panel),
                         Some(state::Flyout::Widgets) => widgets::draw(&mut frame, st, panel),
+                        Some(state::Flyout::Projection) => projection::draw(&mut frame, st, panel),
                         None => {}
                     },
                     Role::Menu(level) => {
@@ -1105,6 +1137,11 @@ impl Shell {
                         lock::draw(&mut frame, st, first_auth);
                     }
                     Role::Rename => desktop_icons::draw_rename(&mut frame, st),
+                    Role::Security => {
+                        if let Some(security) = &st.security {
+                            security::draw(&mut frame, security);
+                        }
+                    }
                 }
             }
             canvas.end_clip();

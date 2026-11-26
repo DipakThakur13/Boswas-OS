@@ -30,4 +30,8 @@ pub enum Action {
     Widgets(widgets::Act),
     /// A desktop icon.
     Desk(desktop_icons::Act),
+    /// The security options screen (Ctrl+Alt+Del).
+    Security(crate::security::Act),
+    /// The display projection flyout (Super+P).
+    Projection(crate::projection::Act),
 }

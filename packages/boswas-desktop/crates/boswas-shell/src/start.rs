@@ -106,6 +106,7 @@ pub const SETTINGS: &[(&str, &str, &str, &[&str])] = &[
     ("hardware", "Hardware & drivers", "boswas-hardware", &["driver", "firmware", "device", "graphics"]),
     ("time-language", "Language, region & time", "preferences-system", &["language", "region", "date", "time", "locale"]),
     ("notifications", "Notifications", "preferences-desktop-notification-bell", &["do not disturb", "dnd", "banners", "quiet hours"]),
+    ("clipboard", "Clipboard", "edit-paste-symbolic", &["clipboard history", "copy", "paste", "emoji", "symbols", "super+v"]),
     ("multitasking", "Multitasking", "preferences-system-windows", &["snap", "split screen", "alt+tab", "desktops"]),
     ("taskbar", "Taskbar settings", "boswas-shell", &["taskbar", "auto hide", "alignment", "task view"]),
     ("start", "Start settings", "boswas-logo", &["start menu", "pinned", "recommended", "folders"]),
@@ -859,8 +860,11 @@ pub fn draw(f: &mut Frame, st: &State, panel: Rect) {
     let user = Rect::new(geo.x - 8.0, geo.footer.y + 12.0, 32.0 + 12.0 + name_w + 20.0, 40.0);
     let touch = f.hit(user, Action::Start(Act::User));
     f.state_layer(user, radius, touch, false);
-    f.canvas.fill_circle(user.x + 24.0, user.y + 20.0, 16.0, theme.surface_hover);
-    f.icon("avatar-default-symbolic", user.x + 16.0, user.y + 12.0, 16.0);
+    // The account picture, where there is one (accounts.rs).
+    if !crate::accounts::draw(f, st.pictures.get(&st.user), user.x + 24.0, user.y + 20.0, 16.0) {
+        f.canvas.fill_circle(user.x + 24.0, user.y + 20.0, 16.0, theme.surface_hover);
+        f.icon("avatar-default-symbolic", user.x + 16.0, user.y + 12.0, 16.0);
+    }
     f.text_left(&st.user_name, Rect::new(user.x + 52.0, user.y, name_w + 4.0, 40.0), &name_style);
     let power = Rect::new(geo.x + geo.w - 32.0, geo.footer.y + 12.0, 40.0, 40.0);
     let touch = f.hit(power, Action::Start(Act::Power));

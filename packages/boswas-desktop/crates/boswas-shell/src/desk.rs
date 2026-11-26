@@ -139,8 +139,9 @@ impl Shell {
             Folder::Settings => {
                 self.spawn(&["boswas-control-center".to_owned()]);
             }
+            // A new window of Files, as Windows' File Explorer button opens.
             Folder::Files => match self.st.app_index("com.boswas.Files") {
-                Some(index) => self.launch_app(index),
+                Some(index) => self.launch_new_window(index),
                 None => {
                     self.open_path(&home);
                 }
@@ -185,6 +186,22 @@ impl Shell {
             Ok(()) => self.st.usage.record(&app.id),
             Err(err) => {
                 tracing::warn!("could not start {}: {err}", app.name);
+                self.notice("Could not start the application", &format!("{}: {err}", app.name), None);
+            }
+        }
+        self.close_transients();
+    }
+
+    /// Another window of an application: its "new window" action, or its
+    /// plain command (an application with one window brings it forward).
+    pub fn launch_new_window(&mut self, index: usize) {
+        let Some(app) = self.st.apps.get(index).cloned() else {
+            return;
+        };
+        match apps::launch_new_window(&app) {
+            Ok(()) => self.st.usage.record(&app.id),
+            Err(err) => {
+                tracing::warn!("could not open a new window of {}: {err}", app.name);
                 self.notice("Could not start the application", &format!("{}: {err}", app.name), None);
             }
         }
@@ -298,8 +315,16 @@ impl Shell {
             }
             ControlEvent::Config(desktop) => {
                 self.clip_settings(desktop.clipboard_history, desktop.clipboard_cleared_at);
+                apps::set_cursor_size(desktop.cursor_size);
                 self.apply_desktop(*desktop);
+                self.mirror_scheme();
             }
+            ControlEvent::Search => self.open_search(),
+            ControlEvent::QuickLinks => self.open_quick_links(None),
+            ControlEvent::Calendar => self.toggle_flyout(Flyout::Notifications, None),
+            ControlEvent::FocusTaskbar { tray } => self.focus_taskbar(tray),
+            ControlEvent::Projection { outputs, mode } => self.open_projection(outputs, &mode),
+            ControlEvent::Security => self.open_security(),
             ControlEvent::Run => {
                 if self.st.mode == Mode::Desktop && !self.st.locked {
                     let last = self.st.run_history.entries.last().cloned();
@@ -313,13 +338,17 @@ impl Shell {
                 if let Some(task) = list.get(index - 1) {
                     match (taskbar::click_target(task, &self.st.windows), task.app) {
                         (Some(id), _) if !new_instance => self.window_command(if task.windows.len() == 1 { "toggle-minimize" } else { "activate" }, id),
+                        // Super+Shift+N while it runs: another window of it.
+                        (Some(_), Some(app)) => self.launch_new_window(app),
                         (_, Some(app)) => self.launch_app(app),
                         _ => {}
                     }
                 }
             }
-            ControlEvent::NightLight { enabled } => {
-                self.st.night_light = enabled;
+            ControlEvent::NightLight { active, available, .. } => {
+                // The tile shows whether the screens are tinted now.
+                self.st.night_light = active;
+                self.st.night_light_available = available;
                 self.mark(Role::Flyout);
             }
             ControlEvent::CaptureRequest { id, program } => {
@@ -665,6 +694,11 @@ impl Shell {
         if self.st.osd.as_ref().is_some_and(|o| o.until <= now) {
             self.st.osd = None;
             self.remove(Role::Osd);
+            // The lock screen and the login screen show it in their own
+            // surface.
+            if self.st.mode != Mode::Desktop {
+                self.touch_auth_osd();
+            }
         }
         if self.st.notes.tick(now, self.res.reduced_motion) {
             self.sync_toasts();
@@ -698,6 +732,7 @@ impl Shell {
             Flyout::Clipboard => crate::clipview::panel_size(output),
             Flyout::Emoji => crate::emoji::panel_size(output),
             Flyout::Widgets => crate::widgets::panel_size(output),
+            Flyout::Projection => crate::projection::panel_size(&self.st),
         };
         let (sw, sh) = (pw + 2.0 * PAD, ph + 2.0 * PAD);
         let top = h - bar - sh;
@@ -738,7 +773,7 @@ impl Shell {
     }
 
     pub fn toggle_flyout(&mut self, kind: Flyout, output: Option<WlOutput>) {
-        if self.st.mode != Mode::Desktop || self.st.locked || self.st.dialog.is_some() || self.st.capture.is_some() {
+        if self.st.mode != Mode::Desktop || self.st.locked || self.st.dialog.is_some() || self.st.capture.is_some() || self.st.security.is_some() {
             return;
         }
         if self.st.flyout == Some(kind) && !self.flyout_closing {
@@ -750,6 +785,7 @@ impl Shell {
     pub fn open_flyout(&mut self, kind: Flyout, output: Option<WlOutput>) {
         // Whatever was open goes at once: one flyout at a time.
         self.remove(Role::Flyout);
+        self.leave_bar_focus();
         self.close_menus();
         self.hide_tooltip();
         self.close_preview();
@@ -765,6 +801,9 @@ impl Shell {
                 let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
                 self.st.seen.update(&ids, now);
                 self.st.start.reset();
+                // The account picture may have changed in Settings (a stat).
+                let user = self.st.user.clone();
+                self.st.pictures.refresh(&user, crate::accounts::own_home().as_deref());
             }
             Flyout::Quick => {
                 self.st.quick.reset();
@@ -776,7 +815,7 @@ impl Shell {
                 self.st.notes.hide_toasts();
                 self.sync_toasts();
             }
-            Flyout::TrayOverflow => {}
+            Flyout::TrayOverflow | Flyout::Projection => {}
             Flyout::Clipboard => self.open_clipboard(),
             Flyout::Emoji => self.open_emoji(),
             Flyout::Widgets => self.widgets_opened(),
@@ -878,12 +917,16 @@ impl Shell {
         self.st.flyout.filter(|_| !self.flyout_closing)
     }
 
-    /// Closes flyout, menus, tooltip and preview (not dialogs).
+    /// Closes flyout, menus, tooltip and preview (not dialogs), the
+    /// security options screen, and gives back the keyboard the taskbar had
+    /// for Super+T.
     pub fn close_transients(&mut self) {
         self.close_menus();
         self.close_flyout();
         self.hide_tooltip();
         self.close_preview();
+        self.close_security();
+        self.leave_bar_focus();
     }
 
     /// Removes every transient surface at once, without transitions.
@@ -895,6 +938,8 @@ impl Shell {
         self.st.preview = None;
         self.st.capture = None;
         self.st.desk.renaming = None;
+        self.st.security = None;
+        self.leave_bar_focus();
         self.press = None;
         self.forget_flyout();
     }
@@ -1019,6 +1064,12 @@ impl Shell {
             Cmd::Tray { key, id } => self.service(Command::TrayMenuActivate { key, id }),
             Cmd::Widgets(cmd) => self.widgets_command(cmd),
             Cmd::Desk(cmd) => self.desk_command(cmd),
+            Cmd::NewWindow(id) => {
+                if let Some(index) = self.st.app_index(&id) {
+                    self.launch_new_window(index);
+                }
+            }
+            Cmd::Shell(cmd) => self.shell_command(cmd),
             Cmd::Submenu | Cmd::Nothing => {}
         }
     }
@@ -1027,14 +1078,19 @@ impl Shell {
     pub fn task_menu(&self, task: &taskbar::Task) -> Vec<Item> {
         let mut items = Vec::new();
         if let Some(app) = task.app.and_then(|index| self.st.apps.get(index)) {
-            for action in &app.actions {
+            // The "new window" action is the entry below, not listed twice.
+            for action in app.other_actions() {
                 items.push(Item::new(&action.name, "", Cmd::Spawn(action.exec.clone())));
             }
             if !items.is_empty() {
                 items.push(Item::separator());
             }
-            let label = if task.windows.is_empty() { "Open".to_owned() } else { format!("New window of {}", app.name) };
-            items.push(Item::new(&label, &app.icon, Cmd::Launch(app.id.clone())));
+            let (label, cmd) = if task.windows.is_empty() {
+                ("Open".to_owned(), Cmd::Launch(app.id.clone()))
+            } else {
+                (format!("New window of {}", app.name), Cmd::NewWindow(app.id.clone()))
+            };
+            items.push(Item::new(&label, &app.icon, cmd));
             let pinned = self.st.config.is_on_taskbar(&app.id);
             items.push(Item::new(if pinned { "Unpin from taskbar" } else { "Pin to taskbar" }, "", Cmd::PinTaskbar(app.id.clone(), !pinned)));
         }
@@ -1056,6 +1112,13 @@ impl Shell {
         items.push(Item::new(if in_start { "Unpin from Start" } else { "Pin to Start" }, "", Cmd::PinStart(app.id.clone(), !in_start)));
         let on_taskbar = self.st.config.is_on_taskbar(&app.id);
         items.push(Item::new(if on_taskbar { "Unpin from taskbar" } else { "Pin to taskbar" }, "", Cmd::PinTaskbar(app.id.clone(), !on_taskbar)));
+        // Open file location, Uninstall (quicklinks.rs).
+        let entry = apps::entry_path(&apps::application_dirs(), &app.id);
+        let extras = crate::quicklinks::app_extras(&crate::quicklinks::installed, entry.as_deref());
+        if !extras.is_empty() {
+            items.push(Item::separator());
+            items.extend(extras);
+        }
         if !app.actions.is_empty() {
             items.push(Item::separator());
             for action in &app.actions {
@@ -1091,9 +1154,10 @@ impl Shell {
         items
     }
 
-    /// The menu of the taskbar's background.
+    /// The menu of the taskbar's background and of the Task View button:
+    /// Task Manager and the taskbar's settings.
     pub fn taskbar_menu(&self) -> Vec<Item> {
-        vec![Item::new("Taskbar settings", "preferences-system-symbolic", Cmd::Spawn(start::settings_command("taskbar")))]
+        crate::quicklinks::taskbar_menu(&crate::quicklinks::installed)
     }
 
     /// The menu of the desktop's background (desktop_icons.rs): View,
@@ -1487,6 +1551,11 @@ impl Shell {
 
     fn show_osd(&mut self, kind: osd::Kind, value: f32) {
         self.st.osd = Some(osd::Osd::new(kind, value, Instant::now()));
+        // The lock screen and the login screen draw it in their own surface:
+        // while locked the compositor shows nothing else.
+        if self.st.mode != Mode::Desktop {
+            return self.touch_auth_osd();
+        }
         if self.has(Role::Osd) {
             return self.mark(Role::Osd);
         }
@@ -1514,9 +1583,23 @@ impl Shell {
         );
     }
 
-    /// A volume, brightness or media key.
+    /// The level display of the lock screen and the login screen changed:
+    /// only its place is drawn again.
+    fn touch_auth_osd(&mut self) {
+        for surface in self.surfaces.iter_mut().filter(|s| s.role == Role::Auth) {
+            surface.touch_rect(osd::auth_damage(surface.width as f32, surface.height as f32));
+        }
+    }
+
+    /// A volume, brightness or media key. While the session is locked the
+    /// lock screen takes them (and shows the level itself); the login
+    /// screen takes them too. Both change only the volume and the
+    /// brightness.
     pub fn media_key(&mut self, key: &str) {
-        if self.st.mode != Mode::Desktop {
+        if self.st.mode == Mode::Desktop && self.st.locked {
+            return;
+        }
+        if self.st.mode != Mode::Desktop && !osd::auth_key(key) {
             return;
         }
         let output = self.st.sys.audio.output.clone();

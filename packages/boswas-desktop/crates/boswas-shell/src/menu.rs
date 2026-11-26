@@ -29,6 +29,12 @@ pub enum Cmd {
     Widgets(crate::widgets::WidgetCmd),
     /// An entry of the desktop's menus.
     Desk(crate::desktop_icons::DeskCmd),
+    /// Another window of an application, by desktop file id (its "new
+    /// window" action, or else its plain command).
+    NewWindow(String),
+    /// An entry of the quick-link menu and the other menus of the taskbar
+    /// that act inside the shell (quicklinks.rs).
+    Shell(crate::quicklinks::ShellCmd),
     /// Opens the entry's submenu.
     Submenu,
     Nothing,
