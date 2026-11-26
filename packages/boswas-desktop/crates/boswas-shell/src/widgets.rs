@@ -103,10 +103,10 @@ impl Kind {
     fn icon(self) -> &'static str {
         match self {
             Kind::Weather => "boswas-weather",
-            Kind::Calendar => "boswas-calendar",
-            Kind::Clock => "boswas-clock",
-            Kind::System => "boswas-task-manager",
-            Kind::Media => "boswas-media-player",
+            Kind::Calendar => "office-calendar",
+            Kind::Clock => "preferences-system-time",
+            Kind::System => "utilities-system-monitor",
+            Kind::Media => "multimedia-player",
             Kind::Photos => "boswas-photos",
         }
     }
@@ -143,7 +143,7 @@ impl Default for Arrangement {
             cards: vec![
                 (Kind::Weather, Size::Medium),
                 (Kind::Calendar, Size::Medium),
-                (Kind::Clock, Size::Small),
+                (Kind::Clock, Size::Medium),
                 (Kind::System, Size::Medium),
                 (Kind::Media, Size::Small),
                 (Kind::Photos, Size::Medium),
@@ -563,7 +563,7 @@ fn draw_weather(f: &mut Frame, st: &State, size: Size, area: Rect) {
     };
     let summary = shown.summary;
     let big = (grow(48.0)).min(area.h * 0.45).min(72.0);
-    f.icon_or_placeholder(&[&summary.icon, "weather-few-clouds-symbolic"], area.x, area.y + 4.0, big);
+    weather_icon(f, &summary.icon, area.x, area.y + 4.0, big, theme.text);
     let temp_style = fit_line(&ramp("title", theme.text), big);
     let tx = area.x + big + 12.0;
     f.text_left(&summary.temperature, Rect::new(tx, area.y + 4.0, area.right() - tx, big), &temp_style);
@@ -592,8 +592,16 @@ fn draw_weather(f: &mut Frame, st: &State, size: Size, area: Rect) {
     for (i, hour) in hours.iter().enumerate() {
         let x = area.x + i as f32 * slot;
         f.text_centered(&hour.time, Rect::new(x, top, slot, caption.line_height()), &caption);
-        f.icon_or_placeholder(&[&hour.icon], x + (slot - icon) / 2.0, top + caption.line_height() + 4.0, icon);
+        weather_icon(f, &hour.icon, x + (slot - icon) / 2.0, top + caption.line_height() + 4.0, icon, theme.text);
         f.text_centered(&hour.temperature, Rect::new(x, top + caption.line_height() + icon + 8.0, slot, caption.line_height()), &ramp("caption", theme.text));
+    }
+}
+
+/// A weather icon of the summary in the text's colour (they are symbolic
+/// icons, as on the lock screen).
+fn weather_icon(f: &mut Frame, name: &str, x: f32, y: f32, size: f32, color: Rgba) {
+    if !f.icon_tinted(name, x, y, size, color) {
+        f.icon_tinted("weather-few-clouds-symbolic", x, y, size, color);
     }
 }
 
@@ -821,7 +829,7 @@ pub fn draw_button(f: &mut Frame, st: &State, rect: Rect) {
         Some(s) => {
             let icon = 24.0;
             let (cx, cy) = (rect.x + 8.0, rect.center().1);
-            f.icon_or_placeholder(&[&s.summary.icon, "weather-few-clouds-symbolic"], cx, cy - icon / 2.0, icon);
+            weather_icon(f, &s.summary.icon, cx, cy - icon / 2.0, icon, theme.text);
             let x = cx + icon + 8.0;
             let w = rect.right() - x - 6.0;
             if rect.w >= 110.0 {

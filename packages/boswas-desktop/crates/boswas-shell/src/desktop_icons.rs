@@ -111,6 +111,46 @@ pub struct Renaming {
     pub key: String,
     pub old: OsString,
     pub field: TextField,
+    /// The name (without its extension) is still selected, as Files and
+    /// Windows select it: what is typed first replaces it.
+    pub fresh: bool,
+    /// Bytes of the extension that a replacement keeps.
+    pub extension: String,
+}
+
+impl Renaming {
+    /// Handles a key; returns whether it was an editing key.
+    pub fn key(&mut self, keysym: Keysym, ctrl: bool, typed: Option<&str>) -> bool {
+        if self.fresh {
+            match keysym {
+                Keysym::BackSpace | Keysym::Delete | Keysym::KP_Delete => {
+                    self.replace("");
+                    return true;
+                }
+                Keysym::Left | Keysym::Right | Keysym::Home | Keysym::End | Keysym::KP_Left | Keysym::KP_Right => self.fresh = false,
+                _ => {
+                    if let Some(text) = typed.filter(|t| !t.chars().all(char::is_control)) {
+                        self.replace(text);
+                        return true;
+                    }
+                }
+            }
+        }
+        if self.field.key(keysym, ctrl) {
+            return true;
+        }
+        typed.is_some_and(|text| self.field.insert(text))
+    }
+
+    /// Replaces the selected name with `text`, keeping the extension.
+    fn replace(&mut self, text: &str) {
+        self.fresh = false;
+        let extension = self.extension.clone();
+        self.field.set(&format!("{text}{extension}"));
+        for _ in 0..extension.chars().count() {
+            self.field.key(Keysym::Left, false);
+        }
+    }
 }
 
 /// The pointer went down on the desktop.
@@ -198,6 +238,9 @@ pub struct Desk {
     rename_next: Option<String>,
     /// Where the menu was opened (output coordinates).
     menu_point: Option<(f32, f32)>,
+    /// The folder was shown before: icons keep their places when new ones
+    /// appear.
+    shown_once: bool,
     scanning: bool,
     rescan: bool,
     watching: bool,
@@ -577,6 +620,15 @@ pub fn draw_rename(f: &mut Frame, st: &State) {
     let field = Rect::new(PAD, PAD, w - 2.0 * PAD, h - 2.0 * PAD);
     f.area(Rect::new(0.0, 0.0, w, h), Action::None);
     f.text_box(field, &renaming.field, "", true, false, 6.0, 6.0);
+    if renaming.fresh {
+        // The selected name, as a highlight over its letters.
+        let style = ramp("body", f.theme().text);
+        let name = renaming.field.text();
+        let stem = &name[..name.len() - renaming.extension.len().min(name.len())];
+        let width = f.res.text.measure(stem, &style).0.min(field.w - 12.0);
+        let accent = f.theme().accent.alpha(0.35);
+        f.canvas.fill_rect(field.x + 6.0, field.y + 4.0, width.max(2.0).round(), field.h - 8.0, accent);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -812,6 +864,12 @@ impl Shell {
     /// A new scan: keep the selection and places of what is still there,
     /// and put new items where they were dropped.
     fn desk_take_entries(&mut self, entries: Vec<Entry>) {
+        // Where the icons are now stays where they are: new ones go to free
+        // cells instead of pushing the others along (as on Windows).
+        if self.st.desk.shown_once && !self.st.desktop.icons.auto_arrange && self.desk_fix_places() {
+            self.desk_save_layout();
+        }
+        self.st.desk.shown_once = true;
         self.st.desk.entries = entries;
         let keys: HashSet<String> = self.st.desk_items().into_iter().map(|i| i.key).collect();
         self.st.desk.selected.retain(|k| keys.contains(k));
@@ -825,7 +883,6 @@ impl Shell {
         for (key, place) in arrivals {
             if keys.contains(&key) {
                 if !self.st.desktop.icons.auto_arrange {
-                    self.desk_fix_places();
                     let place = self.desk_view_now().map_or(place, |(_, view)| view.grid.clamp(place));
                     self.st.desk.saved.positions.insert(key, place);
                     placed = true;
@@ -848,23 +905,35 @@ impl Shell {
     }
 
     /// Writes down where every icon is now, so that new ones do not push
-    /// them around.
-    fn desk_fix_places(&mut self) {
+    /// them around. Returns whether a place was added.
+    fn desk_fix_places(&mut self) -> bool {
         let Some((_, view)) = self.desk_view_now() else {
-            return;
+            return false;
         };
+        let mut added = false;
         for (item, rect) in view.items.iter().zip(&view.rects) {
-            let place = view.grid.place_at(rect.center());
-            self.st.desk.saved.positions.entry(item.key.clone()).or_insert((place.0.max(0.0), place.1.max(0.0)));
+            if !self.st.desk.saved.positions.contains_key(&item.key) {
+                let place = view.grid.place_at(rect.center());
+                self.st.desk.saved.positions.insert(item.key.clone(), (place.0.max(0.0), place.1.max(0.0)));
+                added = true;
+            }
         }
+        added
     }
 
     fn desk_save_layout(&mut self) {
+        // Each save has a number; a worker that comes late with an older
+        // one does not write over a newer one.
+        static LATEST: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let number = LATEST.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
         let text = self.st.desk.saved.to_json();
         let Some(path) = files::layout_path() else {
             return;
         };
         let _ = std::thread::Builder::new().name("desktop-layout".into()).spawn(move || {
+            if LATEST.load(std::sync::atomic::Ordering::SeqCst) != number {
+                return;
+            }
             if let Err(err) = files::write_private(&path, &text) {
                 tracing::warn!("{}: {err}", path.display());
             }
@@ -1082,7 +1151,7 @@ impl Shell {
         }
         // A new place: the same offset for every dragged icon.
         let delta = ((position.0 - drag.from.0) / view.grid.cell.0, (position.1 - drag.from.1) / view.grid.cell.1);
-        self.desk_fix_places();
+        let _ = self.desk_fix_places();
         let align = self.st.desktop.icons.align_to_grid;
         let mut taken: HashSet<(i64, i64)> = view
             .items
@@ -1273,7 +1342,15 @@ impl Shell {
     pub fn desk_command(&mut self, cmd: DeskCmd) {
         let dir = self.st.desk.dir.clone().filter(|d| !d.disabled);
         match cmd {
-            DeskCmd::Size(size) => self.desk_set_view("icon_size", Setting::Text(size.key()), |i| i.size = size),
+            DeskCmd::Size(size) => {
+                // Another size has other rows: the icons flow again in their
+                // order, as on Windows.
+                if self.st.desktop.icons.size != size {
+                    self.st.desk.saved.positions.clear();
+                    self.desk_save_layout();
+                }
+                self.desk_set_view("icon_size", Setting::Text(size.key()), |i| i.size = size);
+            }
             DeskCmd::AutoArrange => {
                 let on = !self.st.desktop.icons.auto_arrange;
                 self.desk_set_view("auto_arrange", Setting::Bool(on), |i| i.auto_arrange = on);
@@ -1507,14 +1584,12 @@ impl Shell {
         let mut field = TextField::default();
         field.set(&entry.name);
         // The caret before the extension, as Files does it.
-        let (stem, _) = files::split_extension(&entry.name);
-        if !entry.is_dir {
-            for _ in 0..(entry.name.chars().count() - stem.chars().count()) {
-                field.key(Keysym::Left, false);
-            }
+        let extension = if entry.is_dir { "" } else { files::split_extension(&entry.name).1 }.to_owned();
+        for _ in 0..extension.chars().count() {
+            field.key(Keysym::Left, false);
         }
         self.close_transients();
-        self.st.desk.renaming = Some(Renaming { key: key.to_owned(), old: entry.os_name.clone(), field });
+        self.st.desk.renaming = Some(Renaming { key: key.to_owned(), old: entry.os_name.clone(), field, fresh: true, extension });
         self.st.desk.selected = vec![key.to_owned()];
         self.ensure_dismiss(&output);
         self.create_layer(
@@ -1577,11 +1652,7 @@ impl Shell {
             keysym => {
                 let ctrl = self.modifiers.ctrl;
                 if let Some(renaming) = self.st.desk.renaming.as_mut() {
-                    if !renaming.field.key(keysym, ctrl) {
-                        if let Some(text) = typed {
-                            renaming.field.insert(text);
-                        }
-                    }
+                    renaming.key(keysym, ctrl, typed);
                 }
             }
         }
@@ -2040,6 +2111,30 @@ mod tests {
         st.desktop.icons.icons = true;
         st.desk.dir = Some(DesktopDir { path: "/home/asha".into(), configured: true, disabled: true });
         assert_eq!(st.desk_items().len(), 3);
+    }
+
+    #[test]
+    fn renaming_replaces_the_selected_name_and_keeps_the_extension() {
+        let mut field = TextField::default();
+        field.set("notes.txt");
+        let mut renaming = Renaming { key: "file:notes.txt".into(), old: "notes.txt".into(), field, fresh: true, extension: ".txt".into() };
+        assert!(renaming.key(Keysym::t, false, Some("t")));
+        assert!(renaming.key(Keysym::o, false, Some("o")));
+        assert_eq!(renaming.field.text(), "to.txt", "the first letter replaced the name, the extension stayed");
+        assert!(renaming.key(Keysym::End, false, None));
+        assert!(renaming.key(Keysym::BackSpace, false, None));
+        assert_eq!(renaming.field.text(), "to.tx");
+        let mut folder = TextField::default();
+        folder.set("New folder");
+        let mut renaming = Renaming { key: "file:New folder".into(), old: "New folder".into(), field: folder, fresh: true, extension: String::new() };
+        assert!(renaming.key(Keysym::BackSpace, false, None));
+        assert_eq!(renaming.field.text(), "", "Backspace removes the selected name");
+        let mut moved = TextField::default();
+        moved.set("a.txt");
+        let mut renaming = Renaming { key: "k".into(), old: "a.txt".into(), field: moved, fresh: true, extension: ".txt".into() };
+        renaming.key(Keysym::Home, false, None);
+        renaming.key(Keysym::x, false, Some("x"));
+        assert_eq!(renaming.field.text(), "xa.txt", "after moving the caret, typing inserts");
     }
 
     #[test]

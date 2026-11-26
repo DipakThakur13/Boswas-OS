@@ -790,7 +790,7 @@ impl Config {
         choice("taskbar", "alignment", &mut self.taskbar.alignment, &["center", "left"]);
         choice("start", "layout", &mut self.start.layout, &["default", "more_pins", "more_recommendations"]);
         // The first is what an unknown size becomes: medium.
-        choice("desktop", "icon_size", &mut self.desktop.icon_size, &["medium", "small", "large"]);
+        choice("desktop", "icon_size", &mut self.desktop.icon_size, &[DESKTOP_ICON_SIZES[1], DESKTOP_ICON_SIZES[0], DESKTOP_ICON_SIZES[2]]);
         choice("multitasking", "taskbar_windows", &mut self.multitasking.taskbar_windows, &["desktop", "all"]);
         choice("multitasking", "alt_tab_windows", &mut self.multitasking.alt_tab_windows, &["desktop", "all"]);
         self.accessibility.text_scale = self.accessibility.text_scale.clamp(100, 225);

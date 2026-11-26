@@ -380,13 +380,14 @@ class WriterTest(unittest.TestCase):
         text = cc.serialize(config)
         parsed = tomllib.loads(text)
         self.assertTrue(text.startswith(cc.HEADER))
-        self.assertEqual(sorted(parsed), ["accessibility", "appearance", "apps", "color_filter", "keyboard", "lock",
-                                          "magnifier", "multitasking", "night_light", "notifications", "output",
-                                          "outputs", "pointer", "power", "start", "taskbar", "touchpad", "xwayland"])
+        self.assertEqual(sorted(parsed), ["accessibility", "appearance", "apps", "color_filter", "desktop", "keyboard",
+                                          "lock", "magnifier", "multitasking", "night_light", "notifications",
+                                          "output", "outputs", "pointer", "power", "start", "taskbar", "touchpad",
+                                          "xwayland"])
         self.assertEqual(parsed["lock"], {"idle_seconds": 600, "show_weather": True})   # never the command
         self.assertEqual(parsed["outputs"], {"eDP-1": config["outputs"]["eDP-1"], "HDMI-A-1": {"enabled": False}})
         for table in ("keyboard", "pointer", "touchpad", "night_light", "apps", "appearance", "accessibility",
-                      "color_filter", "magnifier", "taskbar", "start", "multitasking", "notifications"):
+                      "color_filter", "magnifier", "taskbar", "start", "multitasking", "desktop", "notifications"):
             self.assertEqual(parsed[table], config[table], table)
         self.assertIsInstance(parsed["output"]["scale"], float)
         self.assertIsInstance(parsed["keyboard"]["repeat_delay"], int)

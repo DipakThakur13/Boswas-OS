@@ -894,17 +894,23 @@ impl Saved {
     }
 }
 
+/// One writer at a time (the desktop's files are written from worker
+/// threads, and the last change must be the one that stays).
+static WRITING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+static TEMPORARIES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// Writes a file atomically with mode 0600 (directories 0700), never
 /// through a link.
 pub fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
+    let _one = WRITING.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let dir = path.parent().ok_or_else(|| std::io::Error::other("no folder"))?;
     std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
     if std::fs::symlink_metadata(path).is_ok_and(|m| !m.file_type().is_file()) {
         return Err(std::io::Error::other("not a regular file"));
     }
     let name = path.file_name().ok_or_else(|| std::io::Error::other("no name"))?.to_string_lossy();
-    let temporary = dir.join(format!(".{name}.{}.tmp", std::process::id()));
-    let _ = std::fs::remove_file(&temporary);
+    let number = TEMPORARIES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let temporary = dir.join(format!(".{name}.{}.{number}.tmp", std::process::id()));
     {
         let mut file = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC).open(&temporary)?;
         file.write_all(text.as_bytes())?;
@@ -1017,6 +1023,9 @@ const MAX_SETTINGS_BYTES: u64 = 256 * 1024;
 
 /// Changes `[desktop] key` in the user's `compositor.toml` at `path`.
 pub fn write_desktop_key(path: &Path, key: &str, value: &Setting) -> Result<(), String> {
+    // Read, change and write as one step: two quick changes keep both.
+    static CHANGING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _one = CHANGING.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let text = match std::fs::symlink_metadata(path) {
         Ok(meta) if !meta.file_type().is_file() => return Err("the settings file is not a regular file".into()),
         Ok(meta) if meta.len() > MAX_SETTINGS_BYTES => return Err("the settings file is too large".into()),

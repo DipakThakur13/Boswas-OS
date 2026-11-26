@@ -102,6 +102,8 @@ KEY_DELAY = (100, 5000)                         # slow and bounce keys, millisec
 TASKBAR_ALIGNMENTS = ("center", "left")
 START_LAYOUTS = ("default", "more_pins", "more_recommendations")
 START_FOLDERS = ("settings", "files", "documents", "downloads", "music", "pictures", "videos")
+DESKTOP_SYSTEM_ICONS = ("home", "trash", "computer")    # the system icons the desktop can show, in this order
+DESKTOP_ICON_SIZES = ("small", "medium", "large")       # 32, 48 and 96 pixels
 WINDOW_SCOPES = ("desktop", "all")              # windows of the current desktop, or of every desktop
 TOAST_SECONDS = (5, 7, 15, 30, 60, 300)
 MAX_MUTED = 256                                 # applications whose banners can be off
@@ -447,6 +449,7 @@ SCHEMA: dict[str, dict[str, Key]] = {
         "task_view": _boolean(True),
         "clock_seconds": _boolean(False),
         "badges": _boolean(True),
+        "widgets": _boolean(True),
     },
     "start": {
         "layout": _choice("default", START_LAYOUTS, "layout of Start", "default"),
@@ -460,6 +463,15 @@ SCHEMA: dict[str, dict[str, Key]] = {
         "snap_layouts_on_drag": _boolean(True),
         "taskbar_windows": _choice("desktop", WINDOW_SCOPES, "choice of windows", "desktop"),
         "alt_tab_windows": _choice("desktop", WINDOW_SCOPES, "choice of windows", "desktop"),
+    },
+    # The desktop's icons (the shell's desktop folder and system icons); the desktop's View menu changes
+    # icons, icon_size, auto_arrange and align_to_grid in the same file.
+    "desktop": {
+        "icons": _boolean(True),
+        "system_icons": _names(("trash",), DESKTOP_SYSTEM_ICONS, "system icons", 3),
+        "icon_size": _choice("medium", DESKTOP_ICON_SIZES, "icon size", "medium"),
+        "auto_arrange": _boolean(False),
+        "align_to_grid": _boolean(True),
     },
     "notifications": {
         "do_not_disturb": _boolean(False),
@@ -488,7 +500,7 @@ OUTPUT_KEYS: dict[str, Key] = {
 # The order tables and keys are written in.
 _TABLE_ORDER = ("keyboard", "pointer", "touchpad", "output", "outputs", "night_light", "power", "lock", "xwayland",
                 "apps", "appearance", "accessibility", "color_filter", "magnifier", "taskbar", "start", "multitasking",
-                "notifications")
+                "desktop", "notifications")
 # Which of the user's two files holds an [appearance] key (see the module text).
 _APPEARANCE_FILE_KEYS = ("scheme", "wallpaper")
 

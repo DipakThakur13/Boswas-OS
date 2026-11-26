@@ -72,6 +72,18 @@ if shared.HAVE_QT:
             self.assertEqual(self.written(), {"taskbar": {"task_view": False}})
             self.assertGreaterEqual(self.compositor.reloads, 1, "the running desktop takes it at once")
 
+        def test_widgets_button(self):
+            section = self.open(taskbar.TaskbarItemsSection(config=self.settings))
+            self.assertTrue(section.widgets.isChecked(), "on unless someone turns it off")
+            testing.click(section.widgets)
+            shared.settle(section)
+            self.assertFalse(self.get("taskbar", "widgets"))
+            self.assertEqual(self.written(), {"taskbar": {"widgets": False}})
+            testing.click(section.widgets)
+            shared.settle(section)
+            self.assertTrue(self.get("taskbar", "widgets"))
+            self.pictures(section, "taskbar-items")
+
         def test_behaviours(self):
             section = self.open(taskbar.TaskbarBehavioursSection(config=self.settings))
             self.assertEqual(section.alignment.currentText(), "Center")
@@ -130,6 +142,50 @@ if shared.HAVE_QT:
             self.assertIn("/etc/passwd", self.user.with_name("compositor.toml.bak").read_text())
             self.assertEqual(section.notice.severity(), "warning")
             self.assertIn("start.folders", section.notice.message())
+
+
+    class DesktopIconsTest(DesktopCase):
+        def test_desktop_icon_settings(self):
+            section = self.open(taskbar.DesktopIconsSection(config=self.settings), 640)
+            self.assertTrue(section.icons.isChecked())
+            self.assertEqual([key for key, switch in section.system_switches.items() if switch.isChecked()], ["trash"],
+                             "the Trash, as on Windows")
+            self.assertEqual(section.size_box.currentText(), "Medium icons")
+            self.assertFalse(section.auto_arrange.isChecked())
+            self.assertTrue(section.align.isChecked() and section.align.isEnabled())
+            section.system.set_expanded(True, animate=False)
+            testing.process(20)
+            for key in ("computer", "home"):
+                testing.click(section.system_switches[key])
+                shared.settle(section)
+            self.assertEqual(self.get("desktop", "system_icons"), ["home", "trash", "computer"],
+                             "in the order Settings lists them")
+            self.assertEqual(section.system.header.description(), "3 shown on the desktop")
+            shared.choose(section.size_box, "large")
+            shared.settle(section)
+            testing.click(section.auto_arrange)
+            shared.settle(section)
+            self.assertEqual(self.get("desktop", "icon_size"), "large")
+            self.assertTrue(self.get("desktop", "auto_arrange"))
+            self.assertFalse(section.align.isEnabled(), "aligning is part of auto arrange")
+            self.assertEqual(self.written()["desktop"], {"system_icons": ["home", "trash", "computer"],
+                                                         "icon_size": "large", "auto_arrange": True})
+            self.pictures(section, "desktop-icons")
+            testing.click(section.icons)
+            shared.settle(section)
+            self.assertFalse(self.get("desktop", "icons"))
+            self.assertFalse(section.size_box.isEnabled(), "nothing else applies without icons")
+            self.assertGreaterEqual(self.compositor.reloads, 1)
+
+        def test_a_change_the_desktop_made_is_shown(self):
+            # The desktop's View menu writes [desktop] in the same file.
+            self.user.parent.mkdir(parents=True, exist_ok=True)
+            self.user.write_text('[desktop]\nicon_size = "small"\nsystem_icons = ["computer", "nonsense"]\n')
+            self.assertEqual(self.get("desktop", "icon_size"), "small")
+            self.assertEqual(self.get("desktop", "system_icons"), ["computer"], "read as the compositor reads it")
+            section = self.open(taskbar.DesktopIconsSection(config=self.settings))
+            self.assertEqual(section.size_box.currentText(), "Small icons")
+            self.assertTrue(section.system_switches["computer"].isChecked())
 
 
 SHELL = Path(__file__).resolve().parents[2] / "boswas-desktop" / "crates" / "boswas-shell" / "src"
