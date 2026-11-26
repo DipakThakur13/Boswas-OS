@@ -22,19 +22,26 @@ pub mod protocol;
 use std::{
     collections::HashMap,
     path::PathBuf,
+    rc::Rc,
     time::{Duration, Instant},
 };
 
 use boswas_ui::{glass as ui_glass, material::Backdrop};
 use smithay::{
-    backend::renderer::{
-        element::{Element, Id},
-        utils::CommitCounter,
-        Texture,
+    backend::{
+        allocator::Fourcc,
+        renderer::{
+            element::{
+                memory::{MemoryRenderBuffer, MemoryRenderBufferRenderElement},
+                Element, Id, Kind,
+            },
+            utils::CommitCounter,
+            Texture,
+        },
     },
     desktop::layer_map_for_output,
     output::Output,
-    utils::{Logical, Physical, Point, Rectangle, Scale, Size},
+    utils::{Logical, Physical, Point, Rectangle, Scale, Size, Transform},
     wayland::shell::wlr_layer::Layer,
 };
 use tiny_skia::{IntSize, Pixmap};
@@ -96,7 +103,16 @@ pub struct GlassState {
     blurred: HashMap<(String, Id), Kept>,
     mica: HashMap<String, Mica>,
     generations: u64,
+    /// The blurred desktop behind Task View, per output, and the
+    /// wallpaper generation it was made from.
+    desktops: HashMap<String, (u64, MemoryRenderBuffer)>,
+    /// The Mica of each window's title bar: what it was made for
+    /// (position on the output, wallpaper generation) and the picture.
+    titlebars: HashMap<u64, MicaBar>,
 }
+
+/// A title bar's Mica.
+pub type MicaBar = ((i32, i32, i32, u64), Rc<Pixmap>);
 
 impl GlassState {
     pub fn new(display: &smithay::reexports::wayland_server::DisplayHandle) -> Self {
@@ -108,6 +124,8 @@ impl GlassState {
             blurred: HashMap::new(),
             mica: HashMap::new(),
             generations: 0,
+            desktops: HashMap::new(),
+            titlebars: HashMap::new(),
         }
     }
 }
@@ -209,6 +227,7 @@ impl Boswas {
     fn glass_update(&mut self) {
         let live = self.glass.renderer_blurs && self.glass_on();
         if live != self.glass.effects.blur() {
+            tracing::info!("live blur behind translucent surfaces {}", if live { "on" } else { "off" });
             self.glass.effects.set_blur(live);
             self.schedule_redraw();
         }
@@ -342,6 +361,84 @@ impl Boswas {
                 elements.insert(index + 1, OutputElement::Blur(element));
             }
         }
+    }
+
+    /// The desktop blurred into glass, filling the output: what Task View
+    /// lies on (behind its dimming), faded in with `alpha`. `None` with
+    /// glass off or before the wallpaper is known.
+    pub fn blurred_desktop<R>(&mut self, renderer: &mut R, output: &Output, scale: Scale<f64>, alpha: f32) -> Option<MemoryRenderBufferRenderElement<R>>
+    where
+        R: BoswasRenderer,
+        R::TextureId: Clone + Send + Texture + 'static,
+    {
+        if !self.glass_on() {
+            return None;
+        }
+        let name = output.name();
+        let glass = ui_glass::Glass::of(self.theme)?;
+        let geo = self.space.output_geometry(output)?;
+        let generation = self.glass.mica.get(&name)?.generation;
+        if self.glass.desktops.get(&name).map(|(g, _)| *g) != Some(generation) {
+            let picture = self.glass.mica.get_mut(&name)?.backdrop.picture(glass.blur, glass.saturation);
+            let buffer = MemoryRenderBuffer::from_slice(
+                picture.data(),
+                Fourcc::Abgr8888,
+                (picture.width() as i32, picture.height() as i32),
+                1,
+                Transform::Normal,
+                None,
+            );
+            self.glass.desktops.insert(name.clone(), (generation, buffer));
+        }
+        let (_, buffer) = self.glass.desktops.get(&name)?;
+        let _ = scale;
+        MemoryRenderBufferRenderElement::from_buffer(renderer, (0.0, 0.0), buffer, Some(alpha), None, Some(geo.size), Kind::Unspecified).ok()
+    }
+
+    /// The Mica of the active window's title bar: the wallpaper under it,
+    /// blurred and covered with the `mica` material's tint (as Windows'
+    /// Mica, it does not show the windows behind). Made again when the
+    /// window comes to rest somewhere else or the wallpaper changed; while
+    /// it is dragged it keeps the picture it had.
+    pub fn titlebar_mica(&mut self, window: &crate::shell::element::WindowElement, scale: f64) -> Option<MicaBar> {
+        if !self.glass_on() || window.titlebar_height() == 0 {
+            return None;
+        }
+        let id = window.id();
+        if self.pointer.is_grabbed() {
+            if let Some(kept) = self.glass.titlebars.get(&id) {
+                return Some(kept.clone());
+            }
+        }
+        let rect = self.window_rect(window)?;
+        let output = self.output_for_rect(rect)?;
+        let geo = self.space.output_geometry(&output)?;
+        let frame = window.frame().size;
+        let origin = (rect.loc.x - geo.loc.x, rect.loc.y - geo.loc.y);
+        let name = output.name();
+        let generation = self.glass.mica.get(&name)?.generation;
+        let key = (origin.0, origin.1, frame.w, generation);
+        if let Some(kept) = self.glass.titlebars.get(&id).filter(|(k, _)| *k == key) {
+            return Some(kept.clone());
+        }
+        let theme = self.theme;
+        let glass = ui_glass::Glass::of(theme)?;
+        let mica = boswas_ui::tokens().material(theme.scheme, "mica");
+        let radius = if crate::shell::decoration::is_rounded(window.data().tile.get()) { boswas_ui::tokens().radius_window } else { 0.0 };
+        let (w, h) = (frame.w as f32, crate::shell::decoration::TITLEBAR_HEIGHT as f32);
+        let mut canvas = boswas_ui::Canvas::new(w, h, scale.ceil().max(1.0) as f32)?;
+        let recipe = boswas_ui::material::Recipe {
+            blur: mica.blur,
+            saturation: glass.saturation,
+            layers: [(mica.tint, mica.tint_opacity), (boswas_ui::Rgba::TRANSPARENT, 0.0)],
+            noise: glass.noise,
+        };
+        let backdrop = &mut self.glass.mica.get_mut(&name)?.backdrop;
+        backdrop.fill_recipe(&mut canvas, 0.0, 0.0, w, h, [radius, radius, 0.0, 0.0], (origin.0 as f32, origin.1 as f32), &recipe);
+        let bar: MicaBar = (key, Rc::new(canvas.into_pixmap()));
+        self.glass.titlebars.retain(|other, _| *other == id);
+        self.glass.titlebars.insert(id, bar.clone());
+        Some(bar)
     }
 
     /// Reads the output's wallpaper back for Mica when the shell's

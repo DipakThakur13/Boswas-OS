@@ -359,7 +359,11 @@ pub fn draw(f: &mut Frame, st: &State) {
     let (w, h) = (f.canvas.width(), f.canvas.height());
     let radius = t.radius_control;
     f.material(Rect::new(0.0, 0.0, w, h), [0.0; 4], "chrome");
-    f.divider(0.0, 0.0, w);
+    match f.glass() {
+        // Glass: the white highlight along the top edge and the glow under it.
+        Some(g) => boswas_ui::glass::draw_edges(f.canvas, 0.0, 0.0, w, h + 2.0, 0.0, &g, boswas_ui::glass::Kind::Taskbar, false),
+        None => f.divider(0.0, 0.0, w),
+    }
     f.area(Rect::new(0.0, 0.0, w, h), Action::None);
 
     let list = st.tasks();
@@ -534,7 +538,7 @@ pub fn overflow_size(st: &State) -> (f32, f32) {
 }
 
 pub fn draw_overflow(f: &mut Frame, st: &State, panel: Rect) {
-    f.panel(panel, "acrylic");
+    f.panel(panel, "flyout");
     f.area(panel, Action::None);
     let radius = tokens().radius_control;
     let (_, hidden) = split_tray(&st.sys.tray);
@@ -573,7 +577,7 @@ impl Preview {
 pub fn draw_preview(f: &mut Frame, st: &State, preview: &Preview, panel: Rect) {
     let theme = f.theme();
     let radius = tokens().radius_control;
-    f.panel(panel, "acrylic");
+    f.panel(panel, "flyout");
     f.area(panel, Action::None);
     for (index, id) in preview.windows.iter().take(6).enumerate() {
         let Some(window) = st.windows.iter().find(|w| w.id == *id) else {

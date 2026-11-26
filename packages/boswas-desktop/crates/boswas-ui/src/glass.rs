@@ -125,10 +125,21 @@ pub fn layers(theme: &Theme, glass: &Glass, kind: Kind, extremes: &[Rgba]) -> [(
 #[allow(clippy::too_many_arguments)]
 pub fn paint(canvas: &mut Canvas, x: f32, y: f32, w: f32, h: f32, radii: Corners, origin: (f32, f32), theme: &Theme, kind: Kind, source: Source<'_>) {
     let radius = radii.iter().copied().fold(0.0f32, f32::max);
+    let translucent = source.translucent();
+    fill(canvas, x, y, w, h, radii, origin, theme, kind, source);
+    match Glass::of(theme).filter(|_| translucent) {
+        Some(glass) => draw_edges(canvas, x, y, w, h, radius, &glass, kind, false),
+        None => canvas.stroke_rounded_rect(x, y, w, h, radius, 1.0, tokens().stroke(theme.scheme, "surface")),
+    }
+}
+
+/// The fill of a glass surface (see [`paint`]) without its edges: what lies
+/// under content that is drawn again (a scrolling page).
+#[allow(clippy::too_many_arguments)]
+pub fn fill(canvas: &mut Canvas, x: f32, y: f32, w: f32, h: f32, radii: Corners, origin: (f32, f32), theme: &Theme, kind: Kind, source: Source<'_>) {
     let Some(glass) = Glass::of(theme).filter(|_| source.translucent()) else {
         let tint = Glass::of(theme).map_or(theme.surface, |g| g.opaque(kind));
         canvas.fill_rounded_rect4(x, y, w, h, radii, tint);
-        canvas.stroke_rounded_rect(x, y, w, h, radius, 1.0, tokens().stroke(theme.scheme, "surface"));
         return;
     };
     match source {
@@ -153,7 +164,6 @@ pub fn paint(canvas: &mut Canvas, x: f32, y: f32, w: f32, h: f32, radii: Corners
             }
         }
     }
-    draw_edges(canvas, x, y, w, h, radius, &glass, kind, false);
 }
 
 /// The opacity of a tint is raised in steps of this much until text on it is
@@ -381,6 +391,18 @@ pub fn draw_edges(canvas: &mut Canvas, x: f32, y: f32, w: f32, h: f32, radius: f
         let glow = Rgba::WHITE.alpha(glass.glow);
         canvas.vertical_gradient_rounded_rect(x, y, w, h, radii, None, &[(0.0, glow), ((reach / h).min(1.0), glow.alpha(0.0))]);
     }
+    draw_hairline(canvas, x, y, w, h, radius, glass, hover);
+}
+
+/// The hairline of glass alone: the white highlight at the top (brighter
+/// under the pointer) running into the plain outline and a soft shadow at
+/// the bottom. A control under the pointer on a glass surface gets it.
+#[allow(clippy::too_many_arguments)]
+pub fn draw_hairline(canvas: &mut Canvas, x: f32, y: f32, w: f32, h: f32, radius: f32, glass: &Glass, hover: bool) {
+    if !(w > 1.0 && h > 1.0) {
+        return;
+    }
+    let radii = [radius.clamp(0.0, w.min(h) / 2.0); 4];
     let top = Rgba::WHITE.alpha(if hover { glass.highlight_hover } else { glass.highlight });
     let depth = (HIGHLIGHT_DEPTH / h.max(1.0)).min(0.45);
     let bottom = Rgba::BLACK.alpha(glass.shadow);

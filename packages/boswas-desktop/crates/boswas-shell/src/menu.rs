@@ -180,7 +180,7 @@ impl Menu {
     pub fn draw(&self, f: &mut Frame, origin: (f32, f32), level: usize) {
         let theme = f.theme();
         let panel = Rect::new(origin.0, origin.1, self.width, self.height);
-        f.panel(panel, "acrylic");
+        f.panel(panel, "flyout");
         f.area(panel, Action::None);
         let marks = if self.has_marks() { 28.0 } else { 0.0 };
         let radius = tokens().radius_control;

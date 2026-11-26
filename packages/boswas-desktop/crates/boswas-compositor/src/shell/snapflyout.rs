@@ -64,7 +64,11 @@ pub struct SnapFlyout {
     hover: Option<usize>,
     /// When the pointer left the flyout and the button.
     left: Option<Instant>,
-    picture: Option<((Option<usize>, i32, bool), MemoryRenderBuffer)>,
+    /// The picture and what it was drawn for: hover, scale, scheme and
+    /// the glass (on, live blur, the wallpaper's generation).
+    picture: Option<((Option<usize>, i32, bool, (bool, bool, u64)), MemoryRenderBuffer)>,
+    /// The flyout's glass, drawn once per look (the zones go on it).
+    glass: Option<Canvas>,
     /// Opened by dragging the window to the top of the screen: it lives
     /// as long as the drag stays near the top.
     dragged: bool,
@@ -170,6 +174,7 @@ impl Boswas {
             hover: None,
             left: None,
             picture: None,
+            glass: None,
             dragged: false,
         });
         self.schedule_redraw();
@@ -207,6 +212,7 @@ impl Boswas {
                 hover: None,
                 left: None,
                 picture: None,
+                glass: None,
                 dragged: true,
             });
             self.redraw = true;
@@ -294,14 +300,37 @@ impl Boswas {
             return;
         };
         let theme = self.theme;
+        let glass_key = self.glass_key(&output.name());
+        let origin = self
+            .snap_flyout
+            .as_ref()
+            .map_or((0.0, 0.0), |f| ((f.rect.loc.x - output_geo.loc.x) as f32, (f.rect.loc.y - output_geo.loc.y) as f32));
+        let stale = self.snap_flyout.as_ref().is_some_and(|f| f.picture.as_ref().map(|(k, _)| k.3) != Some(glass_key));
+        // The glass behind the zones, drawn first (it needs the compositor's
+        // wallpaper while the flyout is not borrowed).
+        let glass_layer = if stale {
+            self.snap_flyout.as_ref().map(|f| (f.rect.size, scale.x.ceil().max(1.0) as f32)).and_then(|(size, pixel_scale)| {
+                let (w, h) = (size.w as f32, size.h as f32);
+                let mut canvas = Canvas::new(w, h, pixel_scale)?;
+                let source = self.glass_source(&output.name());
+                boswas_ui::glass::paint(&mut canvas, 0.0, 0.0, w, h, [tokens().radius_flyout; 4], origin, theme, boswas_ui::glass::Kind::Flyout, source);
+                Some(canvas)
+            })
+        } else {
+            None
+        };
         let Some(flyout) = &mut self.snap_flyout else {
             return;
         };
+        if let Some(layer) = glass_layer {
+            flyout.glass = Some(layer);
+            flyout.picture = None;
+        }
         if !flyout.rect.overlaps(output_geo) {
             return;
         }
         let pixel_scale = scale.x.ceil().max(1.0) as i32;
-        let key = (flyout.hover, pixel_scale, theme.scheme == boswas_ui::Scheme::Light);
+        let key = (flyout.hover, pixel_scale, theme.scheme == boswas_ui::Scheme::Light, glass_key);
         if flyout.picture.as_ref().map(|(cached, _)| cached) != Some(&key) {
             let t = tokens();
             let scheme = theme.scheme;
@@ -309,8 +338,10 @@ impl Boswas {
             let Some(mut canvas) = Canvas::new(w, h, pixel_scale as f32) else {
                 return;
             };
-            canvas.fill_rounded_rect(0.0, 0.0, w, h, t.radius_flyout, t.material(scheme, "acrylic").tint);
-            canvas.stroke_rounded_rect(0.5, 0.5, w - 1.0, h - 1.0, t.radius_flyout - 0.5, 1.0, t.stroke(scheme, "surface"));
+            match &flyout.glass {
+                Some(layer) => canvas.copy_from_full(layer.pixmap()),
+                None => canvas.fill_rounded_rect(0.0, 0.0, w, h, t.radius_flyout, t.material(scheme, "acrylic").tint),
+            }
             for (index, (zone, _)) in flyout.zones.iter().enumerate() {
                 let (x, y) = ((zone.loc.x - flyout.rect.loc.x) as f32, (zone.loc.y - flyout.rect.loc.y) as f32);
                 let (zw, zh) = (zone.size.w as f32, zone.size.h as f32);
@@ -339,6 +370,12 @@ impl Boswas {
                 Some(flyout.rect.size),
                 Kind::Unspecified,
             ) {
+                // Live blur behind the flyout's glass.
+                self.glass.own.push(crate::glass::OwnBlur {
+                    id: smithay::backend::renderer::element::Element::id(&element).clone(),
+                    rect: Rectangle::new(flyout.rect.loc - output_geo.loc, flyout.rect.size).to_physical_precise_round(scale),
+                    radius: tokens().radius_flyout * scale.x as f32,
+                });
                 elements.push(OutputRenderElement::Memory(element));
             }
         }

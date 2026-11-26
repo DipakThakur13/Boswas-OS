@@ -91,6 +91,13 @@ impl Backdrop {
     /// `blur` and saturated by `saturation` (six of each, searched on a
     /// 64 x 36 grid as the toolkit does): what glass makes its tint legible
     /// over.
+    /// The whole wallpaper, reduced, saturated and blurred (premultiplied
+    /// RGBA), as the fills sample it: a full-screen backdrop is this picture
+    /// enlarged.
+    pub fn picture(&mut self, blur: f32, saturation: f32) -> &Pixmap {
+        self.blurred(blur, saturation)
+    }
+
     pub fn extremes(&mut self, blur: f32, saturation: f32) -> Vec<Rgba> {
         let key = self.blur_key(blur, saturation);
         if let Some((_, found)) = self.extremes.iter().find(|(k, _)| *k == key) {

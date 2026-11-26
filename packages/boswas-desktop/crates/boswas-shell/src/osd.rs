@@ -62,7 +62,7 @@ pub fn step_brightness(current: f32, up: bool) -> f32 {
 
 pub fn draw(f: &mut Frame, osd: &Osd, panel: Rect) {
     let theme = f.theme();
-    f.panel(panel, "acrylic");
+    f.panel(panel, "flyout");
     f.area(panel, Action::None);
     let icon = match osd.kind {
         Kind::Volume { muted } => volume_icon(osd.value, muted),
