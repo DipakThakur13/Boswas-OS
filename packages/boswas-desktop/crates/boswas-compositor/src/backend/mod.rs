@@ -250,6 +250,10 @@ pub fn write_png(path: &Path, width: u32, height: u32, mut rgba: Vec<u8>, opaque
     let mut encoder = png::Encoder::new(BufWriter::new(file), width, height);
     encoder.set_color(png::ColorType::Rgba);
     encoder.set_depth(png::BitDepth::Eight);
+    // The picture is written while every output waits (Print opens the
+    // capture view on it): fast compression writes a 2560 x 1440 screen in
+    // a fraction of the time of the default, for a somewhat larger file.
+    encoder.set_compression(png::Compression::Fast);
     let mut writer = encoder.write_header().map_err(|e| e.to_string())?;
     writer.write_image_data(&rgba).map_err(|e| e.to_string())?;
     writer.finish().map_err(|e| e.to_string())

@@ -597,6 +597,9 @@ fn layer_elements<R>(
         let Some(geo) = layers.layer_geometry(surface) else {
             continue;
         };
+        if shows_nothing(surface.wl_surface()) {
+            continue;
+        }
         elements.extend(
             AsRenderElements::<R>::render_elements::<WaylandSurfaceRenderElement<R>>(
                 surface,
@@ -609,6 +612,24 @@ fn layer_elements<R>(
             .map(OutputRenderElement::Surface),
         );
     }
+}
+
+/// Whether a layer surface shows nothing at all: its content is one fully
+/// transparent pixel of `wp_single_pixel_buffer_v1` (the shell's invisible
+/// surface behind a flyout, there only to take the click that closes it),
+/// with no subsurface or popup. It is left out of the picture, so its
+/// coming and going damages nothing and it costs nothing to draw; it still
+/// takes the pointer, which does not depend on drawing.
+pub fn shows_nothing(surface: &WlSurface) -> bool {
+    let transparent = smithay::backend::renderer::utils::with_renderer_surface_state(surface, |state| {
+        state
+            .buffer()
+            .and_then(|buffer| smithay::wayland::single_pixel_buffer::get_single_pixel_buffer(buffer).ok())
+            .is_some_and(|pixel| pixel.a == 0)
+    });
+    transparent == Some(true)
+        && smithay::wayland::compositor::get_children(surface).is_empty()
+        && smithay::desktop::PopupManager::popups_for_surface(surface).next().is_none()
 }
 
 /// A window drawn so that its frame fills `target` (output-local logical

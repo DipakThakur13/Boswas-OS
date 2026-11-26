@@ -43,6 +43,7 @@ mod present;
 mod prewarm;
 mod quick;
 mod settings;
+mod solid;
 mod start;
 mod state;
 mod stats;
@@ -428,6 +429,8 @@ pub(crate) struct Shell {
     pub exit: Option<i32>,
     /// Icons, text and panels made ready before they are first shown.
     pub prewarm: prewarm::Prewarm,
+    /// Single-pixel buffers for the surfaces of one colour.
+    solid: solid::Solid,
 }
 
 fn main() {
@@ -636,6 +639,7 @@ fn run(mode: Mode) -> Result<i32, Box<dyn std::error::Error>> {
         taskbar_hide_at: None,
         exit: None,
         prewarm: prewarm::Prewarm::default(),
+        solid: solid::Solid::bind(&globals, &qh),
     };
 
     match mode {
@@ -981,6 +985,7 @@ impl Shell {
             qh,
             st,
             compositor_state,
+            solid,
             ..
         } = self;
         let surface = &mut surfaces[index];
@@ -1015,13 +1020,25 @@ impl Shell {
             change if scrolling => change.with(page_window),
             change => change,
         };
+        // The capture view knows itself where it changed (a selection
+        // being dragged): the picture under it is not drawn again.
+        let change = match (change, st.capture.as_ref(), surface.front.as_ref()) {
+            (Change::All, Some(capture), Some(front)) if role == Role::Capture && front_fits => {
+                match capture.changes(&mut res.text, (w, h), scale, front.pixel_size()) {
+                    Some(rects) if rects.is_empty() => Change::None,
+                    Some(rects) => Change::Parts(rects),
+                    None => Change::All,
+                }
+            }
+            (change, _, _) => change,
+        };
         let mut damage: Vec<PixelRect> = Vec::new();
         if change != Change::None {
             let Some(mut canvas) = surface.spare.take().filter(fits).or_else(|| present::reuse_canvas(cw, ch, scale)).or_else(|| Canvas::new(cw, ch, scale)) else {
                 return;
             };
             let parts = match &change {
-                Change::Parts(rects) if front_fits && !matches!(role, Role::Capture | Role::Dismiss | Role::Smoke) => {
+                Change::Parts(rects) if front_fits && !matches!(role, Role::Dismiss | Role::Smoke) => {
                     let rects: Vec<PixelRect> = rects.iter().map(|r| ui::device_rect(r, scale)).collect();
                     canvas.begin_clip(&rects)
                 }
@@ -1196,8 +1213,15 @@ impl Shell {
             None
         };
         let whole = vec![(0, 0, pw, ph)];
+        // A surface of one colour (stretched) goes as a single-pixel buffer
+        // where the compositor offers them (`solid.rs`).
+        let single = match front.data().get(..4) {
+            Some(p) if stretched && shown.is_none() && !damage.is_empty() => solid.buffer([p[0], p[1], p[2], p[3]], qh),
+            _ => None,
+        };
         let sent = match &shown {
             Some(composed) => Some((surface.buffers.fill_other(shm, composed), whole)),
+            None if single.is_some() => None,
             None if !damage.is_empty() || surface.composed => {
                 let rects = if surface.composed { whole } else { damage };
                 Some((surface.buffers.fill(shm, front), rects))
@@ -1234,6 +1258,13 @@ impl Shell {
                 return;
             }
             attached = rects.into_iter().reduce(present::union);
+        }
+        if let (Some(buffer), Some(viewport)) = (&single, &surface.viewport) {
+            wl.set_buffer_scale(1);
+            viewport.set_destination(surface.width as i32, surface.height as i32);
+            wl.attach(Some(buffer), 0, 0);
+            wl.damage_buffer(0, 0, 1, 1);
+            attached = Some((0, 0, 1, 1));
         }
         if let Some(composed) = shown {
             surface.spare = Some(composed);
