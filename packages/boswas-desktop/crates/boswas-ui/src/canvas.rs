@@ -416,6 +416,51 @@ impl Canvas {
         self.pixmap.fill_path(&path, &paint, FillRule::Winding, transform, None);
     }
 
+    /// A rounded rectangle filled or stroked (`stroke`: the line width,
+    /// centred half of it inside the edge) with a vertical gradient through
+    /// `stops` (offsets 0.0 at the top edge to 1.0 at the bottom edge).
+    /// Glass draws its inner glow and its hairline this way.
+    #[allow(clippy::too_many_arguments)]
+    pub fn vertical_gradient_rounded_rect(&mut self, x: f32, y: f32, w: f32, h: f32, radii: Corners, stroke: Option<f32>, stops: &[(f32, Rgba)]) {
+        let inset = stroke.map_or(0.0, |width| width / 2.0);
+        let radii = radii.map(|r| (r - inset).max(0.0));
+        let Some(path) = rounded_rect_path(x + inset, y + inset, w - 2.0 * inset, h - 2.0 * inset, radii) else {
+            return;
+        };
+        if stops.is_empty() || !self.path_visible(&path, inset * 2.0) {
+            return;
+        }
+        self.touch();
+        let gradient: Vec<GradientStop> = stops.iter().map(|(at, colour)| GradientStop::new(at.clamp(0.0, 1.0), (*colour).into())).collect();
+        let paint = match LinearGradient::new(Point::from_xy(x, y), Point::from_xy(x, y + h.max(1e-3)), gradient, SpreadMode::Pad, Transform::identity()) {
+            Some(shader) => Paint { shader, anti_alias: true, ..Paint::default() },
+            None => Self::paint(stops[0].1),
+        };
+        let transform = self.transform();
+        match stroke {
+            Some(width) => {
+                let line = Stroke { width, line_cap: LineCap::Round, line_join: LineJoin::Round, ..Stroke::default() };
+                self.pixmap.stroke_path(&path, &paint, &line, transform, None);
+            }
+            None => self.pixmap.fill_path(&path, &paint, FillRule::Winding, transform, None),
+        }
+    }
+
+    /// A rounded rectangle filled with a shader (a pattern, a gradient)
+    /// whose coordinates are logical pixels of this canvas.
+    pub fn fill_rounded_rect_shader(&mut self, x: f32, y: f32, w: f32, h: f32, radii: Corners, shader: tiny_skia::Shader) {
+        let Some(path) = rounded_rect_path(x, y, w, h, radii) else {
+            return;
+        };
+        if !self.path_visible(&path, 0.0) {
+            return;
+        }
+        self.touch();
+        let paint = Paint { shader, anti_alias: true, ..Paint::default() };
+        let transform = self.transform();
+        self.pixmap.fill_path(&path, &paint, FillRule::Winding, transform, None);
+    }
+
     pub fn fill_circle(&mut self, cx: f32, cy: f32, radius: f32, color: Rgba) {
         if let Some(path) = PathBuilder::from_circle(cx, cy, radius) {
             self.fill_path(&path, color);

@@ -3,6 +3,8 @@
 //! * [`tokens`]: colours, radii, type and motion from `desktop/ui/tokens.json`
 //! * [`canvas`]: software drawing in logical pixels
 //! * [`material`]: mica, acrylic and chrome drawn from the wallpaper
+//! * [`glass`]: Boswas glass, the material of the shell, the compositor's
+//!   own surfaces and the applications
 //! * [`text`]: text shaping and rasterisation (feature `text`)
 //! * [`icons`]: icon theme lookup and SVG rasterisation (feature `icons`)
 //!
@@ -10,6 +12,7 @@
 #![forbid(unsafe_code)]
 
 pub mod canvas;
+pub mod glass;
 #[cfg(feature = "icons")]
 pub mod icons;
 pub mod material;
