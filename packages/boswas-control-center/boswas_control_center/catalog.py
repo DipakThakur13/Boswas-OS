@@ -325,7 +325,7 @@ PAGES = (
           ("permission", "camera", "microphone", "location", "screenshot", "background", "flatpak", "portal",
            "revoke"),
           description="What sandboxed (Flatpak) applications were allowed through the desktop portals."),
-    _page("privacy-security", "recent-files", "Activity history", "The list of recently used files",
+    _page("privacy-security", "recent-files", "Activity history", "Recently used files and the apps' recent lists",
           ("document-open-recent-symbolic",), ("history", "recent", "activity"),
           description="What this device remembers about your activity, and how to clear it."),
     _page("privacy-security", "privacy", "Diagnostics & feedback", "What this device sends, and what it never does",

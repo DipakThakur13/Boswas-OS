@@ -315,6 +315,23 @@ AccountsService.
 The shared list of recently used files, emptied by "Clear" on Privacy &
 security > Activity history.
 .TP
+.I ~/.local/state/com.boswas.TextEditor/recent.json
+.TQ
+.I ~/.local/state/com.boswas.DocumentViewer/documents.json
+.TQ
+.I ~/.local/state/com.boswas.MediaPlayer/recent.json
+.TQ
+.I ~/.local/state/com.boswas.MediaPlayer/resume.json
+.TQ
+.I ~/.local/state/com.boswas.ArchiveManager/state.json
+The recent lists of the Boswas applications (in
+.B $XDG_STATE_HOME
+when it is set), emptied by the same "Clear": recent files, recent documents
+and the page each was left at, recently played media and where each video
+was stopped, recent archives. The other settings in these files stay; a
+missing file is skipped and nothing is followed through a symbolic link.
+An application that is open writes its list again when it next saves it.
+.TP
 .I ~/.cache
 .TQ
 .I ~/.local/share/Trash

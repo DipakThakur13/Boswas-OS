@@ -10,6 +10,8 @@
   <config>/autostart/<id>.desktop                        start-up applications and their overrides
   ~/.face                                                the account picture
   <data>/recently-used.xbel                              the list of recently used files (emptied)
+  <state>/<app id>/<file>                                the recent lists of the Boswas applications (emptied;
+                                                         APP_HISTORIES)
   <cache>/<item>                                         items of the cache folder the user picked (deleted)
   <data>/Trash/files, <data>/Trash/info                  the user's Trash (emptied; downloads moved into it)
   <Downloads>/<item>                                     items the user picked, moved to the Trash
@@ -18,6 +20,7 @@
 <config> is $XDG_CONFIG_HOME when that is an absolute path, else ~/.config;
 <data> is $XDG_DATA_HOME when that is an absolute path, else ~/.local/share;
 <cache> is $XDG_CACHE_HOME when that is an absolute path, else ~/.cache;
+<state> is $XDG_STATE_HOME when that is an absolute path, else ~/.local/state;
 <Downloads> is the Downloads folder of xdg-user-dirs (cleanup.downloads_dir).
 The storage cleanup and the fonts take names the person picked from a list
 this program showed, and each name is checked again here: one component, a
@@ -36,6 +39,7 @@ unsandboxed with the user's permissions: the window says so before adding one.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import secrets
@@ -487,6 +491,181 @@ def clear_recent_files(environ) -> int:
     finally:
         os.close(dir_fd)
     return count
+
+
+# --- the recent lists of the Boswas applications ----------------------------------------------------------------
+
+@dataclass(frozen=True)
+class AppHistory:
+    """One list an application keeps of what was opened, in the format the application writes."""
+
+    app_id: str              # the state directory below <state>
+    file: str
+    app: str                 # the application's name, for the page
+    what: str                # what the list holds, for the page
+    kind: str                # "list": the file is a JSON list; "dict": a JSON object; "keys": `keys` of an object
+    keys: tuple[str, ...] = ()
+
+
+# Every list of recently opened things the Boswas applications keep (packages/boswas-apps): Text Editor's
+# settings.py, Document Viewer's store.py, Media Player's model.py (Recents, ResumePositions), Archive Manager's
+# state.py. Files, Photos and the other applications keep none.
+APP_HISTORIES = (
+    AppHistory("com.boswas.TextEditor", "recent.json", "Text Editor", "Recent files", "list"),
+    AppHistory("com.boswas.DocumentViewer", "documents.json", "Document Viewer",
+               "Recent documents, and the page and zoom each was left at", "keys", ("recent", "views")),
+    AppHistory("com.boswas.MediaPlayer", "recent.json", "Media Player", "Recently played", "list"),
+    AppHistory("com.boswas.MediaPlayer", "resume.json", "Media Player", "Where each video was stopped", "dict"),
+    AppHistory("com.boswas.ArchiveManager", "state.json", "Archive Manager", "Recent archives", "keys", ("recent",)),
+)
+MAX_HISTORY = 2 * 1024 * 1024
+
+
+def state_dir(environ) -> str:
+    """The user's state directory: $XDG_STATE_HOME when it is an absolute path, else ~/.local/state."""
+    base = environ.get("XDG_STATE_HOME") or ""
+    if isinstance(base, str) and os.path.isabs(base) and "\0" not in base:
+        return os.path.normpath(base)
+    return os.path.join(_home(environ), ".local", "state")
+
+
+def _open_app_state(environ, app_id: str) -> int | None:
+    """An open descriptor of <state>/<app_id>, None when it is missing; UserFileError for a symbolic link."""
+    base = state_dir(environ)
+    try:
+        base_fd = os.open(base, _DIR_FLAGS)
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise UserFileError(f"{base} cannot be used ({_reason(exc)}).") from None
+    try:
+        kind = _kind(app_id, base_fd)
+        if kind == "missing":
+            return None
+        if kind == "link":
+            raise UserFileError(f"{os.path.join(base, app_id)} is a symbolic link; it was not followed.")
+        if kind != "dir":
+            return None
+        return os.open(app_id, _DIR_FLAGS | os.O_NOFOLLOW, dir_fd=base_fd)
+    except OSError as exc:
+        raise UserFileError(f"{os.path.join(base, app_id)} cannot be used ({_reason(exc)}).") from None
+    finally:
+        os.close(base_fd)
+
+
+def _read_history(dir_fd: int, name: str) -> object:
+    """The parsed JSON of a list file; None when it is missing; "" when it is not JSON or too large."""
+    try:
+        descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=dir_fd)
+    except FileNotFoundError:
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            return ""
+        data = os.read(descriptor, MAX_HISTORY + 1)
+    finally:
+        os.close(descriptor)
+    if len(data) > MAX_HISTORY:
+        return ""
+    try:
+        return json.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError, RecursionError):
+        return ""
+
+
+def _history_entries(history: AppHistory, data: object) -> int:
+    """How many things a list names (for a document with several lists, the different paths in them)."""
+    if history.kind == "list":
+        return len(data) if isinstance(data, list) else 0
+    if history.kind == "dict":
+        return len(data) if isinstance(data, dict) else 0
+    if not isinstance(data, dict):
+        return 0
+    names: set[str] = set()
+    for key in history.keys:
+        value = data.get(key)
+        if isinstance(value, dict):
+            names.update(str(item) for item in value)
+        elif isinstance(value, list):
+            names.update(str(item.get("path")) if isinstance(item, dict) else str(item) for item in value)
+    return len(names)
+
+
+def _emptied(history: AppHistory, data: object) -> object:
+    """``data`` with the list emptied and every other setting of the file kept."""
+    if history.kind == "list":
+        return []
+    if history.kind == "dict":
+        return {}
+    kept = dict(data) if isinstance(data, dict) else {}
+    for key in history.keys:
+        kept[key] = {} if isinstance(kept.get(key), dict) or key == "views" else []
+    return kept
+
+
+def app_history_counts(environ) -> list[tuple[AppHistory, int]]:
+    """Each list of APP_HISTORIES with the number of things it names (0 when it is missing or unreadable)."""
+    found = []
+    for history in APP_HISTORIES:
+        count = 0
+        try:
+            dir_fd = _open_app_state(environ, history.app_id)
+        except UserFileError:
+            dir_fd = None
+        if dir_fd is not None:
+            try:
+                count = _history_entries(history, _read_history(dir_fd, history.file))
+            except OSError:
+                count = 0
+            finally:
+                os.close(dir_fd)
+        found.append((history, count))
+    return found
+
+
+def clear_app_histories(environ) -> int:
+    """Empty the recent lists of the Boswas applications (APP_HISTORIES); returns how many things they named.
+
+    Each file is rewritten in its application's format with the list empty
+    and its other settings kept (atomically, mode 0600); a missing file or
+    folder is nothing to clear, and a file that is not JSON is replaced by
+    an empty list. Nothing is followed through a symbolic link: such a list
+    is left as it is, the others are emptied, and UserFileError names it
+    afterwards. An application that is open keeps its list in memory and
+    writes it again when it next saves it.
+    """
+    cleared, problems = 0, []
+    for history in APP_HISTORIES:
+        try:
+            dir_fd = _open_app_state(environ, history.app_id)
+        except UserFileError as exc:
+            problems.append(str(exc))
+            continue
+        if dir_fd is None:
+            continue
+        shown = os.path.join(state_dir(environ), history.app_id, history.file)
+        try:
+            kind = _kind(history.file, dir_fd)
+            if kind == "missing":
+                continue
+            if kind != "file":
+                problems.append(f"{shown} is {'a symbolic link' if kind == 'link' else 'not a regular file'}; "
+                                "it was not changed.")
+                continue
+            data = _read_history(dir_fd, history.file)
+            count = _history_entries(history, data)
+            text = json.dumps(_emptied(history, data), ensure_ascii=False, indent=1) + "\n"
+            _replace_file(dir_fd, history.file, text.encode("utf-8"), 0o600, shown)
+            cleared += count
+        except UserFileError as exc:
+            problems.append(str(exc))
+        except OSError as exc:
+            problems.append(f"{shown} could not be read ({_reason(exc)}).")
+        finally:
+            os.close(dir_fd)
+    if problems:
+        raise UserFileError(" ".join(problems))
+    return cleared
 
 
 # --- storage cleanup ------------------------------------------------------------------------------------------------

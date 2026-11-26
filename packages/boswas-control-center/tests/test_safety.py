@@ -76,7 +76,8 @@ EXPECTED_SYSOPS = {"apt-refresh", "apt-upgrade", "apt-install", "apt-remove", "a
 # Changing files is allowed only in userfiles.py: AppImages, their menu entries, the thumbnail cache, the
 # settings files of write_config()/remove_config() (boswas/compositor.toml and its .bak, boswas/appearance.toml,
 # mimeapps.list, autostart/<id>.desktop in the user's config directory), the account picture ~/.face, the
-# list of recently used files (recently-used.xbel, emptied), the items of the cache folder and of Downloads the
+# list of recently used files (recently-used.xbel, emptied), the recent lists of the Boswas applications in the
+# state directory (emptied), the items of the cache folder and of Downloads the
 # user picked (deleted; moved to the Trash), the Trash (emptied) and the fonts the user installs.
 FILE_CHANGING_OS = {"remove", "unlink", "rename", "replace", "makedirs", "mkdir", "chmod"}
 FILE_WRITER = "boswas_control_center/userfiles.py"
