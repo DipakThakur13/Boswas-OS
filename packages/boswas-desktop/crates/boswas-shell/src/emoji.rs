@@ -382,6 +382,8 @@ const PAD: f32 = 12.0;
 const CELL: f32 = 44.0;
 const GLYPH: f32 = 26.0;
 const BAR: f32 = 44.0;
+/// A skin tone's button.
+const TONE: f32 = 36.0;
 
 /// The panel's size on an output (logical pixels, without its shadow).
 pub fn panel_size(output: (f32, f32)) -> (f32, f32) {
@@ -415,7 +417,11 @@ pub fn layout(st: &State, panel: Rect) -> Layout {
     let tone = (st.emoji.tab == Tab::Emoji).then(|| Rect::new(inner.right() - field_h, inner.y + tab_h + 8.0, field_h, field_h));
     let search_w = inner.w - tone.map_or(0.0, |t| t.w + 8.0);
     let search = Rect::new(inner.x, inner.y + tab_h + 8.0, search_w, field_h);
-    let title_h = ramp("body-strong", WHITE).line_height().max(CELL * 0.6);
+    let title_h = if st.emoji.tones_open && st.emoji.tab == Tab::Emoji {
+        TONE
+    } else {
+        ramp("body-strong", WHITE).line_height().max(CELL * 0.6)
+    };
     let title = Rect::new(inner.x, search.bottom() + 8.0, inner.w, title_h);
     let bar = Rect::new(inner.x, inner.bottom() - BAR, inner.w, BAR);
     let grid = Rect::new(inner.x, title.bottom() + 4.0, inner.w, (bar.y - 6.0 - (title.bottom() + 4.0)).max(CELL));
@@ -461,6 +467,7 @@ pub fn draw(f: &mut Frame, st: &State, panel: Rect) {
         let touch = f.hit(*rect, Action::Emoji(Act::Tab(*tab)));
         f.state_layer(rect.inset(2.0), tokens().radius_control, touch, false);
         let style = if selected { ramp("body-strong", theme.text) } else { ramp("body", theme.text_secondary) };
+        let style = fit_width(f, tab.label(), &style, rect.w - 8.0);
         f.text_centered(tab.label(), Rect::new(rect.x, rect.y, rect.w, rect.h - 4.0), &style);
         if selected {
             f.canvas.fill_rounded_rect(rect.center().0 - 8.0, rect.bottom() - 4.0, 16.0, 3.0, 1.5, theme.accent);
@@ -476,7 +483,7 @@ pub fn draw(f: &mut Frame, st: &State, panel: Rect) {
     };
     f.text_box(lay.search, &panel_state.search, placeholder, true, false, 34.0, 8.0);
     let icon = 16.0;
-    f.icon_tinted("edit-find-symbolic", lay.search.x + 10.0, lay.search.y + (lay.search.h - icon) / 2.0, icon, theme.text_secondary);
+    crate::clipview::symbol(f, "edit-find-symbolic", Rect::new(lay.search.x + 10.0, lay.search.y + (lay.search.h - icon) / 2.0, icon, icon), theme.text_secondary);
 
     // The skin tone button.
     if let Some(rect) = lay.tone {
@@ -494,7 +501,7 @@ pub fn draw(f: &mut Frame, st: &State, panel: Rect) {
 
     // The heading, or the skin tones to choose from.
     if panel_state.tones_open && panel_state.tab == Tab::Emoji {
-        let size = lay.title.h.min(36.0);
+        let size = TONE;
         for tone in 0..6 {
             let rect = Rect::new(lay.title.x + tone as f32 * (size + 6.0), lay.title.y, size, size);
             let touch = f.hit(rect, Action::Emoji(Act::Tone(tone)));
@@ -502,7 +509,8 @@ pub fn draw(f: &mut Frame, st: &State, panel: Rect) {
             if panel_state.recent.tone == tone {
                 f.canvas.stroke_rounded_rect(rect.x, rect.y, rect.w, rect.h, tokens().radius_control, 1.5, theme.accent);
             }
-            draw_glyph(f, &swatch(tone), rect, (size * 0.6).min(22.0));
+            draw_glyph(f, &swatch(tone), rect, 22.0);
+            f.tip(["No skin tone", "Light skin tone", "Medium-light skin tone", "Medium skin tone", "Medium-dark skin tone", "Dark skin tone"][tone]);
         }
     } else {
         let title = panel_state.title();
@@ -570,7 +578,7 @@ pub fn draw(f: &mut Frame, st: &State, panel: Rect) {
             None => {
                 let size = 18.0;
                 let (cx, cy) = rect.center();
-                f.icon_tinted("document-open-recent-symbolic", cx - size / 2.0, cy - size / 2.0 - 2.0, size, theme.text);
+                crate::clipview::symbol(f, "document-open-recent-symbolic", Rect::new(cx - size / 2.0, cy - size / 2.0 - 2.0, size, size), theme.text);
             }
             Some(mark) if panel_state.tab == Tab::Emoji => draw_glyph(f, mark, Rect::new(rect.x, rect.y, rect.w, rect.h - 4.0), 20.0),
             Some(mark) => {
@@ -582,6 +590,17 @@ pub fn draw(f: &mut Frame, st: &State, panel: Rect) {
             f.canvas.fill_rounded_rect(rect.center().0 - 8.0, rect.bottom() - 4.0, 16.0, 3.0, 1.5, theme.accent);
         }
     }
+}
+
+/// A label's style made smaller, down to the normal text size, until it
+/// fits `width` (the tabs at large text sizes).
+fn fit_width(f: &mut Frame, text: &str, style: &TextStyle, width: f32) -> TextStyle {
+    let floor = (style.size / text_scale()).round();
+    let mut fitted = *style;
+    while fitted.size > floor && f.res.text.measure(text, &fitted).0 > width {
+        fitted.size -= 1.0;
+    }
+    fitted
 }
 
 /// An item's cell: the hover, pressed and focus look.

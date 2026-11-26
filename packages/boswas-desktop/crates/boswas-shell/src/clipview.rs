@@ -165,7 +165,7 @@ pub fn draw(f: &mut Frame, st: &State, panel: Rect) {
     if let Some(rect) = lay.search {
         f.area(rect, Action::Clip(Act::Search));
         f.text_box(rect, &st.clipview.search, "Search", true, false, 34.0, 8.0);
-        f.icon_tinted("edit-find-symbolic", rect.x + 10.0, rect.y + (rect.h - 16.0) / 2.0, 16.0, theme.text_secondary);
+        symbol(f, "edit-find-symbolic", Rect::new(rect.x + 10.0, rect.y + (rect.h - 16.0) / 2.0, 16.0, 16.0), theme.text_secondary);
     }
     if lay.total == 0 && st.clips.enabled {
         let (head, body) = if st.clipview.search.is_empty() {
@@ -187,9 +187,11 @@ pub fn draw(f: &mut Frame, st: &State, panel: Rect) {
             draw_card(f, clip, *rect);
         }
     }
-    if lay.total > lay.cards.len() {
-        let content = lay.total as f32 * 80.0;
-        f.scrollbar(Rect::new(lay.view.x, lay.view.y, lay.view.w + PAD * 0.75, lay.view.h), content, st.clipview.scroll as f32 * 80.0);
+    if lay.total > lay.cards.len() && !lay.cards.is_empty() {
+        let shown = lay.cards.len() as f32;
+        let content = lay.view.h * lay.total as f32 / shown;
+        let offset = lay.view.h * st.clipview.scroll as f32 / shown;
+        f.scrollbar(Rect::new(lay.view.x, lay.view.y, lay.view.w + PAD * 0.75, lay.view.h), content, offset);
     }
 }
 
@@ -244,11 +246,45 @@ fn draw_card(f: &mut Frame, clip: &Clip, rect: Rect) {
     f.tip(if clip.pinned { "Unpin" } else { "Pin" });
     f.state_layer(pin, tokens().radius_control, touch, false);
     let color = if clip.pinned { theme.accent } else { theme.text_secondary };
-    f.icon_tinted("view-pin-symbolic", pin.x + 6.0, pin.y + 6.0, 16.0, color);
+    symbol(f, "view-pin-symbolic", Rect::new(pin.x + 6.0, pin.y + 6.0, 16.0, 16.0), color);
     let touch = f.hit(delete, Action::Clip(Act::Delete(clip.id)));
     f.tip("Delete");
     f.state_layer(delete, tokens().radius_control, touch, false);
-    f.icon_tinted("edit-delete-symbolic", delete.x + 6.0, delete.y + 6.0, 16.0, theme.text_secondary);
+    symbol(f, "edit-delete-symbolic", Rect::new(delete.x + 6.0, delete.y + 6.0, 16.0, 16.0), theme.text_secondary);
+}
+
+/// A symbolic icon in one colour; where the icon theme lacks it, a drawn
+/// stand-in, so no control of the flyouts is ever blank.
+pub(crate) fn symbol(f: &mut Frame, name: &str, rect: Rect, color: boswas_ui::tokens::Rgba) {
+    if f.icon_tinted(name, rect.x, rect.y, rect.w, color) {
+        return;
+    }
+    let s = rect.w / 16.0;
+    let p = |x: f32, y: f32| (rect.x + x * s, rect.y + y * s);
+    let width = (1.5 * s).max(1.2);
+    match name {
+        "edit-find-symbolic" => {
+            let (cx, cy) = p(6.5, 6.5);
+            f.canvas.stroke_circle(cx, cy, 4.5 * s, width, color);
+            f.canvas.polyline(&[p(10.0, 10.0), p(14.0, 14.0)], width, color);
+        }
+        "edit-delete-symbolic" => {
+            f.canvas.polyline(&[p(2.5, 4.0), p(13.5, 4.0)], width, color);
+            f.canvas.polyline(&[p(6.0, 4.0), p(6.0, 2.0), p(10.0, 2.0), p(10.0, 4.0)], width, color);
+            f.canvas.polyline(&[p(4.0, 4.0), p(5.0, 14.0), p(11.0, 14.0), p(12.0, 4.0)], width, color);
+        }
+        "view-pin-symbolic" => {
+            f.canvas.polyline(&[p(5.0, 2.0), p(11.0, 2.0)], width, color);
+            f.canvas.polyline(&[p(6.0, 2.0), p(6.0, 7.0), p(4.0, 9.0), p(12.0, 9.0), p(10.0, 7.0), p(10.0, 2.0)], width, color);
+            f.canvas.polyline(&[p(8.0, 9.0), p(8.0, 14.5)], width, color);
+        }
+        _ => {
+            // A clock: recently used.
+            let (cx, cy) = p(8.0, 8.0);
+            f.canvas.stroke_circle(cx, cy, 6.0 * s, width, color);
+            f.canvas.polyline(&[p(8.0, 4.5), p(8.0, 8.0), p(10.5, 9.5)], width, color);
+        }
+    }
 }
 
 /// The user's own `compositor.toml`.
@@ -371,16 +407,19 @@ impl Shell {
 
     pub fn clip_key(&mut self, event: &KeyEvent, typed: Option<&str>) {
         let shown: Vec<u64> = self.st.clips.matching(self.st.clipview.search.text()).iter().map(|c| c.id).collect();
+        // As on Windows, the newest item is the one the keys act on until
+        // another is chosen.
         let focused = match &self.st.focus {
             Some(Action::Clip(Act::Paste(id) | Act::Pin(id) | Act::Delete(id))) => shown.iter().position(|i| i == id),
             _ => None,
         };
+        let current = focused.unwrap_or(0);
         let ctrl = self.modifiers.ctrl;
         let step = |delta: i64| -> Option<usize> {
             if shown.is_empty() {
                 return None;
             }
-            Some(focused.map_or(0, |at| (at as i64 + delta).clamp(0, shown.len() as i64 - 1) as usize))
+            Some((current as i64 + delta).clamp(0, shown.len() as i64 - 1) as usize)
         };
         let target = match event.keysym {
             Keysym::Escape => {
@@ -405,16 +444,15 @@ impl Shell {
                 }
                 return;
             }
-            Keysym::Delete | Keysym::KP_Delete if focused.is_some() => {
-                let id = shown[focused.unwrap_or(0)];
-                self.clip_action(Act::Delete(id));
+            Keysym::Delete | Keysym::KP_Delete if !shown.is_empty() => {
+                self.clip_action(Act::Delete(shown[current]));
                 let after: Vec<u64> = self.st.clips.matching(self.st.clipview.search.text()).iter().map(|c| c.id).collect();
-                self.st.focus = after.get(focused.unwrap_or(0).min(after.len().saturating_sub(1))).map(|id| Action::Clip(Act::Paste(*id)));
+                self.st.focus = after.get(current.min(after.len().saturating_sub(1))).map(|id| Action::Clip(Act::Paste(*id)));
                 return self.mark(Role::Flyout);
             }
             Keysym::p | Keysym::P if ctrl => {
-                if let Some(at) = focused {
-                    self.clip_action(Act::Pin(shown[at]));
+                if let Some(id) = shown.get(current) {
+                    self.clip_action(Act::Pin(*id));
                 }
                 return;
             }
@@ -551,6 +589,94 @@ mod tests {
                 }
             }
         }
+        crate::ui::set_text_scale(100);
+    }
+
+    /// Writes pictures of both flyouts over the taskbar and the wallpaper,
+    /// for people to look at: `BOSWAS_SHELL_PICTURES=DIR`, then
+    /// `cargo test -p boswas-shell -- --ignored picker_pictures`.
+    #[test]
+    #[ignore = "writes pictures for people to look at"]
+    fn picker_pictures() {
+        use crate::{emoji, taskbar, PAD};
+        let Some(out) = std::env::var_os("BOSWAS_SHELL_PICTURES").map(std::path::PathBuf::from) else {
+            return;
+        };
+        let picture = |st: &State, (w, h): (f32, f32), scheme: Scheme, kind: &str, name: &str| {
+            let theme = boswas_ui::Theme::of(scheme);
+            let mut background = crate::wallpaper::Background::default();
+            background.load_picture("");
+            let mut res = Resources::new(theme);
+            res.backdrop = background.reduced(theme, w, h).and_then(|reduced| boswas_ui::material::Backdrop::new(&reduced, w, h));
+            let bar = tokens().shell("taskbar-height");
+            let (pw, ph) = if kind == "emoji" { emoji::panel_size((w, h)) } else { panel_size((w, h)) };
+            let (sw, sh) = (pw + 2.0 * PAD, ph + 2.0 * PAD);
+            let origin = (((w - sw) / 2.0).floor(), h - bar - sh);
+            let (taskbar, _) = testing::render_with(Resources::new(theme), w, bar, 1.0, None, None, |f| taskbar::draw(f, st));
+            let (flyout, _) = testing::render_with(res, sw, sh, 1.0, None, st.focus.as_ref(), |f| {
+                f.origin = origin;
+                if kind == "emoji" {
+                    emoji::draw(f, st, Rect::new(PAD, PAD, pw, ph));
+                } else {
+                    draw(f, st, Rect::new(PAD, PAD, pw, ph));
+                }
+            });
+            let (canvas, _) = testing::render(w, h, 1.0, scheme, None, None, |f| {
+                background.paint(f.canvas, theme);
+                f.canvas.draw_pixmap(taskbar.pixmap(), 0.0, h - bar, w, bar, 1.0);
+                f.canvas.draw_pixmap(flyout.pixmap(), origin.0, origin.1, sw, sh, 1.0);
+            });
+            let file = format!("{kind}-{name}-{w}x{h}-{}-{}.png", text_scale() * 100.0, if scheme == Scheme::Dark { "dark" } else { "light" });
+            std::fs::write(out.join(file), boswas_ui::icons::encode_png(canvas.pixmap()).unwrap()).unwrap();
+        };
+        for output in [(1920.0, 1080.0), (1366.0, 768.0)] {
+            for text in [100, 175] {
+                crate::ui::set_text_scale(text);
+                for scheme in [Scheme::Dark, Scheme::Light] {
+                    let mut st = State::for_tests();
+                    with_items(&mut st);
+                    picture(&st, output, scheme, "clipboard", "items");
+                    st.focus = Some(Action::Clip(Act::Paste(st.clips.items[1].id)));
+                    picture(&st, output, scheme, "clipboard", "focused");
+                    st.focus = None;
+                    st.clipview.search.insert("report");
+                    picture(&st, output, scheme, "clipboard", "search");
+                    let mut empty = State::for_tests();
+                    picture(&empty, output, scheme, "clipboard", "empty");
+                    empty.clips.configure(false, 0);
+                    picture(&empty, output, scheme, "clipboard", "off");
+                    for tab in emoji::Tab::ALL {
+                        let mut st = State::for_tests();
+                        st.emoji.tab = tab;
+                        st.emoji.reset();
+                        picture(&st, output, scheme, "emoji", &format!("{tab:?}").to_lowercase());
+                    }
+                    let mut st = State::for_tests();
+                    st.emoji.recent.items = ["\u{1F44B}", "\u{1F600}", "\u{2764}\u{FE0F}", "\u{1F44D}", "\u{1F389}"].iter().map(|s| (*s).to_owned()).collect();
+                    st.emoji.recent.tone = 3;
+                    st.emoji.reset();
+                    st.emoji.tones_open = true;
+                    picture(&st, output, scheme, "emoji", "recent-tones");
+                    st.emoji.tones_open = false;
+                    st.emoji.search.insert("heart");
+                    st.focus = Some(Action::Emoji(emoji::Act::Item(2)));
+                    picture(&st, output, scheme, "emoji", "search");
+                    st.emoji.search.clear();
+                    st.emoji.group = emoji::tab_groups(emoji::Tab::Emoji).find(|(_, g)| g.key == "people").map(|(i, _)| i).unwrap();
+                    st.emoji.scroll = 3;
+                    picture(&st, output, scheme, "emoji", "people-scrolled");
+                }
+            }
+        }
+        crate::ui::set_text_scale(225);
+        let mut st = State::for_tests();
+        with_items(&mut st);
+        picture(&st, (1366.0, 768.0), Scheme::Dark, "clipboard", "items");
+        st.emoji.reset();
+        picture(&st, (1366.0, 768.0), Scheme::Dark, "emoji", "emoji");
+        st.emoji.tab = emoji::Tab::Kaomoji;
+        st.emoji.reset();
+        picture(&st, (1366.0, 768.0), Scheme::Light, "emoji", "kaomoji");
         crate::ui::set_text_scale(100);
     }
 
