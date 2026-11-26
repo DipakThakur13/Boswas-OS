@@ -67,7 +67,13 @@ fn differing_pixels(a: &[u8], b: &[u8]) -> (usize, usize) {
 /// Whether no pixel of a drawing (four bytes per pixel, alpha last) lets
 /// what is behind it show through.
 pub fn is_opaque(pixels: &[u8]) -> bool {
-    !pixels.is_empty() && pixels.chunks_exact(4).all(|p| p[3] == 255)
+    // Two pixels at a time: a whole screen is millions of them.
+    const ALPHAS: u64 = 0xff00_0000_ff00_0000;
+    let pairs = pixels.chunks_exact(8);
+    let rest = pairs.remainder();
+    !pixels.is_empty()
+        && rest.chunks_exact(4).all(|p| p[3] == 255)
+        && pairs.into_iter().all(|pair| u64::from_le_bytes(pair.try_into().unwrap_or([0; 8])) & ALPHAS == ALPHAS)
 }
 
 /// The rows `area` covers in a picture `width` pixels wide: for each, the

@@ -642,6 +642,16 @@ fn run(mode: Mode) -> Result<i32, Box<dyn std::error::Error>> {
         solid: solid::Solid::bind(&globals, &qh),
     };
 
+    // The desktop shares the background it draws; the lock screen starts
+    // from it (wallpaper.rs).
+    if let Some(file) = wallpaper::shared_file() {
+        match mode {
+            Mode::Desktop => shell.background.share_in(file),
+            Mode::Lock => shell.background.adopt_shared(&file),
+            Mode::Greeter => {}
+        }
+    }
+
     match mode {
         Mode::Lock => {
             // The session is already locked by the compositor; this asks to
