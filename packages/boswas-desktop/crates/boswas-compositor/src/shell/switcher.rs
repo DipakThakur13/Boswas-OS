@@ -57,7 +57,19 @@ pub struct Switcher {
     output: String,
     /// Where each cell is on the desktop, for the pointer.
     cells: Vec<Rectangle<i32, Logical>>,
-    panel: Option<(PanelKey, MemoryRenderBuffer)>,
+    /// The panel as kept: its surface with the shadow, and in front of it
+    /// the icons and titles. The selection's frame is a picture of its own
+    /// between them, so stepping through the windows draws nothing again.
+    panel: Option<(PanelKey, MemoryRenderBuffer, MemoryRenderBuffer)>,
+    selection: Option<(SelectionKey, MemoryRenderBuffer)>,
+}
+
+/// What the cached frame of the selected cell was drawn for.
+#[derive(Clone, Debug, PartialEq)]
+struct SelectionKey {
+    size: Size<i32, Logical>,
+    scale: i32,
+    light: bool,
 }
 
 impl Switcher {
@@ -76,7 +88,6 @@ impl Switcher {
 struct PanelKey {
     layout: Layout,
     titles: Vec<(String, String)>,
-    selected: usize,
     scale: i32,
     light: bool,
 }
@@ -222,6 +233,7 @@ impl Boswas {
                     output,
                     cells: Vec::new(),
                     panel: None,
+                    selection: None,
                 });
             }
         }
@@ -312,12 +324,12 @@ impl Boswas {
         let layout = layout(output_geo.size, &frames);
         let selected = self.switcher.as_ref().map_or(0, |s| s.index);
         let pixel_scale = scale.x.ceil().max(1.0) as i32;
+        let light = self.theme.scheme == boswas_ui::Scheme::Light;
         let key = PanelKey {
             layout: layout.clone(),
             titles: windows.iter().map(|w| (w.title(), w.app_id())).collect(),
-            selected,
             scale: pixel_scale,
-            light: self.theme.scheme == boswas_ui::Scheme::Light,
+            light,
         };
 
         // Previews, in front of the panel.
@@ -330,11 +342,20 @@ impl Boswas {
             );
         }
 
-        let cached = self.switcher.as_ref().and_then(|s| s.panel.as_ref()).is_some_and(|(k, _)| *k == key);
+        let cached = self.switcher.as_ref().and_then(|s| s.panel.as_ref()).is_some_and(|(k, _, _)| *k == key);
         if !cached {
-            let buffer = self.draw_switcher_panel(&key);
+            let buffers = self.draw_switcher_panel(&key);
+            if let (Some(switcher), Some((back, front))) = (self.switcher.as_mut(), buffers) {
+                switcher.panel = Some((key, back, front));
+            }
+        }
+        let cell = layout.cells.get(selected).copied();
+        let selection_key = cell.map(|cell| SelectionKey { size: cell.size, scale: pixel_scale, light });
+        let cached = self.switcher.as_ref().and_then(|s| s.selection.as_ref()).map(|(k, _)| k) == selection_key.as_ref();
+        if let (false, Some(selection_key)) = (cached, selection_key) {
+            let buffer = self.draw_switcher_selection(&selection_key);
             if let (Some(switcher), Some(buffer)) = (self.switcher.as_mut(), buffer) {
-                switcher.panel = Some((key, buffer));
+                switcher.selection = Some((selection_key, buffer));
             }
         }
         let Some(switcher) = self.switcher.as_mut() else {
@@ -345,54 +366,67 @@ impl Boswas {
             .iter()
             .map(|cell| Rectangle::new(cell.loc + output_geo.loc, cell.size))
             .collect();
-        if let Some((_, buffer)) = &switcher.panel {
-            let location = (layout.panel.loc - Point::from((SHADOW, SHADOW))).to_physical_precise_round::<_, i32>(scale);
-            if let Ok(element) = MemoryRenderBufferRenderElement::from_buffer(
-                renderer,
-                location.to_f64(),
-                buffer,
-                None,
-                None,
-                Some(layout.panel.size + Size::from((2 * SHADOW, 2 * SHADOW))),
-                Kind::Unspecified,
-            ) {
+        let panel_location = (layout.panel.loc - Point::from((SHADOW, SHADOW))).to_physical_precise_round::<_, i32>(scale);
+        let panel_size = layout.panel.size + Size::from((2 * SHADOW, 2 * SHADOW));
+        let mut place = |buffer: &MemoryRenderBuffer, location: Point<i32, smithay::utils::Physical>, size: Size<i32, Logical>| {
+            if let Ok(element) =
+                MemoryRenderBufferRenderElement::from_buffer(renderer, location.to_f64(), buffer, None, None, Some(size), Kind::Unspecified)
+            {
                 elements.push(OutputRenderElement::Memory(element));
             }
+        };
+        // Front to back: icons and titles, the selection, the panel.
+        if let Some((_, _, front)) = &switcher.panel {
+            place(front, panel_location, panel_size);
+        }
+        if let (Some((_, buffer)), Some(cell)) = (&switcher.selection, cell) {
+            place(buffer, cell.loc.to_physical_precise_round(scale), cell.size);
+        }
+        if let Some((_, back, _)) = &switcher.panel {
+            place(back, panel_location, panel_size);
         }
     }
 
-    /// Draws the panel: its surface and shadow, the labels and the frame
-    /// around the selected cell. The previews are live windows drawn in
-    /// front of it.
-    fn draw_switcher_panel(&mut self, key: &PanelKey) -> Option<MemoryRenderBuffer> {
+    /// Draws the frame around the selected cell, at the cell's size.
+    fn draw_switcher_selection(&mut self, key: &SelectionKey) -> Option<MemoryRenderBuffer> {
+        let t = tokens();
+        let theme = self.theme;
+        let (cw, ch) = (key.size.w as f32, key.size.h as f32);
+        let mut canvas = Canvas::new(cw, ch, key.scale as f32)?;
+        canvas.fill_rounded_rect(0.0, 0.0, cw, ch, 6.0, t.fill(theme.scheme, "control-hover"));
+        canvas.stroke_rounded_rect(1.0, 1.0, cw - 2.0, ch - 2.0, 5.0, 2.0, theme.focus);
+        Some(to_buffer(&canvas, key.scale))
+    }
+
+    /// Draws the panel: its surface and shadow (behind the selection), and
+    /// the icons and titles (in front of it). The previews are live windows
+    /// drawn in front of it all.
+    fn draw_switcher_panel(&mut self, key: &PanelKey) -> Option<(MemoryRenderBuffer, MemoryRenderBuffer)> {
         let t = tokens();
         let theme = self.theme;
         let scheme = theme.scheme;
         let panel = key.layout.panel;
         let margin = SHADOW as f32;
         let (w, h) = (panel.size.w as f32, panel.size.h as f32);
-        let mut canvas = Canvas::new(w + 2.0 * margin, h + 2.0 * margin, key.scale as f32)?;
+        let mut back = Canvas::new(w + 2.0 * margin, h + 2.0 * margin, key.scale as f32)?;
         let elevation = t.elevation("dialog");
-        canvas.shadow(margin, margin, w, h, t.radius_flyout, elevation.blur.min(margin - 8.0), elevation.y.min(8.0), elevation.alpha);
+        back.shadow(margin, margin, w, h, t.radius_flyout, elevation.blur.min(margin - 8.0), elevation.y.min(8.0), elevation.alpha);
         let material = t.material(scheme, "acrylic");
-        canvas.fill_rounded_rect(margin, margin, w, h, t.radius_flyout, material.tint);
-        canvas.stroke_rounded_rect(margin + 0.5, margin + 0.5, w - 1.0, h - 1.0, t.radius_flyout - 0.5, 1.0, t.stroke(scheme, "surface"));
+        back.fill_rounded_rect(margin, margin, w, h, t.radius_flyout, material.tint);
+        back.stroke_rounded_rect(margin + 0.5, margin + 0.5, w - 1.0, h - 1.0, t.radius_flyout - 0.5, 1.0, t.stroke(scheme, "surface"));
 
+        let mut front = Canvas::new(w + 2.0 * margin, h + 2.0 * margin, key.scale as f32)?;
         let caption = t.type_style("caption");
         let icon_size = 16u32;
         for (index, cell) in key.layout.cells.iter().enumerate() {
             let x = margin + (cell.loc.x - panel.loc.x) as f32;
             let y = margin + (cell.loc.y - panel.loc.y) as f32;
-            let (cw, ch) = (cell.size.w as f32, cell.size.h as f32);
-            if index == key.selected {
-                canvas.fill_rounded_rect(x, y, cw, ch, 6.0, t.fill(scheme, "control-hover"));
-                canvas.stroke_rounded_rect(x + 1.0, y + 1.0, cw - 2.0, ch - 2.0, 5.0, 2.0, theme.focus);
-            }
+            let cw = cell.size.w as f32;
             let (title, app_id) = &key.titles[index];
             let mut text_x = x + CELL_PADDING as f32;
             if let Some(icon) = self.app_icons.get(app_id, icon_size * key.scale as u32) {
                 let size = icon_size as f32;
-                canvas.draw_pixmap(&icon, text_x, y + (LABEL_HEIGHT as f32 - size) / 2.0, size, size, 1.0);
+                front.draw_pixmap(&icon, text_x, y + (LABEL_HEIGHT as f32 - size) / 2.0, size, size, 1.0);
                 text_x += size + 8.0;
             }
             let style = TextStyle::new(caption.size, theme.text).weight(caption.weight);
@@ -400,22 +434,19 @@ impl Boswas {
             if room > 16.0 {
                 let line = style.line_height();
                 self.text()
-                    .draw(&mut canvas, title, text_x, y + ((LABEL_HEIGHT as f32 - line) / 2.0).floor(), Some(room), &style);
+                    .draw(&mut front, title, text_x, y + ((LABEL_HEIGHT as f32 - line) / 2.0).floor(), Some(room), &style);
             }
         }
-
-        let (pw, ph) = canvas.pixel_size();
-        let mut bytes = vec![0u8; (pw * ph * 4) as usize];
-        canvas.write_argb8888(&mut bytes);
-        Some(MemoryRenderBuffer::from_slice(
-            &bytes,
-            Fourcc::Argb8888,
-            (pw as i32, ph as i32),
-            key.scale,
-            Transform::Normal,
-            None,
-        ))
+        Some((to_buffer(&back, key.scale), to_buffer(&front, key.scale)))
     }
+}
+
+/// A canvas as a buffer the renderer draws from.
+fn to_buffer(canvas: &Canvas, scale: i32) -> MemoryRenderBuffer {
+    let (pw, ph) = canvas.pixel_size();
+    let mut bytes = vec![0u8; (pw * ph * 4) as usize];
+    canvas.write_argb8888(&mut bytes);
+    MemoryRenderBuffer::from_slice(&bytes, Fourcc::Argb8888, (pw as i32, ph as i32), scale, Transform::Normal, None)
 }
 
 #[cfg(test)]

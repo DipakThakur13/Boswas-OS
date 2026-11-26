@@ -83,6 +83,20 @@ pub struct Overview {
     dim: SolidColorBuffer,
 }
 
+/// The cards and strips Task View drew, kept while it is closed.
+type Kept = (HashMap<u64, (CardKey, MemoryRenderBuffer)>, HashMap<String, (StripKey, MemoryRenderBuffer)>);
+
+thread_local! {
+    static KEPT: std::cell::RefCell<Kept> = std::cell::RefCell::new((HashMap::new(), HashMap::new()));
+}
+
+impl Drop for Overview {
+    fn drop(&mut self) {
+        let kept = (std::mem::take(&mut self.cards), std::mem::take(&mut self.strips));
+        KEPT.with(|cell| *cell.borrow_mut() = kept);
+    }
+}
+
 impl Overview {
     /// How far Task View is open: 0.0 (windows where they are) to 1.0 (in
     /// the grid).
@@ -293,13 +307,18 @@ impl Boswas {
             } else {
                 Phase::Opening(Timeline::new(t.motion_slow_ms, Curve::Decelerate))
             };
+            // The cards and strips of the last time, for the windows that
+            // are still there: opening Task View again draws them again
+            // only where they changed.
+            let (mut cards, strips) = KEPT.with(|kept| std::mem::take(&mut *kept.borrow_mut()));
+            cards.retain(|id, _| self.window_by_id(*id).is_some());
             self.overview = Some(Overview {
                 selected: self.focused_window().map(|w| w.id()),
                 phase,
                 hover: None,
                 hits: Vec::new(),
-                cards: HashMap::new(),
-                strips: HashMap::new(),
+                cards,
+                strips,
                 dim: SolidColorBuffer::default(),
             });
             // Applications lose the pointer and the keyboard.
