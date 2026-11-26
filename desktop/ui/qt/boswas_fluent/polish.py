@@ -14,6 +14,13 @@ event filter that looks at three kinds of event only:
   whether the focus ring is shown. As in WinUI, the ring follows keyboard
   focus only; a click never draws it.
 
+While Boswas glass is on (``glass.py``), ``GlassPainter`` paints under the
+style sheet: menus, combo box lists and tool tips are acrylic glass (the
+backdrop of their window under the flyout tint, an inner glow; the style
+sheet draws their outline with its white top edge on it), and a dialog that
+is a window of its own (``QDialog``: message boxes, file dialogs) shows the
+backdrop like a FluentWindow.
+
 ``FocusRing`` is the ring itself: one small transparent widget, moved
 around the widget (or the row, or the tab) that has the keyboard focus.
 It is 2 px in the ``focus`` token colour with a 1 px inner line in the
@@ -27,10 +34,10 @@ property ``fluentFocusRing`` to False turns the ring off for it.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, QObject, QRect, QRectF, Qt, QTimer
-from PySide6.QtGui import QPainter, QPen
+from PySide6.QtCore import QEvent, QObject, QPointF, QRect, QRectF, Qt, QTimer
+from PySide6.QtGui import QLinearGradient, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (QAbstractItemView, QAbstractScrollArea, QAbstractSpinBox, QApplication, QComboBox,
-                               QDateTimeEdit, QLineEdit, QMenu, QPlainTextEdit, QStyle, QStyledItemDelegate,
+                               QDateTimeEdit, QDialog, QLineEdit, QMenu, QPlainTextEdit, QStyle, QStyledItemDelegate,
                                QStyleOptionViewItem, QTabBar, QTableView, QTextEdit, QTreeView, QWidget)
 
 from . import theming as _theme
@@ -186,6 +193,59 @@ def focus_rect(widget: QWidget) -> tuple[QWidget | None, QRect]:
     return widget.parentWidget(), widget.geometry()
 
 
+class GlassPainter(QObject):
+    """Paints acrylic glass under popups and the backdrop under dialog windows, while glass is on.
+
+    It filters the Paint event of the widgets ``polish_widget`` gave it and paints before the widget
+    paints itself (the style sheet then draws the outline and the items on top).
+    """
+
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:
+        if event.type() == QEvent.Type.Paint and isinstance(obj, QWidget):
+            from . import glass
+            if glass.enabled():
+                kind = obj.property("_fluentGlass")
+                if kind == "popup":
+                    paint_popup_glass(obj)
+                elif kind == "window":
+                    painter = QPainter(obj)
+                    glass.paint_backdrop(painter, obj, event.rect())
+        return False
+
+
+def popup_frame(widget: QWidget) -> tuple[QRectF, float]:
+    """The rounded outline the style sheet draws for a popup: (rectangle, radius)."""
+    theme = _theme.current_theme()
+    if widget.inherits("QTipLabel"):
+        return QRectF(widget.rect()), float(theme.radius("tooltip"))
+    if widget.inherits("QComboBoxPrivateContainer"):
+        view = widget.findChild(QAbstractItemView)
+        if view is not None:
+            return QRectF(view.geometry()), float(theme.radius("flyout"))
+    return QRectF(widget.rect()), float(theme.radius("flyout"))
+
+
+def paint_popup_glass(widget: QWidget) -> None:
+    """Acrylic glass inside the outline of a popup: its window's backdrop, the flyout tint, an inner glow."""
+    from . import glass
+    box, radius = popup_frame(widget)
+    painter = QPainter(widget)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    path = QPainterPath()
+    path.addRoundedRect(box.adjusted(0.5, 0.5, -0.5, -0.5), radius, radius)
+    painter.setClipPath(path)
+    if not glass.paint_backdrop(painter, widget, box):
+        painter.fillRect(box, _theme.qcolor("flyout"))
+    painter.fillRect(box, _theme.qcolor("glass-flyout"))
+    glow = QLinearGradient(box.topLeft(), box.topLeft() + QPointF(0, min(box.height(), 32.0)))
+    colour = _theme.qcolor("glass-glow")
+    glow.setColorAt(0, colour)
+    colour.setAlpha(0)
+    glow.setColorAt(1, colour)
+    painter.fillRect(box, glow)
+    painter.end()
+
+
 class Polisher(QObject):
     """The application event filter described in the module text."""
 
@@ -193,6 +253,7 @@ class Polisher(QObject):
         super().__init__()
         self._app = app
         self.keyboard = False             # the last input that moved focus came from the keyboard
+        self.glass = GlassPainter(self)
         self.ring = FocusRing()
         self._deferred = QTimer(self)
         self._deferred.setSingleShot(True)
@@ -215,6 +276,10 @@ class Polisher(QObject):
         if kind == QEvent.Type.Polish:
             if isinstance(obj, QWidget):
                 polish_widget(obj)
+                glass_kind = obj.property("_fluentGlass")
+                if glass_kind and not obj.property("_fluentGlassFilter"):
+                    obj.setProperty("_fluentGlassFilter", True)
+                    obj.installEventFilter(self.glass)
         elif kind == QEvent.Type.KeyPress:
             if event.key() in _NAVIGATION_KEYS and not self.keyboard:
                 self.keyboard = True
@@ -241,6 +306,10 @@ def polish_widget(widget: QWidget) -> None:
     """The one-time adjustments of a standard widget (see the module text)."""
     if isinstance(widget, QMenu) or widget.inherits("QComboBoxPrivateContainer") or widget.inherits("QTipLabel"):
         _round_popup(widget)
+        if widget.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground) and widget.property("_fluentGlass") is None:
+            widget.setProperty("_fluentGlass", "popup")
+    elif isinstance(widget, QDialog) and widget.isWindow() and widget.property("_fluentGlass") is None:
+        widget.setProperty("_fluentGlass", "window")
     elif isinstance(widget, QAbstractSpinBox):
         # The style sheet cannot inset the text of a spin box (see qss.py); the editor's text margin can.
         editor = widget.findChild(QLineEdit, "qt_spinbox_lineedit")

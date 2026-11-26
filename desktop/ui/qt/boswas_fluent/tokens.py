@@ -165,6 +165,11 @@ def _check(tokens: object, source: str) -> None:
             theme.type(name)
         for name in ("fast", "normal", "slow"):
             theme.duration(name)
+        if theme.has_glass:
+            for key in (*GLASS_LEVELS, "blur", "saturation", "noise"):
+                theme.glass(key)
+            for name in GLASS_LAYERS:
+                theme.rgba(name)
 
 
 @lru_cache(maxsize=4)
@@ -208,6 +213,20 @@ _SCHEME_ROLES = {
     "control-solid": {"dark": "surface-hover", "light": "surface"},
 }
 COLOUR_NAMES = ROLES + DERIVED_COLOURS
+# Boswas glass (``material.glass``): the numbers each scheme gives, and the translucent layers made of them
+# (``Theme.rgba("glass-card")``). A token file without ``material.glass`` has no glass: windows stay opaque.
+GLASS_LEVELS = ("tint-opacity", "pane", "card", "flyout", "highlight", "highlight-hover", "glow", "shadow")
+GLASS_LAYERS = {
+    # layer: (where its colour comes from, its opacity)
+    "glass-backdrop": ("tint", "tint-opacity"),
+    "glass-pane": ("pane-tint", "pane"),
+    "glass-card": ("card-tint", "card"),
+    "glass-flyout": ("flyout-tint", "flyout"),
+    "glass-highlight": ("white", "highlight"),
+    "glass-highlight-hover": ("white", "highlight-hover"),
+    "glass-glow": ("white", "glow"),
+    "glass-shadow": ("black", "shadow"),
+}
 
 
 @dataclass(frozen=True)
@@ -395,7 +414,40 @@ class Theme:
             return self.color("accent"), DERIVED[name][self.scheme]
         if name == "smoke":
             return self.color("smoke"), self._opacity(self._material("smoke").get("tint-opacity"), name)
+        if name in GLASS_LAYERS:
+            source, level = GLASS_LAYERS[name]
+            colour = self.color(source) if source in ("white", "black") else self.color(self.glass(source))
+            return colour, self._opacity(self.glass(level), name)
         return self.color(name), 1.0
+
+    # --- glass ---
+    @property
+    def has_glass(self) -> bool:
+        """Whether the token file describes Boswas glass (``material.glass``)."""
+        return isinstance(self.tokens["material"].get("glass"), dict)
+
+    def glass(self, key: str):
+        """A value of ``material.glass`` for this scheme: the levels of ``GLASS_LEVELS`` (opacities 0..1),
+        ``blur`` (logical pixels), ``saturation`` (1 = unchanged), ``noise`` (opacity of the grain) and the tints
+        ``tint``, ``pane-tint``, ``card-tint``, ``flyout-tint`` (colour names for ``color``)."""
+        table = self.tokens["material"].get("glass")
+        if not isinstance(table, dict):
+            raise TokenError("the token file has no material.glass")
+        scheme = table.get(self.scheme)
+        value = scheme.get(key) if isinstance(scheme, dict) and key in scheme else table.get(key)
+        if key in ("tint", "pane-tint", "card-tint", "flyout-tint"):
+            if not isinstance(value, str) or not value:
+                raise TokenError(f"material.glass.{key} is missing")
+            return value
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise TokenError(f"material.glass.{key} is missing")
+        if key in GLASS_LEVELS or key == "noise":
+            return self._opacity(value, f"material.glass.{key}")
+        if key == "saturation" and not 0 <= value <= 4:
+            raise TokenError(f"material.glass.saturation: {value!r} is out of range")
+        if key == "blur" and value < 0:
+            raise TokenError(f"material.glass.blur: {value!r} is out of range")
+        return float(value)
 
     @staticmethod
     def _opacity(value: object, name: str) -> float:

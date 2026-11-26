@@ -5,10 +5,10 @@ from __future__ import annotations
 from typing import Callable
 
 from PySide6.QtCore import QByteArray, QSettings
-from PySide6.QtGui import QGuiApplication, QIcon, QKeySequence, QShortcut
+from PySide6.QtGui import QGuiApplication, QIcon, QKeySequence, QPainter, QShortcut
 from PySide6.QtWidgets import QMainWindow, QWidget
 
-from .. import desktop, icons
+from .. import desktop, glass, icons
 from ..shortcuts import add_shortcut
 from ..theming import ensure_applied
 from . import dialogs
@@ -18,8 +18,11 @@ from .navigation import NavigationView
 class FluentWindow(QMainWindow):
     """The main window of an application.
 
-    * The background is the Mica tint of the theme; the frame and title bar
-      come from the compositor, so there is no title bar here.
+    * The background is Boswas glass's backdrop (the desktop background,
+      blurred and tinted; ``glass.py``) while glass is on, else the Mica tint
+      of the theme; ``backdrop=False`` keeps it the tint always (a window whose
+      content covers it anyway). The frame and title bar come from the
+      compositor, so there is no title bar here.
     * ``app_id`` (the desktop file name without ``.desktop``) is set on the
       application if it has none yet, so the compositor shows the right icon.
     * ``navigation=True`` (or ``navigation={...}`` with NavigationView options)
@@ -34,9 +37,10 @@ class FluentWindow(QMainWindow):
     def __init__(self, app_id: str = "", title: str = "", parent: QWidget | None = None, *,
                  navigation: bool | dict = False, icon: QIcon | str | None = None,
                  size: tuple[int, int] = (1100, 720), minimum_size: tuple[int, int] = (480, 360),
-                 remember_geometry: bool = True) -> None:
+                 remember_geometry: bool = True, backdrop: bool = True) -> None:
         super().__init__(parent)
         ensure_applied()
+        self.backdrop = backdrop
         self.app_id = desktop.check_app_id(app_id) if app_id else ""
         self._remember = bool(remember_geometry and self.app_id)
         self._restored = False
@@ -113,3 +117,7 @@ class FluentWindow(QMainWindow):
         super().closeEvent(event)
         if event.isAccepted() and self._was_shown:
             self.save_geometry()
+
+    def paintEvent(self, event) -> None:
+        if self.backdrop and glass.enabled():
+            glass.paint_backdrop(QPainter(self), self, event.rect())

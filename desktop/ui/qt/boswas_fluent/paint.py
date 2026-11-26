@@ -4,6 +4,10 @@ Every function takes colours by token name (``"card"``, ``"stroke-surface"``,
 ``"fill-control-hover"``: anything ``Theme.rgba`` accepts) and looks them up
 in the current theme when it paints, so a widget built on them follows a
 scheme change with a plain ``update()``.
+
+``glass`` (and ``card``, which uses it) draws Boswas glass while it is on
+(``glass.py``) and the opaque surface otherwise, so a widget painted with
+it needs no code of its own for either look.
 """
 
 from __future__ import annotations
@@ -11,7 +15,7 @@ from __future__ import annotations
 import math
 
 from PySide6.QtCore import QPointF, QRect, QRectF, Qt
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QIcon, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QIcon, QLinearGradient, QPainter, QPainterPath, QPen
 
 from . import icons
 from .theming import current_theme, qcolor
@@ -55,9 +59,78 @@ def rounded_rect(painter: QPainter, rect: QRect | QRectF, radius: float, fill: s
 
 
 def card(painter: QPainter, rect: QRect | QRectF, *, fill: str = "card", stroke: str | None = "stroke-surface",
-         radius: float | None = None) -> None:
-    """The surface of a card: filled, with the one-pixel surface outline and the card radius."""
-    rounded_rect(painter, rect, current_theme().radius("card") if radius is None else radius, fill, stroke)
+         radius: float | None = None, state: str = "rest") -> None:
+    """The surface of a card: filled, with the one-pixel surface outline and the card radius. A card of the
+    card colour is glass while Boswas glass is on (``glass``); ``state`` adds the hover or pressed layer."""
+    radius = current_theme().radius("card") if radius is None else radius
+    if fill == "card" and stroke == "stroke-surface":
+        glass(painter, rect, "card", state=state, radius=radius)
+        return
+    rounded_rect(painter, rect, radius, fill, stroke)
+    if state in _STATE_LAYERS:
+        rounded_rect(painter, rect, radius, _STATE_LAYERS[state])
+
+
+GLASS_KINDS = ("card", "pane", "flyout")
+_SOLID = {"card": "card", "pane": None, "flyout": "flyout"}
+_STATE_LAYERS = {"hover": "fill-subtle-hover", "pressed": "fill-subtle-pressed"}
+_GLOW_HEIGHT = 36.0          # logical pixels below the top edge that the inner glow reaches at most
+_HIGHLIGHT_DEPTH = 10.0      # how far down the sides the top highlight runs before it is the plain edge
+
+
+def glass(painter: QPainter, rect: QRect | QRectF, kind: str = "card", *, state: str = "rest",
+          radius: float | None = None, outline: bool = True) -> None:
+    """A surface of Boswas glass, or with glass off the opaque surface it replaces.
+
+    ``kind``: ``card`` (cards and rows; opaque: the card colour), ``pane`` (a navigation pane or side bar;
+    opaque: nothing, the window's own colour) or ``flyout`` (opaque: the flyout colour; under glass draw the
+    backdrop first, ``glass.paint_backdrop``, for acrylic). ``state`` ``hover`` or ``pressed`` adds the grey
+    state layer of the scheme (``fill-subtle-hover``/``-pressed``) and, on glass, a brighter top edge.
+    Glass is the kind's tint at its token opacity, a white inner glow below the top edge and a hairline that
+    is the white highlight at the top and a soft shadow at the bottom.
+    """
+    from . import glass as _glass
+    theme = current_theme()
+    if radius is None:
+        radius = 0.0 if kind == "pane" else float(theme.radius("flyout" if kind == "flyout" else "card"))
+    layer = _STATE_LAYERS.get(state)
+    if not _glass.enabled():
+        fill = _SOLID.get(kind, "card")
+        if fill is not None:
+            rounded_rect(painter, rect, radius, fill, "stroke-surface" if outline else None)
+        if layer is not None:
+            rounded_rect(painter, rect, radius, layer)
+        return
+    box = QRectF(rect)
+    if box.isEmpty():
+        return
+    radius = max(0.0, min(radius, box.width() / 2, box.height() / 2))
+    painter.save()
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setPen(Qt.PenStyle.NoPen)
+    path = QPainterPath()
+    path.addRoundedRect(box, radius, radius)
+    painter.fillPath(path, qcolor(f"glass-{kind if kind in GLASS_KINDS else 'card'}", theme))
+    if layer is not None:
+        painter.fillPath(path, qcolor(layer, theme))
+    glow_colour = qcolor("glass-glow", theme)
+    if kind != "pane" and glow_colour.alpha() > 0:
+        glow = QLinearGradient(box.topLeft(), box.topLeft() + QPointF(0, min(box.height() * 0.6, _GLOW_HEIGHT)))
+        glow.setColorAt(0, glow_colour)
+        glow_colour.setAlpha(0)
+        glow.setColorAt(1, glow_colour)
+        painter.fillPath(path, QBrush(glow))
+    if outline:
+        top = qcolor("glass-highlight-hover" if state in _STATE_LAYERS else "glass-highlight", theme)
+        edge = QLinearGradient(box.topLeft(), box.bottomLeft())
+        edge.setColorAt(0, top)
+        edge.setColorAt(min(0.45, _HIGHLIGHT_DEPTH / max(box.height(), 1.0)), qcolor("stroke-surface", theme))
+        edge.setColorAt(1, qcolor("glass-shadow", theme))
+        painter.setPen(QPen(QBrush(edge), 1.0))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        inner = max(0.0, radius - 0.5)
+        painter.drawRoundedRect(box.adjusted(0.5, 0.5, -0.5, -0.5), inner, inner)
+    painter.restore()
 
 
 def shadow(painter: QPainter, rect: QRect | QRectF, radius: float, elevation: str = "flyout") -> None:
