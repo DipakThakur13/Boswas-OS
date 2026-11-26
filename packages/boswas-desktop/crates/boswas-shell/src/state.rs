@@ -286,7 +286,7 @@ mod tests {
         }
         // The buttons a user needs are there.
         let (_, hits) = testing::render(1366.0, 48.0, 1.0, Scheme::Dark, None, None, |f| taskbar::draw(f, &st));
-        for wanted in [taskbar::Act::Start, taskbar::Act::TaskView, taskbar::Act::Status, taskbar::Act::Clock, taskbar::Act::ShowDesktop, taskbar::Act::Layout, taskbar::Act::Task(0)] {
+        for wanted in [taskbar::Act::Start, taskbar::Act::TaskView, taskbar::Act::Status, taskbar::Act::Clock, taskbar::Act::ShowDesktop, taskbar::Act::Layout, taskbar::Act::Task(0), taskbar::Act::Widgets] {
             assert!(hits.iter().any(|h| h.action == Action::Taskbar(wanted.clone())), "{wanted:?}");
         }
         assert!(hits.iter().filter(|h| matches!(h.action, Action::Taskbar(taskbar::Act::Tray(_)))).count() >= 2);

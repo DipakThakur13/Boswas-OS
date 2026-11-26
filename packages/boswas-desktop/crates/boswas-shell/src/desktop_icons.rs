@@ -1579,7 +1579,8 @@ impl Shell {
         let output = self.surfaces[index].output.clone();
         let height = (ramp("body", Rgba::WHITE).line_height() + 12.0).max(30.0);
         let width = (rect.w + 60.0).max(180.0);
-        let x = (origin.0 + rect.center().0 - width / 2.0).max(origin.0);
+        let screen = self.output_size(&output);
+        let x = (origin.0 + rect.center().0 - width / 2.0).min(screen.0 - width - PAD).max(origin.0);
         let y = origin.1 + rect.y + 6.0 + view.grid.icon + 2.0;
         let mut field = TextField::default();
         field.set(&entry.name);
@@ -2121,7 +2122,7 @@ mod tests {
         let mut res = crate::ui::Resources::new(boswas_ui::Theme::of(Scheme::Dark));
         let mut canvas = boswas_ui::Canvas::new(1920.0, 1080.0, 1.0).unwrap();
         let mut hits = Vec::new();
-        let mut frame = |res: &mut crate::ui::Resources, canvas: &mut boswas_ui::Canvas, hits: &mut Vec<Hit>| {
+        let frame = |res: &mut crate::ui::Resources, canvas: &mut boswas_ui::Canvas, hits: &mut Vec<Hit>| {
             hits.clear();
             let mut f = Frame { canvas, res, pointer: Some((40.0, 40.0)), pressed: false, hits, focus: None, origin: (0.0, 0.0) };
             draw(&mut f, &st, (1920.0, 1080.0));

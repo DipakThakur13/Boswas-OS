@@ -392,7 +392,7 @@ impl Layout {
         for (kind, _, rect) in &self.cards {
             out.push(hit(*rect, Act::Open(*kind)));
             out.push(hit(menu_button(*rect), Act::Menu(*kind)));
-            if *kind == Kind::Media && st.sys.media.first().is_some() {
+            if *kind == Kind::Media && !st.sys.media.is_empty() {
                 for (act, button) in media_buttons(*rect, st) {
                     out.push(hit(button, act));
                 }
