@@ -132,16 +132,22 @@ impl Background {
         let (pw, ph) = canvas.pixel_size();
         let fresh = !matches!(&self.cached, Some((w, h, _)) if (*w, *h) == (pw, ph));
         if fresh {
+            // Drawn whole on a canvas of its own, then copied (also when
+            // only a part of `canvas` is being drawn again).
+            let Some(mut whole) = Canvas::new(canvas.width(), canvas.height(), canvas.scale()) else {
+                return;
+            };
             match &self.picture {
                 Some(picture) => {
-                    canvas.clear(theme.background);
-                    draw_picture(canvas, picture);
+                    whole.clear(theme.background);
+                    draw_picture(&mut whole, picture);
                 }
-                None => draw_default(canvas, theme),
+                None => draw_default(&mut whole, theme),
             }
-            self.cached = Some((pw, ph, canvas.pixmap().clone()));
-        } else if let Some((_, _, pixmap)) = &self.cached {
-            canvas.pixmap_mut().data_mut().copy_from_slice(pixmap.data());
+            self.cached = Some((pw, ph, whole.into_pixmap()));
+        }
+        if let Some((_, _, pixmap)) = &self.cached {
+            canvas.copy_from_full(pixmap);
         }
     }
 }

@@ -83,7 +83,15 @@ pub struct Resources {
     /// while nothing they depend on changed: a flyout that is drawn frame
     /// by frame (Start's page scrolling) does not blur its shadow and its
     /// material again each time.
-    panels: Vec<(PanelKey, Rc<Pixmap>)>,
+    panels: Vec<(PanelKey, Kept)>,
+}
+
+/// A panel as kept: drawn on the whole canvas, and the part of that
+/// picture it covers (with its place on the canvas, in device pixels).
+#[derive(Clone)]
+struct Kept {
+    whole: Rc<Pixmap>,
+    part: Option<(i32, i32, Rc<Pixmap>)>,
 }
 
 /// What an overlay panel's look depends on.
@@ -99,8 +107,9 @@ struct PanelKey {
     backdrop: Option<u64>,
 }
 
-/// Panels kept by [`Resources`].
-const MAX_PANELS: usize = 3;
+/// Panels kept by [`Resources`]: Start, quick settings, the two of the
+/// notification centre, and two more (menus, previews).
+const MAX_PANELS: usize = 6;
 
 impl Resources {
     pub fn new(theme: &'static Theme) -> Self {
@@ -410,9 +419,14 @@ impl Frame<'_> {
             transparency: self.res.transparency,
             backdrop: self.res.backdrop.as_ref().map(|_| self.res.backdrop_generation),
         };
-        let cached = self.res.panels.iter().find(|(k, _)| *k == key).map(|(_, p)| p.clone());
-        let pixmap = match cached {
-            Some(pixmap) => pixmap,
+        // Most recently used last.
+        let kept = match self.res.panels.iter().position(|(k, _)| *k == key) {
+            Some(index) => {
+                let entry = self.res.panels.remove(index);
+                let kept = entry.1.clone();
+                self.res.panels.push(entry);
+                kept
+            }
             None => {
                 let mut chrome = Canvas::new(self.canvas.width(), self.canvas.height(), self.canvas.scale())?;
                 {
@@ -427,23 +441,35 @@ impl Frame<'_> {
                     };
                     frame.paint_panel(rect, material);
                 }
-                let pixmap = Rc::new(chrome.into_pixmap());
+                // The part of the picture the panel and its shadow cover.
+                let e = tokens().elevation("flyout");
+                let reach = e.blur + e.y.abs() + 2.0;
+                let area = device_rect(&Rect::new(rect.x - reach, rect.y - reach, rect.w + 2.0 * reach, rect.h + 2.0 * reach), chrome.scale());
+                let whole = chrome.into_pixmap();
+                let part = tiny_skia::IntRect::from_xywh(area.0 as i32, area.1 as i32, area.2, area.3)
+                    .and_then(|r| whole.clone_rect(r).map(|p| (r.x(), r.y(), Rc::new(p))));
+                let kept = Kept { whole: Rc::new(whole), part };
                 if self.res.panels.len() >= MAX_PANELS {
                     self.res.panels.remove(0);
                 }
-                self.res.panels.push((key, pixmap.clone()));
-                pixmap
+                self.res.panels.push((key, kept.clone()));
+                kept
             }
         };
-        // Usually the first thing drawn: then a copy does. (The check works
-        // on blocks: a byte-wise test of a large canvas costs more than the
-        // copy.)
-        if self.canvas.data().chunks(4096).all(|block| block.iter().fold(0, |a, b| a | b) == 0) {
-            self.canvas.pixmap_mut().data_mut().copy_from_slice(pixmap.data());
+        // Usually the first thing drawn: then a copy does (of the part
+        // being drawn again, when only a part is). Over something drawn
+        // already, only the part of the picture the panel covers is laid
+        // on (the rest of it is transparent).
+        if self.canvas.is_blank() {
+            self.canvas.copy_from_full(&kept.whole);
+        } else if let Some((x, y, part)) = &kept.part {
+            let paint = tiny_skia::PixmapPaint { quality: tiny_skia::FilterQuality::Nearest, ..tiny_skia::PixmapPaint::default() };
+            self.canvas.draw_device_pixmap(*x, *y, part.as_ref().as_ref(), &paint);
         } else {
             let (w, h) = (self.canvas.width(), self.canvas.height());
-            self.canvas.draw_pixmap(&pixmap, 0.0, 0.0, w, h, 1.0);
+            self.canvas.draw_pixmap(&kept.whole, 0.0, 0.0, w, h, 1.0);
         }
+        let pixmap = kept.whole;
         Some(pixmap)
     }
 
@@ -457,14 +483,12 @@ impl Frame<'_> {
         if (panel.width(), panel.height()) != (w, h) {
             return;
         }
-        let first = ((top * scale).floor().max(0.0) as usize).min(h as usize);
-        let last = ((bottom * scale).ceil().max(0.0) as usize).min(h as usize);
+        let first = ((top * scale).floor().max(0.0) as u32).min(h);
+        let last = ((bottom * scale).ceil().max(0.0) as u32).min(h);
         if first >= last {
             return;
         }
-        let stride = w as usize * 4;
-        let range = first * stride..last * stride;
-        self.canvas.pixmap_mut().data_mut()[range.clone()].copy_from_slice(&panel.data()[range]);
+        self.canvas.copy_rows_from_full(panel, first, last);
     }
 
     fn paint_panel(&mut self, rect: Rect, material: &str) {
@@ -734,6 +758,62 @@ pub fn slider_value(rect: Rect, x: f32) -> f32 {
 /// The hit under a point, the topmost (last drawn) first.
 pub fn hit_at(hits: &[Hit], point: (f32, f32)) -> Option<usize> {
     hits.iter().rposition(|hit| hit.rect.contains(point))
+}
+
+/// How far (logical pixels) the hover or pressed look of a control may
+/// reach beyond the rectangle that takes the pointer.
+pub const HOVER_REACH: f32 = 3.0;
+
+/// What is drawn differently when the pointer moves from `from` to `to`
+/// (`None`: off the surface) over a surface of `size` (logical pixels)
+/// whose controls are `hits`: the controls it entered or left, whose hover
+/// look changes. Backgrounds have no hover look (see [`has_look`]).
+pub fn hover_changes(hits: &[Hit], size: (f32, f32), from: Option<(f32, f32)>, to: Option<(f32, f32)>) -> Vec<Rect> {
+    let inside = |p: Option<(f32, f32)>, r: &Rect| p.is_some_and(|p| r.contains(p));
+    hits.iter()
+        .filter(|hit| inside(from, &hit.rect) != inside(to, &hit.rect) && has_look(hit, size))
+        .map(|hit| hit.rect.inset(-HOVER_REACH))
+        .collect()
+}
+
+/// What is drawn differently when the primary button goes down or up with
+/// the pointer at `pointer`: the controls under it, whose pressed look
+/// changes.
+pub fn press_changes(hits: &[Hit], size: (f32, f32), pointer: Option<(f32, f32)>) -> Vec<Rect> {
+    hits.iter()
+        .filter(|hit| pointer.is_some_and(|p| hit.rect.contains(p)) && has_look(hit, size))
+        .map(|hit| hit.rect.inset(-HOVER_REACH))
+        .collect()
+}
+
+/// Whether a control can look different under the pointer: not a
+/// background that only takes clicks (a panel's area that does nothing,
+/// the desktop, the invisible surface behind a menu, anything covering
+/// the whole surface).
+fn has_look(hit: &Hit, size: (f32, f32)) -> bool {
+    let r = &hit.rect;
+    let covers = r.x <= 0.0 && r.y <= 0.0 && r.right() >= size.0 && r.bottom() >= size.1;
+    let background = !hit.focusable && matches!(hit.action, Action::None | Action::Dismiss | Action::Desktop);
+    !covers && !background
+}
+
+/// Whether two rectangles overlap or touch.
+pub fn overlap(a: &Rect, b: &Rect) -> bool {
+    a.x <= b.right() && b.x <= a.right() && a.y <= b.bottom() && b.y <= a.bottom()
+}
+
+/// The smallest rectangle holding both.
+pub fn bounds(a: &Rect, b: &Rect) -> Rect {
+    let (x, y) = (a.x.min(b.x), a.y.min(b.y));
+    Rect::new(x, y, a.right().max(b.right()) - x, a.bottom().max(b.bottom()) - y)
+}
+
+/// A rectangle in logical pixels as whole device pixels at `scale`
+/// (grown outwards).
+pub fn device_rect(rect: &Rect, scale: f32) -> (u32, u32, u32, u32) {
+    let (x0, y0) = ((rect.x * scale).floor().max(0.0), (rect.y * scale).floor().max(0.0));
+    let (x1, y1) = ((rect.right() * scale).ceil().max(0.0), (rect.bottom() * scale).ceil().max(0.0));
+    (x0 as u32, y0 as u32, (x1 - x0).max(0.0) as u32, (y1 - y0).max(0.0) as u32)
 }
 
 /// A direction of keyboard navigation.

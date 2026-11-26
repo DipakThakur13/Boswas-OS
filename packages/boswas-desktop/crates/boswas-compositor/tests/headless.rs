@@ -100,12 +100,18 @@ impl Compositor {
 
     /// The same, with more options for the compositor.
     fn start_with(config: &str, role: &str, options: &[&str]) -> Self {
+        Self::start_logged(config, role, options, None)
+    }
+
+    /// The same, logging what `log` (a `BOSWAS_LOG` filter) asks for.
+    fn start_logged(config: &str, role: &str, options: &[&str], log: Option<&str>) -> Self {
         // Unix socket paths are short; keep the directory name short too.
         let runtime = tempfile::Builder::new().prefix("bw").tempdir_in("/tmp").unwrap();
         let config_path = runtime.path().join("compositor.toml");
         std::fs::write(&config_path, config.replace("@HELPER@", &helper_command())).unwrap();
-        let log = std::fs::File::create(runtime.path().join("compositor.log")).unwrap();
-        let mut child = Command::new(env!("CARGO_BIN_EXE_boswas-compositor"))
+        let log_file = std::fs::File::create(runtime.path().join("compositor.log")).unwrap();
+        let mut command = Command::new(env!("CARGO_BIN_EXE_boswas-compositor"));
+        command
             .args(["--backend", "headless", "--headless-size", "800x600", "--test-input", "--print-env"])
             .args(options)
             .arg("--config")
@@ -117,9 +123,11 @@ impl Compositor {
             .env_remove("WAYLAND_SOCKET")
             .env_remove("BOSWAS_LOG")
             .stdout(Stdio::piped())
-            .stderr(Stdio::from(log))
-            .spawn()
-            .expect("the compositor starts");
+            .stderr(Stdio::from(log_file));
+        if let Some(filter) = log {
+            command.env("BOSWAS_LOG", filter);
+        }
+        let mut child = command.spawn().expect("the compositor starts");
         let mut stdout = BufReader::new(child.stdout.take().unwrap());
         let mut display = String::new();
         let mut control = PathBuf::new();
@@ -487,6 +495,40 @@ fn frames_per_second(compositor: &Compositor) -> f64 {
         frames += 1;
     }
     f64::from(frames) / started.elapsed().as_secs_f64()
+}
+
+#[test]
+fn an_output_with_nothing_new_is_not_drawn_and_clients_still_get_frames() {
+    // A client that asks for a frame callback on every commit but changes
+    // nothing (a shell surface waiting out a transition, say): the output
+    // is not drawn again, and the callbacks still come at its pace, not at
+    // once and not never.
+    let compositor = Compositor::start_logged(LOCKED_DOWN, "none", &[], Some("warn,boswas_compositor::stats=trace"));
+    let conn = compositor.wayland();
+    let (mut queue, mut client, _toplevel, surface, _buffer) = open_drawn_window(&conn, "Still", 0xFF20_4060);
+    let qh = queue.handle();
+    let mut idle_frame = |client: &mut Client| {
+        let before = client.frames;
+        surface.frame(&qh, ());
+        surface.commit();
+        while client.frames == before {
+            queue.blocking_dispatch(client).unwrap();
+        }
+    };
+    // The window has appeared and been drawn.
+    for _ in 0..10 {
+        idle_frame(&mut client);
+    }
+    let drawn = |log: &str| log.lines().filter(|line| line.contains("stats: frame ")).count();
+    let before = drawn(&compositor.log());
+    assert!(before > 0, "the window was drawn (and the frames are logged)");
+    let started = Instant::now();
+    for _ in 0..60 {
+        idle_frame(&mut client);
+    }
+    let took = started.elapsed();
+    assert_eq!(drawn(&compositor.log()), before, "frames were drawn with nothing new on the output");
+    assert!(took > Duration::from_millis(700) && took < Duration::from_millis(3000), "60 frame callbacks took {took:?} at 60 Hz");
 }
 
 #[test]

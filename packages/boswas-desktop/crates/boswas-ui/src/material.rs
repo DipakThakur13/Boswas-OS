@@ -76,7 +76,7 @@ impl Backdrop {
     /// logical pixels; the rectangle is in canvas coordinates.
     #[allow(clippy::too_many_arguments)]
     pub fn fill(&mut self, canvas: &mut Canvas, x: f32, y: f32, w: f32, h: f32, radii: Corners, origin: (f32, f32), material: Material) {
-        if !(w > 0.0 && h > 0.0) {
+        if !(w > 0.0 && h > 0.0) || !canvas.visible(x, y, w, h) {
             return;
         }
         // The filled shape is drawn once into a picture of its own and kept;
@@ -138,9 +138,7 @@ impl Backdrop {
             ..tiny_skia::PixmapPaint::default()
         };
         let picture = self.filled[index].1.as_ref();
-        canvas
-            .pixmap_mut()
-            .draw_pixmap(px as i32, py as i32, picture, &paint, Transform::identity(), None);
+        canvas.draw_device_pixmap(px as i32, py as i32, picture, &paint);
     }
 
     /// Draws a material-filled rounded rectangle (`shape`: x, y, w, h,

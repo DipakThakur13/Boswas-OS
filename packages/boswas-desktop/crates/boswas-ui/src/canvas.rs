@@ -3,10 +3,19 @@
 //! A [`Canvas`] is a premultiplied RGBA pixmap addressed in logical pixels;
 //! the output scale is applied when drawing, so callers lay out in logical
 //! units and still get crisp edges on HiDPI outputs.
+//!
+//! A part of a drawing can be drawn again on its own (see
+//! [`Canvas::begin_clip`]): callers draw the whole as usual, and what lies
+//! entirely outside that part is skipped. Inside it the pixels are exactly
+//! those a whole drawing gives (the same operations reach them in the same
+//! order, with the same transform); outside it they are of no use, so the
+//! part is drawn on a spare canvas and copied from there. A surface whose
+//! hover state changed in one place is drawn again this way in that place
+//! only.
 
 use tiny_skia::{
     FillRule, FilterQuality, GradientStop, LineCap, LineJoin, LinearGradient, Paint, Path, PathBuilder, Pixmap,
-    PixmapPaint, Point, Rect, SpreadMode, Stroke, Transform,
+    PixmapPaint, PixmapRef, Point, Rect, SpreadMode, Stroke, Transform,
 };
 
 use crate::tokens::Rgba;
@@ -14,12 +23,25 @@ use crate::tokens::Rgba;
 /// Corner radii in the order top-left, top-right, bottom-right, bottom-left.
 pub type Corners = [f32; 4];
 
+/// A rectangle in device pixels: x, y, width, height.
+pub type PixelRect = (u32, u32, u32, u32);
+
 /// A drawing surface in logical pixels.
 pub struct Canvas {
     pixmap: Pixmap,
     width: f32,
     height: f32,
     scale: f32,
+    /// Nothing has been drawn since the canvas was made or reset (or since
+    /// the clip began).
+    blank: bool,
+    /// The pixmap still holds an earlier drawing that the first drawing
+    /// operation clears (a reset canvas that is then covered completely by
+    /// [`Canvas::copy_from_full`] is never cleared).
+    stale: bool,
+    /// The parts being drawn again: drawing that cannot reach them is
+    /// skipped. Empty: the whole canvas is drawn.
+    clip: Vec<PixelRect>,
 }
 
 impl Canvas {
@@ -37,6 +59,9 @@ impl Canvas {
             width,
             height,
             scale,
+            blank: true,
+            stale: false,
+            clip: Vec::new(),
         })
     }
 
@@ -59,15 +84,83 @@ impl Canvas {
         (self.pixmap.width(), self.pixmap.height())
     }
 
+    /// Whether nothing was drawn since the canvas was made or reset, or
+    /// since its clip began.
+    pub fn is_blank(&self) -> bool {
+        self.blank
+    }
+
+    /// Makes the canvas transparent again, for drawing anew. The pixels
+    /// are cleared when drawing starts, unless the first thing drawn covers
+    /// them all ([`Canvas::copy_from_full`]).
+    pub fn reset(&mut self) {
+        self.end_clip();
+        self.blank = true;
+        self.stale = true;
+    }
+
+    /// Starts drawing the parts `rects` (device pixels) again: they are made
+    /// transparent, and until [`Canvas::end_clip`] drawing that cannot
+    /// reach them is skipped. Pixels outside them may change and are not to
+    /// be used. Returns the parts as clipped to the canvas (empty: nothing
+    /// is clipped).
+    pub fn begin_clip(&mut self, rects: &[PixelRect]) -> Vec<PixelRect> {
+        self.touch();
+        let (w, h) = self.pixel_size();
+        self.clip.clear();
+        for rect in rects {
+            let (x0, y0) = (rect.0.min(w), rect.1.min(h));
+            let (x1, y1) = (rect.0.saturating_add(rect.2).min(w), rect.1.saturating_add(rect.3).min(h));
+            if x1 <= x0 || y1 <= y0 {
+                continue;
+            }
+            let pixels = self.pixmap.data_mut();
+            for y in y0..y1 {
+                let row = (y * w) as usize;
+                pixels[(row + x0 as usize) * 4..(row + x1 as usize) * 4].fill(0);
+            }
+            self.clip.push((x0, y0, x1 - x0, y1 - y0));
+        }
+        if !self.clip.is_empty() {
+            self.blank = true;
+        }
+        self.clip.clone()
+    }
+
+    /// Ends drawing parts again (see [`Canvas::begin_clip`]).
+    pub fn end_clip(&mut self) {
+        self.clip.clear();
+    }
+
+    /// The parts being drawn again (empty: the whole canvas is drawn).
+    pub fn clip(&self) -> &[PixelRect] {
+        &self.clip
+    }
+
+    /// About to draw: clears an earlier drawing first.
+    fn touch(&mut self) {
+        if self.stale {
+            self.pixmap.fill(tiny_skia::Color::TRANSPARENT);
+            self.stale = false;
+        }
+        self.blank = false;
+    }
+
     pub fn pixmap(&self) -> &Pixmap {
         &self.pixmap
     }
 
+    /// The pixels themselves, to change without the canvas's drawing
+    /// operations. A clip does not apply to them.
     pub fn pixmap_mut(&mut self) -> &mut Pixmap {
+        self.touch();
         &mut self.pixmap
     }
 
-    pub fn into_pixmap(self) -> Pixmap {
+    pub fn into_pixmap(mut self) -> Pixmap {
+        if self.stale {
+            self.touch();
+        }
         self.pixmap
     }
 
@@ -87,6 +180,100 @@ impl Canvas {
         }
     }
 
+    /// Copies the part `rect` (device pixels) of the canvas into `out`, a
+    /// `wl_shm` ARGB8888 buffer of the canvas's size, at the same place.
+    pub fn write_argb8888_rect(&self, out: &mut [u8], rect: PixelRect) {
+        let (w, h) = (self.pixmap.width() as usize, self.pixmap.height() as usize);
+        if out.len() < w * h * 4 {
+            return;
+        }
+        let (x0, y0) = ((rect.0 as usize).min(w), (rect.1 as usize).min(h));
+        let (x1, y1) = ((rect.0 as usize + rect.2 as usize).min(w), (rect.1 as usize + rect.3 as usize).min(h));
+        if x1 <= x0 || y1 <= y0 {
+            return;
+        }
+        let data = self.pixmap.data();
+        for y in y0..y1 {
+            let range = (y * w + x0) * 4..(y * w + x1) * 4;
+            for (dst, src) in out[range.clone()].chunks_exact_mut(4).zip(data[range].chunks_exact(4)) {
+                // R, G, B, A to B, G, R, A: red and blue trade places.
+                let p = u32::from_le_bytes([src[0], src[1], src[2], src[3]]);
+                let q = (p & 0xff00_ff00) | ((p >> 16) & 0xff) | ((p & 0xff) << 16);
+                dst.copy_from_slice(&q.to_le_bytes());
+            }
+        }
+    }
+
+    /// Takes the pixels of `whole`, a picture of the canvas's size,
+    /// replacing what was there (within the clip, while there is one).
+    pub fn copy_from_full(&mut self, whole: &Pixmap) {
+        if (whole.width(), whole.height()) != self.pixel_size() {
+            return;
+        }
+        if self.clip.is_empty() {
+            self.pixmap.data_mut().copy_from_slice(whole.data());
+            self.stale = false;
+            self.blank = false;
+            return;
+        }
+        self.copy_rows_from_full(whole, 0, whole.height());
+    }
+
+    /// Puts the device rows `first..last` back as `whole` (a picture of the
+    /// canvas's size) has them (within the clip, while there is one).
+    pub fn copy_rows_from_full(&mut self, whole: &Pixmap, first: u32, last: u32) {
+        if (whole.width(), whole.height()) != self.pixel_size() {
+            return;
+        }
+        self.touch();
+        let (w, h) = self.pixel_size();
+        let whole_canvas = [(0, 0, w, h)];
+        let parts: &[PixelRect] = if self.clip.is_empty() { &whole_canvas } else { &self.clip };
+        let w = w as usize;
+        let data = self.pixmap.data_mut();
+        for &(x0, y0, cw, ch) in parts {
+            let (x0, x1) = (x0 as usize, (x0 + cw) as usize);
+            for y in first.max(y0) as usize..last.min(y0 + ch) as usize {
+                let range = (y * w + x0) * 4..(y * w + x1) * 4;
+                data[range.clone()].copy_from_slice(&whole.data()[range]);
+            }
+        }
+    }
+
+    /// Whether anything drawn in the logical rectangle can change a pixel
+    /// that may change (a pixel of margin for anti-aliasing).
+    pub fn visible(&self, x: f32, y: f32, w: f32, h: f32) -> bool {
+        if self.clip.is_empty() {
+            return true;
+        }
+        let s = self.scale;
+        let (left, top) = (x * s - 1.0, y * s - 1.0);
+        let (right, bottom) = ((x + w) * s + 1.0, (y + h) * s + 1.0);
+        // NaN sizes fail every comparison and are drawn (as before).
+        self.clip.iter().any(|&(cx, cy, cw, ch)| {
+            let (cx, cy, cw, ch) = (cx as f32, cy as f32, cw as f32, ch as f32);
+            !(right < cx || bottom < cy || left > cx + cw || top > cy + ch)
+        })
+    }
+
+    /// Whether a device-pixel rectangle overlaps the pixels that may change.
+    fn visible_device(&self, x: i32, y: i32, w: i32, h: i32) -> bool {
+        self.clip.is_empty()
+            || self.clip.iter().any(|&(cx, cy, cw, ch)| {
+                let (cx, cy, cw, ch) = (cx as i32, cy as i32, cw as i32, ch as i32);
+                x < cx + cw && y < cy + ch && x + w > cx && y + h > cy
+            })
+    }
+
+    /// Draws a picture at a place given in device pixels, unscaled.
+    pub fn draw_device_pixmap(&mut self, x: i32, y: i32, picture: PixmapRef, paint: &PixmapPaint) {
+        if !self.visible_device(x, y, picture.width() as i32, picture.height() as i32) {
+            return;
+        }
+        self.touch();
+        self.pixmap.draw_pixmap(x, y, picture, paint, Transform::identity(), None);
+    }
+
     fn transform(&self) -> Transform {
         Transform::from_scale(self.scale, self.scale)
     }
@@ -98,34 +285,70 @@ impl Canvas {
         paint
     }
 
-    /// Fills the whole canvas, replacing what was there.
+    /// Fills the whole canvas (the clip, while there is one), replacing
+    /// what was there.
     pub fn clear(&mut self, color: Rgba) {
-        self.pixmap.fill(color.into());
+        self.stale = false;
+        self.blank = false;
+        if self.clip.is_empty() {
+            return self.pixmap.fill(color.into());
+        }
+        let w = self.pixmap.width() as usize;
+        let c = tiny_skia::Color::from(color).premultiply().to_color_u8();
+        let pixel = [c.red(), c.green(), c.blue(), c.alpha()];
+        let data = self.pixmap.data_mut();
+        for &(x0, y0, cw, ch) in &self.clip {
+            for y in y0 as usize..(y0 + ch) as usize {
+                for p in data[(y * w + x0 as usize) * 4..(y * w + (x0 + cw) as usize) * 4].chunks_exact_mut(4) {
+                    p.copy_from_slice(&pixel);
+                }
+            }
+        }
     }
 
     pub fn fill_rect(&mut self, x: f32, y: f32, w: f32, h: f32, color: Rgba) {
+        if !self.visible(x, y, w, h) {
+            return;
+        }
+        self.touch();
         if let Some(rect) = Rect::from_xywh(x, y, w, h) {
             let mut paint = Self::paint(color);
             // Axis-aligned rectangles on the pixel grid need no anti-aliasing.
             paint.anti_alias = self.scale.fract() != 0.0 || [x, y, w, h].iter().any(|v| v.fract() != 0.0);
-            self.pixmap.fill_rect(rect, &paint, self.transform(), None);
+            let transform = self.transform();
+            self.pixmap.fill_rect(rect, &paint, transform, None);
         }
     }
 
+    /// Whether a path, grown by `grow` logical pixels on every side, can
+    /// reach the pixels this canvas holds.
+    fn path_visible(&self, path: &Path, grow: f32) -> bool {
+        let b = path.bounds();
+        self.visible(b.x() - grow, b.y() - grow, b.width() + 2.0 * grow, b.height() + 2.0 * grow)
+    }
+
     pub fn fill_path(&mut self, path: &Path, color: Rgba) {
-        self.pixmap
-            .fill_path(path, &Self::paint(color), FillRule::Winding, self.transform(), None);
+        if !self.path_visible(path, 0.0) {
+            return;
+        }
+        self.touch();
+        let transform = self.transform();
+        self.pixmap.fill_path(path, &Self::paint(color), FillRule::Winding, transform, None);
     }
 
     pub fn stroke_path(&mut self, path: &Path, width: f32, color: Rgba) {
+        if !self.path_visible(path, width) {
+            return;
+        }
+        self.touch();
         let stroke = Stroke {
             width,
             line_cap: LineCap::Round,
             line_join: LineJoin::Round,
             ..Stroke::default()
         };
-        self.pixmap
-            .stroke_path(path, &Self::paint(color), &stroke, self.transform(), None);
+        let transform = self.transform();
+        self.pixmap.stroke_path(path, &Self::paint(color), &stroke, transform, None);
     }
 
     pub fn fill_rounded_rect(&mut self, x: f32, y: f32, w: f32, h: f32, radius: f32, color: Rgba) {
@@ -170,6 +393,10 @@ impl Canvas {
         let Some(path) = rounded_rect_path(x, y, w, h, radii) else {
             return;
         };
+        if !self.path_visible(&path, 0.0) {
+            return;
+        }
+        self.touch();
         let shader = LinearGradient::new(
             Point::from_xy(start.0, start.1),
             Point::from_xy(end.0, end.1),
@@ -185,8 +412,8 @@ impl Canvas {
             anti_alias: true,
             ..Paint::default()
         };
-        self.pixmap
-            .fill_path(&path, &paint, FillRule::Winding, self.transform(), None);
+        let transform = self.transform();
+        self.pixmap.fill_path(&path, &paint, FillRule::Winding, transform, None);
     }
 
     pub fn fill_circle(&mut self, cx: f32, cy: f32, radius: f32, color: Rgba) {
@@ -246,8 +473,7 @@ impl Canvas {
             quality: FilterQuality::Nearest,
             ..PixmapPaint::default()
         };
-        self.pixmap
-            .draw_pixmap(px as i32, py as i32, (*picture).as_ref(), &paint, Transform::identity(), None);
+        self.draw_device_pixmap(px as i32, py as i32, (*picture).as_ref(), &paint);
     }
 
     /// Draws `source` scaled into the logical rectangle (bilinear filtering).
@@ -255,6 +481,10 @@ impl Canvas {
         if source.width() == 0 || source.height() == 0 || w <= 0.0 || h <= 0.0 {
             return;
         }
+        if !self.visible(x, y, w, h) {
+            return;
+        }
+        self.touch();
         let sx = w * self.scale / source.width() as f32;
         let sy = h * self.scale / source.height() as f32;
         let exact = (sx - 1.0).abs() < 1e-3 && (sy - 1.0).abs() < 1e-3;
@@ -275,26 +505,40 @@ impl Canvas {
         let Some(path) = rounded_rect_path(x, y, w, h, radii) else {
             return;
         };
+        if !self.path_visible(&path, 0.0) {
+            return;
+        }
+        self.touch();
         let paint = Paint {
             shader: tiny_skia::Pattern::new(source.as_ref(), SpreadMode::Pad, FilterQuality::Bilinear, 1.0, placement),
             anti_alias: true,
             ..Paint::default()
         };
-        self.pixmap
-            .fill_path(&path, &paint, FillRule::Winding, self.transform(), None);
+        let transform = self.transform();
+        self.pixmap.fill_path(&path, &paint, FillRule::Winding, transform, None);
     }
 
-    /// Blends one premultiplied source pixel over the canvas (device pixels).
-    /// Out-of-bounds coordinates are ignored.
+    /// Blends one premultiplied source pixel over the canvas (device
+    /// pixels). Coordinates outside the canvas, or outside the clip while
+    /// there is one, are ignored.
     #[inline]
     pub fn blend_pixel(&mut self, px: i32, py: i32, color: Rgba, coverage: u8) {
         let (w, h) = (self.pixmap.width() as i32, self.pixmap.height() as i32);
         if px < 0 || py < 0 || px >= w || py >= h || coverage == 0 {
             return;
         }
+        if !self.clip.is_empty() {
+            let (px, py) = (px as u32, py as u32);
+            if !self.clip.iter().any(|&(cx, cy, cw, ch)| px >= cx && py >= cy && px < cx + cw && py < cy + ch) {
+                return;
+            }
+        }
         let a = u32::from(color.a) * u32::from(coverage) / 255;
         if a == 0 {
             return;
+        }
+        if self.stale || self.blank {
+            self.touch();
         }
         let i = (py as usize * w as usize + px as usize) * 4;
         let dst = &mut self.pixmap.data_mut()[i..i + 4];
@@ -378,12 +622,67 @@ fn shadow_picture(key: ShadowKey, render: impl FnOnce() -> Option<Pixmap>) -> Op
     })
 }
 
+/// Draws a shadow into a picture of its own (see [`render_shadow_layers`]).
+///
+/// Away from its corners a shadow is the same in every column (and every
+/// row): there each of its layers covers the whole width (height) and only
+/// the distance to the top and bottom (left and right) edges matters. So
+/// the shadow of a smaller rectangle with the same corners is drawn, and
+/// its middle column and row are repeated to the full size: the result is
+/// the same picture, for a fraction of the cost of drawing every layer over
+/// the whole area (Start at 200 % is millions of pixels, and a window's
+/// shadow is drawn again at every size while it is resized).
+#[allow(clippy::too_many_arguments)]
+fn render_shadow(w: f32, h: f32, radius: f32, blur: f32, alpha: f32, scale: f32, fx: f32, fy: f32) -> Option<Pixmap> {
+    // The corners and some straight edge on each side of the middle.
+    let keep = 2.0 * radius + 16.0 / scale;
+    let cut = |side: f32| if side > keep + 32.0 / scale { ((side - keep) * scale).floor() } else { 0.0 };
+    let (cut_x, cut_y) = (cut(w), cut(h));
+    if cut_x == 0.0 && cut_y == 0.0 {
+        return render_shadow_layers(w, h, radius, blur, alpha, scale, fx, fy);
+    }
+    let (sw, sh) = (w - cut_x / scale, h - cut_y / scale);
+    let small = render_shadow_layers(sw, sh, radius, blur, alpha, scale, fx, fy)?;
+    // The middle column and row of the smaller rectangle.
+    let mid_x = ((fx + (blur + sw / 2.0) * scale).floor() as usize).min(small.width() as usize - 1);
+    let mid_y = ((fy + (blur + sh / 2.0) * scale).floor() as usize).min(small.height() as usize - 1);
+    stretch_middle(&small, mid_x, cut_x as usize, mid_y, cut_y as usize)
+}
+
+/// `picture` with its column `mid_x` repeated `extra_x` more times and its
+/// row `mid_y` repeated `extra_y` more times.
+fn stretch_middle(picture: &Pixmap, mid_x: usize, extra_x: usize, mid_y: usize, extra_y: usize) -> Option<Pixmap> {
+    let (sw, sh) = (picture.width() as usize, picture.height() as usize);
+    let (w, h) = (sw + extra_x, sh + extra_y);
+    let mut out = Pixmap::new(u32::try_from(w).ok()?, u32::try_from(h).ok()?)?;
+    let source = picture.data();
+    let target = out.data_mut();
+    for y in 0..h {
+        let sy = if y < mid_y {
+            y
+        } else if y <= mid_y + extra_y {
+            mid_y
+        } else {
+            y - extra_y
+        };
+        let from = &source[sy * sw * 4..(sy + 1) * sw * 4];
+        let row = &mut target[y * w * 4..(y + 1) * w * 4];
+        row[..mid_x * 4].copy_from_slice(&from[..mid_x * 4]);
+        let middle = &from[mid_x * 4..mid_x * 4 + 4];
+        for pixel in row[mid_x * 4..(mid_x + extra_x) * 4].chunks_exact_mut(4) {
+            pixel.copy_from_slice(middle);
+        }
+        row[(mid_x + extra_x) * 4..].copy_from_slice(&from[mid_x * 4..]);
+    }
+    Some(out)
+}
+
 /// Draws a shadow into a picture of its own: stacked, growing rounded
 /// rectangles approximate a Gaussian falloff without a blur pass. The
 /// shadow of a `w` x `h` (logical) rectangle with corner `radius` starts
 /// `fx`, `fy` device pixels into the picture.
 #[allow(clippy::too_many_arguments)]
-fn render_shadow(w: f32, h: f32, radius: f32, blur: f32, alpha: f32, scale: f32, fx: f32, fy: f32) -> Option<Pixmap> {
+fn render_shadow_layers(w: f32, h: f32, radius: f32, blur: f32, alpha: f32, scale: f32, fx: f32, fy: f32) -> Option<Pixmap> {
     let width = (w + 2.0 * blur) + (fx + 1.0) / scale;
     let height = (h + 2.0 * blur) + (fy + 1.0) / scale;
     let mut canvas = Canvas::new(width, height, scale)?;
@@ -512,6 +811,104 @@ mod tests {
             assert!(picture.is_some());
         }
         assert_eq!(renders, 1);
+    }
+
+    #[test]
+    fn a_large_shadow_is_its_small_shadow_stretched() {
+        // The shadow of a large panel, drawn layer by layer over its whole
+        // area and drawn small and stretched: the same picture, at whole
+        // and fractional positions and scales.
+        for (w, h, radius, blur, scale, fx, fy) in [
+            (832.0, 918.0, 8.0, 28.0, 1.0, 0.0, 0.0),
+            (856.0, 600.0, 8.0, 28.0, 2.0, 0.0, 0.5),
+            (420.25, 300.5, 8.0, 44.0, 1.25, 0.75, 0.25),
+            (300.0, 90.0, 12.0, 16.0, 1.5, 0.5, 0.0),
+        ] {
+            let stretched = render_shadow(w, h, radius, blur, 0.4, scale, fx, fy).unwrap();
+            let layers = render_shadow_layers(w, h, radius, blur, 0.4, scale, fx, fy).unwrap();
+            assert!(stretched.width().abs_diff(layers.width()) <= 1 && stretched.height().abs_diff(layers.height()) <= 1);
+            let (cw, ch) = (stretched.width().min(layers.width()), stretched.height().min(layers.height()));
+            let mut worst = 0;
+            for y in 0..ch {
+                for x in 0..cw {
+                    let (a, b) = (stretched.pixel(x, y).unwrap(), layers.pixel(x, y).unwrap());
+                    worst = worst.max(a.alpha().abs_diff(b.alpha()));
+                }
+            }
+            // As close as a kept shadow is to one drawn in place.
+            assert!(worst <= 2, "{w}x{h} at {scale}: differs by {worst}");
+        }
+    }
+
+    #[test]
+    fn a_part_drawn_again_is_exactly_the_whole_drawing_there() {
+        // A drawing of shapes, a stroke, a gradient, a picture, text-like
+        // pixels and a shadow. Over a different drawing, a part of it is
+        // drawn again: inside the part the pixels are exactly those of the
+        // whole drawing.
+        let mut picture = Pixmap::new(7, 5).unwrap();
+        picture.fill(tiny_skia::Color::from_rgba8(30, 60, 90, 200));
+        let draw = |c: &mut Canvas, shift: f32| {
+            c.clear(Rgba::rgb(20, 30, 40));
+            c.shadow(20.0 + shift, 18.0, 90.0, 60.0, 8.0, 16.0, 6.0, 0.4);
+            c.fill_rounded_rect(20.5, 18.25 + shift, 90.0, 60.0, 8.0, Rgba::rgb(200, 100, 50).alpha(0.8));
+            c.stroke_rounded_rect(30.0, 30.0, 40.0, 20.0, 4.0, 1.0, Rgba::WHITE);
+            c.fill_gradient_rect(60.0, 50.0, 50.0, 30.0, [3.0; 4], (60.0, 50.0), (110.0, 80.0), Rgba::BLACK, Rgba::WHITE);
+            c.draw_pixmap(&picture, 12.3, 70.6, 21.0, 15.0, 0.9);
+            c.fill_rect(100.0, 5.0, 13.0, 9.0, Rgba::rgb(0, 200, 0));
+            c.line(5.0, 95.0, 115.0 - shift, 60.0, 2.0, Rgba::rgb(250, 250, 0));
+            for i in 0..40 {
+                c.blend_pixel(50 + i, 12, Rgba::WHITE, (i * 6) as u8);
+            }
+        };
+        for scale in [1.0, 1.25, 2.0] {
+            let mut whole = Canvas::new(120.0, 100.0, scale).unwrap();
+            draw(&mut whole, 0.0);
+            let (w, h) = whole.pixel_size();
+            let parts: [&[PixelRect]; 4] = [&[(0, 0, 40, 30)], &[(33, 41, 57, 23), (2, 90, 10, 10)], &[(70, 10, 400, 400)], &[(101, 77, 3, 2)]];
+            for rects in parts {
+                let mut part = Canvas::new(120.0, 100.0, scale).unwrap();
+                draw(&mut part, 7.0);
+                let clip = part.begin_clip(rects);
+                assert_eq!(clip.len(), rects.len());
+                assert!(part.is_blank());
+                draw(&mut part, 0.0);
+                part.end_clip();
+                for rect in clip {
+                    for y in rect.1..rect.1 + rect.3 {
+                        for x in rect.0..rect.0 + rect.2 {
+                            let i = ((y * w + x) * 4) as usize;
+                            assert_eq!(&whole.data()[i..i + 4], &part.data()[i..i + 4], "scale {scale}, {rect:?} at {x},{y}");
+                        }
+                    }
+                }
+            }
+            assert!(h > 0);
+        }
+        let mut c = Canvas::new(10.0, 10.0, 1.0).unwrap();
+        assert!(c.begin_clip(&[(20, 20, 5, 5)]).is_empty(), "outside the canvas");
+        assert!(c.clip().is_empty());
+    }
+
+    #[test]
+    fn a_reset_canvas_draws_anew_and_a_full_copy_needs_no_clearing() {
+        let mut c = Canvas::new(8.0, 4.0, 1.0).unwrap();
+        c.clear(Rgba::WHITE);
+        c.reset();
+        assert!(c.is_blank());
+        c.fill_rect(0.0, 0.0, 1.0, 1.0, Rgba::rgb(255, 0, 0));
+        assert_eq!(pixel(&c, 0, 0), [255, 0, 0, 255]);
+        assert_eq!(pixel(&c, 5, 2)[3], 0, "the earlier drawing is gone");
+        let mut whole = Pixmap::new(8, 4).unwrap();
+        whole.fill(tiny_skia::Color::from_rgba8(1, 2, 3, 255));
+        c.reset();
+        c.copy_from_full(&whole);
+        assert!(!c.is_blank());
+        assert_eq!(c.data(), whole.data());
+        let mut out = vec![0u8; 8 * 4 * 4];
+        c.write_argb8888_rect(&mut out, (2, 1, 3, 2));
+        assert_eq!(&out[(8 + 2) * 4..(8 + 2) * 4 + 4], [3, 2, 1, 255]);
+        assert_eq!(&out[..4], [0, 0, 0, 0], "outside the rectangle nothing is written");
     }
 
     #[test]

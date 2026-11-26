@@ -86,10 +86,19 @@ pub struct TextEngine {
     has_fonts: bool,
     /// Widths already measured, by text and style.
     widths: std::collections::HashMap<(String, u32, u16, Face), f32>,
+    /// Lines already shaped for drawing, by text, style and scale: a
+    /// surface drawn again (a hover change, a scrolling page) does not
+    /// shape its labels again.
+    shaped: std::collections::HashMap<ShapedKey, Buffer>,
 }
+
+/// What a shaped line depends on: the text, size, weight, face and scale.
+type ShapedKey = (String, u32, u16, Face, u32);
 
 /// Measured widths kept before the cache is emptied.
 const MAX_WIDTHS: usize = 4096;
+/// Shaped lines kept before that cache is emptied.
+const MAX_SHAPED: usize = 1024;
 
 impl Default for TextEngine {
     fn default() -> Self {
@@ -169,6 +178,7 @@ impl TextEngine {
             emoji_family,
             has_fonts,
             widths: std::collections::HashMap::new(),
+            shaped: std::collections::HashMap::new(),
         }
     }
 
@@ -337,10 +347,24 @@ impl TextEngine {
             return 0.0;
         }
         let scale = canvas.scale();
-        let Some(buffer) = self.shape(text, style, scale) else {
-            return 0.0;
-        };
-        let width = Self::buffer_width(&buffer) / scale;
+        let key: ShapedKey = (text.to_owned(), style.size.to_bits(), style.weight, style.face, scale.to_bits());
+        if !self.shaped.contains_key(&key) {
+            let Some(buffer) = self.shape(text, style, scale) else {
+                return 0.0;
+            };
+            if self.shaped.len() >= MAX_SHAPED {
+                self.shaped.clear();
+            }
+            self.shaped.insert(key.clone(), buffer);
+        }
+        let buffer = &self.shaped[&key];
+        let width = Self::buffer_width(buffer) / scale;
+        // Text outside the part of the canvas being drawn again is not
+        // drawn (glyphs may reach a little beyond the line box).
+        let reach = style.size;
+        if !canvas.visible(x - reach, y - reach, width + 2.0 * reach, style.line_height() + 2.0 * reach) {
+            return width.ceil();
+        }
         let (ox, oy) = ((x * scale).round() as i32, (y * scale).round() as i32);
         let c = style.color;
         buffer.draw(
