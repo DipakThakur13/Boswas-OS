@@ -8,7 +8,11 @@ Page "power":
   Battery     percentage, charging state and time left; the section is not
               shown on a device without a battery
   Power mode  the profiles power-profiles-daemon offers; not shown without it
-  Brightness  the backlight; not shown without one
+Pages "display" and "power":
+  Brightness  the backlight; not shown without one. Its home is Display, as
+              Display > Brightness in Windows (search and the catalog lead
+              there); Power & battery shows it too, where earlier versions
+              had it. Each page has its own section, on the same bridge.
 
 All of it is the services bridge's state (ui/bridgeclient.py), so the
 sliders follow the volume keys and the quick settings panel, and a change
@@ -304,9 +308,10 @@ class PowerModeSection(BridgeSection):
 
 
 class BrightnessSection(BridgeSection):
-    page = "power"
+    page = "display"
+    also = ("power",)
     title = "Brightness"
-    order = 30
+    order = 15                                       # Display: after the monitors, before night light
     keywords = ("brightness", "backlight", "screen brightness", "dim")
     service = sb.BRIGHTNESS
 

@@ -4,7 +4,9 @@ Category "Network & internet":
   Wi-Fi               (page wifi) the master switch, the connected network,
                       the visible networks (strongest first) with Connect,
                       Forget and a passphrase dialog, and Scan
-  Ethernet            (page ethernet) the wired connection, connected or not
+  Ethernet            (page ethernet) the wired connection, connected or not;
+                      its settings (IP and DNS assignment, metered) and
+                      properties follow below it (netadmin.WiredSection)
   Airplane mode       (page airplane) the switch for every radio
   Connection details  (page advanced-network) per interface: addresses,
                       gateways, DNS, MAC, link speed (ip -j, /etc/resolv.conf,

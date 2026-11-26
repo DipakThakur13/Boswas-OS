@@ -344,7 +344,7 @@ class OptionalFeaturesSection(_JobSection):
         missing = tuple(p for p in feature.packages if not features.installed(self.status, p))
         if ask(self, f"Install {feature.title}?", f"{', '.join(missing)} and the packages they need are installed "
                "from Debian's signed repositories. You are asked for an administrator password.", "Install"):
-            self.start_job(jobs.JobSpec(jobs.SYSOPS, ("apt-install", *missing), f"Installing {feature.title}",
+            self.start_job(jobs.JobSpec(jobs.SYSOPS, feature.install_words(missing), f"Installing {feature.title}",
                                         self.page))
 
 

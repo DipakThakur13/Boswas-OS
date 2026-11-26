@@ -6,14 +6,20 @@ Page "printers":
                 (CUPS's own test page, `lp -d PRINTER`, after a question);
                 a link to CUPS's own printer settings in the browser. Without
                 CUPS: "Install printing support", which installs the package
-                cups through the system helper (sysops apt-install, with the
-                usual question and an administrator password)
+                cups through the system helper (sysops apt-install
+                --no-recommends: cups-daemon recommends cups-browsed, which
+                Boswas policy excludes; with the usual question and an
+                administrator password)
 Page "cameras":
   Cameras       the cameras of /sys/class/video4linux (peripherals.cameras);
                 the page's program row opens the Camera application
 Page "usb":
   USB devices   the connected USB devices as the Hardware page reads them
-                (no serial numbers)
+                (no serial numbers); a drive on one has "Open in Files"
+                (boswas-files at its mounted folder, else at This PC) and
+                "Eject" (udisksctl unmount, lock and power-off, the steps
+                Files takes through UDisks2; polkit decides), unless the
+                system uses it (peripherals.usb_drives)
 
 Reading happens on a worker thread when the page is shown; nothing is
 changed without a click and a question.
@@ -25,12 +31,14 @@ import boswas_fluent as fluent
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from ... import commands, jobs, peripherals, probes
+from ...errors import CommandFailed, CommandUnavailable, Failed, user_message
 from ..jobs import JobPanel
 from . import context
 from .system import READ_TIMEOUT, ToolSection, tool_failure
 from .widgets import RowList, ask, window_of
 
 PRINT_TIMEOUT = 60.0
+EJECT_TIMEOUT = 300.0          # each step may wait for polkit's question, and for the data to be written
 CUPS_WEB = "http://localhost:631/"
 USB_ICONS = {"Input": "input-keyboard-symbolic", "Storage": "drive-removable-media-symbolic",
              "Audio": "audio-headphones-symbolic", "Imaging": "camera-photo-symbolic", "Printer": "document-print-symbolic",
@@ -147,10 +155,11 @@ class PrintersSection(ToolSection):
         window = window_of(self)
         if window is None or not ask(self, "Install printing support?",
                                      "The package cups (the printing system CUPS) and what it needs are installed "
-                                     "from Debian's signed repositories. You are asked for an administrator "
+                                     "from Debian's signed repositories, without the network printer browser "
+                                     "cups-browsed, which Boswas OS leaves out. You are asked for an administrator "
                                      "password.", "Install"):
             return
-        window.jobs.start(jobs.JobSpec(jobs.SYSOPS, ("apt-install", *peripherals.PRINTING_PACKAGES),
+        window.jobs.start(jobs.JobSpec(jobs.SYSOPS, peripherals.PRINTING_INSTALL,
                                        "Installing printing support", self.page), lambda _o: self.reload())
 
     def test_page(self, name: str) -> None:
@@ -198,37 +207,103 @@ class UsbSection(ToolSection):
     page = "usb"
     title = "USB devices"
     order = 10
-    keywords = ("usb", "connected devices", "usb stick", "usb drive", "plugged in")
+    keywords = ("usb", "connected devices", "usb stick", "usb drive", "plugged in", "eject", "safely remove")
 
-    def __init__(self, parent: QWidget | None = None, *, root: str | None = None):
+    def __init__(self, parent: QWidget | None = None, *, root: str | None = None, runner=None):
         super().__init__(parent)
         self.root = context.root if root is None else root
+        self.runner = runner or context.runner()
         self.list = self.add(RowList(self))
         self.empty = self.add(fluent.SettingsCard("No USB device is connected", "", fluent.icon(
             "drive-removable-media-symbolic"), None, self))
         self.empty.hide()
-        self.add(fluent.Label("Removing a USB drive: eject it in Files first, so that everything is written.",
+        self.add(fluent.Label("Eject a drive before you unplug it, so that everything is written to it.",
                               "caption", self, tone="secondary", wrap=True))
+        self.devices: list = []
+        self.drives: dict[str, list[peripherals.Drive]] = {}
 
     def read(self):
-        return peripherals.usb(probes.Root(self.root))
+        root = probes.Root(self.root)
+        drives: dict[str, list[peripherals.Drive]] = {}
+        for drive in peripherals.usb_drives(root):
+            drives.setdefault(drive.usb, []).append(drive)
+        return peripherals.usb(root), drives
 
-    def show_state(self, devices) -> None:
+    def show_state(self, state) -> None:
+        devices, self.drives = state
+        self.devices = devices
         by_address = {device.address: device for device in devices}
 
         def create(address: str) -> fluent.SettingsCard:
-            return fluent.SettingsCard("", "", None, None, self.list)
+            card = fluent.SettingsCard("", "", None, None, self.list)
+            card.open_button = fluent.Button("Open in Files", card)
+            card.open_button.clicked.connect(lambda _c=False, a=address: self.open_in_files(a))
+            card.eject_button = fluent.Button("Eject", card, icon=fluent.icon("media-eject-symbolic"))
+            card.eject_button.clicked.connect(lambda _c=False, a=address: self.eject(a))
+            card.set_control(card.open_button)
+            card.add_control(card.eject_button)
+            return card
 
         def update(address: str, card: fluent.SettingsCard) -> None:
             device = by_address[address]
+            drives = self.drives.get(address, [])
             card.set_title(device.name)
-            card.set_description(" · ".join(part for part in (device.vendor, device.category,
-                                                               f"driver {device.driver}" if device.driver else
-                                                               "no driver in use") if part))
-            card.set_icon(fluent.icon(USB_ICONS.get(device.category, "drive-removable-media-symbolic")))
+            parts = [device.vendor, "Storage" if drives and device.category != "Storage" else device.category,
+                     f"driver {device.driver}" if device.driver else "no driver in use"]
+            for drive in drives:
+                parts.append(", ".join(point for _device, point in drive.mounts) if drive.mounts else "not opened")
+                if drive.in_use_by_system:
+                    parts.append("in use by the system")
+            card.set_description(" · ".join(part for part in parts if part))
+            card.set_icon(fluent.icon("drive-removable-media-symbolic" if drives else
+                                      USB_ICONS.get(device.category, "drive-removable-media-symbolic")))
+            card.open_button.setVisible(bool(drives))
+            card.eject_button.setVisible(bool(drives))
+            card.open_button.setAccessibleName(f"Open {device.name} in Files")
+            card.eject_button.setAccessibleName(f"Eject {device.name}")
+            card.open_button.setEnabled(not self.busy and self.runner.available(commands.EXECUTABLES["boswas-files"]))
+            ejectable = bool(drives) and not any(drive.in_use_by_system for drive in drives)
+            card.eject_button.setEnabled(not self.busy and ejectable and
+                                         self.runner.available(commands.EXECUTABLES["udisksctl"]))
+            card.eject_button.setToolTip("" if ejectable else "The system uses this drive; it cannot be ejected here.")
 
         self.list.sync(list(by_address), create, update)
         self.empty.setVisible(not devices)
+
+    def set_enabled(self, enabled: bool) -> None:
+        if self.devices:
+            self.show_state((self.devices, self.drives))         # the buttons follow self.busy
+
+    def _name(self, address: str) -> str:
+        return next((device.name for device in self.devices if device.address == address), "The drive")
+
+    def open_in_files(self, address: str) -> None:
+        drives = self.drives.get(address, [])
+        if not drives:
+            return
+        try:
+            self.runner.start(commands.files_argv(drives[0].folder))
+        except (CommandFailed, CommandUnavailable, ValueError) as exc:
+            self.show_error(f"Files could not be opened. {user_message(exc)}")
+
+    def eject(self, address: str) -> None:
+        drives = self.drives.get(address, [])
+        if not drives or any(drive.in_use_by_system for drive in drives):
+            return
+        name = self._name(address)
+        steps = [commands.udisksctl_argv(action, device) for drive in drives
+                 for action, device in peripherals.eject_steps(drive)]
+
+        def apply() -> None:
+            for command in steps:
+                result = self.runner.run(command, EJECT_TIMEOUT)
+                if result.code != 0:
+                    detail = " ".join((result.stderr or result.stdout or "").split()).casefold()
+                    if "busy" in detail or "target is busy" in detail:
+                        raise Failed(f"{name} is in use. Close the files and folders on it, then eject it again.")
+                    raise tool_failure(f"Ejecting {name}", result)
+
+        self.change(apply, f"{name} can be removed now.")
 
 
 SECTIONS = (PrintersSection, CamerasSection, UsbSection)

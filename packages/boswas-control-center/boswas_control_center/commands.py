@@ -172,8 +172,8 @@ MAX_DNS_SERVERS = 3
 # The properties `nmcli connection modify uuid UUID ...` may set (the Ethernet page), each with its check.
 NMCLI_PROPERTIES = {
     "ipv4.method": lambda value: value in ("auto", "manual"),
-    "ipv4.addresses": lambda value: value == "" or _ipv4_interface(value),
-    "ipv4.gateway": lambda value: value == "" or _ip_address(value, 4),
+    "ipv4.addresses": lambda value: value == "" or valid_ipv4_interface(value),
+    "ipv4.gateway": lambda value: value == "" or valid_ip_address(value, 4),
     "ipv4.dns": lambda value: _address_list(value, 4),
     "ipv4.ignore-auto-dns": lambda value: value in ("yes", "no"),
     "ipv6.dns": lambda value: _address_list(value, 6),
@@ -381,7 +381,7 @@ def hostnamectl_argv(name: str) -> list[str]:
     return [EXECUTABLES["hostnamectl"], "--static", "set-hostname", name]
 
 
-def _ip_address(value: object, version: int) -> bool:
+def valid_ip_address(value: object, version: int) -> bool:
     """An IPv4 or IPv6 address as a host has it: no network, multicast, loopback or unspecified address."""
     if not isinstance(value, str) or not value or len(value) > 64 or value != value.strip():
         return False
@@ -393,12 +393,13 @@ def _ip_address(value: object, version: int) -> bool:
             and not address.is_loopback and str(address) == value.lower())
 
 
-def _ipv4_interface(value: object) -> bool:
+def valid_ipv4_interface(value: object) -> bool:
     """ADDRESS/PREFIX of a host in an IPv4 network: prefix 1 to 32, not the network or broadcast address."""
     if not isinstance(value, str) or value.count("/") != 1:
         return False
     address, prefix = value.split("/")
-    if not _ip_address(address, 4) or not prefix.isdigit() or not 1 <= int(prefix) <= 32 or prefix != str(int(prefix)):
+    if (not valid_ip_address(address, 4) or not prefix.isascii() or not prefix.isdigit()
+            or prefix != str(int(prefix)) or not 1 <= int(prefix) <= 32):
         return False
     network = ipaddress.ip_interface(value).network
     return int(prefix) >= 31 or ipaddress.ip_address(address) not in (network.network_address,
@@ -413,7 +414,7 @@ def _address_list(value: object, version: int) -> bool:
         return False
     parts = value.split(",")
     return 1 <= len(parts) <= MAX_DNS_SERVERS and len(set(parts)) == len(parts) and \
-        all(_ip_address(part, version) for part in parts)
+        all(valid_ip_address(part, version) for part in parts)
 
 
 def nmcli_change_argv(*words: str) -> list[str]:
