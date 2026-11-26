@@ -106,6 +106,7 @@ pub const SETTINGS: &[(&str, &str, &str, &[&str])] = &[
     ("hardware", "Hardware & drivers", "boswas-hardware", &["driver", "firmware", "device", "graphics"]),
     ("time-language", "Language, region & time", "preferences-system", &["language", "region", "date", "time", "locale"]),
     ("notifications", "Notifications", "preferences-desktop-notification-bell", &["do not disturb", "dnd", "banners", "quiet hours"]),
+    ("clipboard", "Clipboard", "edit-paste-symbolic", &["clipboard history", "copy", "paste", "emoji", "symbols", "super+v"]),
     ("multitasking", "Multitasking", "preferences-system-windows", &["snap", "split screen", "alt+tab", "desktops"]),
     ("taskbar", "Taskbar settings", "boswas-shell", &["taskbar", "auto hide", "alignment", "task view"]),
     ("start", "Start settings", "boswas-logo", &["start menu", "pinned", "recommended", "folders"]),

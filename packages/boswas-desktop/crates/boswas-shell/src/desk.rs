@@ -785,6 +785,7 @@ impl Shell {
     pub fn open_flyout(&mut self, kind: Flyout, output: Option<WlOutput>) {
         // Whatever was open goes at once: one flyout at a time.
         self.remove(Role::Flyout);
+        self.leave_bar_focus();
         self.close_menus();
         self.hide_tooltip();
         self.close_preview();

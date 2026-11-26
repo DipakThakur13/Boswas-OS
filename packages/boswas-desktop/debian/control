@@ -20,12 +20,15 @@ Rules-Requires-Root: no
 Package: boswas-desktop
 Architecture: amd64
 Depends: dbus-user-session,
+         dconf-gsettings-backend,
          fontconfig-config,
          fonts-inter,
          greetd,
+         gsettings-desktop-schemas,
          libegl1,
          libgl1-mesa-dri,
          libgles2,
+         libglib2.0-bin,
          libpam-runtime,
          libpam-systemd,
          polkitd,

@@ -355,6 +355,16 @@ mod tests {
     }
 
     #[test]
+    fn start_search_finds_the_clipboard_settings() {
+        for query in ["clipboard", "clip", "paste"] {
+            let mut start = crate::start::Start::default();
+            start.typed(query, &[], &Default::default());
+            let found = start.results.iter().any(|r| matches!(r, crate::start::ResultItem::Setting(i) if crate::start::SETTINGS[*i].0 == "clipboard"));
+            assert!(found, "{query}: {:?}", start.results);
+        }
+    }
+
+    #[test]
     fn every_settings_page_the_shell_opens_exists() {
         let known = control_center_pages();
         assert!(known.len() > 40 && known.iter().any(|k| k == "display"), "the catalogue was read: {known:?}");

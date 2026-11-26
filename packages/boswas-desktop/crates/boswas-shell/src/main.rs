@@ -61,6 +61,8 @@ mod barfocus;
 mod gsettings;
 mod projection;
 mod quicklinks;
+#[cfg(test)]
+mod round_pictures;
 mod security;
 
 use std::{
