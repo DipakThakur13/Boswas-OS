@@ -874,6 +874,24 @@ mod tests {
         st
     }
 
+    /// How long drawing the panel takes, once its glyphs are cached (for
+    /// people: `cargo test -p boswas-shell -- --ignored --nocapture emoji_draw_time`).
+    #[test]
+    #[ignore = "a measurement"]
+    fn emoji_draw_time() {
+        let st = panel_state(Tab::Emoji);
+        let (w, h) = panel_size((1920.0, 1080.0));
+        let mut res = crate::ui::Resources::new(boswas_ui::Theme::of(Scheme::Dark));
+        for round in 0..6 {
+            let started = std::time::Instant::now();
+            let mut canvas = boswas_ui::Canvas::new(w + 24.0, h + 24.0, 1.0).unwrap();
+            let mut hits = Vec::new();
+            let mut frame = Frame { canvas: &mut canvas, res: &mut res, pointer: None, pressed: false, hits: &mut hits, focus: None, origin: (0.0, 0.0) };
+            draw(&mut frame, &st, Rect::new(12.0, 12.0, w, h));
+            eprintln!("round {round}: {:?}", started.elapsed());
+        }
+    }
+
     #[test]
     fn the_panel_draws_its_controls_inside_at_every_text_size() {
         for text in [100, 175, 225] {

@@ -13,6 +13,11 @@
 //!
 //! Skipped (with a message) where the compositor was not built next to the
 //! shell (`cargo test -p boswas-shell` alone) or no font is installed.
+//!
+//! For people to look at: `BOSWAS_TEST_SHOTS=DIR` keeps screenshots of the
+//! two flyouts as they were open, `BOSWAS_TEST_SIZE=1366x768` sets the
+//! screen and `BOSWAS_TEST_CONFIG` adds lines to the compositor's
+//! configuration (`[appearance]` scheme, `[accessibility]` text_scale).
 
 use std::{
     io::{BufRead, BufReader, Read, Write},
@@ -98,6 +103,16 @@ impl Session {
     fn log(&self) -> String {
         std::fs::read_to_string(self.root.join("compositor.log")).unwrap_or_default()
     }
+
+    /// A screenshot for people to look at, when they asked for them.
+    fn shot(&mut self, name: &str) {
+        let Some(dir) = std::env::var_os("BOSWAS_TEST_SHOTS").map(PathBuf::from) else {
+            return;
+        };
+        std::fs::create_dir_all(&dir).unwrap();
+        let reply = self.call(json!({"cmd": "screenshot", "path": dir.join(format!("{name}.png"))}));
+        assert_eq!(reply["ok"], true, "{reply}");
+    }
 }
 
 fn start() -> Option<Session> {
@@ -116,13 +131,14 @@ fn start() -> Option<Session> {
     std::fs::write(
         &config,
         format!(
-            "[policy]\nprivileged_protocols = \"all\"\nlock_idle_max_seconds = 0\n[lock]\nidle_seconds = 0\ncommand = [\"{0}\", \"--lock\"]\n[shell]\ncommand = [\"{0}\"]\n[xwayland]\nenabled = false\n[appearance]\nreduced_motion = true\n",
-            shell.display()
+            "[policy]\nprivileged_protocols = \"all\"\nlock_idle_max_seconds = 0\n[lock]\nidle_seconds = 0\ncommand = [\"{0}\", \"--lock\"]\n[shell]\ncommand = [\"{0}\"]\n[xwayland]\nenabled = false\n{1}\n",
+            shell.display(),
+            std::env::var("BOSWAS_TEST_CONFIG").unwrap_or_else(|_| "[appearance]\nreduced_motion = true".into()).replace("\\n", "\n"),
         ),
     )
     .unwrap();
     let mut child = Command::new(&compositor)
-        .args(["--backend", "headless", "--headless-size", "1280x800", "--test-input", "--print-env", "--config"])
+        .args(["--backend", "headless", "--headless-size", &std::env::var("BOSWAS_TEST_SIZE").unwrap_or_else(|_| "1280x800".into()), "--test-input", "--print-env", "--config"])
         .arg(&config)
         .env("XDG_RUNTIME_DIR", root.join("run"))
         .env("HOME", root.join("home"))
@@ -376,6 +392,7 @@ fn copied_items_are_pasted_from_the_history_and_emoji_are_inserted() {
     // not in the list, so that is the first thing copied.
     session.keys(&[KEY_LEFTMETA, KEY_V]);
     std::thread::sleep(Duration::from_millis(800));
+    session.shot("clipboard");
     window.app.keys.clear();
     session.keys(&[KEY_DOWN]);
     session.keys(&[KEY_ENTER]);
@@ -404,8 +421,10 @@ fn copied_items_are_pasted_from_the_history_and_emoji_are_inserted() {
     window.app.keys.clear();
     session.keys(&[KEY_LEFTMETA, KEY_DOT]);
     std::thread::sleep(Duration::from_millis(800));
+    session.shot("emoji");
     session.type_text("grinning");
-    std::thread::sleep(Duration::from_millis(200));
+    std::thread::sleep(Duration::from_millis(300));
+    session.shot("emoji-search");
     session.keys(&[KEY_ENTER]);
     window.wait_for_paste();
     assert_eq!(window.clipboard(), "\u{1F600}", "the emoji is what the window pastes");

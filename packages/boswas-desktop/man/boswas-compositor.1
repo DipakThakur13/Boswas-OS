@@ -139,6 +139,12 @@ T}
 Super+R|T{
 Run
 T}
+Super+V|T{
+the clipboard history
+T}
+Super+., Super+;|T{
+emoji, kaomoji and symbols
+T}
 Super+E|T{
 Files
 T}
@@ -449,6 +455,15 @@ but still reach the notification centre) and \fBtoast_seconds\fR (the
 least time a notification stays on screen: 5, the default, 7, 15, 30, 60 or
 300).
 .TP
+.B [clipboard]
+Read by the shell: \fBhistory\fR (default true: the shell keeps the last 25
+things copied, in memory, and Super+V shows them; false: Super+V offers to
+turn it on, and only pinned items are kept) and \fBcleared_at\fR (a Unix
+time in seconds, written by Settings for "Clear clipboard data": the shell
+forgets what was copied before then, except pinned items, and empties the
+clipboard if it holds such an item; default 0). See
+.BR boswas\-shell (1).
+.TP
 .B [policy]
 Read from the first two files only; ignored in a user's file.
 \fBlock_idle_max_seconds\fR: the longest lock timeout a user may choose (0:
@@ -509,8 +524,13 @@ uses when none is set), position, rotation and
 on) and
 \fBcapture\fR (opens the capture screen; "mode": "screen" or "region").
 The window list, window control, desktops, thumbnails, screenshots, the
-answer to a program that asks to see the screen and \fBquit\fR are
-available to the shell only, on the descriptor the compositor hands it.
+answer to a program that asks to see the screen, \fBpaste\fR and \fBquit\fR
+are available to the shell only, on the descriptor the compositor hands it.
+\fBpaste\fR (the clipboard history and the emoji panel) gives the window
+that has the keyboard the key stroke that pastes there, Ctrl+V or, in a
+terminal (by its application id), Ctrl+Shift+V, once the keys still held
+are let go; it names no keys, and does nothing while the session is locked
+or when no window has the keyboard.
 .SH ENVIRONMENT
 .TP
 .B BOSWAS_LOG
