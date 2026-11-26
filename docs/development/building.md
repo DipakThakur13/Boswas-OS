@@ -142,6 +142,7 @@ exactly which versions were used.
 | The look of the Boswas Qt applications | `desktop/ui/qt/boswas_fluent` (the toolkit, installed by `packages/boswas-branding/debian/rules`); `python3 -m boswas_fluent.gallery` shows every widget ([README](../../desktop/ui/qt/README.md)) |
 | Compositor defaults and policy | `packages/boswas-desktop/config/compositor.toml` (shipped defaults); on a device `/etc/boswas/compositor.toml` |
 | Login, session, lock | `packages/boswas-desktop/session/` |
+| The emoji panel's data | `packages/boswas-desktop/tools/build_emoji.py` regenerates `crates/boswas-shell/data/emoji.tsv` from Debian's `unicode-data` and `unicode-cldr-core`; `--check` fails on a stale file (ADR-0058) |
 | Boot screen | `packages/boswas-bootsplash/` (artwork from `desktop/branding/`) |
 | Installer policy | `installer/configuration/preseed.cfg` |
 | Boot menu | `config/live-build/config/bootloaders/grub-pc/` and `desktop/branding/boot-splash.svg` |
@@ -229,10 +230,10 @@ cargo test --locked --workspace \
 cd ../boswas-bootsplash && cargo test --locked
 ```
 
-The desktop workspace has unit tests in every crate and three sets of
+The desktop workspace has unit tests in every crate and four sets of
 tests that start real programs:
 
-- `crates/boswas-compositor/tests/headless.rs`: eleven end-to-end tests
+- `crates/boswas-compositor/tests/headless.rs`: end-to-end tests
   that start the real `boswas-compositor` binary on its headless back end
   and drive it with real clients, injected keys and the control socket.
   They check that an ordinary client is offered no privileged protocol
@@ -251,6 +252,10 @@ tests that start real programs:
   `/tmp`, because socket paths are short.
 - `crates/boswas-services-bridge/tests/bridge.rs`: the bridge program
   itself.
+- `crates/boswas-shell/tests/`: the real compositor with the real shell:
+  opening a screenshot from its notice (`opening.rs`), the clipboard
+  history and the emoji panel (`clipboard.rs`), and the desktop icons and
+  the widgets board (`desktop.rs`).
 
 [verification.md](../architecture/verification.md) has the counts and
 what the tests do not reach.

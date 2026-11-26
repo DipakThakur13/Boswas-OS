@@ -283,6 +283,9 @@ check "desktop: the programs run and report the release version" \
 		grep -qx '${BOSWAS_VERSION_ID}' '$extract/usr/share/boswas/compositor/version'"
 check "desktop: depends on xdg-utils (xdg-open, for programs that open files and addresses)" \
 	bash -c "dpkg-deb -f '$desktop_deb' Depends | grep -qE '(^|, )xdg-utils(,|\$| )'"
+check "desktop: depends on gsettings, the dconf backend and the GNOME schemas (dark mode and the accent reach GTK applications and Firefox)" \
+	bash -c "d=\$(dpkg-deb -f '$desktop_deb' Depends);
+		for p in libglib2.0-bin dconf-gsettings-backend gsettings-desktop-schemas; do grep -qE \"(^|[ ,])\$p([ ,(]|\$)\" <<<\"\$d\" || exit 1; done"
 check "desktop: session entry, session target, lock-screen PAM service and compositor defaults" \
 	bash -c "grep -qx 'Exec=/usr/bin/boswas-session' '$extract/usr/share/wayland-sessions/boswas.desktop' &&
 		grep -qx 'BindsTo=graphical-session.target' '$extract/usr/lib/systemd/user/boswas-session.target' &&

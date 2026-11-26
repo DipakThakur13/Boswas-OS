@@ -35,6 +35,9 @@ pub struct Desktop {
     pub clipboard_cleared_at: i64,
     /// The icons on the wallpaper (`[desktop]`).
     pub icons: DesktopIcons,
+    /// The pointer size (`[pointer] cursor_size`, 16 to 96; 0 when the
+    /// compositor did not say), for the programs the shell starts.
+    pub cursor_size: u32,
 }
 
 /// A system icon the desktop can show besides the desktop folder's files.
@@ -250,6 +253,7 @@ impl Default for Desktop {
             clipboard_history: true,
             clipboard_cleared_at: 0,
             icons: DesktopIcons::default(),
+            cursor_size: 0,
         }
     }
 }
@@ -398,6 +402,7 @@ impl Desktop {
                 auto_arrange: flag(&desk["auto_arrange"], d.icons.auto_arrange),
                 align_to_grid: flag(&desk["align_to_grid"], d.icons.align_to_grid),
             },
+            cursor_size: value["cursor_size"].as_u64().filter(|s| (16..=96).contains(s)).map_or(0, |s| s as u32),
         })
     }
 }
@@ -455,6 +460,11 @@ mod tests {
         assert_eq!((d.notifications.from.as_str(), d.notifications.to.as_str(), d.notifications.toast_seconds), ("21:30", "06:00", 30));
         assert!(!d.notifications.banners_for("Mail") && d.notifications.banners_for("Chat"));
         assert!(!d.lock_weather);
+        assert_eq!(d.cursor_size, 0, "no pointer size sent");
+        for (sent, kept) in [(json!(48), 48), (json!(9), 0), (json!(500), 0), (json!("48"), 0)] {
+            let d = Desktop::parse(&json!({"scheme": "dark", "cursor_size": sent})).unwrap();
+            assert_eq!(d.cursor_size, kept, "{sent}");
+        }
     }
 
     #[test]

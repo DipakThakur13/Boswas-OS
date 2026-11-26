@@ -36,6 +36,14 @@ test keeps it so.
   interrupted safely finishes first).
 - **One window per session.** Starting the program again brings the
   running window forward and shows the place the new command line names.
+- **The look** is the toolkit's Boswas glass (ADR-0057): the desktop
+  background, blurred and tinted, behind the window, the pane and the
+  cards as glass on it. Lists of applications (Installed apps, the
+  Software Center, Optional features, Startup, App permissions, Default
+  apps) have 24 px icons, rows that turn grey under the pointer, and the
+  icon under the pointer or with the keyboard focus grows as in a dock.
+  Transparency effects off, or the Boswas Carbon preset, makes every
+  surface opaque.
 
 **Home** shows the device at a glance: a picture of its kind (laptop,
 desktop computer, virtual machine), its name with Rename, its maker and
@@ -51,7 +59,7 @@ compositor's configuration; nothing privileged runs.
 ## Search
 
 Typing in the search box above the categories lists the results in the
-content area: categories, pages, sections and about forty single settings
+content area: categories, pages, sections and about fifty single settings
 (`catalog.SETTINGS`: "Rename this device", "Empty the Trash", "Sticky
 keys", ...) whose names or keywords contain every word. Titles that are
 the query come first, then titles that start with it, then titles that
@@ -78,7 +86,7 @@ passes exists.
 | Category (key) | Pages (keys) |
 |----------------|--------------|
 | Home (`home`) | – |
-| System (`system`) | `display`, `sound`, `notifications`, `power`, `storage`, `multitasking`, `troubleshoot`, `recovery`, `about`, `install` (live session only) |
+| System (`system`) | `display`, `sound`, `notifications`, `power`, `storage`, `multitasking`, `troubleshoot`, `recovery`, `clipboard`, `about`, `install` (live session only) |
 | Bluetooth & devices (`devices`) | `bluetooth`, `printers`, `cameras`, `mouse`, `touchpad`, `keyboard`, `usb`, `hardware` |
 | Network & internet (`network`) | `wifi`, `ethernet`, `vpn`, `airplane`, `proxy`, `advanced-network` |
 | Personalization (`personalization`) | `background`, `colours`, `themes`, `start`, `taskbar`, `fonts` |
@@ -109,13 +117,14 @@ the user's layer of the compositor's settings; both are described under
 
 | Page | What it holds | Backend |
 |------|---------------|---------|
-| Display | **Monitors**: a picture of the arrangement that is changed by dragging or from the keyboard; per monitor use, resolution, refresh rate, variable refresh rate (ADR-0048), scale and orientation. The scale box marks the scale the compositor recommends for the monitor, from its size and resolution as Windows does, "(Recommended)" (ADR-0055), and shows it while no scale is set; choosing it again removes the monitor's own setting, so the monitor stays automatic (where a scale is set for every monitor, the chosen one is written for the monitor instead). The resolution box marks the monitor's native resolution "(Recommended)". **Night light**: switch, strength, schedule | The compositor's configuration; `outputs` (with `recommended_scale`) |
+| Display | **Monitors**: a picture of the arrangement that is changed by dragging or from the keyboard; per monitor use, resolution, refresh rate, variable refresh rate (ADR-0048), scale and orientation. The scale box marks the scale the compositor recommends for the monitor, from its size and resolution as Windows does, "(Recommended)" (ADR-0055), and shows it while no scale is set; choosing it again removes the monitor's own setting, so the monitor stays automatic (where a scale is set for every monitor, the chosen one is written for the monitor instead). The resolution box marks the monitor's native resolution "(Recommended)". **Brightness**: the backlight, where there is one (also on Power & battery; ADR-0061). **Night light**: switch, strength, schedule | The compositor's configuration; `outputs` (with `recommended_scale`); the bridge for the brightness |
 | Sound | **Output** and **Input**: device, volume, mute, "Allow louder than 100 %" | The bridge |
 | Notifications | **Do not disturb**: the switch the session starts with, and "Turn on do not disturb automatically" during set hours. **Notifications from apps**: every application that has sent notifications, with a switch for its banners (off: it still reaches the notification centre) | `[notifications]` of the compositor's configuration; the list of senders the shell keeps (`~/.local/state/boswas/notification-senders.json`), read only |
-| Power & battery | **Battery**, **Power mode**, **Brightness**; **Screen** ("Turn off the screen after") | The bridge; `[power]` |
+| Power & battery | **Battery**, **Power mode**, **Brightness** (whose home is Display; search leads there); **Screen** ("Turn off the screen after") | The bridge; `[power]` |
 | Storage | The usage of `/` and `/home`; disks and file systems; **Free up space**: downloaded package files, old system logs, the thumbnail cache; **Cleanup recommendations**: the biggest items of the cache folder (the person ticks what to clear), the Trash with its size (Empty, after a question), downloads not changed for 14, 30, 60 or 90 days (ticked items go to the Trash); Browse files | statvfs, `lsblk -J -b` (no serial numbers); sysops `apt-clean` and `journal-vacuum`; `userfiles.py` for the user's files; `boswas-files /` |
 | Multitasking | **Snap windows**: on or off, the snap layouts on the maximise button and when a window is dragged to the top of the screen. **Desktops**: whether the taskbar and Alt+Tab show the windows of the current desktop or of all | `[multitasking]` |
 | Troubleshoot | Four checks, each run by its button, read-only, with each step Fine, a Problem or a Note and what helps: **Internet connection** (an adapter that is up, an address, a default route, name servers, then a name lookup of `deb.debian.org` and an HTTPS request to it; the page says before it runs that it contacts that host), **Sound**, **Bluetooth**, **Display** | `ip -j`, `/etc/resolv.conf`; the bridge; `systemctl is-active bluetooth.service`; `outputs` |
+| Clipboard | **Clipboard history**: on, the desktop keeps the last 25 things copied (in memory; pinned items in the user's state folder) and Super+V shows them; off, Super+V says so and offers to turn it on. **Clear clipboard data**: the desktop forgets everything copied before now except pinned items, and empties the clipboard if it holds such an item; the button then reads "Cleared". **Emoji and symbols**: where the panel is (Super+. or Super+;) (ADR-0058) | `[clipboard] history`; `[clipboard] cleared_at`, the time of the last clearing |
 | Recovery | **Advanced start-up**: restart into the firmware settings, or into the boot loader's menu, each offered only where logind says the device supports it and after a question. A note says that there is no reset of the device: reinstalling starts again | busctl: logind's `CanRebootToFirmwareSetup` and `CanRebootToBootLoaderMenu`; `systemctl reboot --firmware-setup`, `systemctl reboot --boot-loader-menu=0` |
 | About | Release, image, kernel, processor, memory, storage, the desktop (Boswas Desktop and its version), the Security and Windows Compatibility summaries, a system overview (load, network, the Android runtime, and pending updates and missing firmware where another page already found them); **Copy** puts the specifications on the clipboard; **Device name** with Rename (1 to 63 letters, digits and hyphens, not starting or ending with one, checked as it is typed) | `/usr/lib/boswas/release`, `image-info`, `/proc`, `/usr/share/boswas/compositor/version`; `hostnamectl --static set-hostname NAME` (systemd-hostnamed asks polkit) |
 | Install Boswas OS | Live session only: explains the installation and offers a confirmed restart, so that the installer can be chosen in the boot menu. Nothing starts an installer | `systemctl reboot` |
@@ -125,12 +134,12 @@ the user's layer of the compositor's settings; both are described under
 | Page | What it holds | Backend |
 |------|---------------|---------|
 | Bluetooth | The switch, **Add device**, paired devices (battery, Connect and Disconnect, Remove), found devices (Pair) | The bridge |
-| Printers | With CUPS: the printers, their state and the default printer, "Print a test page" (CUPS's own test page, after a question), and a link to CUPS's own settings in the browser (`http://localhost:631/`). Printers on the network that support driverless printing appear by themselves. Without CUPS: "Install printing support" | `lpstat -e`, `lpstat -p -d`; `lp -d PRINTER /usr/share/cups/data/testprint`; sysops `apt-install cups` |
+| Printers | With CUPS: the printers, their state and the default printer, "Print a test page" (CUPS's own test page, after a question), and a link to CUPS's own settings in the browser (`http://localhost:631/`). Printers on the network that support driverless printing appear by themselves where `avahi-daemon` runs, which "Install printing support" does not bring. Without CUPS: "Install printing support", which installs `cups` without what it only recommends (`cups-daemon` recommends `cups-browsed`, which Boswas OS leaves out; ADR-0061) | `lpstat -e`, `lpstat -p -d`; `lp -d PRINTER /usr/share/cups/data/testprint`; sysops `apt-install --no-recommends cups` |
 | Cameras | The cameras of the device, one per device, with the bus; Open Camera | `/sys/class/video4linux`; `boswas-camera` |
-| Mouse | Pointer speed, enhance pointer precision, primary button, scroll direction, pointer size | `[pointer]` |
+| Mouse | Pointer speed, enhance pointer precision, primary button, scroll direction, pointer size (a change also goes to the user manager and D-Bus activation as `XCURSOR_SIZE`, for programs started afterwards; open programs keep their size, and X11 and self-drawing programs get it at the next sign-in; ADR-0061) | `[pointer]`; `systemctl --user set-environment XCURSOR_SIZE=N`, `dbus-update-activation-environment XCURSOR_SIZE=N` |
 | Touchpad | Tap to click, scroll direction, speed, ignore while typing, three- and four-finger gestures. Without a touchpad the page says that the settings apply when one is connected | `[touchpad]` |
 | Keyboard | Layouts (at most four, the limit of XKB), a second switching shortcut, repeat delay and rate, Num Lock | `[keyboard]` |
-| USB | The USB devices connected now, with their makers and drivers; never serial numbers | `/sys/bus/usb/devices` |
+| USB | The USB devices connected now, with their makers and drivers; never serial numbers. A drive on a USB device has **Open in Files** (its mounted folder, else This PC) and **Eject**, which unmounts its file systems, locks an open encrypted volume and powers the drive off, the steps Files takes; a drive with a file system mounted outside `/media` and `/run/media` (the boot medium of a live session, for example) is never ejected (ADR-0061) | `/sys/bus/usb/devices`, `/sys/block`, `/proc/self/mountinfo`; `udisksctl unmount\|lock\|power-off -b DEVICE` (UDisks2 asks polkit); `boswas-files` |
 | Hardware & Drivers | The PCI and USB devices with IDs, class and bound driver (never serial numbers); missing firmware with the Debian package that provides it | sysfs, `pci.ids`, `usb.ids`; sysops `firmware-report` (read-only, no password), `apt-install` |
 
 ### Network & internet
@@ -138,7 +147,7 @@ the user's layer of the compositor's settings; both are described under
 | Page | What it holds | Backend |
 |------|---------------|---------|
 | Wi-Fi | The switch, the connected network, the networks with Connect and Forget, Scan, a passphrase dialog | The bridge |
-| Ethernet | The wired connection, connected or not | The bridge |
+| Ethernet | The wired connection, connected or not. **Wired connection**, per adapter (ADR-0061): **IP assignment**, automatic (DHCP) or manual (an IPv4 address, prefix length, gateway and DNS servers); **DNS server assignment**, automatic or up to three IPv4 and three IPv6 servers; **Metered connection**; **Properties** (link speed, IPv4 and IPv6 addresses, gateways, DNS servers, hardware address) with Copy. Every value is checked before it is written | The bridge; `nmcli -t ... connection show`; `nmcli connection modify uuid UUID` with `ipv4.method`, `ipv4.addresses`, `ipv4.gateway`, `ipv4.dns`, `ipv4.ignore-auto-dns`, `ipv6.dns`, `ipv6.ignore-auto-dns`, `connection.metered`, then `nmcli connection up uuid UUID` when the connection is active (NetworkManager asks polkit) |
 | VPN | The VPN and WireGuard connections of NetworkManager: Connect, Disconnect, Remove (after a question), and **Add**: a WireGuard or OpenVPN file the person chooses, recognised by its content and imported. A VPN that asks for a password or another secret when it connects cannot be connected from here: the desktop has no prompt for NetworkManager's secrets yet, and the page says so and suggests saving the secret with `nmtui` | `nmcli -t ... connection show`; `nmcli connection up\|down\|delete uuid UUID`, `nmcli connection import type openvpn\|wireguard file PATH` (NetworkManager asks polkit) |
 | Airplane mode | The switch for every radio | The bridge |
 | Proxy | The proxy variables of this session, read-only | The environment |
@@ -150,9 +159,9 @@ the user's layer of the compositor's settings; both are described under
 |------|---------------|---------|
 | Background | The Boswas wallpapers and the pictures of the user's Pictures folder as thumbnails, any PNG or JPEG file through Browse, or the default background | `[appearance] wallpaper` in `appearance.toml` |
 | Colours | **Colour mode** (dark or light; a Boswas wallpaper changes to its artwork for the other mode, as a preset does). **Accent colour**: one of eight hues of the palette (iris, the default, azure, sky, mint, sun, coral, orchid, slate); the shell, the compositor's own surfaces and every Qt application take it. **Transparency effects**: off fills the taskbar, the flyouts and Task View's strip with their tint alone | `scheme` in `appearance.toml`; `accent` and `transparency` in the user's `compositor.toml` |
-| Themes | The Boswas presets (light or dark, wallpaper, the colours of KDE applications) and "Reset to Boswas Default" | `boswas-preset --json list`, `apply`, `reset` |
+| Themes | The Boswas presets (light or dark, wallpaper, the colours of KDE applications) and "Reset to Boswas Default". **Desktop icons** (ADR-0060): Show desktop icons; Desktop icon settings (Home, Trash, This device); icon size (large, medium, small); auto arrange; align to grid. The desktop's own View menu changes the same keys | `boswas-preset --json list`, `apply`, `reset`; `[desktop]` |
 | Start | Layout (more pins, default, more recommendations), recently added and most used applications under "Recommended", the folders next to the power button (Settings, Files, Documents, Downloads, Music, Pictures, Videos) | `[start]` |
-| Taskbar | **Taskbar items**: Task View. **Taskbar behaviours**: alignment (centre or left), automatically hide the taskbar, badges on taskbar buttons (the number of notifications), seconds in the clock | `[taskbar]` |
+| Taskbar | **Taskbar items**: Widgets (the weather at the left end, which opens the widgets board; ADR-0059) and Task View. **Taskbar behaviours**: alignment (centre or left), automatically hide the taskbar, badges on taskbar buttons (the number of notifications), seconds in the clock | `[taskbar]` |
 | Fonts | The installed font families with a search box and a preview at a chosen size; **Add**: a `.ttf`, `.otf` or `.ttc` file, checked by its header and at most 64 MB, installed for this account only; a family the user installed can be removed after a question. Fonts of the system come with packages and are not removed here | `fc-list` (fixed format); the file is copied to `~/.local/share/fonts` (`userfiles.py`), then `fc-cache -f` on that folder |
 
 ### Apps
@@ -199,7 +208,7 @@ the user's layer of the compositor's settings; both are described under
 | Boswas Security Center | AppArmor, the Windows-app sandbox, firewall, Secure Boot, disk encryption, screen lock, automatic security updates, device agent, device policy; each Secure, Warning, Attention, Info, Not available or Error, as text and icon | `boswas --json status` (its screen-lock check reads the compositor's lock policy), the device agent |
 | Lock screen | "Lock automatically after", up to the limit of the device's policy, which the page shows as set by the organisation. "Show weather on the lock screen": the weather of the home place chosen in Weather, with the next hours; the page says that the lock screen itself never goes online (ADR-0051). Search finds the switch under "weather", "forecast" and "temperature" | `[lock] idle_seconds`, `[lock] show_weather` |
 | App permissions | What sandboxed (Flatpak) applications were allowed or denied through the desktop portals (camera, microphone, location, screenshots, running in the background, ...), per application; **Revoke** forgets one decision after a question, so the application asks again. Native applications are not sandboxed and have the permissions of the account; the page says so | `flatpak permission-list`; `flatpak permission-remove TABLE OBJECT APP` (the user's own store) |
-| Activity history | Clear the list of recently used files | `~/.local/share/recently-used.xbel` |
+| Activity history | **Clear activity history**, and **What Clear removes**, each list with its count: the recently used files that applications share, Text Editor's recent files, Document Viewer's recent documents with the page and zoom each was left at, Media Player's recently played items and where each video was stopped, Archive Manager's recent archives. The files themselves are not touched; Files and Photos keep no list; an application that is open writes its list again when it next saves it (ADR-0061) | `~/.local/share/recently-used.xbel`; in `~/.local/state`: `com.boswas.TextEditor/recent.json`, `com.boswas.DocumentViewer/documents.json`, `com.boswas.MediaPlayer/recent.json` and `resume.json`, `com.boswas.ArchiveManager/state.json` (each rewritten with its other settings kept) |
 | Diagnostics & feedback | That Boswas OS collects no diagnostic data; what the device agent may send to an organisation that manages the device; the privacy statement | The device agent's configuration and status |
 
 ### Boswas Update
@@ -223,8 +232,9 @@ it; if it does not within six seconds the switch goes back and a message
 says so. A service that is not running shows as not available.
 
 **The compositor's configuration.** Display, the input devices, the look,
-the taskbar, Start, multitasking, notifications, the accessibility
-settings, the lock and screen times and the weather on the lock screen
+the taskbar (with the widgets button), Start, multitasking,
+notifications, the accessibility settings, the lock and screen times, the
+weather on the lock screen, the desktop icons and the clipboard history
 are the compositor's settings.
 Control Center writes the user's layer, `~/.config/boswas/compositor.toml`,
 and asks the compositor to load it again (`reload-config`); it reads the
@@ -276,6 +286,7 @@ Never a control that does nothing. Not offered:
 
 - **Connecting a VPN that asks for a secret each time** (see VPN above),
   and importing other files than WireGuard and OpenVPN configurations.
+- **Manual IPv6 addresses and DNS over HTTPS** on the Ethernet page.
 - **Editing the proxy** (shown read-only), a test sound, an automatic
   suspend time (the compositor has no key for it), identifying monitors,
   a pointer theme or pointer colour (Boswas-Cursors is drawn in one
@@ -302,7 +313,8 @@ Never a control that does nothing. Not offered:
   other child process is the service bridge, started by its fixed path
   without arguments (`ui/bridgeclient.py`).
 * Administrator work goes only to `/usr/libexec/boswas/sysops` (package
-  `boswas-sysops`) as `pkexec /usr/libexec/boswas/sysops <operation> ...`.
+  `boswas-sysops`) as `pkexec /usr/libexec/boswas/sysops <operation> ...`
+  (printing support as `apt-install --no-recommends cups`).
   `commands.sysops_argv()` accepts only the operations Control Center uses and
   validates each operation's arguments (package names, one absolute path,
   remote names); `pkexec` cannot be started any other way, and is never
@@ -319,8 +331,14 @@ Never a control that does nothing. Not offered:
   - `nmcli` for queries (`-t`), and for changes only what one builder
     makes, by connection UUID or adapter name: `connection up`, `down` and
     `delete uuid UUID`, `connection import type openvpn|wireguard file
-    PATH`, `device connect` and `disconnect IFNAME`. No secret is ever on
-    its command line; NetworkManager asks polkit;
+    PATH`, `device connect` and `disconnect IFNAME`, and `connection modify
+    uuid UUID` with properties from a fixed list (`NMCLI_PROPERTIES`:
+    `ipv4.method`, `ipv4.addresses`, `ipv4.gateway`, `ipv4.dns`,
+    `ipv4.ignore-auto-dns`, `ipv6.dns`, `ipv6.ignore-auto-dns`,
+    `connection.metered`), each value checked. No secret is ever on its
+    command line; NetworkManager asks polkit;
+  - `udisksctl` only as `unmount`, `lock` or `power-off -b DEVICE` on a
+    block device of `/dev` (Eject; UDisks2 asks polkit);
   - `ip` only for three read-only JSON queries; `gio` only as `gio launch
     <desktop entry>`; `locale` only as `locale -a`;
   - `timedatectl` and `localectl` only in their fixed forms;
@@ -330,7 +348,9 @@ Never a control that does nothing. Not offered:
     never with a password, and for logind's two read-only questions
     `CanRebootToFirmwareSetup` and `CanRebootToBootLoaderMenu`;
   - `systemctl` only as `reboot`, `reboot --firmware-setup`, `reboot
-    --boot-loader-menu=0` and `is-active bluetooth.service`;
+    --boot-loader-menu=0`, `is-active bluetooth.service` and `--user
+    set-environment XCURSOR_SIZE=N`; `dbus-update-activation-environment`
+    only as `XCURSOR_SIZE=N` (N from 16 to 96);
   - `fc-list` only with its fixed format; `fc-cache -f` only on the user's
     font folder; `lpstat` only as `-e` and `-p -d`; `lp` only for CUPS's
     own test page on a validated printer name;
@@ -345,7 +365,10 @@ Never a control that does nothing. Not offered:
   `boswas/compositor.toml`, its backup, `boswas/appearance.toml`,
   `mimeapps.list` and `autostart/<id>.desktop` below the configuration
   directory; `~/.face`, the account picture; the list of recently used
-  files, which it can empty; items of the cache folder the person picked;
+  files, which it can empty, and the recent lists of the Boswas
+  applications below `~/.local/state` (`userfiles.APP_HISTORIES`), which it
+  empties keeping their other settings; items of the cache folder the
+  person picked;
   the Trash (emptied, and downloads the person picked moved into it,
   following the freedesktop Trash specification); and fonts in
   `~/.local/share/fonts`. A settings file is replaced atomically (a
@@ -392,7 +415,7 @@ Assumptions where the contract leaves details open:
 
 ## Tests
 
-`packages/boswas-control-center/tests` (688 tests, 5 skipped):
+`packages/boswas-control-center/tests` (730 tests, 5 skipped):
 
 - the categories and pages, deep links, the moved sections and search,
   and the readers of the pages added with the categories: device name,
@@ -421,7 +444,13 @@ Assumptions where the contract leaves details open:
   user's file and Settings' copy of the shipped defaults
   (`test_compositorconfig.py`, `test_shipped_defaults.py`, `test_xkb.py`);
   the file writer against symbolic links and read-only directories
-  (`test_userfiles.py`); and that every page the shell links to exists.
+  (`test_userfiles.py`); and that every page the shell links to exists;
+- the round of ADR-0057 to ADR-0061: rows under the pointer grey and never
+  black, with real hover events, in both schemes with glass on and off
+  (`test_glass_ui.py`); System > Clipboard; the Widgets switch and Desktop
+  icons; Brightness on Display; the Ethernet section and its `nmcli`
+  commands; Eject's `udisksctl` steps; printing without recommendations;
+  the pointer size passed on; clearing the applications' recent lists.
 
 **Not verified:** no page has run against a real system service: the
 build environment has no NetworkManager, BlueZ, sound server,
@@ -432,8 +461,12 @@ were written from their documentation and tested against fakes. Some package nam
 against the Debian archive (`gstreamer1.0-plugins-ugly`,
 `gstreamer1.0-libav`, `printer-driver-cups-pdf`, `fonts-noto-cjk`,
 `fonts-crosextra-carlito`, `fonts-crosextra-caladea`, `build-essential`,
-the `firefox-esr-l10n-*` packages, `cups`), and installing `cups` may be
-refused if APT would bring `cups-browsed` with it, which the image pins
-out and the system helper's policy excludes. Three tests of the display
+the `firefox-esr-l10n-*` packages, `cups`). `cups` is installed without
+what it only recommends, so that `cups-browsed`, which the image pins out
+and the system helper's policy excludes, is not asked for; that it is
+only a recommendation was checked in Ubuntu 24.04's metadata, not in
+Debian 13's (ADR-0061). The terse output of `nmcli` for the Ethernet
+section, `udisksctl` with a real drive, and the pointer size in a real
+systemd user manager have not been tried. Three tests of the display
 and input sections run against the real compositor on its headless back
 end when `BOSWAS_TEST_COMPOSITOR=1` is set.

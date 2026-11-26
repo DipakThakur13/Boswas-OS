@@ -55,7 +55,7 @@ They have their tests and have not run on the desktop yet.
 | Boot menu (USB/DVD) | Boswas OS mark, Inter wordmark, "Boswas OS v3 Alpha - Live session" (default), "Install Boswas OS" |
 | Boot, shutdown, restart, disk unlock | The Boswas boot screen, drawn from vector outlines at the display's size (ADR-0050): the mark assembles itself on a dark background lit softly in the brand's blues, with no name written, and a progress ring turns close under it. For encrypted disks the mark glides up and the prompt slides in: "Unlock your disk", the disk's name and a text box with one dot per character, a Caps Lock hint and a line for a rejected passphrase. Shutdown and restart show the mark, the ring and one line of text |
 | Login screen | The Boswas login screen: first the clock over the background, then, after a key or a click, the people who can sign in and a password field. Another user name can be typed. A power button offers sleep, restart and shut down (the lock screen has none). If graphics cannot start, a text login takes its place |
-| Desktop | The background (or the preset's wallpaper), the taskbar with the Boswas mark as the Start button, Boswas Prism icons |
+| Desktop | The background (or the preset's wallpaper) with the desktop icons (the Trash and the files of the desktop folder), the taskbar with the Boswas mark as the Start button and the widgets button at its left end, Boswas Prism icons |
 | Lock screen | First the clock, with the weather of the home place chosen in Weather in the lower left corner (ADR-0051), then, after a key or a click, the user's name and a password field; applications are neither shown nor given input, and no notifications appear |
 | Control Center > System > About, `hostnamectl`, console | "Boswas OS v3 Alpha" (`/etc/os-release`: `NAME="Boswas OS"`, `ID=boswas`, `ID_LIKE=debian`); the desktop is shown as "Boswas Desktop" with its version |
 | Terminal | "Welcome to Boswas OS" summary and the Boswas prompt |
@@ -103,18 +103,61 @@ compositor starts it over a trusted connection and restarts it if it
 exits; open windows are not affected. `boswas-shell(1)` is the reference.
 
 - **Background:** drawn in code from the palette, exact at every
-  resolution. A preset replaces it with the preset's wallpaper. A
-  right-click on it opens a short menu.
+  resolution. A preset replaces it with the preset's wallpaper.
+- **Desktop icons** (ADR-0060): on the primary monitor's background, the
+  files and folders of your desktop folder (`~/Desktop`, or the one
+  `~/.config/user-dirs.dirs` names) and the Trash; Home and This device
+  can be added. They sit on a grid from the top left, column by column.
+  - A click selects, Ctrl and Shift add, a drag over the background
+    selects with a band; a double-click or Enter opens (folders, Home,
+    This device and the Trash in Files, files with their default
+    application); a drag moves icons, onto a folder into it and onto the
+    Trash to the Trash; files dragged in from other programs are copied
+    into the folder.
+  - Keys: F2 renames in a field over the label, Delete moves to the Trash,
+    Ctrl+C, Ctrl+X and Ctrl+V copy, cut and paste (Files understands the
+    same clipboard), Ctrl+A selects all, Ctrl+Shift+N makes a folder, F5
+    reads the folder again, the arrow keys move and typing goes to an icon
+    by its name; the Menu key or Shift+F10 opens the menu.
+  - A right-click on the background: **View** (large, medium or small
+    icons, auto arrange, align to grid, show desktop icons), **Sort by**
+    (name, size, item type, date modified), Refresh, Paste, **New** (a
+    folder or a text document), Open in Terminal, Display settings,
+    Personalise and All settings. On icons: Open, Open with, Cut, Copy,
+    Rename, Delete and Properties (in Files).
+  - A launcher (`.desktop` file) on the desktop starts only when it is
+    your own file and allowed to run (Files: Properties > "Allow running
+    this file as a program"); otherwise it opens as text and a notice
+    says why. Pictures show a thumbnail the shell makes and keeps in
+    memory.
+  - Where you put icons is kept (`~/.local/state/boswas/desktop-layout.json`)
+    while auto arrange is off. Settings > Personalization > Themes >
+    Desktop icons holds the same choices and the system icons.
 - **Taskbar:** 48 px along the bottom edge of each screen.
   - In the centre, as one group: Start (the Boswas mark), Task View, and
     the pinned and running applications. A new user finds Files, Firefox
     ESR and the Software Center pinned, as Windows pins its file manager,
     browser and store (ADR-0053). A click on an application shows
     its window, starts it, or goes through its windows; the secondary
-    button opens its menu (new window, pin or unpin, the application's
-    own actions, close); the middle button starts another instance.
-    Resting the pointer on a running application shows its windows. A
-    mark under the icon shows running and active applications.
+    button opens its menu (the application's own actions, such as New
+    Window, then "New window of", pin or unpin, close); the middle button
+    starts the application again. Resting the pointer on a running
+    application shows its windows. A mark under the icon shows running and
+    active applications.
+  - **New window** (ADR-0061): the "New Window" entry of Files, Terminal,
+    Text Editor, Photos, Document Viewer, Calculator and Archive Manager
+    (`--new-window`) opens another window. "New window of", the middle
+    button and Super+Shift+1 to 9 still start the application's plain
+    command: a program that allows several copies (Firefox, Calculator,
+    Archive Manager) opens a window, Terminal a tab, and the other Boswas
+    applications bring their window forward. Clock, Calendar, Media
+    Player, Weather, Task Manager, Camera and Snipping Tool keep one
+    window.
+  - At the left end the **widgets button** (ADR-0059): the weather icon
+    and the temperature while Weather has a recent forecast of your home
+    place (with the condition on a wide taskbar), else a plain widgets
+    mark. It opens the widgets board. When the group sits at the left,
+    the button moves beside the tray.
   - At the right: tray icons, the keyboard layout when there is more than
     one, the network, volume and battery icons (one button, which opens
     quick settings), and the clock (which opens notifications and the
@@ -122,9 +165,10 @@ exits; open windows are not affected. `boswas-shell(1)` is the reference.
   - While a program may capture the screen, a red mark sits in front of
     the tray; a click on it stops the capture.
   - Settings > Personalization > Taskbar (ADR-0049): the group can sit at
-    the left edge instead (Start then opens at the left); the Task View
-    button can go; the clock can show seconds; a button can show how many
-    notifications its application has in the notification centre. An
+    the left edge instead (Start then opens at the left); the widgets
+    button and the Task View button can go; the clock can show seconds;
+    a button can show how many notifications its application has in the
+    notification centre. An
     automatically hidden taskbar reserves no room: it leaves a 2 px sliver
     at the bottom edge, comes back when the pointer reaches it or while a
     flyout, menu or preview is open, and goes 400 ms after. A right-click
@@ -177,19 +221,45 @@ exits; open windows are not affected. `boswas-shell(1)` is the reference.
   the choice of the sound output. A part whose system service is not
   running shows as not available.
 - **Notifications** (Super+N): up to three at a time above the taskbar,
-  and the notification centre with a calendar. While do not disturb is on
+  and the notification centre with a calendar (Delete clears the
+  notification that has the keyboard focus). While do not disturb is on
   only critical notifications pop up; nothing pops up while the session
   is locked. Notifications are kept in memory until they are dismissed
-  or the shell restarts; they are not written to disk. Settings > System
-  > Notifications (the centre's settings button opens it) holds the do
+  or the shell restarts; they are not written to disk. Settings >
+  System > Notifications (the centre's settings button opens it) holds the do
   not disturb a session starts with, a daily schedule for it, and the
   applications whose banners are off (their notifications still reach
   the centre); Accessibility > Visual effects sets how long a
   notification stays at least. The shell keeps the names of the
   applications that sent notifications in
   `~/.local/state/boswas/notification-senders.json` for that list.
-- **The volume and brightness keys** show a small display of the level,
-  on the lock screen as well.
+- **The volume and brightness keys** show a small display of the level.
+  While the session is locked they still change the level, without the
+  display; on the login screen they do nothing yet.
+- **Widgets** (Super+W, or the widgets button; ADR-0059): a board from the
+  left edge with cards for the weather (from Weather), the next events of
+  the coming week (from Calendar), the world clocks and the next alarm
+  (from Clock), the system (processor, memory, disk space, battery), what
+  is playing (play, pause, next) and the newest picture in Pictures. A
+  card opens its application; its menu makes it small or medium, moves
+  it or removes it, and "Add widgets" brings a card back. The board
+  shows only what your own applications keep: nothing is fetched from
+  the internet. Its arrangement is kept in `~/.config/boswas/shell.toml`.
+- **Clipboard history** (Super+V; ADR-0058): the last 25 things you copied
+  (text, pictures, files), newest first. Enter or a click pastes the item
+  into the window you were in (with Ctrl+Shift+V in a terminal); the
+  arrow keys choose, Delete removes, Ctrl+P pins, typing searches, Escape
+  closes; each card has Pin and Delete, and Clear all keeps the pinned
+  ones. The history is in memory and gone when you sign out; pinned items
+  stay (`~/.local/state/boswas/clipboard-pinned.json`). What a password
+  manager marks as secret is never kept, nor anything copied while the
+  session is locked. Settings > System > Clipboard turns the history off
+  and clears it; with the history off, Super+V offers to turn it on.
+- **Emoji and symbols** (Super+. or Super+;; ADR-0058): emoji by category
+  with a choice of skin tone, kaomoji and symbols, a search by name and
+  keyword, and the ones you used recently. Enter or a click types the
+  item into the window you were in; the clipboard keeps what it held.
+  Colour emoji come from Noto Color Emoji.
 - **Run** (Super+R) starts a program with its arguments. There is no
   shell behind it and nothing is expanded.
 - **Screen capture** (Print for the screen, Shift+Print or Super+Shift+S
@@ -244,12 +314,13 @@ exits; open windows are not affected. `boswas-shell(1)` is the reference.
   shape, and a turning ring while a program is busy. It is the default of
   the compositor, of the login screen and of every program (ADR-0043).
 
-The pins and Start's view are kept in `~/.config/boswas/shell.toml`;
-pins you arranged yourself stay as they are when the defaults change.
-How often each application was started, when it was first seen (for
-"Recently added"), the applications that sent notifications and the last
-commands typed into Run are in `~/.local/state/boswas/`. None of it
-leaves the device.
+The pins, Start's view and the widgets board are kept in
+`~/.config/boswas/shell.toml`; pins you arranged yourself stay as they
+are when the defaults change. How often each application was started,
+when it was first seen (for "Recently added"), the applications that sent
+notifications, the last commands typed into Run, the pinned clipboard
+items, the recently used emoji and where you put desktop icons are in
+`~/.local/state/boswas/`. None of it leaves the device.
 
 ## Windows and shortcuts
 
@@ -267,12 +338,15 @@ applications get the same frame and behave like every other window.
 | Super (tap) | Open or close Start |
 | Super+A | Quick settings |
 | Super+N | Notifications and calendar |
+| Super+W | Widgets |
+| Super+V | Clipboard history |
+| Super+. or Super+; | Emoji and symbols |
 | Super+R | Run |
 | Super+E, Super+I, Ctrl+Alt+T, Ctrl+Shift+Esc | Files, Settings (Control Center), Terminal and Task Manager (the programs named in `[apps]`) |
 | Super+L | Lock the session |
-| Super+1 ... Super+9 | Start or switch to the taskbar application at that place; with Shift, another window of it |
+| Super+1 ... Super+9 | Start or switch to the taskbar application at that place; with Shift, start it again (a new window where the application can have several) |
 | Alt+Tab, Alt+Shift+Tab | Pick a window, most recently used first; live previews, Escape cancels |
-| Super+Tab | Task View: every window and the desktops |
+| Super+Tab, Super+Shift+Tab | Task View: every window and the desktops |
 | Alt+F4 | Close the window |
 | Alt+Space | The window menu: Restore, Move, Size, Minimize, Maximize, Close |
 | F11, Super+F11 | Full screen |
@@ -290,7 +364,7 @@ applications get the same frame and behave like every other window.
 | Super+Esc | End the magnifier |
 | Super+Ctrl+C | Colour filter on or off (when Settings > Accessibility > Colour filters allows the shortcut) |
 | Print; Shift+Print, Super+Shift+S | Capture the screen; capture a region |
-| Volume, brightness and media keys | Handled by the shell, also on the lock screen |
+| Volume, brightness and media keys | Handled by the shell; while locked they change the level without showing it |
 | Ctrl+Alt+F1 ... F12 | Switch virtual terminal |
 
 With the pointer:
@@ -368,7 +442,7 @@ path has not been tested yet.
   video player or presentation that asks the compositor to stay awake
   holds the idle lock off while it runs. The lock screen shows no
   notifications and offers no way to restart or shut down; the volume and
-  brightness keys work.
+  brightness keys change the level, without showing it.
   - **Weather** (ADR-0051): under the clock, in the lower left corner, a
     card with the weather of the home place chosen in Weather (or the
     first place): the condition and the temperature, today's high and
@@ -429,15 +503,15 @@ page.
 | Category | What it holds |
 |----------|---------------|
 | Home | The device (name, with Rename; maker and model), the account, the network, Boswas Update, dark mode and night light, Bluetooth devices, the background and theme, storage |
-| System | Display (monitors arranged by dragging; resolution, refresh rate, the fastest by default; variable refresh rate; scale, with the one recommended for the monitor marked; orientation; on or off; night light), Sound, Notifications (do not disturb and its schedule, banners per application), Power & battery (the time until the screens turn off), Storage (cleanup recommendations: temporary files, the Trash, old downloads), Multitasking, Troubleshoot (internet, sound, Bluetooth, display), Recovery (restart into the firmware settings or the boot menu), About (rename the device); in a live session Install Boswas OS. A display change that could leave you without a picture asks "Keep these display settings?" and goes back after fifteen seconds |
-| Bluetooth & devices | Bluetooth (add, pair, connect, remove, battery), Printers (CUPS; a test page; installing printing support), Cameras, Mouse, Touchpad, Keyboard (layouts and repeat), USB, Hardware & Drivers |
-| Network & internet | Wi-Fi (networks, passphrase, forget), Ethernet, VPN (WireGuard and OpenVPN: import a file, connect, disconnect, remove), Airplane mode, Proxy (read-only), Advanced network settings (adapters on and off, data used, connection details) |
-| Personalization | Background, Colours (dark or light, the accent colour, transparency), Themes (the ten presets: light or dark, the wallpaper and the colours of KDE applications; `boswas-preset apply <id>` does the same), Start, Taskbar, Fonts (install and remove fonts for your account) |
+| System | Display (monitors arranged by dragging; resolution, refresh rate, the fastest by default; variable refresh rate; scale, with the one recommended for the monitor marked; orientation; on or off; brightness; night light), Sound, Notifications (do not disturb and its schedule, banners per application), Power & battery (brightness, the time until the screens turn off), Storage (cleanup recommendations: temporary files, the Trash, old downloads), Multitasking, Troubleshoot (internet, sound, Bluetooth, display), Recovery (restart into the firmware settings or the boot menu), Clipboard (the clipboard history on or off, Clear clipboard data), About (rename the device); in a live session Install Boswas OS. A display change that could leave you without a picture asks "Keep these display settings?" and goes back after fifteen seconds |
+| Bluetooth & devices | Bluetooth (add, pair, connect, remove, battery), Printers (CUPS; a test page; installing printing support), Cameras, Mouse, Touchpad, Keyboard (layouts and repeat), USB (the devices connected; a drive opens in Files or is ejected), Hardware & Drivers |
+| Network & internet | Wi-Fi (networks, passphrase, forget), Ethernet (automatic or manual IP address, DNS servers, metered connection, the adapter's properties), VPN (WireGuard and OpenVPN: import a file, connect, disconnect, remove), Airplane mode, Proxy (read-only), Advanced network settings (adapters on and off, data used, connection details) |
+| Personalization | Background, Colours (dark or light, the accent colour, transparency), Themes (the ten presets: light or dark, the wallpaper and the colours of KDE applications, `boswas-preset apply <id>` does the same; desktop icons), Start, Taskbar (widgets, Task View, alignment, hiding, badges, seconds), Fonts (install and remove fonts for your account) |
 | Apps | Installed apps (uninstall each the way it was installed), the Software Center, Default apps, Startup, Optional features (codecs, printing, fonts, Firefox in your languages, ...), Windows Compatibility, Android |
 | Accounts | Your account (picture, name, password), other users, adding and removing users (changes to other accounts ask for an administrator's password); Access work or school |
 | Time & language | Date and time, time zone; system language and regional format |
 | Accessibility | Text size, Visual effects (scroll bars, how long notifications stay, transparency, animations), Mouse pointer (size), Magnifier, Colour filters, Keyboard (sticky keys, filter keys) |
-| Privacy & security | Boswas Security Center, Lock screen (the timeout ends at the limit the organisation set, which the page shows; the weather on the lock screen), App permissions of sandboxed applications, Activity history, Diagnostics & feedback |
+| Privacy & security | Boswas Security Center, Lock screen (the timeout ends at the limit the organisation set, which the page shows; the weather on the lock screen), App permissions of sandboxed applications, Activity history (clears the shared list of recent files and the recent lists of Text Editor, Document Viewer, Media Player and Archive Manager), Diagnostics & feedback |
 | Boswas Update | Automatic updates, pending updates, checking and installing; Update history; Advanced options (read-only) |
 
 Wi-Fi, Bluetooth, airplane mode, night light, the power mode, do not
@@ -445,13 +519,14 @@ disturb, brightness and volume are also in quick settings (Super+A).
 Per-application volumes: `pavucontrol-qt`.
 
 Display, input, the look, the taskbar, Start, multitasking,
-notifications, accessibility and the timeouts are the compositor's
-settings: Control Center writes the user's file,
-`~/.config/boswas/compositor.toml` (the colour mode and the background go
-to `appearance.toml`, which presets replace), and asks the compositor to
-load it again. The file can also be edited by hand; `boswas-compositor(1)`
-lists every key, `boswas-compositor --send reload-config` applies it and
-`--send outputs` lists the monitors with their names and modes.
+notifications, accessibility, the desktop icons, the clipboard history
+and the timeouts are the compositor's settings: Control Center writes
+the user's file, `~/.config/boswas/compositor.toml` (the colour mode and
+the background go to `appearance.toml`, which presets replace), and asks
+the compositor to load it again. The file can also be edited by hand;
+`boswas-compositor(1)` lists every key, `boswas-compositor --send
+reload-config` applies it and `--send outputs` lists the monitors with
+their names and modes.
 System-wide values and the policy are in `/etc/boswas/compositor.toml`,
 which Settings never writes. Do not disturb, the magnifier and the colour
 filter work like night light: the setting is what a session starts with,
@@ -504,7 +579,8 @@ The native desktop does not have, or has not shown yet:
   password dialog for administrator actions has only run against a
   stand-in for polkit.
 - **Live blur.** The taskbar and the flyouts are drawn on a blurred copy
-  of the wallpaper; a window behind them does not show through.
+  of the wallpaper, and the applications' glass on a blurred copy of the
+  desktop background; a window behind them does not show through.
 - **Sharp X11 windows on scaled monitors.** X11 applications are drawn at
   scale 1 and enlarged, so they look soft on the many laptops that now
   start above 100 %. They can also observe each other, as on any X
@@ -530,7 +606,13 @@ The native desktop does not have, or has not shown yet:
 - **Per-preset accents in the shell.** The taskbar, Start and the lock
   screen follow a preset's light or dark variant, not its accent colour;
   the accent is chosen in Settings, from eight hues of the palette.
-- **A shortcut editor,** desktop icons, and a taskbar at another edge.
+- **A shortcut editor,** a taskbar at another edge, desktop icons on
+  other monitors and dragged into other programs, and online feeds on the
+  widgets board.
+- **"New window of" and the middle button opening a new window** of a
+  Boswas application (its own "New Window" entry does), the level display
+  of the volume and brightness keys while locked, and those keys on the
+  login screen.
 
 ## Boswas applications
 
@@ -561,6 +643,28 @@ light, and each has a manual page (`man boswas-files`, and so on).
 | **Boswas Compatibility Manager** | Windows applications (64-bit and 32-bit) in isolated sandboxes. In Files, a Windows program or installer package has "Install with Boswas Compatibility Manager" under "Open with"; opening the file still means "Run with Boswas" |
 | **About Boswas OS** | Control Center's System > About: version, architecture, kernel, CPU, memory, storage, desktop (Boswas Desktop and its version), security, Windows compatibility, device agent, live or installed; the device name, with Rename. Technical details include the package base |
 
+**The look: Boswas glass** (ADR-0057). Behind every window of these
+applications, Control Center and the Compatibility Manager the desktop
+background shows through, blurred and tinted, as Mica does on Windows;
+the navigation pane and the cards are glass on it, and menus, lists,
+tool tips and dialogs are frosted glass. The tint grows where a busy or
+bright picture would make text hard to read, so text keeps the contrast
+of the opaque look. The picture is your wallpaper (or the default
+background) as a window of that size centred on the screen would cover
+it: it does not move with the window, and windows behind it do not show
+through. Under the pointer, rows turn a lighter grey. In Control Center's
+lists of applications (Installed apps, the Software Center, Optional
+features, Startup, App permissions, Default apps) the icon under the
+pointer, or of the row with the keyboard focus, grows as in a dock, and
+its neighbours a little; with reduced motion it grows at once. Glass is
+off, and every surface opaque, with Transparency effects off (Settings >
+Personalization > Colours, or Accessibility > Visual effects) and with
+the high-contrast preset Boswas Carbon.
+
+**New window:** Files, Terminal, Text Editor, Photos, Document Viewer,
+Calculator and Archive Manager open another window from the "New Window"
+entry of their menu in Start and on the taskbar (`--new-window`).
+
 Alarms, timers and calendar reminders are shown as notifications even
 while Clock and Calendar are closed: a small service, `boswas-reminders`,
 starts with the session for that.
@@ -588,7 +692,19 @@ Boswas Terminal starts bash with `/usr/share/boswas/terminal/bashrc`.
 - **Applications:** keyboard navigation and screen-reader support inside
   applications come from Qt and GTK, as before.
   - Boswas applications set accessible names.
-  - They support full keyboard use (sidebar arrows, Tab order, Ctrl+F, F5).
+  - They support full keyboard use (sidebar arrows, Tab order) and the
+    shortcuts of their Windows counterparts; each manual page lists them.
+    Ctrl+F searches in Files, Text Editor, Document Viewer, Photos, Media
+    Player, Archive Manager, Calendar, Task Manager, Weather and Control
+    Center (Terminal: Ctrl+Shift+F). F5 refreshes in Files, Photos'
+    gallery, Media Player, Archive Manager, Task Manager, Weather and
+    Control Center; in Text Editor it inserts the time and date, in
+    Document Viewer it starts a presentation, in Photos' viewer a
+    slideshow, in Camera it tries the camera again, Calculator uses it as
+    the Windows calculator does (gradians in the scientific mode,
+    hexadecimal in the programmer mode), and Terminal passes it to the
+    program inside. Clock and Snipping Tool have neither key, and
+    Calculator has no search.
   - They show status as icon plus text.
 - **The shell:** every flyout and dialog, the lock screen and the login
   screen can be used from the keyboard, and so can the window picker,
@@ -596,7 +712,8 @@ Boswas Terminal starts bash with `/usr/share/boswas/terminal/bashrc`.
   an accessibility tree yet, so a screen reader cannot read them; no
   screen reader is in the image.
 - **High contrast:** Boswas Carbon is the high-contrast preset for
-  applications (WCAG AAA body text). The shell uses the Prism dark or light
+  applications (WCAG AAA body text); it also turns the applications'
+  glass off. The shell uses the Prism dark or light
   theme, whose text meets WCAG AA. There are no contrast themes for the
   shell and the window frames: they would need a set of tokens of their
   own (ADR-0049).
@@ -641,11 +758,18 @@ of the compositor's configuration:
   (a key counts only after it was held for a set time) and bounce keys (a
   key pressed again soon after its release is ignored) (`[keyboard]`).
 - **Pointer size:** 16 to 96 (`[pointer] cursor_size`), also under
-  Accessibility > Mouse pointer.
+  Accessibility > Mouse pointer. The compositor's pointer changes at once.
+  X11 programs and programs that draw their own pointer read the size
+  when they start: the session sets it from the setting at sign-in, and
+  a change reaches what the user manager and D-Bus start afterwards;
+  programs already open keep their size, and programs started from Start
+  or the taskbar get the new size after the next sign-in.
 - **Motion:** `[appearance] reduced_motion` (Accessibility > Visual
   effects, "Animation effects") turns the animations of windows, desktops
-  and the shell off; the Boswas Qt applications follow the same setting.
-  Transparency effects can be turned off as well. The boot screen's
+  and the shell off; the Boswas Qt applications follow the same setting
+  (an icon that grows under the pointer then grows at once).
+  Transparency effects can be turned off as well; that also turns the
+  applications' glass off. The boot screen's
   animation can be turned off with `boswas.splash=static` on the kernel
   command line.
 - **Colour temperature:** night light, in quick settings or
@@ -665,10 +789,21 @@ choices that matter:
 - **The compositor draws only when something changed** and only the
   damaged regions; an idle desktop draws nothing.
 - **The shell is one process** for the background, the taskbar and every
-  flyout. It redraws a surface only when what it shows changes. The
-  default background is rendered once per screen size, and the blurred
-  copy of the wallpaper behind the taskbar and the flyouts once per
-  wallpaper and blur radius.
+  flyout. It draws again only the controls that changed (a hover redraws
+  the two controls the pointer left and entered, not Start), keeps its
+  buffers and hands the compositor only the changed rectangles
+  (ADR-0056). The default background is rendered once per screen size,
+  and the blurred copy of the wallpaper behind the taskbar and the
+  flyouts once per wallpaper and blur radius.
+- **The compositor fades and slides Start and the other flyouts** with
+  the drawing the shell sent once; the shell draws no frame of the
+  transition. Icons are prepared on a worker thread and Start, quick
+  settings and the notification centre are drawn once ahead of time, so
+  even the first opening of Start is quick (17 ms at 2560x1440 and 200 %
+  on the build machine, where it was 375 ms). The price is memory: the
+  shell keeps about 55 MB more at that size.
+- **The applications' glass** is made once per picture and size, never
+  per frame; a window is opaque until its picture is ready.
 - **The session's services are threads of the shell,** one per service,
   not processes of their own (ADR-0035). Each reads the system at most
   about five times a second, however many change signals arrive.

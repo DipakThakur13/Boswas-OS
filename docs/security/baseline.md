@@ -79,10 +79,18 @@ Android window) is an ordinary client. It cannot:
   switching always stay with the compositor.
 - **inject input**: there is no virtual pointer protocol, and the
   virtual-keyboard and input-method protocols are offered only to the
-  input method the administrator configured (none is shipped).
+  input method the administrator configured (none is shipped). The
+  compositor itself sends a key stroke in one case: when the shell asks
+  with the trusted `paste` command after the user chose an item of the
+  clipboard history or the emoji panel, the window that has the keyboard
+  gets Ctrl+V (Ctrl+Shift+V in a terminal). The command names no keys,
+  is refused while the session is locked and on the public socket, and
+  is dropped if the focus moved (ADR-0058).
 - **read or replace the clipboard in the background**: it gets the
   selection only while it has keyboard focus. Clipboard control is offered
-  to the shell only.
+  to the shell only, which keeps the clipboard history with it: in memory,
+  never what a password manager marks as secret, never while the session
+  is locked (ADR-0058, `docs/security/privacy.md`).
 - **draw panels or overlays**, or become the lock screen: layer shell and
   session lock are offered to the shell only.
 - **take focus without the user**: an activation request is honoured only

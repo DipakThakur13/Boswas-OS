@@ -45,7 +45,9 @@ TLS, exactly as listed in "Device agent messages" below.
 The desktop shell (`boswas-shell`) writes these files in the user's home
 directory. Nothing reads them but the shell and, for the list of
 notification senders, Control Center; the device agent does not, and its
-messages have closed field lists (below).
+messages have closed field lists (below). The three files of ADR-0058
+and ADR-0060 are written atomically with mode 0600 and never through a
+symbolic link.
 
 | File | Content | Why |
 |------|---------|-----|
@@ -53,13 +55,46 @@ messages have closed field lists (below).
 | `~/.local/state/boswas/run-history.json` | The last 50 commands typed into the Run dialog | The arrow keys recall them |
 | `~/.local/state/boswas/notification-senders.json` | The applications that sent notifications: the name each gives itself, its icon and desktop entry, and when it last sent one; at most 100, never what a notification said | Settings > System > Notifications lists them, to turn their banners off (ADR-0049) |
 | `~/.local/state/boswas/apps-seen.json` | When each installed application was first seen | Start's "Recently added" (the last two weeks) |
-| `~/.config/boswas/shell.toml` | The applications pinned to the taskbar and to Start, and how Start lists all applications (by category, as a grid or as a list) | The user's arrangement |
+| `~/.config/boswas/shell.toml` | The applications pinned to the taskbar and to Start, how Start lists all applications (by category, as a grid or as a list), and which cards the widgets board shows, in what order and size | The user's arrangement |
+| `~/.local/state/boswas/clipboard-pinned.json` | The clipboard items the user pinned, and nothing else: text, lists of files, pictures of at most 256 KB; at most 25 items and 4 MB, in a directory of mode 0700 | Pinned items stay after signing out (ADR-0058) |
+| `~/.local/state/boswas/emoji.json` | The emoji, kaomoji and symbols used last (at most 40) and the chosen skin tone | The emoji panel's "recently used" (ADR-0058) |
+| `~/.local/state/boswas/desktop-layout.json` | Where desktop icons were put by hand (grid cells, by file name) and the order chosen with Sort by | The desktop keeps the user's arrangement (ADR-0060) |
 
 Each is an ordinary file of the user and can be deleted; the shell reads
 it when it starts.
 
 - **Notifications** are held in the shell's memory until they are
   dismissed. They are not written to disk and not sent anywhere.
+- **The clipboard history** (Super+V, ADR-0058) keeps the last 25 things
+  the user copied (text, pictures up to 8 MB, lists of files) in the
+  shell's memory only, so it is gone when the user signs out; only items
+  the user pins are written, to `clipboard-pinned.json` above. It never
+  keeps what a program marks as secret or transient: KDE's password
+  manager hint (`x-kde-passwordManagerHint`, which password managers such
+  as KeePassXC set; the shell reads that hint alone first, so the secret
+  itself is not even requested), the concealed and transient markers of
+  other systems, and Windows' "not for history" flag through Wine. Nothing
+  copied while the session is locked is kept, and the lock screen and the
+  login screen do not watch the clipboard. It is cleared by Clear all in
+  the flyout (pinned items stay), by Settings > System > Clipboard >
+  "Clear clipboard data" (everything copied before then except pinned
+  items, and the clipboard itself if it still holds such an item), by
+  unpinning or deleting an item, and by signing out; "Clipboard history"
+  off keeps nothing but the pinned items. While an emoji is typed in, what
+  was on the clipboard (a secret included) is held in the shell's memory
+  until it is put back, at most about two seconds after the paste. Only
+  the shell can read other programs' clipboard (clipboard control is
+  offered to it alone), and nothing is sent anywhere.
+- **The widgets board** (Super+W, ADR-0059) reads files the user's own
+  applications keep (Weather's summary for the lock screen, Calendar's
+  events, Clock's world clocks and alarms, the newest picture in
+  Pictures), `/proc` for the processor and memory while it is open, and
+  the shell's own media and battery state. It uses no network at all and
+  shows no news or other feed: the only weather it shows is what Weather
+  fetched for the place the user added (see Weather below).
+- **Desktop icons** (ADR-0060) show the desktop folder. Thumbnails of
+  pictures are made by the shell and kept in memory only, not written to
+  `~/.cache/thumbnails` and not sent anywhere.
 - **Screenshots.** The screen is captured only when the user asks (the
   Print key) or when the user allows a program that asked, in a dialog of
   the shell, with a mark on the taskbar for as long as that program may
@@ -111,7 +146,17 @@ it when it starts.
 - **Settings** (Control Center) writes and deletes only the files listed
   in `docs/experience/control-center.md`, all in the user's home: its
   settings files, and, when the person asks, items of the cache folder,
-  the Trash, old downloads (moved to the Trash) and fonts. Diagnostics &
+  the Trash, old downloads (moved to the Trash) and fonts. Privacy &
+  security > Activity history > Clear empties the list of recently used
+  files that applications share (`~/.local/share/recently-used.xbel`) and
+  the recent lists of the Boswas applications that keep one: Text
+  Editor's recent files, Document Viewer's recent documents with the page
+  and zoom each was left at, Media Player's recently played items and
+  where each video was stopped, Archive Manager's recent archives
+  (ADR-0061). The files themselves, the applications' other settings and
+  playlists stay; Files and Photos keep no such list; an application that
+  is open writes its list again when it next saves it, so it should be
+  closed first. Diagnostics &
   feedback says that Boswas OS collects no diagnostic data. The internet
   troubleshooter (System > Troubleshoot) looks up `deb.debian.org` and
   makes one HTTPS request to it, only when the person runs it and after

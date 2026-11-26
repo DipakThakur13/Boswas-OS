@@ -323,6 +323,8 @@ impl Boswas {
             "transparency": c.appearance.transparency,
             "high_contrast": self.glass.high_contrast,
             "text_scale": c.accessibility.text_scale,
+            // For the programs the shell starts (XCURSOR_SIZE).
+            "cursor_size": c.pointer.cursor_size,
             "taskbar": {
                 "alignment": c.taskbar.alignment,
                 "auto_hide": c.taskbar.auto_hide,
@@ -375,7 +377,15 @@ impl Boswas {
 
     pub fn night_light_json(&self) -> Value {
         let (enabled, temperature) = self.night_light;
-        json!({ "enabled": enabled, "temperature": temperature, "active": self.night_light_active() })
+        json!({
+            "enabled": enabled,
+            "temperature": temperature,
+            "active": self.night_light_active(),
+            // Turned on or off now, against the schedule.
+            "override": self.winkeys.night_override.is_some(),
+            // Some monitor can be tinted (it has a gamma ramp).
+            "available": self.backend.night_light_available(),
+        })
     }
 
     /// The outputs of the desktop. Outputs that are connected but turned
@@ -545,12 +555,21 @@ impl Boswas {
                 self.set_show_desktop(request.get("active").and_then(Value::as_bool));
                 Ok(json!({ "active": self.show_desktop.is_some() }))
             }
+            // "active": on or off now (with a schedule, until its next
+            // change); "enabled": the session's switch.
+            "night-light" if request.get("active").and_then(Value::as_bool).is_some() => {
+                self.set_night_light_now(request["active"].as_bool().unwrap_or(false));
+                Ok(self.night_light_json())
+            }
             "night-light" => {
                 let enabled = request.get("enabled").and_then(Value::as_bool).unwrap_or(!self.night_light.0);
                 let temperature = request.get("temperature").and_then(Value::as_u64).map(|t| t as u32);
                 self.set_night_light(enabled, temperature);
                 Ok(self.night_light_json())
             }
+            // How the monitors are used (the projection flyout, Super+P).
+            "project" => self.project(request.get("mode").and_then(Value::as_str).unwrap_or_default()),
+            "projection" => Ok(self.projection_json()),
             "next-layout" => {
                 self.next_keyboard_layout();
                 Ok(self.layout_json())

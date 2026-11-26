@@ -58,10 +58,24 @@ running applications in the centre (or at the left edge); tray icons, the
 keyboard layout, the network, volume and battery icons, and the clock at the
 right. A click on an application shows its window, starts it, or goes
 through its windows; the secondary button opens its menu (new window, pin or
-unpin, the application's own actions, close); the middle button starts
-another instance. Resting the pointer on a running application shows its
-windows. A button can show how many notifications its application has in
-the notification centre. The taskbar can hide itself: it then leaves the
+unpin, the application's own actions, close); the middle button opens
+another window. A new window is the desktop entry's "new window" action
+(\fBNewWindow\fR, \fBnew\-window\fR), or else its command (an application
+with one window brings it forward). Resting the pointer on a running
+application shows its windows. A button can show how many notifications its
+application has in the notification centre. The secondary button on
+Start opens the quick-link menu (Installed apps, Power options, System,
+Network connections, Disks where GNOME Disks is installed, Terminal, Task
+Manager, Settings, Files, Search, Run, "Shut down or sign out", Desktop;
+also Super+X); on the clock, Adjust date and time and Notification
+settings; on the network, volume and battery button, Network and internet
+settings, Sound settings, Open volume mixer and Power settings; on Task
+View and the taskbar's background, Task Manager and Taskbar settings; on
+the keyboard layout, Language and region and Keyboard settings. Super+T
+puts the keyboard on the applications' buttons and Super+B on the
+notification area: the arrow keys move, Enter presses, Escape leaves. The
+programs the shell starts get the pointer size of Settings now
+(\fBXCURSOR_SIZE\fR). The taskbar can hide itself: it then leaves the
 whole screen to the windows and comes back when the pointer touches the
 bottom edge, and while Start, a flyout, a menu or a preview is open;
 .IP \(bu 2
@@ -71,15 +85,37 @@ rows; "Show all" shows every pin), recommendations (applications installed
 in the last two weeks and the applications used most) and all applications
 by category, in a grid or in a list under letter headings (a letter opens
 an index of letters); the user and power menus, and the folders chosen
-in Settings next to the power button. Start grows with the screen: eight
+in Settings next to the power button (Files opens a new window). An
+application's menu, and a search result's, has Open, pinning to Start and
+the taskbar, Open file location (Files, at its desktop entry), Uninstall
+(Settings > Apps > Installed apps) and the application's actions. The user
+button shows the account picture chosen in Settings (the newer of
+AccountsService's copy and \fI~/.face\fR; see FILES). Start grows with the screen: eight
 columns of pins where the screen is at least 1600x900 logical pixels, else
 six, and up to 85 % of the screen's height. Search is local and ranks
 applications by how often they were started. Signing out, restarting and
 shutting down ask first when windows are open;
 .IP \(bu 2
 quick settings: Wi-Fi with the list of networks, Bluetooth with the list of
-devices, airplane mode, night light, the power mode, do not disturb, media
-controls, brightness, and volume with the choice of the sound output;
+devices, airplane mode, night light (lit while the screens are tinted; a
+click turns it on or off now, with a schedule until its next change; not
+available where no monitor can be tinted), the power mode, do not disturb,
+media controls, brightness, and volume with the choice of the sound output;
+the battery's percentage opens Settings > Power & battery;
+.IP \(bu 2
+the projection flyout (Super+P): PC screen only, Duplicate, Extend, Second
+screen only; with one monitor only the first and the third can be chosen;
+.IP \(bu 2
+the security options (Ctrl+Alt+Del), over the whole screen: Lock, Sign out,
+Change a password (Settings > Accounts), Task Manager, Cancel, and the power
+button; Escape cancels;
+.IP \(bu 2
+dark mode and the accent colour for GTK applications and Firefox: at start
+and whenever they change, \fBcolor\-scheme\fR (prefer-dark or default) and,
+where the schemas have it, \fBaccent\-color\fR (the nearest of GNOME's
+accents) of \fBorg.gnome.desktop.interface\fR are set with
+.BR gsettings (1),
+only when they differ;
 .IP \(bu 2
 notifications: up to three at a time above the taskbar, and the
 notification centre with a calendar. While do not disturb is on only
@@ -127,7 +163,9 @@ The lock screen. It shows the clock and, after a key or a click, asks for
 the password of the user who owns the session, checked through PAM (service
 \fBboswas\-lock\fR). The session is unlocked only after PAM accepts the
 password. It shows no notifications and offers no way to restart or shut
-down. Under the clock it shows the weather of the Weather application's
+down. The volume and brightness keys change the level there and show it on
+the lock screen itself; so do they on the login screen. Both show the
+account picture. Under the clock it shows the weather of the Weather application's
 home place, read from a summary file (see FILES), unless
 \fB[lock] show_weather\fR in
 .BR boswas-compositor (1)'s
@@ -152,7 +190,11 @@ through the controls, the arrow keys move to the nearest control in that
 direction, Enter or Space activates it, Escape closes. In Start, typing
 always searches, the arrow keys go through the whole page (it scrolls along),
 Page Up, Page Down, Home and End scroll it; in menus the arrow keys move and
-open submenus. The
+open submenus. On the taskbar (Super+T, Super+B) the arrow keys and Tab
+move, Enter or Space press, Escape or any other key leaves; a click
+elsewhere leaves too. On the security options screen the arrow keys and
+Tab go through the choices and Escape cancels; in the projection flyout the
+arrow keys or Super+P again move and Enter takes the choice. The
 shortcuts that open things (Super, Super+A, Super+N, Super+W, Super+R,
 Super+V, Super+., Print and so on) belong to the compositor and are listed in
 .BR boswas-compositor (1).
@@ -244,6 +286,15 @@ the user of a sensible size (8 MB and 4 MB at most); time zones come from
 .I ~/.local/share/Trash
 Where Delete on the desktop moves items (the freedesktop Trash
 specification); an item on another drive is not moved.
+.TP
+.I /var/lib/AccountsService/icons/LOGIN
+.TQ
+.I ~/.face
+The account picture Settings saves (it gives it to AccountsService, which
+keeps the copy the login screen reads). The newer of the two is shown; a
+file is read only when it is a regular file of at most 8 MB, decoded within
+8192 pixels on a side, cropped to its centred square and drawn round. It is
+looked at again (its time and size only) when Start opens.
 .TP
 .I /etc/pam.d/boswas\-lock
 PAM service of the lock screen.

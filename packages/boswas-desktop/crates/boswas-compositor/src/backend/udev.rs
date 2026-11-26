@@ -720,6 +720,19 @@ impl Udev {
         }
     }
 
+    /// Whether some output's CRTC has a gamma ramp night light can load
+    /// (without outputs yet: assumed, so the tile is not greyed at start).
+    pub fn night_light_available(&self) -> bool {
+        let Some(device) = &self.device else {
+            return true;
+        };
+        if device.surfaces.is_empty() {
+            return true;
+        }
+        let drm = device.gpu.drm();
+        device.surfaces.keys().any(|crtc| drm.get_crtc(*crtc).is_ok_and(|info| info.gamma_length() >= 2))
+    }
+
     /// Answers pending screenshot requests with the first output.
     fn take_screenshots(&mut self, state: &mut Boswas) {
         if state.ipc.screenshots.is_empty() && !state.screencopy.has_ready() {

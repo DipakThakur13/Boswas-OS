@@ -170,6 +170,33 @@ Super+Shift+1 ... 9|T{
 start another window of it
 T}
 .sp
+Super+S|T{
+Start, typing into its search box
+T}
+Super+X|T{
+the quick-link menu at the Start button
+T}
+Super+Alt+D|T{
+the calendar (with the notifications)
+T}
+Super+T|T{
+the keyboard on the taskbar's applications (again: the next one); the
+arrow keys move, Enter opens, Esc leaves
+T}
+Super+B|T{
+the keyboard on the notification area (the hidden icons' chevron)
+T}
+Super+P|T{
+how the monitors are used: PC screen only, Duplicate, Extend, Second screen
+only (again: the next choice)
+T}
+Super+U|T{
+Settings > Accessibility
+T}
+Ctrl+Alt+Del|T{
+the security options: Lock, Sign out, Change a password, Task Manager
+T}
+.sp
 Alt+Tab, Alt+Shift+Tab|T{
 pick a window, most recently used first
 T}
@@ -202,6 +229,15 @@ show the desktop, and bring the windows back
 T}
 Super+M, Super+Shift+M|T{
 minimize every window; restore them
+T}
+Super+Home|T{
+minimize every window but the active one; again, restore them
+T}
+Super+Shift+Up|T{
+stretch the window to the full height of the screen, keeping its width
+T}
+Super+Shift+Down|T{
+put a stretched window back; minimize another
 T}
 .sp
 Super+Ctrl+D|T{
@@ -250,8 +286,8 @@ without it.
 .PP
 Shortcuts use the key's position on the Latin layout, so they work the same
 while another layout is active. A client that inhibits shortcuts (a remote
-desktop or virtual machine window) receives all of them except Super+L and
-the virtual terminal keys.
+desktop or virtual machine window) receives all of them except Super+L,
+Ctrl+Alt+Del and the virtual terminal keys.
 .PP
 In the window picker Tab and the arrow keys move, releasing Alt selects and
 Esc cancels. In Task View the arrow keys move, Enter selects, Delete closes
@@ -296,7 +332,9 @@ running session.
 .B [keyboard]
 \fBlayout\fR, \fBvariant\fR, \fBmodel\fR, \fBoptions\fR (XKB names, for
 example layout "us,in"); \fBrepeat_delay\fR (milliseconds),
-\fBrepeat_rate\fR (per second); \fBnumlock\fR (on when the session starts).
+\fBrepeat_rate\fR (per second); \fBnumlock\fR (Num Lock is on when the
+session starts, and is turned on or off when the setting changes; a reload
+otherwise keeps it as it is).
 Accessibility: \fBsticky_keys\fR (Shift, Ctrl and Alt pressed and released on
 their own stay down for the next key; Super keeps its own behaviour),
 \fBsticky_keys_lock\fR (with sticky keys, a modifier pressed twice stays down
@@ -342,7 +380,9 @@ monitor is never turned off.
 .B [night_light]
 \fBenabled\fR; \fBtemperature\fR (2500 to 6500 kelvin); \fBscheduled\fR with
 \fBfrom\fR and \fBto\fR ("HH:MM", local time) turns it on by the clock.
-Needs a graphics driver with gamma tables.
+Turned on or off in quick settings, it stays so until the schedule's next
+start or end. Needs a graphics driver with gamma tables; where no monitor
+has one, quick settings shows night light as not available.
 .TP
 .B [power]
 \fBscreen_off_seconds\fR: time without input before the screens turn off (0:
@@ -547,7 +587,14 @@ are available to the shell only, on the descriptor the compositor hands it.
 that has the keyboard the key stroke that pastes there, Ctrl+V or, in a
 terminal (by its application id), Ctrl+Shift+V, once the keys still held
 are let go; it names no keys, and does nothing while the session is locked
-or when no window has the keyboard.
+or when no window has the keyboard. \fBnight\-light\fR with "active" turns
+night light on or off now (with a schedule, until its next change); its
+answer and the night-light event say "enabled", "active", "override" (a
+choice against the schedule holds) and "available" (a monitor can be
+tinted). \fBproject\fR with "mode" ("pc\-only", "duplicate", "extend",
+"second\-only") uses the monitors so for the session, over the
+\fB[outputs.\fINAME\fB]\fR settings; \fBprojection\fR says how many are
+connected and how they are used.
 .SH ENVIRONMENT
 .TP
 .B BOSWAS_LOG

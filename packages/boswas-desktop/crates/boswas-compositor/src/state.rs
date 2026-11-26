@@ -277,6 +277,10 @@ pub struct Boswas {
     pub paste: crate::paste::Paste,
     /// Glass: live blur, the background effect protocol, Mica (glass/).
     pub glass: crate::glass::GlassState,
+    /// What the Windows shortcuts the compositor carries out keep for the
+    /// session, night light turned on or off now, and how the monitors are
+    /// used (winkeys.rs).
+    pub winkeys: crate::winkeys::WinKeys,
 
     // Protocol state
     _globals: Globals,
@@ -498,6 +502,7 @@ impl Boswas {
             key_access: crate::keyaccess::KeyAccess::default(),
             paste: crate::paste::Paste::default(),
             glass,
+            winkeys: crate::winkeys::WinKeys::default(),
             _globals: Globals {
                 xdg_decoration_state,
                 output_manager_state,
@@ -1042,9 +1047,16 @@ impl Boswas {
             ..XkbConfig::default()
         };
         let keyboard = self.keyboard.clone();
+        // Num Lock stays as it was, unless `[keyboard] numlock` changed. A
+        // new keymap starts with it released, and the focused window is not
+        // told when the keymap is the same: it is released through its key
+        // first and locked again after.
+        let num_lock = crate::winkeys::num_lock_after_reload(self.config.keyboard.numlock, config.keyboard.numlock, self.num_lock());
+        self.set_num_lock(false);
         if let Err(err) = keyboard.set_xkb_config(self, xkb) {
             warn!("keyboard layout \"{}\" rejected: {err:?}", config.keyboard.layout);
         }
+        self.set_num_lock(num_lock);
         self.theme = Theme::accented(
             if config.appearance.scheme == "light" { Scheme::Light } else { Scheme::Dark },
             &config.appearance.accent,
@@ -1055,6 +1067,8 @@ impl Boswas {
         }
         if config.night_light != self.config.night_light {
             self.night_light = (config.night_light.enabled, config.night_light.temperature);
+            // Settings' change ends a choice made against the schedule.
+            self.winkeys.night_override = None;
         }
         // Settings switches the magnifier and the colour filter; the keys
         // switch them for the session in between, like night light.
@@ -1077,6 +1091,9 @@ impl Boswas {
         if sticky_off {
             self.release_sticky_keys();
         }
+        // How the monitors are used (Super+P) stays over the new settings.
+        self.winkeys.configured_outputs = None;
+        self.projection_outputs();
         let config = self.config.clone();
         self.backend.config_changed(&config);
         self.apply_night_light();
@@ -1132,16 +1149,22 @@ impl Boswas {
     }
 
     /// Whether the screens are tinted right now: night light is switched on
-    /// and, with a schedule, the clock is inside it.
+    /// and, with a schedule, the clock is inside it, unless it was turned on
+    /// or off now against the schedule (nightlight.rs).
     pub fn night_light_active(&self) -> bool {
         use chrono::Timelike;
         let now = chrono::Local::now();
-        let settings = crate::config::NightLight {
+        crate::nightlight::active(&self.night_light_settings(), self.winkeys.night_override, now.hour() * 60 + now.minute())
+    }
+
+    /// The night light settings in use: the session's switch and colour
+    /// temperature with the configured schedule.
+    pub fn night_light_settings(&self) -> crate::config::NightLight {
+        crate::config::NightLight {
             enabled: self.night_light.0,
             temperature: self.night_light.1,
             ..self.config.night_light.clone()
-        };
-        settings.active_at(now.hour() * 60 + now.minute())
+        }
     }
 
     /// Switches night light on or off and sets its colour temperature.
@@ -1156,11 +1179,23 @@ impl Boswas {
     /// Brings the outputs' colour in line with the night light state. Called
     /// on changes and once a second for the schedule.
     pub fn apply_night_light(&mut self) {
+        // A choice against the schedule ends with the schedule's next change.
+        if let Some(choice) = self.winkeys.night_override {
+            use chrono::Timelike;
+            let now = chrono::Local::now();
+            if !crate::nightlight::holds(&self.night_light_settings(), choice, now.hour() * 60 + now.minute()) {
+                self.winkeys.night_override = None;
+            }
+        }
         let wanted = self.night_light_active().then_some(self.night_light.1);
         if wanted != self.night_light_applied {
             self.night_light_applied = wanted;
             self.backend.set_color_temperature(wanted);
             self.schedule_redraw();
+            // The shell's tile shows whether the screens are tinted, also
+            // when the schedule changed it.
+            let state = self.night_light_json();
+            self.ipc_event("night-light", state);
         }
     }
 }
