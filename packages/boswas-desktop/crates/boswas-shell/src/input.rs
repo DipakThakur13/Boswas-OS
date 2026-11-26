@@ -38,6 +38,10 @@ impl Shell {
         };
         let position = (event.position.0 as f32, event.position.1 as f32);
         let role = self.surfaces[index].role;
+        // The desktop icons take what happens on the wallpaper.
+        if role == Role::Wallpaper && self.desk_pointer(index, event) {
+            return;
+        }
         match event.kind {
             PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => {
                 let surface = &mut self.surfaces[index];
@@ -229,6 +233,7 @@ impl Shell {
             }
             (Role::Flyout, Some(Flyout::Clipboard)) => self.clip_scroll(steps),
             (Role::Flyout, Some(Flyout::Emoji)) => self.emoji_scroll(steps),
+            (Role::Flyout, Some(Flyout::Widgets)) => self.widgets_scroll(steps),
             (Role::Flyout, Some(Flyout::Notifications)) => {
                 let max = self.st.notes.history.len().saturating_sub(1) as i64;
                 let scroll = (self.st.notes.scroll as i64 + i64::from(steps)).clamp(0, max) as usize;
@@ -360,6 +365,7 @@ impl Shell {
                     self.close_menus();
                 }
             }
+            Action::Dismiss if self.st.desk.renaming.is_some() => self.desk_commit_rename(),
             Action::Dismiss => {
                 if self.st.menus.is_empty() {
                     self.close_flyout();
@@ -408,6 +414,8 @@ impl Shell {
             Action::Lock(act) => self.lock_action(act, index),
             Action::Clip(act) => self.clip_action(act),
             Action::Emoji(act) => self.emoji_action(act),
+            Action::Widgets(act) => self.widgets_action(act, Some(index)),
+            Action::Desk(_) => {}
         }
     }
 
@@ -418,6 +426,7 @@ impl Shell {
             Act::Status => self.toggle_flyout(Flyout::Quick, output),
             Act::Clock => self.toggle_flyout(Flyout::Notifications, output),
             Act::TrayOverflow => self.toggle_flyout(Flyout::TrayOverflow, output),
+            Act::Widgets => self.toggle_flyout(Flyout::Widgets, output),
             Act::TaskView => {
                 self.close_transients();
                 self.send_control("overview");
@@ -798,6 +807,9 @@ impl Shell {
         if self.st.dialog.is_some() {
             return self.dialog_key(&event, typed);
         }
+        if self.st.desk.renaming.is_some() {
+            return self.desk_rename_key(&event, typed);
+        }
         if !self.st.menus.is_empty() {
             return self.menu_key(event.keysym);
         }
@@ -806,6 +818,7 @@ impl Shell {
             Some(Flyout::Quick) => self.quick_key(&event, typed),
             Some(Flyout::Clipboard) => self.clip_key(&event, typed),
             Some(Flyout::Emoji) => self.emoji_key(&event, typed),
+            Some(Flyout::Widgets) => self.widgets_key(&event),
             Some(Flyout::Notifications | Flyout::TrayOverflow) => match event.keysym {
                 Keysym::Escape => self.close_flyout(),
                 Keysym::Return | Keysym::KP_Enter | Keysym::space => {
@@ -823,7 +836,8 @@ impl Shell {
                     }
                 }
             },
-            None => {}
+            // Nothing of the shell's is open: the desktop has the keyboard.
+            None => self.desk_key(&event, typed),
         }
     }
 

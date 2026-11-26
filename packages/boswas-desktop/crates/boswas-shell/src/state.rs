@@ -43,6 +43,8 @@ pub enum Flyout {
     Clipboard,
     /// The emoji and symbols panel (Super+. and Super+;).
     Emoji,
+    /// The widgets board.
+    Widgets,
 }
 
 /// A tooltip waiting to be shown or showing.
@@ -80,6 +82,10 @@ pub struct State {
 
     pub flyout: Option<Flyout>,
     pub start: Start,
+    /// The widgets board and what its cards show.
+    pub board: crate::widgets::Board,
+    /// The desktop icons.
+    pub desk: crate::desktop_icons::Desk,
     pub quick: Quick,
     pub notes: Notes,
     /// The open context menu and its open submenus.
@@ -175,6 +181,8 @@ impl State {
             locale: "en_IN.UTF-8".into(),
             flyout: None,
             start: Start::default(),
+            board: crate::widgets::Board::default(),
+            desk: crate::desktop_icons::Desk::default(),
             quick: Quick::default(),
             notes: Notes::default(),
             menus: Vec::new(),
@@ -290,7 +298,7 @@ mod tests {
         }
         // The buttons a user needs are there.
         let (_, hits) = testing::render(1366.0, 48.0, 1.0, Scheme::Dark, None, None, |f| taskbar::draw(f, &st));
-        for wanted in [taskbar::Act::Start, taskbar::Act::TaskView, taskbar::Act::Status, taskbar::Act::Clock, taskbar::Act::ShowDesktop, taskbar::Act::Layout, taskbar::Act::Task(0)] {
+        for wanted in [taskbar::Act::Start, taskbar::Act::TaskView, taskbar::Act::Status, taskbar::Act::Clock, taskbar::Act::ShowDesktop, taskbar::Act::Layout, taskbar::Act::Task(0), taskbar::Act::Widgets] {
             assert!(hits.iter().any(|h| h.action == Action::Taskbar(wanted.clone())), "{wanted:?}");
         }
         assert!(hits.iter().filter(|h| matches!(h.action, Action::Taskbar(taskbar::Act::Tray(_)))).count() >= 2);

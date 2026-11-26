@@ -144,6 +144,8 @@ pub enum Action {
     TaskbarApp { index: u8, shift: bool },
     QuickSettings,
     Notifications,
+    /// Super+W: the widgets board.
+    Widgets,
     Run,
     /// Print (the whole screen) and Super+Shift+S (a region).
     Capture { region: bool },
@@ -347,6 +349,7 @@ pub fn shortcut(mods: &ModifiersState, sym: Keysym, modified: Keysym, locked: bo
             keysyms::KEY_Tab => Some(Action::Overview),
             keysyms::KEY_a => Some(Action::QuickSettings),
             keysyms::KEY_n => Some(Action::Notifications),
+            keysyms::KEY_w => Some(Action::Widgets),
             keysyms::KEY_d => Some(Action::ShowDesktop),
             keysyms::KEY_m => Some(Action::MinimizeAll { restore: false }),
             keysyms::KEY_e => Some(Action::Files),
@@ -940,6 +943,7 @@ impl Boswas {
             Action::Launcher => event(self, "launcher"),
             Action::QuickSettings => event(self, "quick-settings"),
             Action::Notifications => event(self, "notifications"),
+            Action::Widgets => event(self, "widgets"),
             Action::Run => event(self, "run"),
             Action::Clipboard => event(self, "clipboard"),
             Action::Emoji => event(self, "emoji"),
@@ -1531,6 +1535,7 @@ mod tests {
         assert_eq!(press(&logo, keysyms::KEY_Tab), Some(Action::Overview));
         assert_eq!(press(&logo, keysyms::KEY_a), Some(Action::QuickSettings));
         assert_eq!(press(&logo, keysyms::KEY_n), Some(Action::Notifications));
+        assert_eq!(press(&logo, keysyms::KEY_w), Some(Action::Widgets));
         assert_eq!(press(&logo, keysyms::KEY_r), Some(Action::Run));
         assert_eq!(press(&logo, keysyms::KEY_m), Some(Action::MinimizeAll { restore: false }));
         assert_eq!(press(&logo, keysyms::KEY_space), Some(Action::NextLayout));

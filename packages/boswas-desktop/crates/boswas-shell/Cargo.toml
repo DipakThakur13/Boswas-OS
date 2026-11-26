@@ -26,4 +26,4 @@ wayland-protocols-wlr = { version = "0.3", features = ["client"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 zeroize = "1"
 libc = "0.2"
-rustix = { version = "1", features = ["process"] }
+rustix = { version = "1", features = ["process", "fs"] }

@@ -281,6 +281,7 @@ impl Shell {
             ControlEvent::Notifications => self.toggle_flyout(Flyout::Notifications, None),
             ControlEvent::Clipboard => self.toggle_flyout(Flyout::Clipboard, None),
             ControlEvent::Emoji => self.toggle_flyout(Flyout::Emoji, None),
+            ControlEvent::Widgets => self.toggle_flyout(Flyout::Widgets, None),
             ControlEvent::Lock(locked) => {
                 self.st.locked = locked;
                 if locked {
@@ -481,6 +482,7 @@ impl Shell {
         if self.st.weather.poll(chrono::Utc::now().timestamp()) {
             self.mark(Role::Auth);
         }
+        self.widgets_tick();
         let clock = chrono::Local::now();
         self.follow_dnd_schedule(chrono::Timelike::hour(&clock) * 60 + chrono::Timelike::minute(&clock));
         let seconds = self.st.mode == Mode::Desktop && self.st.desktop.taskbar.clock_seconds;
@@ -536,6 +538,7 @@ impl Shell {
             }
             // The toasts' heights follow the text size.
             self.sync_toasts();
+            self.desk_settings_changed();
         }
         self.mark_all();
     }
@@ -684,6 +687,7 @@ impl Shell {
             Flyout::TrayOverflow => taskbar::overflow_size(&self.st),
             Flyout::Clipboard => crate::clipview::panel_size(output),
             Flyout::Emoji => crate::emoji::panel_size(output),
+            Flyout::Widgets => crate::widgets::panel_size(output),
         };
         let (sw, sh) = (pw + 2.0 * PAD, ph + 2.0 * PAD);
         let top = h - bar - sh;
@@ -699,6 +703,8 @@ impl Shell {
             Flyout::Clipboard | Flyout::Emoji => {
                 (Anchor::BOTTOM, ((sw as u32, sh as u32), (0, 0, bar as i32, 0), (((w - sw) / 2.0).floor(), top)))
             }
+            // The widgets board comes from the left edge.
+            Flyout::Widgets => (Anchor::BOTTOM | Anchor::LEFT, ((sw as u32, sh as u32), (0, 0, bar as i32, 0), (0.0, top))),
             Flyout::TrayOverflow => {
                 // Above the chevron.
                 let (inline, hidden) = taskbar::split_tray(&self.st.sys.tray);
@@ -763,6 +769,7 @@ impl Shell {
             Flyout::TrayOverflow => {}
             Flyout::Clipboard => self.open_clipboard(),
             Flyout::Emoji => self.open_emoji(),
+            Flyout::Widgets => self.widgets_opened(),
         }
         self.st.flyout = Some(kind);
         self.st.focus = None;
@@ -799,7 +806,7 @@ impl Shell {
     }
 
     /// The invisible surface behind flyouts and menus.
-    fn ensure_dismiss(&mut self, output: &WlOutput) {
+    pub(crate) fn ensure_dismiss(&mut self, output: &WlOutput) {
         if self.has(Role::Dismiss) {
             return;
         }
@@ -845,6 +852,9 @@ impl Shell {
     }
 
     fn forget_flyout(&mut self) {
+        if self.st.flyout == Some(Flyout::Widgets) {
+            self.widgets_closed();
+        }
         self.st.flyout = None;
         self.flyout_closing = false;
         self.st.focus = None;
@@ -874,6 +884,7 @@ impl Shell {
         self.st.tooltip = None;
         self.st.preview = None;
         self.st.capture = None;
+        self.st.desk.renaming = None;
         self.press = None;
         self.forget_flyout();
     }
@@ -996,6 +1007,8 @@ impl Shell {
                 self.power(action);
             }
             Cmd::Tray { key, id } => self.service(Command::TrayMenuActivate { key, id }),
+            Cmd::Widgets(cmd) => self.widgets_command(cmd),
+            Cmd::Desk(cmd) => self.desk_command(cmd),
             Cmd::Submenu | Cmd::Nothing => {}
         }
     }
@@ -1073,13 +1086,10 @@ impl Shell {
         vec![Item::new("Taskbar settings", "preferences-system-symbolic", Cmd::Spawn(start::settings_command("taskbar")))]
     }
 
+    /// The menu of the desktop's background (desktop_icons.rs): View,
+    /// Sort by, Refresh, Paste, New, Open in Terminal and the settings.
     pub fn desktop_menu(&self) -> Vec<Item> {
-        vec![
-            Item::new("Display settings", "preferences-desktop-display", Cmd::Spawn(start::settings_command("display"))),
-            Item::new("Personalise", "preferences-desktop-theme-global", Cmd::Spawn(start::settings_command("personalization"))),
-            Item::separator(),
-            Item::new("All settings", "preferences-system-symbolic", Cmd::Spawn(vec!["boswas-control-center".into()])),
-        ]
+        self.desk_background_menu()
     }
 
     // ---------------------------------------------------------------------

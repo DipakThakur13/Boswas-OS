@@ -44,6 +44,8 @@ pub enum ControlEvent {
     QuickSettings,
     /// Super+N.
     Notifications,
+    /// Super+W: the widgets board.
+    Widgets,
     /// Super+R.
     Run,
     /// Super+V: the clipboard history.
@@ -251,6 +253,7 @@ pub fn parse_message(message: &Value) -> Vec<ControlEvent> {
         Some("config") => parse_appearance(data).into_iter().collect(),
         Some("quick-settings") => vec![ControlEvent::QuickSettings],
         Some("notifications") => vec![ControlEvent::Notifications],
+        Some("widgets") => vec![ControlEvent::Widgets],
         Some("run") => vec![ControlEvent::Run],
         Some("clipboard") => vec![ControlEvent::Clipboard],
         Some("emoji") => vec![ControlEvent::Emoji],
@@ -374,6 +377,7 @@ mod tests {
         );
         assert_eq!(ev("capturing", json!({"programs": []})), [ControlEvent::Capturing(Vec::new())]);
         assert_eq!(ev("notifications", json!({})), [ControlEvent::Notifications]);
+        assert_eq!(ev("widgets", json!({})), [ControlEvent::Widgets]);
         assert_eq!(ev("run", json!({})), [ControlEvent::Run]);
         assert_eq!(ev("clipboard", json!({})), [ControlEvent::Clipboard]);
         assert_eq!(ev("emoji", json!({})), [ControlEvent::Emoji]);

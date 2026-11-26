@@ -17,7 +17,41 @@ compositor starts it again and open windows are not affected.
 The desktop:
 .RS
 .IP \(bu 2
-the background;
+the background, with the desktop icons on the primary output: the files and
+folders of the desktop folder (\fBXDG_DESKTOP_DIR\fR of
+\fIuser\-dirs.dirs\fR, else \fI~/Desktop\fR) and the system icons chosen
+in Settings (Home, Trash, This device), on a grid from the top-left, column
+by column. A click selects, Ctrl and Shift add, a drag on the background
+selects with a band, a double-click or Enter opens (folders in Files, files
+with their default application), a drag moves icons (onto a folder: into
+it; onto the Trash: to the Trash), F2 renames, Delete moves to the Trash,
+Ctrl+C, Ctrl+X and Ctrl+V copy, cut and paste in the format Files uses,
+Ctrl+A selects everything, the arrow keys move and typing goes to an icon
+by its name. The background's menu has View (icon size, auto arrange,
+align to grid, show desktop icons; written to the user's
+\fIcompositor.toml\fR), Sort by (name, size, type, date modified),
+Refresh, Paste, New (folder, text document), Open in Terminal and the
+settings; an icon's menu has Open, Open with, Cut, Copy, Rename, Delete and
+Properties (Files, with the item selected). Files dragged from another
+program are copied into the folder (moved when that program asks for a
+move). A launcher (\fI.desktop\fR file) on the desktop is started only
+when it is a regular file of the user with the execute bit set ("Allow
+running this file as a program" in Files); any other launcher opens as text
+in the default text editor, and a notice says why. The folder is watched
+and read, and files are changed, on worker threads; nothing is done
+through a symbolic link;
+.IP \(bu 2
+the widgets board (Super+W, or the widgets button at the left end of the
+taskbar, beside the tray when the taskbar's group is at the left; the
+button shows the weather of the lock screen's summary while there is one):
+cards for the weather, the next events of Calendar (its own file, with
+recurring events expanded), Clock's world clocks and next alarm, the system
+(processor and memory, sampled from \fI/proc\fR about once a second only
+while the board is open; space on the home file system; the battery), what
+is playing (with play, pause and the next track) and the newest picture in
+Pictures. A card opens its application; its menu changes its size (small
+or medium), moves it or removes it, and "Add widgets" brings a card back.
+Nothing is fetched from the network;
 .IP \(bu 2
 the taskbar along the bottom edge: Start, Task View and the pinned and
 running applications in the centre (or at the left edge); tray icons, the
@@ -119,8 +153,8 @@ direction, Enter or Space activates it, Escape closes. In Start, typing
 always searches, the arrow keys go through the whole page (it scrolls along),
 Page Up, Page Down, Home and End scroll it; in menus the arrow keys move and
 open submenus. The
-shortcuts that open things (Super, Super+A, Super+N, Super+R, Super+V,
-Super+., Print and so on) belong to the compositor and are listed in
+shortcuts that open things (Super, Super+A, Super+N, Super+W, Super+R,
+Super+V, Super+., Print and so on) belong to the compositor and are listed in
 .BR boswas-compositor (1).
 .SH FILES
 .TP
@@ -128,13 +162,17 @@ Super+., Print and so on) belong to the compositor and are listed in
 The applications pinned to the taskbar (\fB[taskbar] pinned\fR) and to
 Start (\fB[start] pinned\fR), as lists of desktop file ids, and how Start
 lists all applications (\fB[start] view\fR: "category", "grid" or
-"list"). Written by the shell when something is pinned or unpinned or the
-view is chosen; it may be edited by hand. Without a list the defaults
-apply: Files, Firefox ESR and the Software Center on the taskbar.
+"list"), and the cards of the widgets board (\fB[widgets] cards\fR, in
+order, from "weather", "calendar", "clock", "system", "media" and
+"photos"; \fB[widgets] small\fR, the cards shown small). Written by the
+shell when something is pinned or unpinned, the view is chosen or the board
+is arranged; it may be edited by hand. Without a list the defaults apply:
+Files, Firefox ESR and the Software Center on the taskbar, every card on
+the board.
 .PP
 The look and the settings of the taskbar, Start and notifications are part
 of the compositor's configuration (\fB[appearance]\fR, \fB[accessibility]\fR,
-\fB[taskbar]\fR, \fB[start]\fR, \fB[multitasking]\fR,
+\fB[taskbar]\fR, \fB[start]\fR, \fB[multitasking]\fR, \fB[desktop]\fR,
 \fB[notifications]\fR and \fB[clipboard]\fR in
 .BR boswas-compositor (1)),
 which passes them on when it starts the shell and when its files are
@@ -190,6 +228,22 @@ The weather summary the lock screen shows (or under
 .BR boswas-weather (1)
 and its background update; it is read only if it is a regular file owned by
 the user, at most 16 KB, and not older than three hours.
+.TP
+.I ~/.local/state/boswas/desktop\-layout.json
+Where desktop icons were put by hand (in grid cells) and the order chosen
+with Sort by, while auto arrange is off. Anything in it that is not
+understood is left out.
+.TP
+.I ~/.local/share/com.boswas.Calendar/calendar.json
+.TQ
+.I ~/.local/share/com.boswas.Clock/clock.json
+Read (never written) for the widgets board, when they are regular files of
+the user of a sensible size (8 MB and 4 MB at most); time zones come from
+\fI/usr/share/zoneinfo\fR.
+.TP
+.I ~/.local/share/Trash
+Where Delete on the desktop moves items (the freedesktop Trash
+specification); an item on another drive is not moved.
 .TP
 .I /etc/pam.d/boswas\-lock
 PAM service of the lock screen.

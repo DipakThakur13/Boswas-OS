@@ -136,6 +136,9 @@ T}
 Super+N|T{
 notifications and calendar
 T}
+Super+W|T{
+widgets
+T}
 Super+R|T{
 Run
 T}
@@ -420,9 +423,23 @@ show the picture without magnification.
 Read by the shell: \fBalignment\fR ("center", the default, or "left"),
 \fBauto_hide\fR (the taskbar reserves no room and stays out of sight but for
 a sliver at the bottom edge, where the pointer brings it back),
-\fBtask_view\fR (the Task View button; default true), \fBclock_seconds\fR
-and \fBbadges\fR (a taskbar button shows how many notifications of its
-application the notification centre holds; default true).
+\fBtask_view\fR (the Task View button; default true), \fBclock_seconds\fR,
+\fBbadges\fR (a taskbar button shows how many notifications of its
+application the notification centre holds; default true) and
+\fBwidgets\fR (the widgets button at the left end, or beside the tray when
+the group is at the left, with the weather of the lock screen's summary when
+there is one; default true; Super+W opens the widgets board either way).
+.TP
+.B [desktop]
+Read by the shell: \fBicons\fR (the files and folders of the desktop folder,
+XDG_DESKTOP_DIR, as icons on the wallpaper; default true),
+\fBsystem_icons\fR (besides them, from "home", "trash" and "computer", in
+this order; default ["trash"]), \fBicon_size\fR ("small", "medium", the
+default, or "large": 32, 48 or 96 pixels), \fBauto_arrange\fR (the icons
+fill the grid from the top-left, column by column, in the order chosen
+with Sort by; default false) and \fBalign_to_grid\fR (icons placed by hand
+snap to the grid; default true). The desktop's View menu changes the last
+three and \fBicons\fR in the user's file.
 .TP
 .B [start]
 Read by the shell: \fBlayout\fR ("default": three rows of pinned

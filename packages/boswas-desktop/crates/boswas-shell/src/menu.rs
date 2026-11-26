@@ -25,6 +25,10 @@ pub enum Cmd {
     Power(PowerAction),
     /// An entry of a tray item's own menu.
     Tray { key: String, id: i32 },
+    /// An entry of the widgets board's menus.
+    Widgets(crate::widgets::WidgetCmd),
+    /// An entry of the desktop's menus.
+    Desk(crate::desktop_icons::DeskCmd),
     /// Opens the entry's submenu.
     Submenu,
     Nothing,

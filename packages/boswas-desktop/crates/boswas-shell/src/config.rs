@@ -1,7 +1,7 @@
 //! What the user arranged in the shell: the applications pinned to the
-//! taskbar and to Start, and how Start lists all applications
-//! (`~/.config/boswas/shell.toml`), and the commands typed into the Run
-//! dialog (kept in the state directory).
+//! taskbar and to Start, how Start lists all applications and the cards of
+//! the widgets board (`~/.config/boswas/shell.toml`), and the commands
+//! typed into the Run dialog (kept in the state directory).
 
 use std::path::{Path, PathBuf};
 
@@ -94,6 +94,10 @@ pub struct ShellConfig {
     pub start: Option<Vec<String>>,
     /// How Start's "All" section lists the applications.
     pub view: AllView,
+    /// The cards of the widgets board (`[widgets]`).
+    pub widgets: crate::widgets::Arrangement,
+    /// The user arranged the board (the file has its table).
+    widgets_set: bool,
 }
 
 impl Default for ShellConfig {
@@ -104,6 +108,8 @@ impl Default for ShellConfig {
             taskbar_set: false,
             start: None,
             view: AllView::default(),
+            widgets: crate::widgets::Arrangement::default(),
+            widgets_set: false,
         }
     }
 }
@@ -173,12 +179,16 @@ impl ShellConfig {
         config.start = pins("start");
         let view = table.get("start").and_then(|s| s.get("view")).and_then(|v| v.as_str());
         config.view = view.and_then(AllView::from_key).unwrap_or_default();
+        if let Some(widgets) = table.get("widgets").and_then(|w| w.as_table()).and_then(crate::widgets::Arrangement::from_table) {
+            config.widgets = widgets;
+            config.widgets_set = true;
+        }
         config
     }
 
     pub fn to_toml(&self) -> String {
         let list = |ids: &[String]| ids.iter().map(|id| format!("\"{id}\"")).collect::<Vec<_>>().join(", ");
-        let mut out = String::from("# Written by boswas-shell: the applications pinned to the taskbar and to Start,\n# and how Start lists all applications.\n");
+        let mut out = String::from("# Written by boswas-shell: the applications pinned to the taskbar and to Start,\n# how Start lists all applications, and the cards of the widgets board.\n");
         if self.taskbar_set {
             out.push_str(&format!("[taskbar]\npinned = [{}]\n\n", list(&self.taskbar)));
         }
@@ -186,7 +196,22 @@ impl ShellConfig {
         if let Some(start) = &self.start {
             out.push_str(&format!("pinned = [{}]\n", list(start)));
         }
+        if self.widgets_set {
+            out.push('\n');
+            out.push_str(&self.widgets.to_toml());
+        }
         out
+    }
+
+    /// Changes the widgets board and keeps it. Returns whether anything
+    /// changed.
+    pub fn change_widgets(&mut self, cmd: crate::widgets::WidgetCmd) -> bool {
+        if !self.widgets.apply(cmd) {
+            return false;
+        }
+        self.widgets_set = true;
+        self.save();
+        true
     }
 
     /// Chooses how Start lists all applications. Returns whether it changed.
@@ -497,6 +522,36 @@ mod tests {
             assert_eq!(ShellConfig::parse(bad).view, AllView::Category, "{bad}");
         }
         assert_eq!(AllView::ALL.map(AllView::label), ["Category", "Grid", "List"]);
+    }
+
+    #[test]
+    fn the_widgets_board_is_kept_with_the_pins() {
+        use crate::widgets::{Kind, Size, WidgetCmd};
+        let dir = std::env::temp_dir().join(format!("boswas-shell-config-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut config = ShellConfig { path: Some(dir.join("shell.toml")), ..ShellConfig::default() };
+        assert!(!config.to_toml().contains("[widgets]"), "a board nobody arranged is not written");
+        assert!(config.pin_taskbar("org.example.App", true));
+        assert!(config.change_widgets(WidgetCmd::Remove(Kind::Photos)));
+        assert!(config.change_widgets(WidgetCmd::Resize(Kind::Weather, Size::Small)));
+        assert!(!config.change_widgets(WidgetCmd::Remove(Kind::Photos)));
+        // The file holds the pins, the view and the board, and reads back.
+        let back = ShellConfig::parse(&std::fs::read_to_string(dir.join("shell.toml")).unwrap());
+        assert!(back.is_on_taskbar("org.example.App"));
+        assert_eq!(back.widgets, config.widgets);
+        assert!(!back.widgets.has(Kind::Photos));
+        assert_eq!(back.widgets.cards[0], (Kind::Weather, Size::Small));
+        // Pinning again keeps the board.
+        let mut again = back;
+        again.path = Some(dir.join("shell.toml"));
+        assert!(again.pin_start("org.example.App", true, &[]));
+        let last = ShellConfig::parse(&std::fs::read_to_string(dir.join("shell.toml")).unwrap());
+        assert_eq!(last.widgets, config.widgets);
+        // A damaged table: the default board.
+        assert_eq!(ShellConfig::parse("[widgets]
+cards = 3
+").widgets, crate::widgets::Arrangement::default());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
