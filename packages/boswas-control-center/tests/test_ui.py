@@ -159,7 +159,8 @@ class NavigationTest(UiTestCase):
         w = self.window()
         page = self.show(w, "system")
         self.assertEqual(page.subpages.visible_keys(), ["display", "sound", "notifications", "power", "storage",
-                                                        "multitasking", "troubleshoot", "recovery", "about"])
+                                                        "multitasking", "troubleshoot", "recovery", "clipboard",
+                                                        "about"])
         # (Install: live sessions only.)
         card = page.subpages.card("display")
         self.assertEqual(card.title(), "Display")

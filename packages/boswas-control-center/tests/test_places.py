@@ -53,7 +53,7 @@ class CatalogTest(unittest.TestCase):
             self.assertIn(key, catalog.PAGE_KEYS)
         self.assertEqual([p.key for p in catalog.children("system")],
                          ["display", "sound", "notifications", "power", "storage", "multitasking", "troubleshoot",
-                          "recovery", "about", "install"])
+                          "recovery", "clipboard", "about", "install"])
         self.assertEqual([p.key for p in catalog.children("personalization")],
                          ["background", "colours", "themes", "start", "taskbar", "fonts"])
         self.assertEqual([p.key for p in catalog.children("accessibility")],
