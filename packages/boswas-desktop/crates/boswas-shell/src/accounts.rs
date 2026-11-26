@@ -262,7 +262,7 @@ mod tests {
         let root = Scratch::new("odd-pictures");
         let big = root.path().join("big");
         std::fs::write(&big, vec![0u8; (MAX_PICTURE_BYTES + 1) as usize]).unwrap();
-        assert_eq!(newest(&[big.clone()]), None, "a file over the limit is not even opened");
+        assert_eq!(newest(std::slice::from_ref(&big)), None, "a file over the limit is not even opened");
         let dir = root.path().join("a-directory");
         std::fs::create_dir(&dir).unwrap();
         assert_eq!(newest(&[dir]), None);

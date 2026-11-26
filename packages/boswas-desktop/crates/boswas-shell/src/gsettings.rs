@@ -62,13 +62,9 @@ pub fn sync(store: &mut dyn Store, wanted: &[(&str, &str)]) -> Vec<String> {
     for (key, value) in wanted {
         match store.get(key) {
             Some(current) if current == *value => {}
-            Some(_) => {
-                if store.set(key, value) {
-                    written.push((*key).to_owned());
-                }
-            }
-            // The installed schemas do not have the key.
-            None => {}
+            Some(_) if store.set(key, value) => written.push((*key).to_owned()),
+            // Not written, or the installed schemas do not have the key.
+            Some(_) | None => {}
         }
     }
     written
