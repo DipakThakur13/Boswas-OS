@@ -36,6 +36,7 @@ mod quick;
 mod settings;
 mod start;
 mod state;
+mod stats;
 mod status;
 mod svc;
 mod taskbar;
@@ -208,6 +209,9 @@ pub(crate) struct Surface {
     sent_key: (u32, u32, i32),
     /// The surface is declared opaque to the compositor.
     opaque: bool,
+    /// When the surface was first marked as changed since it was last
+    /// drawn (kept only for the statistics, `stats`).
+    changed_at: Option<Instant>,
 }
 
 impl Surface {
@@ -222,6 +226,7 @@ impl Surface {
     pub fn touch(&mut self) {
         self.dirty = true;
         self.snapshot = None;
+        stats::changed(&mut self.changed_at);
     }
 }
 
@@ -683,6 +688,7 @@ impl Shell {
             sent: Vec::new(),
             sent_key: (0, 0, 0),
             opaque: false,
+            changed_at: None,
         });
     }
 
@@ -824,6 +830,7 @@ impl Shell {
         if !surface.configured || surface.width == 0 || surface.height == 0 {
             return;
         }
+        let started = Instant::now();
         let role = surface.role;
         let size = self.output_size(&surface.output);
         if !matches!(role, Role::Wallpaper | Role::Dismiss | Role::Smoke | Role::Capture) {
@@ -950,6 +957,7 @@ impl Shell {
         } else {
             surface.snapshot = None;
         }
+        let painted = started.elapsed();
 
         let (pw, ph) = canvas.pixel_size();
         let buffer_scale = if surface.viewport.is_some() { 1 } else { scale.ceil().max(1.0) as i32 };
@@ -972,6 +980,7 @@ impl Shell {
                 surface.frame_pending = true;
             }
             surface.dirty = animating || scrolling;
+            stats::drawn(&role, (pw, ph), painted, started.elapsed(), None, &mut surface.changed_at);
             return;
         };
         let bytes = pw as usize * ph as usize * 4;
@@ -1031,6 +1040,7 @@ impl Shell {
         surface.sent.clear();
         surface.sent.extend_from_slice(canvas.data());
         surface.sent_key = key;
+        stats::drawn(&role, (pw, ph), painted, started.elapsed(), Some((dx, dy, dw, dh)), &mut surface.changed_at);
     }
 
     pub fn surface_index(&self, wl: &wl_surface::WlSurface) -> Option<usize> {
