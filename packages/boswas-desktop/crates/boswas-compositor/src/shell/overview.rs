@@ -78,13 +78,20 @@ pub struct Overview {
     hover: Option<Hit>,
     /// What is where on the desktop, from the last frame, front to back.
     hits: Vec<(Rectangle<i32, Logical>, Hit)>,
-    cards: HashMap<u64, (CardKey, MemoryRenderBuffer)>,
+    /// The cards drawn for each window, the one used last first (see
+    /// `CARD_LOOKS`).
+    cards: HashMap<u64, Vec<(CardKey, MemoryRenderBuffer)>>,
     strips: HashMap<String, (StripKey, MemoryRenderBuffer)>,
     dim: SolidColorBuffer,
 }
 
 /// The cards and strips Task View drew, kept while it is closed.
-type Kept = (HashMap<u64, (CardKey, MemoryRenderBuffer)>, HashMap<String, (StripKey, MemoryRenderBuffer)>);
+type Kept = (HashMap<u64, Vec<(CardKey, MemoryRenderBuffer)>>, HashMap<String, (StripKey, MemoryRenderBuffer)>);
+
+/// Looks of a window's card kept at most: plain, under the pointer,
+/// selected and both; the pointer moving over the cards, or Task View
+/// opening and closing, then draws none of them again.
+const CARD_LOOKS: usize = 4;
 
 thread_local! {
     static KEPT: std::cell::RefCell<Kept> = std::cell::RefCell::new((HashMap::new(), HashMap::new()));
@@ -624,19 +631,22 @@ impl Boswas {
                 scale: pixel_scale,
                 light,
             };
-            let cached = self
-                .overview
-                .as_ref()
-                .and_then(|o| o.cards.get(&id))
-                .is_some_and(|(cached, _)| *cached == key);
-            if !cached {
+            let kept = self.overview.as_mut().and_then(|o| o.cards.get_mut(&id)).and_then(|looks| {
+                let index = looks.iter().position(|(cached, _)| *cached == key)?;
+                looks[..=index].rotate_right(1);
+                Some(())
+            });
+            if kept.is_none() {
                 if let Some(buffer) = self.draw_overview_card(&key) {
                     if let Some(overview) = &mut self.overview {
-                        overview.cards.insert(id, (key, buffer));
+                        let looks = overview.cards.entry(id).or_default();
+                        looks.insert(0, (key.clone(), buffer));
+                        looks.truncate(CARD_LOOKS);
                     }
                 }
             }
-            if let Some((_, buffer)) = self.overview.as_ref().and_then(|o| o.cards.get(&id)) {
+            let card = self.overview.as_ref().and_then(|o| o.cards.get(&id)).and_then(|looks| looks.first()).filter(|(cached, _)| *cached == key);
+            if let Some((_, buffer)) = card {
                 let location = (cell.loc + area_offset).to_physical_precise_round::<_, i32>(scale);
                 if let Ok(element) = MemoryRenderBufferRenderElement::from_buffer(
                     renderer,
@@ -644,7 +654,7 @@ impl Boswas {
                     buffer,
                     Some(progress),
                     None,
-                    Some(cell.size),
+                    Some(card_size(&key)),
                     Kind::Unspecified,
                 ) {
                     elements.push(OutputRenderElement::Memory(element));
@@ -699,7 +709,9 @@ impl Boswas {
         let theme = self.theme;
         let scheme = theme.scheme;
         let (w, h) = (key.size.w as f32, key.size.h as f32);
-        let mut canvas = Canvas::new(w, h, key.scale as f32)?;
+        let size = card_size(key);
+        let mut canvas = Canvas::new(size.w as f32, size.h as f32, key.scale as f32)?;
+        tracing::trace!(target: "boswas_compositor::stats", "task view: a card drawn");
         if key.selected || key.hovered {
             canvas.fill_rounded_rect(0.0, 0.0, w, h, t.radius_flyout, t.fill(scheme, "control-hover"));
         }
@@ -750,6 +762,7 @@ impl Boswas {
         let strip = key.layout.strip;
         let (w, h) = (strip.size.w as f32, strip.size.h as f32);
         let mut canvas = Canvas::new(w, h, key.scale as f32)?;
+        tracing::trace!(target: "boswas_compositor::stats", "task view: the strip drawn");
         let chrome = t.material(scheme, "chrome");
         canvas.fill_rect(0.0, 0.0, w, h, chrome.tint.alpha(if key.translucent { chrome.tint_opacity } else { 1.0 }));
         canvas.fill_rect(0.0, 0.0, w, 1.0, t.stroke(scheme, "divider"));
@@ -812,6 +825,18 @@ impl Boswas {
         let style = TextStyle::new(caption.size, theme.text_secondary).weight(caption.weight);
         self.text().draw_centered(&mut canvas, "New desktop", x - 20.0, y + th + 4.0, tw + 40.0, caption.line_height, &style);
         Some(memory_buffer(&canvas, key.scale))
+    }
+}
+
+/// The part of its cell a card covers: all of it when it is highlighted
+/// (selected or under the pointer), else only the label above the preview
+/// (the rest of a plain card is transparent, and Task View composes every
+/// card on every frame while it opens).
+fn card_size(key: &CardKey) -> Size<i32, Logical> {
+    if key.selected || key.hovered {
+        key.size
+    } else {
+        Size::from((key.size.w, LABEL_HEIGHT.min(key.size.h)))
     }
 }
 
