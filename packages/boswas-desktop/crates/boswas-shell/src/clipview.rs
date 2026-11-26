@@ -550,7 +550,9 @@ mod tests {
     fn with_items(st: &mut State) {
         let png = {
             let mut picture = tiny_skia::Pixmap::new(320, 180).unwrap();
-            picture.fill(tiny_skia::Color::from_rgba8(80, 120, 200, 255));
+            // A picture in one of the palette's colours.
+            let c = boswas_ui::Theme::of(Scheme::Dark).info;
+            picture.fill(tiny_skia::Color::from_rgba8(c.r, c.g, c.b, 255));
             boswas_ui::icons::encode_png(&picture).unwrap()
         };
         st.clips.add(crate::clipboard::image_content(png, 0).unwrap(), 1);
