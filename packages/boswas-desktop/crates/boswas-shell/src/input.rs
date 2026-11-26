@@ -43,10 +43,12 @@ impl Shell {
                 let surface = &mut self.surfaces[index];
                 let before = surface.hover;
                 let after = ui::hit_at(&surface.hits, position);
-                surface.pointer = Some(position);
+                let from = surface.pointer.replace(position);
                 surface.hover = after;
+                // Only the controls the pointer entered or left are drawn
+                // again.
+                surface.pointer_moved(from, Some(position));
                 if before != after {
-                    surface.touch();
                     self.schedule_tooltip(index);
                     self.track_preview(index);
                 }
@@ -59,10 +61,10 @@ impl Shell {
             }
             PointerEventKind::Leave { .. } => {
                 let surface = &mut self.surfaces[index];
-                surface.pointer = None;
+                let from = surface.pointer.take();
                 surface.hover = None;
                 surface.pressed = false;
-                surface.touch();
+                surface.pointer_moved(from, None);
                 self.hide_tooltip();
                 match role {
                     Role::Toasts => self.st.notes.hover(false, Instant::now()),
@@ -98,7 +100,7 @@ impl Shell {
                             return self.activate(Action::Dismiss, index);
                         }
                         surface.pressed = true;
-                        surface.touch();
+                        surface.press_changed();
                         self.press = Some((index, hit.action.clone()));
                         if hit.drag {
                             if let Some(capture) = self.st.capture.as_mut().filter(|c| !c.whole) {
@@ -121,7 +123,7 @@ impl Shell {
                 }
                 let surface = &mut self.surfaces[index];
                 surface.pressed = false;
-                surface.touch();
+                surface.press_changed();
                 let under = ui::hit_at(&surface.hits, position).map(|h| surface.hits[h].action.clone());
                 let pressed = self.press.take();
                 if role == Role::Capture {

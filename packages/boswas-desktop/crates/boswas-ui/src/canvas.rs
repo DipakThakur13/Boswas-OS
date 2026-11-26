@@ -39,8 +39,9 @@ pub struct Canvas {
     /// operation clears (a reset canvas that is then covered completely by
     /// [`Canvas::copy_from_full`] is never cleared).
     stale: bool,
-    /// The part being drawn again: drawing that cannot reach it is skipped.
-    clip: Option<PixelRect>,
+    /// The parts being drawn again: drawing that cannot reach them is
+    /// skipped. Empty: the whole canvas is drawn.
+    clip: Vec<PixelRect>,
 }
 
 impl Canvas {
@@ -60,7 +61,7 @@ impl Canvas {
             scale,
             blank: true,
             stale: false,
-            clip: None,
+            clip: Vec::new(),
         })
     }
 
@@ -98,39 +99,42 @@ impl Canvas {
         self.stale = true;
     }
 
-    /// Starts drawing the part `rect` (device pixels) again: it is made
+    /// Starts drawing the parts `rects` (device pixels) again: they are made
     /// transparent, and until [`Canvas::end_clip`] drawing that cannot
-    /// reach it is skipped. Pixels outside it may change and are not to be
-    /// used. Returns the part as clipped to the canvas (`None`: empty, and
-    /// nothing is clipped).
-    pub fn begin_clip(&mut self, rect: PixelRect) -> Option<PixelRect> {
+    /// reach them is skipped. Pixels outside them may change and are not to
+    /// be used. Returns the parts as clipped to the canvas (empty: nothing
+    /// is clipped).
+    pub fn begin_clip(&mut self, rects: &[PixelRect]) -> Vec<PixelRect> {
         self.touch();
         let (w, h) = self.pixel_size();
-        let (x0, y0) = (rect.0.min(w), rect.1.min(h));
-        let (x1, y1) = (rect.0.saturating_add(rect.2).min(w), rect.1.saturating_add(rect.3).min(h));
-        if x1 <= x0 || y1 <= y0 {
-            self.clip = None;
-            return None;
+        self.clip.clear();
+        for rect in rects {
+            let (x0, y0) = (rect.0.min(w), rect.1.min(h));
+            let (x1, y1) = (rect.0.saturating_add(rect.2).min(w), rect.1.saturating_add(rect.3).min(h));
+            if x1 <= x0 || y1 <= y0 {
+                continue;
+            }
+            let pixels = self.pixmap.data_mut();
+            for y in y0..y1 {
+                let row = (y * w) as usize;
+                pixels[(row + x0 as usize) * 4..(row + x1 as usize) * 4].fill(0);
+            }
+            self.clip.push((x0, y0, x1 - x0, y1 - y0));
         }
-        let pixels = self.pixmap.data_mut();
-        for y in y0..y1 {
-            let row = (y * w) as usize;
-            pixels[(row + x0 as usize) * 4..(row + x1 as usize) * 4].fill(0);
+        if !self.clip.is_empty() {
+            self.blank = true;
         }
-        let clip = (x0, y0, x1 - x0, y1 - y0);
-        self.clip = Some(clip);
-        self.blank = true;
-        Some(clip)
+        self.clip.clone()
     }
 
-    /// Ends drawing a part again (see [`Canvas::begin_clip`]).
+    /// Ends drawing parts again (see [`Canvas::begin_clip`]).
     pub fn end_clip(&mut self) {
-        self.clip = None;
+        self.clip.clear();
     }
 
-    /// The part being drawn again, if any.
-    pub fn clip(&self) -> Option<PixelRect> {
-        self.clip
+    /// The parts being drawn again (empty: the whole canvas is drawn).
+    pub fn clip(&self) -> &[PixelRect] {
+        &self.clip
     }
 
     /// About to draw: clears an earlier drawing first.
@@ -206,7 +210,7 @@ impl Canvas {
         if (whole.width(), whole.height()) != self.pixel_size() {
             return;
         }
-        if self.clip.is_none() {
+        if self.clip.is_empty() {
             self.pixmap.data_mut().copy_from_slice(whole.data());
             self.stale = false;
             self.blank = false;
@@ -223,38 +227,42 @@ impl Canvas {
         }
         self.touch();
         let (w, h) = self.pixel_size();
-        let (x0, y0, cw, ch) = self.clip.unwrap_or((0, 0, w, h));
-        let first = first.max(y0) as usize;
-        let last = last.min(y0 + ch) as usize;
-        let (w, x0, x1) = (w as usize, x0 as usize, (x0 + cw) as usize);
+        let whole_canvas = [(0, 0, w, h)];
+        let parts: &[PixelRect] = if self.clip.is_empty() { &whole_canvas } else { &self.clip };
+        let w = w as usize;
         let data = self.pixmap.data_mut();
-        for y in first..last {
-            let range = (y * w + x0) * 4..(y * w + x1) * 4;
-            data[range.clone()].copy_from_slice(&whole.data()[range]);
+        for &(x0, y0, cw, ch) in parts {
+            let (x0, x1) = (x0 as usize, (x0 + cw) as usize);
+            for y in first.max(y0) as usize..last.min(y0 + ch) as usize {
+                let range = (y * w + x0) * 4..(y * w + x1) * 4;
+                data[range.clone()].copy_from_slice(&whole.data()[range]);
+            }
         }
     }
 
     /// Whether anything drawn in the logical rectangle can change a pixel
     /// that may change (a pixel of margin for anti-aliasing).
     pub fn visible(&self, x: f32, y: f32, w: f32, h: f32) -> bool {
-        let Some((cx, cy, cw, ch)) = self.clip else {
+        if self.clip.is_empty() {
             return true;
-        };
+        }
         let s = self.scale;
         let (left, top) = (x * s - 1.0, y * s - 1.0);
         let (right, bottom) = ((x + w) * s + 1.0, (y + h) * s + 1.0);
-        let (cx, cy, cw, ch) = (cx as f32, cy as f32, cw as f32, ch as f32);
         // NaN sizes fail every comparison and are drawn (as before).
-        !(right < cx || bottom < cy || left > cx + cw || top > cy + ch)
+        self.clip.iter().any(|&(cx, cy, cw, ch)| {
+            let (cx, cy, cw, ch) = (cx as f32, cy as f32, cw as f32, ch as f32);
+            !(right < cx || bottom < cy || left > cx + cw || top > cy + ch)
+        })
     }
 
     /// Whether a device-pixel rectangle overlaps the pixels that may change.
     fn visible_device(&self, x: i32, y: i32, w: i32, h: i32) -> bool {
-        let Some((cx, cy, cw, ch)) = self.clip else {
-            return true;
-        };
-        let (cx, cy, cw, ch) = (cx as i32, cy as i32, cw as i32, ch as i32);
-        x < cx + cw && y < cy + ch && x + w > cx && y + h > cy
+        self.clip.is_empty()
+            || self.clip.iter().any(|&(cx, cy, cw, ch)| {
+                let (cx, cy, cw, ch) = (cx as i32, cy as i32, cw as i32, ch as i32);
+                x < cx + cw && y < cy + ch && x + w > cx && y + h > cy
+            })
     }
 
     /// Draws a picture at a place given in device pixels, unscaled.
@@ -282,17 +290,17 @@ impl Canvas {
     pub fn clear(&mut self, color: Rgba) {
         self.stale = false;
         self.blank = false;
-        match self.clip {
-            None => self.pixmap.fill(color.into()),
-            Some((x0, y0, cw, ch)) => {
-                let w = self.pixmap.width() as usize;
-                let c = tiny_skia::Color::from(color).premultiply().to_color_u8();
-                let pixel = [c.red(), c.green(), c.blue(), c.alpha()];
-                let data = self.pixmap.data_mut();
-                for y in y0 as usize..(y0 + ch) as usize {
-                    for p in data[(y * w + x0 as usize) * 4..(y * w + (x0 + cw) as usize) * 4].chunks_exact_mut(4) {
-                        p.copy_from_slice(&pixel);
-                    }
+        if self.clip.is_empty() {
+            return self.pixmap.fill(color.into());
+        }
+        let w = self.pixmap.width() as usize;
+        let c = tiny_skia::Color::from(color).premultiply().to_color_u8();
+        let pixel = [c.red(), c.green(), c.blue(), c.alpha()];
+        let data = self.pixmap.data_mut();
+        for &(x0, y0, cw, ch) in &self.clip {
+            for y in y0 as usize..(y0 + ch) as usize {
+                for p in data[(y * w + x0 as usize) * 4..(y * w + (x0 + cw) as usize) * 4].chunks_exact_mut(4) {
+                    p.copy_from_slice(&pixel);
                 }
             }
         }
@@ -519,9 +527,9 @@ impl Canvas {
         if px < 0 || py < 0 || px >= w || py >= h || coverage == 0 {
             return;
         }
-        if let Some((cx, cy, cw, ch)) = self.clip {
+        if !self.clip.is_empty() {
             let (px, py) = (px as u32, py as u32);
-            if px < cx || py < cy || px >= cx + cw || py >= cy + ch {
+            if !self.clip.iter().any(|&(cx, cy, cw, ch)| px >= cx && py >= cy && px < cx + cw && py < cy + ch) {
                 return;
             }
         }
@@ -857,24 +865,29 @@ mod tests {
             let mut whole = Canvas::new(120.0, 100.0, scale).unwrap();
             draw(&mut whole, 0.0);
             let (w, h) = whole.pixel_size();
-            for rect in [(0, 0, 40, 30), (33, 41, 57, 23), (70, 10, 400, 400), (101, 77, 3, 2)] {
+            let parts: [&[PixelRect]; 4] = [&[(0, 0, 40, 30)], &[(33, 41, 57, 23), (2, 90, 10, 10)], &[(70, 10, 400, 400)], &[(101, 77, 3, 2)]];
+            for rects in parts {
                 let mut part = Canvas::new(120.0, 100.0, scale).unwrap();
                 draw(&mut part, 7.0);
-                let clip = part.begin_clip(rect).unwrap();
+                let clip = part.begin_clip(rects);
+                assert_eq!(clip.len(), rects.len());
                 assert!(part.is_blank());
                 draw(&mut part, 0.0);
                 part.end_clip();
-                for y in clip.1..(clip.1 + clip.3).min(h) {
-                    for x in clip.0..(clip.0 + clip.2).min(w) {
-                        let i = ((y * w + x) * 4) as usize;
-                        assert_eq!(&whole.data()[i..i + 4], &part.data()[i..i + 4], "scale {scale}, {rect:?} at {x},{y}");
+                for rect in clip {
+                    for y in rect.1..rect.1 + rect.3 {
+                        for x in rect.0..rect.0 + rect.2 {
+                            let i = ((y * w + x) * 4) as usize;
+                            assert_eq!(&whole.data()[i..i + 4], &part.data()[i..i + 4], "scale {scale}, {rect:?} at {x},{y}");
+                        }
                     }
                 }
             }
+            assert!(h > 0);
         }
         let mut c = Canvas::new(10.0, 10.0, 1.0).unwrap();
-        assert_eq!(c.begin_clip((20, 20, 5, 5)), None, "outside the canvas");
-        assert_eq!(c.clip(), None);
+        assert!(c.begin_clip(&[(20, 20, 5, 5)]).is_empty(), "outside the canvas");
+        assert!(c.clip().is_empty());
     }
 
     #[test]

@@ -648,7 +648,7 @@ impl Shell {
             self.sync_toasts();
         } else if self.st.notes.animating(now) {
             for surface in self.surfaces.iter_mut().filter(|s| s.role == Role::Toasts) {
-                surface.dirty = true;
+                surface.touch();
             }
         }
         if self.slider_pending.is_some() && now.saturating_duration_since(self.slider_sent) >= SLIDER_INTERVAL {

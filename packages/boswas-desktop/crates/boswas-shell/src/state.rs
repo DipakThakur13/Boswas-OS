@@ -495,6 +495,82 @@ mod tests {
         assert!(!hits.iter().any(|h| matches!(h.action, Action::Start(start::Act::All(_)))), "the index covers the list");
     }
 
+    /// Moves the pointer over every control of a surface, one after the
+    /// other, as the shell does: each time only the controls the pointer
+    /// entered or left are drawn again (`ui::hover_changes`), on a spare
+    /// canvas holding an older drawing, and copied over the drawing. The
+    /// result must be exactly a whole drawing with the pointer there.
+    /// Returns the pixels drawn again in all, and those whole drawings
+    /// would have drawn.
+    fn hover_matches_whole(draw: &dyn Fn(&mut Frame), width: f32, height: f32, scale: f32, name: &str) -> (u64, u64) {
+        let mut res = crate::ui::Resources::new(boswas_ui::Theme::of(Scheme::Dark));
+        let whole = |res: &mut crate::ui::Resources, pointer: Option<(f32, f32)>| {
+            let mut canvas = boswas_ui::Canvas::new(width, height, scale).unwrap();
+            let mut hits = Vec::new();
+            draw(&mut Frame { canvas: &mut canvas, res, pointer, pressed: false, hits: &mut hits, focus: None, origin: (0.0, 0.0) });
+            (canvas, hits)
+        };
+        let (mut front, mut hits) = whole(&mut res, None);
+        let (mut spare, _) = whole(&mut res, Some((width / 3.0, height / 3.0)));
+        let (pw, ph) = front.pixel_size();
+        let mut stops: Vec<Option<(f32, f32)>> = hits.iter().map(|h| Some(h.rect.center())).collect();
+        stops.extend([Some((1.0, 1.0)), None, Some((width / 2.0, height / 2.0)), None]);
+        let (mut partial, mut full) = (0u64, 0u64);
+        let mut pointer = None;
+        for to in stops {
+            let changes = crate::ui::hover_changes(&hits, (width, height), pointer, to);
+            let (expected, expected_hits) = whole(&mut res, to);
+            full += u64::from(pw) * u64::from(ph);
+            let rects: Vec<_> = changes.iter().map(|r| crate::ui::device_rect(r, scale)).collect();
+            let clip = spare.begin_clip(&rects);
+            if !clip.is_empty() {
+                let mut ignored = Vec::new();
+                draw(&mut Frame { canvas: &mut spare, res: &mut res, pointer: to, pressed: false, hits: &mut ignored, focus: None, origin: (0.0, 0.0) });
+                spare.end_clip();
+                assert_eq!(ignored, expected_hits, "{name}: a part drawn again registers the same controls");
+                for rect in clip {
+                    crate::damage::copy_rect(spare.data(), front.pixmap_mut().data_mut(), pw, rect);
+                    partial += u64::from(rect.2) * u64::from(rect.3);
+                }
+            }
+            if let Some(differ) = crate::damage::changed_rect(front.data(), expected.data(), pw, ph) {
+                panic!("{name} at {scale}: the pointer moved from {pointer:?} to {to:?}; parts {changes:?} drawn again, yet {differ:?} differs from a whole drawing");
+            }
+            hits = expected_hits;
+            pointer = to;
+        }
+        (partial, full)
+    }
+
+    #[test]
+    fn a_hover_draws_only_the_controls_it_changes_and_the_same_pixels() {
+        let mut st = with_many_apps(State::for_tests());
+        let start = Rect::new(PAD, PAD, 832.0, 918.0);
+        let (sw, sh) = (832.0 + 2.0 * PAD, 918.0 + 2.0 * PAD);
+        let (qw, qh) = quick::panel_size(&st, (1366.0, 768.0));
+        let quick_panel = Rect::new(PAD, PAD, qw, qh);
+        let items = vec![menu::Item::new("Open", "", menu::Cmd::Lock), menu::Item::separator(), menu::Item::new("Close window", "", menu::Cmd::SignOut)];
+        let mut text = boswas_ui::text::TextEngine::new();
+        let mut m = menu::Menu::new(items, 20.0, 20.0, false);
+        m.place(&mut text, (800.0, 600.0));
+        for scale in [1.0, 1.5] {
+            for view in crate::config::AllView::ALL {
+                st.config.view = view;
+                let (partial, full) = hover_matches_whole(&|f| start::draw(f, &st, start), sw, sh, scale, "Start");
+                // A hover change in Start draws a tile or two again, not
+                // Start: all the changes together are a few percent of
+                // drawing Start each time.
+                assert!(partial * 20 < full, "Start ({view:?}) drew {partial} of {full} pixels again");
+            }
+            hover_matches_whole(&|f| taskbar::draw(f, &st), 1366.0, 48.0, scale, "the taskbar");
+            hover_matches_whole(&|f| quick::draw(f, &st, quick_panel), qw + 2.0 * PAD, qh + 2.0 * PAD, scale, "quick settings");
+            hover_matches_whole(&|f| notify::draw_centre(f, &st, Rect::new(PAD, PAD, 364.0, 720.0)), 364.0 + 2.0 * PAD, 720.0 + 2.0 * PAD, scale, "the notification centre");
+            hover_matches_whole(&|f| m.draw(f, (PAD, PAD), 0), 400.0, 200.0, scale, "a menu");
+        }
+        st.auth.stage = lock::Stage::SignIn;
+        hover_matches_whole(&|f| lock::draw(f, &st, true), 1024.0, 768.0, 1.25, "the lock screen");
+    }
+
     /// Drawing Start is cheap enough to scroll it at the refresh rate of a
     /// fast display.
     #[test]
