@@ -82,8 +82,12 @@ created by the milestone that implements them.
 │   │   │                                   agent (no unsafe); README.md, tests/it/
 │   │   ├── crates/boswas-services-bridge/  the same backends for Settings (JSON lines)
 │   │   ├── crates/boswas-shell/            taskbar, Start, quick settings, notifications,
-│   │   │                                   dialogs, wallpaper, lock screen, greeter,
-│   │   │                                   PAM and greetd clients
+│   │   │                                   dialogs, wallpaper, desktop icons, widgets
+│   │   │                                   board, clipboard history, emoji panel,
+│   │   │                                   lock screen, greeter, PAM and greetd
+│   │   │                                   clients; data/emoji.tsv (generated)
+│   │   ├── tools/                          build_emoji.py, the emoji data's generator,
+│   │   │                                   and its tests
 │   │   ├── config/                         compositor.toml (defaults and policy),
 │   │   │                                   greeter.toml
 │   │   ├── session/                        boswas-session, greeter, greetd drop-in and

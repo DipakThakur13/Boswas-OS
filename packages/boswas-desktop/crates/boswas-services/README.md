@@ -10,15 +10,18 @@ services.send(Command::WifiScan);
 // dropping `services` stops everything
 ```
 
-Three configurations:
+Four configurations:
 
 | Constructor | Runs | Obeys |
 |---|---|---|
 | `Config::desktop()` | everything | every command |
 | `Config::settings()` | network, Bluetooth, audio, power, brightness | every command of those |
 | `Config::status_only()` | the same five | `Refresh`, volume, mute, brightness; nothing else (`restricted`) |
+| `Config::greeter()` | the same five | what `status_only()` obeys, and the power menu: suspend, hibernate, restart and shut down (`restricted`, with `power_actions`) |
 
-`status_only()` is the lock screen and the greeter. A restricted instance
+`status_only()` is the lock screen and `greeter()` the login screen,
+where nobody is signed in and logind still decides which power action
+is allowed; ending a session is not among them. A restricted instance
 drops every other command in `Services::send`, the services refuse them
 again themselves, it registers no Bluetooth pairing agent and (having no
 notification server, tray, media or agent service) owns no bus name.
