@@ -172,6 +172,27 @@ pub enum Action {
     Clipboard,
     /// Super+. and Super+;: the emoji and symbols panel (the shell's).
     Emoji,
+    /// Super+S: Start with its search box (the shell's).
+    Search,
+    /// Super+X: the quick-link menu at the Start button (the shell's).
+    QuickLinks,
+    /// Super+Alt+D: the calendar (the shell's notification centre).
+    Calendar,
+    /// Super+T (the applications) and Super+B (`tray`: the notification
+    /// area): the keyboard on the taskbar (the shell's).
+    FocusTaskbar { tray: bool },
+    /// Super+Home: minimise every window but the active one; again,
+    /// restore them.
+    MinimizeOthers,
+    /// Super+Shift+Up (`up`): the full height of the screen; Super+Shift+
+    /// Down: back, or minimise.
+    Stretch { up: bool },
+    /// Super+U: Settings > Accessibility.
+    AccessibilitySettings,
+    /// Super+P: how the monitors are used (the shell's projection flyout).
+    Project,
+    /// Ctrl+Alt+Del: the security options (the shell's).
+    SecurityOptions,
 }
 
 /// What a magnifier key does.
@@ -269,6 +290,11 @@ pub fn shortcut(mods: &ModifiersState, sym: Keysym, modified: Keysym, locked: bo
     if only_logo && !mods.shift && lower == keysyms::KEY_l {
         return Some(Action::Lock);
     }
+    // Ctrl+Alt+Del, like Super+L, reaches the desktop even while a program
+    // (a remote desktop, a virtual machine) has taken the other shortcuts.
+    if mods.ctrl && mods.alt && !mods.logo && !mods.shift && matches!(lower, keysyms::KEY_Delete | keysyms::KEY_KP_Delete) {
+        return Some(Action::SecurityOptions);
+    }
     if inhibited {
         // A client (remote desktop, virtual machine) has taken the window
         // management shortcuts; locking and VT switching stay available.
@@ -295,6 +321,9 @@ pub fn shortcut(mods: &ModifiersState, sym: Keysym, modified: Keysym, locked: bo
     }
     if !mods.logo && !mods.ctrl && !mods.alt && !mods.shift && lower == keysyms::KEY_F11 {
         return Some(Action::Fullscreen);
+    }
+    if mods.logo && mods.alt && !mods.ctrl && !mods.shift && lower == keysyms::KEY_d {
+        return Some(Action::Calendar);
     }
     if mods.logo && mods.ctrl && !mods.alt && !mods.shift {
         return match lower {
@@ -337,6 +366,8 @@ pub fn shortcut(mods: &ModifiersState, sym: Keysym, modified: Keysym, locked: bo
                 keysyms::KEY_m => Some(Action::MinimizeAll { restore: true }),
                 keysyms::KEY_Left => Some(Action::MoveToOutput(Direction::Left)),
                 keysyms::KEY_Right => Some(Action::MoveToOutput(Direction::Right)),
+                keysyms::KEY_Up => Some(Action::Stretch { up: true }),
+                keysyms::KEY_Down => Some(Action::Stretch { up: false }),
                 keysyms::KEY_Tab | keysyms::KEY_ISO_Left_Tab => Some(Action::Overview),
                 _ => None,
             };
@@ -359,6 +390,13 @@ pub fn shortcut(mods: &ModifiersState, sym: Keysym, modified: Keysym, locked: bo
             keysyms::KEY_F11 => Some(Action::Fullscreen),
             keysyms::KEY_v => Some(Action::Clipboard),
             keysyms::KEY_period | keysyms::KEY_semicolon => Some(Action::Emoji),
+            keysyms::KEY_s => Some(Action::Search),
+            keysyms::KEY_x => Some(Action::QuickLinks),
+            keysyms::KEY_t => Some(Action::FocusTaskbar { tray: false }),
+            keysyms::KEY_b => Some(Action::FocusTaskbar { tray: true }),
+            keysyms::KEY_Home | keysyms::KEY_KP_Home => Some(Action::MinimizeOthers),
+            keysyms::KEY_u => Some(Action::AccessibilitySettings),
+            keysyms::KEY_p => Some(Action::Project),
             _ => None,
         };
     }
@@ -947,6 +985,20 @@ impl Boswas {
             Action::Run => event(self, "run"),
             Action::Clipboard => event(self, "clipboard"),
             Action::Emoji => event(self, "emoji"),
+            Action::Search => event(self, "search"),
+            Action::QuickLinks => event(self, "quick-links"),
+            Action::Calendar => event(self, "calendar"),
+            Action::SecurityOptions => event(self, "security"),
+            Action::FocusTaskbar { tray } => {
+                self.ipc_event("focus-taskbar", serde_json::json!({ "area": if tray { "tray" } else { "apps" } }));
+            }
+            Action::Project => {
+                let projection = self.projection_json();
+                self.ipc_event("projection", projection);
+            }
+            Action::MinimizeOthers => self.minimize_others(),
+            Action::Stretch { up } => self.stretch_key(up),
+            Action::AccessibilitySettings => self.open_accessibility_settings(),
             Action::Capture { region } => self.request_capture(region),
             Action::Media(key) => {
                 let locked = self.lock.locked;
@@ -1594,6 +1646,44 @@ mod tests {
         assert_eq!(press(&logo_ctrl, keysyms::KEY_d), Some(Action::NewDesktop));
         assert_eq!(press(&logo_ctrl, keysyms::KEY_F4), Some(Action::CloseDesktop));
         assert_eq!(press(&logo_ctrl, keysyms::KEY_l), None, "Super+Ctrl+L is not the lock shortcut");
+    }
+
+    #[test]
+    fn the_windows_shortcuts_of_the_shell_round() {
+        let logo = mods(true, false, false, false);
+        let logo_shift = mods(true, false, false, true);
+        let logo_alt = mods(true, true, false, false);
+        let ctrl_alt = mods(false, true, true, false);
+        assert_eq!(press(&logo, keysyms::KEY_s), Some(Action::Search));
+        assert_eq!(press(&logo, keysyms::KEY_S), Some(Action::Search), "with Caps Lock on");
+        assert_eq!(press(&logo, keysyms::KEY_x), Some(Action::QuickLinks));
+        assert_eq!(press(&logo_alt, keysyms::KEY_d), Some(Action::Calendar));
+        assert_eq!(press(&logo, keysyms::KEY_t), Some(Action::FocusTaskbar { tray: false }));
+        assert_eq!(press(&logo, keysyms::KEY_b), Some(Action::FocusTaskbar { tray: true }));
+        assert_eq!(press(&logo, keysyms::KEY_Home), Some(Action::MinimizeOthers));
+        assert_eq!(press(&logo_shift, keysyms::KEY_Up), Some(Action::Stretch { up: true }));
+        assert_eq!(press(&logo_shift, keysyms::KEY_Down), Some(Action::Stretch { up: false }));
+        assert_eq!(press(&logo, keysyms::KEY_u), Some(Action::AccessibilitySettings));
+        assert_eq!(press(&logo, keysyms::KEY_p), Some(Action::Project));
+        assert_eq!(press(&ctrl_alt, keysyms::KEY_Delete), Some(Action::SecurityOptions));
+        assert_eq!(press(&ctrl_alt, keysyms::KEY_KP_Delete), Some(Action::SecurityOptions));
+        // The neighbours keep their keys.
+        assert_eq!(press(&logo_shift, keysyms::KEY_s), Some(Action::Capture { region: true }), "Super+Shift+S still captures a region");
+        assert_eq!(press(&logo, keysyms::KEY_Up), Some(Action::Snap(Direction::Up)));
+        assert_eq!(press(&logo, keysyms::KEY_d), Some(Action::ShowDesktop), "Super+D is not Super+Alt+D");
+        assert_eq!(press(&mods(true, false, true, false), keysyms::KEY_d), Some(Action::NewDesktop));
+        assert_eq!(press(&ctrl_alt, keysyms::KEY_t), Some(Action::Terminal));
+        assert_eq!(press(&mods(false, false, false, false), keysyms::KEY_Delete), None, "Delete is the application's");
+        assert_eq!(press(&mods(false, false, true, false), keysyms::KEY_Delete), None);
+        assert_eq!(press(&mods(false, true, true, true), keysyms::KEY_Delete), None);
+        // Ctrl+Alt+Del reaches the desktop through an inhibitor, like Super+L;
+        // the others do not, and none works while the session is locked.
+        let inhibited = |m: &ModifiersState, sym: u32| shortcut(m, Keysym::new(sym), Keysym::new(sym), false, true);
+        assert_eq!(inhibited(&ctrl_alt, keysyms::KEY_Delete), Some(Action::SecurityOptions));
+        assert_eq!(inhibited(&logo, keysyms::KEY_s), None);
+        let locked = |m: &ModifiersState, sym: u32| shortcut(m, Keysym::new(sym), Keysym::new(sym), true, false);
+        assert_eq!(locked(&ctrl_alt, keysyms::KEY_Delete), None);
+        assert_eq!(locked(&logo, keysyms::KEY_p), None);
     }
 
     #[test]
