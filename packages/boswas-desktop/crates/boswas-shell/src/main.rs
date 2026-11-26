@@ -35,6 +35,7 @@ mod glyph;
 mod greetd;
 mod input;
 mod lock;
+mod magnify;
 mod menu;
 mod notify;
 mod open;
@@ -1053,6 +1054,7 @@ impl Shell {
             }
             let mut hits = Vec::new();
             res.glass_regions.clear();
+            res.magnifying.clear();
             let panel = Rect::new(PAD, PAD, w - 2.0 * PAD, h - 2.0 * PAD);
             {
                 let mut frame = Frame {
@@ -1273,6 +1275,10 @@ impl Shell {
             surface.frame_pending = true;
         }
         surface.dirty = animating || scrolling;
+        // Magnified icons on their way: their cells again on the next frame.
+        for cell in std::mem::take(&mut res.magnifying) {
+            surface.touch_rect(cell);
+        }
         if scrolling {
             // The page moves on: the next frame (the one where it comes to
             // rest included) draws it again.

@@ -91,6 +91,9 @@ pub struct Resources {
     /// What the glass of the surface being drawn covers (its blur region
     /// with live blur): rectangles and their corner radius.
     pub glass_regions: Vec<(Rect, f32)>,
+    /// Cells whose magnified icon is still moving (magnify.rs): drawn
+    /// again on the next frame.
+    pub magnifying: Vec<Rect>,
 }
 
 /// A panel as kept: drawn on the whole canvas, and the part of that
@@ -143,6 +146,7 @@ impl Resources {
             panels: Vec::new(),
             live_blur: false,
             glass_regions: Vec::new(),
+            magnifying: Vec::new(),
         }
     }
 

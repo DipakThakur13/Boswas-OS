@@ -542,7 +542,12 @@ pub fn draw(f: &mut Frame, st: &State, panel: Rect) {
         f.tip(item.name);
         cell(f, rect.inset(1.0), touch);
         match panel_state.tab {
-            Tab::Emoji => draw_glyph(f, toned(item, tone), rect, GLYPH),
+            Tab::Emoji => {
+                // Magnified under the pointer, within its cell.
+                let most = crate::magnify::limit(GLYPH, rect.h - 2.0 - GLYPH, rect.w - 2.0);
+                let factor = f.magnify(crate::magnify::Key("emoji", index), rect.inset(1.0), touch.focused, most, crate::magnify::Axis::Row);
+                draw_glyph(f, toned(item, tone), rect, (GLYPH * factor).round());
+            }
             Tab::Symbols => {
                 let style = fit_line(&TextStyle::new(22.0, theme.text), rect.h);
                 f.text_centered(item.text, rect, &style);

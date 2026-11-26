@@ -512,7 +512,8 @@ fn card_frame(f: &mut Frame, st: &State, kind: Kind, rect: Rect) -> Rect {
     }
     let icons = kind.icons(st);
     let names: Vec<&str> = icons.iter().map(String::as_str).collect();
-    f.icon_or_placeholder(&names, rect.x + 14.0, rect.y + 14.0, 20.0);
+    // The card's icon magnifies like a dock's, growing into the room above it.
+    f.magnified_icon(crate::magnify::Key("widget", kind as usize), &names, rect.x + 14.0, rect.y + 14.0, 20.0, rect, touch.focused, 14.0);
     let title = Rect::new(rect.x + 42.0, rect.y + 8.0, rect.w - 42.0 - 44.0, 32.0);
     f.text_left(kind.title(), title, &ramp("caption", theme.text_secondary));
     let button = menu_button(rect);

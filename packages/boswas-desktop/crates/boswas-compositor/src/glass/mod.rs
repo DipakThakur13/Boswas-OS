@@ -379,20 +379,24 @@ impl Boswas {
         let geo = self.space.output_geometry(output)?;
         let generation = self.glass.mica.get(&name)?.generation;
         if self.glass.desktops.get(&name).map(|(g, _)| *g) != Some(generation) {
-            let picture = self.glass.mica.get_mut(&name)?.backdrop.picture(glass.blur, glass.saturation);
-            let buffer = MemoryRenderBuffer::from_slice(
-                picture.data(),
-                Fourcc::Abgr8888,
-                (picture.width() as i32, picture.height() as i32),
-                1,
-                Transform::Normal,
-                None,
-            );
+            // At half the output's size with the grain on it, so that the
+            // wide soft gradients do not band when enlarged.
+            let (w, h) = ((geo.size.w as f32 / 2.0).ceil().max(1.0), (geo.size.h as f32 / 2.0).ceil().max(1.0));
+            let picture = self.glass.mica.get_mut(&name)?.backdrop.picture(glass.blur, glass.saturation).clone();
+            let mut canvas = boswas_ui::Canvas::new(w, h, 1.0)?;
+            canvas.draw_pixmap(&picture, 0.0, 0.0, w, h, 1.0);
+            if let Some(tile) = ui_glass::grain(glass.noise) {
+                ui_glass::draw_grain(&mut canvas, 0.0, 0.0, w, h, [0.0; 4], &tile);
+            }
+            let (pw, ph) = canvas.pixel_size();
+            let buffer = MemoryRenderBuffer::from_slice(canvas.data(), Fourcc::Abgr8888, (pw as i32, ph as i32), 1, Transform::Normal, None);
             self.glass.desktops.insert(name.clone(), (generation, buffer));
         }
         let (_, buffer) = self.glass.desktops.get(&name)?;
         let _ = scale;
-        MemoryRenderBufferRenderElement::from_buffer(renderer, (0.0, 0.0), buffer, Some(alpha), None, Some(geo.size), Kind::Unspecified).ok()
+        // The picture, enlarged to the output (filtered linearly).
+        let src = Rectangle::from_size(Size::from(((f64::from(geo.size.w) / 2.0).ceil().max(1.0), (f64::from(geo.size.h) / 2.0).ceil().max(1.0))));
+        MemoryRenderBufferRenderElement::from_buffer(renderer, (0.0, 0.0), buffer, Some(alpha), Some(src), Some(geo.size), Kind::Unspecified).ok()
     }
 
     /// The Mica of the active window's title bar: the wallpaper under it,

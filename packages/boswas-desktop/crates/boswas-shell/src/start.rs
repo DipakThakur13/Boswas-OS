@@ -981,7 +981,11 @@ fn draw_element(f: &mut Frame, st: &State, geo: &Geometry, element: &Element, re
             let touch = f.hit(button, action.unwrap_or(Action::None));
             f.state_layer(button, radius, touch, false);
             let size = if touch.pressed { m.icon - 4.0 } else { m.icon };
-            f.icon_or_placeholder(&[&app.icon, "application-x-executable"], rect.x + (rect.w - size) / 2.0, rect.y + 12.0 + (m.icon - size) / 2.0, size);
+            // Magnified under the pointer, growing into the room above it.
+            let (x, y) = (rect.x + (rect.w - size) / 2.0, rect.y + 12.0 + (m.icon - size) / 2.0);
+            // Keyed by its place on the page, which scrolling does not change.
+            let place = ((element.rect.y.max(0.0) as usize) << 16) | element.rect.x.max(0.0) as usize;
+            f.magnified_icon(crate::magnify::Key("start", place), &[&app.icon, "application-x-executable"], x, y, size, button, touch.focused, y - button.y);
             let label = Rect::new(rect.x + 4.0, rect.y + 12.0 + m.icon + 6.0, rect.w - 8.0, m.label_h + 2.0);
             f.text_centered(&app.name, label, &ramp("caption", theme.text));
         }
