@@ -882,6 +882,31 @@ class LookTest(CalculatorTestCase):
             background = fluent.qcolor("background")
             self.assertEqual(image.pixelColor(2, 598).name(), background.name())
 
+    def test_keys_are_glass_while_glass_is_on(self):
+        """With Boswas glass the digits are card glass and the operators pane glass over the window's backdrop;
+        without it they keep their opaque colours."""
+        from boswas_fluent import glass
+        from boswas_fluent.tokens import blend
+        testing.set_glass(True)
+        seven, times = self.page._keys[self.page.mode]["7"], self.page._keys[self.page.mode]["*"]
+        found = glass.window_backdrop(self.window)
+        self.assertIsNotNone(found)
+        backdrop, origin = found
+        image = self.window.grab().toImage()
+        for key, layer in ((seven, "glass-card"), (times, "glass-pane")):
+            point = key.mapTo(self.window, QPoint(6, key.height() - 6))
+            below = backdrop.toImage().pixelColor(point + origin.toPoint()).name()
+            colour, alpha = fluent.theme().rgba(layer)
+            expected = blend(below, colour, alpha)
+            shown = image.pixelColor(point)
+            want = [int(expected[i:i + 2], 16) for i in (1, 3, 5)]
+            self.assertTrue(all(abs(a - b) <= 4 for a, b in zip((shown.red(), shown.green(), shown.blue()), want)),
+                            f"{key.text()}: {shown.name()} is {layer} over the backdrop {below} ({expected})")
+        testing.set_glass(False)
+        point = seven.mapTo(self.window, QPoint(6, seven.height() - 6))
+        self.assertEqual(self.window.grab().toImage().pixelColor(point).name().upper(),
+                         fluent.theme().color("surface-raised"))
+
     def test_no_colour_values_in_the_sources(self):
         pattern = re.compile(r"#[0-9A-Fa-f]{6}\b|#[0-9A-Fa-f]{3}\b|rgba?\(|QColor\(\s*\d|setStyleSheet")
         for path in sorted(PACKAGE.rglob("*.py")):

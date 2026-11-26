@@ -58,6 +58,9 @@ DERIVED = {
     "layer": {"dark": 0.5, "light": 0.5},
     # opacity of the accent colour for selected text ranges that keep the text colour
     "accent-subtle": {"dark": 0.24, "light": 0.16},
+    # how far Boswas glass may move a surface from 'background' towards 'text' and keep coloured text readable:
+    # the '*-text' colours keep 4.5:1 on 'background' moved this far too (as far as 'text-muted' allows)
+    "glass-floor": {"dark": 0.08, "light": 0.07},
 }
 # The contrast (WCAG 2.1, 1.4.3) the toolkit guarantees for text: a colour that is used for text, or
 # behind text, and misses this ratio with the tokens as they are, is moved towards a colour that has
@@ -356,9 +359,15 @@ class Theme:
             # the link colour while hovered or pressed: readable on the state layers too
             behind = [self.over(layer, base) for layer in ("fill-subtle-hover", "fill-subtle-pressed")
                       for base in ("background", "surface")]
+            if self.has_glass:
+                for layer in ("fill-subtle-hover", "fill-subtle-pressed"):
+                    colour, alpha = self.rgba(layer)
+                    behind.append(blend(self.glass_floor(), colour, alpha))
             return self._readable(self.color("accent-text"), behind, (self.color("text"),))
         if key.endswith("-text"):
             behind = [self.color(surface) for surface in ("background", "layer", "surface")]
+            if self.has_glass:
+                behind.append(self.glass_floor())
             return self._readable(self.color(key[:-5]), behind, (self.color("text"),))
         if key in ("accent-fill-hover", "accent-fill-pressed"):
             role = "accent-hover" if key.endswith("hover") else "accent-pressed"
@@ -421,6 +430,11 @@ class Theme:
         return self.color(name), 1.0
 
     # --- glass ---
+    def glass_floor(self) -> str:
+        """The surface furthest from 'background' (towards 'text') on which coloured text stays readable on
+        glass (``DERIVED["glass-floor"]``)."""
+        return blend(self.color("background"), self.color("text"), DERIVED["glass-floor"][self.scheme])
+
     @property
     def has_glass(self) -> bool:
         """Whether the token file describes Boswas glass (``material.glass``)."""

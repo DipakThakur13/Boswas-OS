@@ -11,15 +11,16 @@ applications and AppImages, and route a chosen file to the right installer.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRect, QRectF, QSize, Qt
-from PySide6.QtGui import QFont, QFontMetrics, QIcon, QPainter, QPalette
+import boswas_fluent as fluent
+from PySide6.QtCore import QEvent, QRectF, QSize, Qt
+from PySide6.QtGui import QFontMetrics, QIcon, QPainter
 from PySide6.QtWidgets import (QAbstractItemView, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
                                QPushButton, QStyle, QStyledItemDelegate, QTabWidget, QVBoxLayout, QWidget)
 
 from .. import viewmodel as vm
 from ..catalog import COMPAT_MANAGER
 from .base import Page
-from .common import SP, Badge, Card, MessageBanner, icon, mix, muted_label, plain_label, scaled_font, title_label
+from .common import SP, Badge, Card, MessageBanner, icon, muted_label, plain_label, title_label
 from .jobs import JobPanel
 from .software_tabs import AppImageTab, FileTab, FlatpakTab, LinuxTab
 
@@ -48,78 +49,110 @@ def app_icon(item: vm.AppItem) -> QIcon:
 
 
 class AppDelegate(QStyledItemDelegate):
-    APP_H, HEADER_H, NOTE_H, ICON = 52, 40, 34, 32
+    """Paints the installed applications as rows of glass cards, their icons magnified as in a dock.
+
+    Every colour comes from the theme (``fluent.qcolor``), never from the
+    view's palette: the application style sheet makes the palette of a list
+    view transparent (``background``, ``selection-background-color``), and
+    colours mixed from those roles came out black, the black hover this
+    replaces. Hover and press are the grey state layers of the scheme on the
+    card (``fluent.paint.glass``); a selected row has the accent pill. The
+    keyboard focus is the toolkit's focus ring.
+    """
+
+    APP_H, HEADER_H, NOTE_H, ICON = 60, 40, 34, 28
+    GAP = 2                       # above and below each card: rows stand 4 px apart
+
+    def __init__(self, view: QAbstractItemView) -> None:
+        super().__init__(view)
+        self._view = view
+        self.magnifier = fluent.ViewMagnifier(view, accept=lambda index: index.data(KIND) == APP)
+        self._pressed = -1
+        view.viewport().installEventFilter(self)
+
+    def cell(self) -> int:
+        """The room the icon of a row has, so that it can grow without moving the text."""
+        return round(self.ICON * self.magnifier.grow)
 
     def sizeHint(self, option, index) -> QSize:
         kind = index.data(KIND)
         height = {HEADER: self.HEADER_H, NOTE: self.NOTE_H}.get(kind, self.APP_H)
         return QSize(option.rect.width(), height)
 
+    def eventFilter(self, obj, event) -> bool:
+        kind = event.type()
+        if kind == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+            index = self._view.indexAt(event.position().toPoint())
+            self._set_pressed(index.row() if index.isValid() and index.data(KIND) == APP else -1)
+        elif kind in (QEvent.Type.MouseButtonRelease, QEvent.Type.Leave):
+            self._set_pressed(-1)
+        return False
+
+    def _set_pressed(self, row: int) -> None:
+        if row != self._pressed:
+            for old in (self._pressed, row):
+                if old >= 0:
+                    self._view.viewport().update(self._view.visualRect(self._view.model().index(old, 0)))
+            self._pressed = row
+
     def paint(self, painter: QPainter, option, index) -> None:
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        palette = option.palette
-        rect = QRectF(option.rect).adjusted(4, 2, -4, -2)
+        rect = QRectF(option.rect).adjusted(4, self.GAP, -4, -self.GAP)
         kind = index.data(KIND)
-        base_font = option.font
         if kind == HEADER:
             title, count, note = index.data(PAYLOAD)
-            font = scaled_font(base_font, 1.05, weight=QFont.Weight.DemiBold)
-            painter.setFont(font)
-            painter.setPen(palette.color(QPalette.ColorRole.Text))
-            fm = QFontMetrics(font)
-            text = f"{title}"
-            left = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
-            painter.drawText(rect.adjusted(8, 8, 0, 0), left, text)
-            painter.setFont(base_font)
-            painter.setPen(palette.color(QPalette.ColorRole.PlaceholderText))
+            title_font = fluent.font("body-strong")
+            title_width = QFontMetrics(title_font).horizontalAdvance(title)
+            text_rect = rect.adjusted(4, 8, 0, 0)
+            fluent.paint.elided(painter, text_rect, title, title_font, "text")
             extra = f"{count}" + (f"  ·  {note}" if note else "")
-            painter.drawText(rect.adjusted(8 + fm.horizontalAdvance(text) + 10, 8, 0, 0),
-                             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                             QFontMetrics(base_font).elidedText(extra, Qt.TextElideMode.ElideRight,
-                                                                int(rect.width() - fm.horizontalAdvance(text) - 30)))
+            fluent.paint.elided(painter, text_rect.adjusted(title_width + 10, 0, 0, 0), extra, fluent.font("body"),
+                                "text-secondary")
             painter.restore()
             return
         if kind == NOTE:
-            painter.setPen(palette.color(QPalette.ColorRole.PlaceholderText))
-            painter.drawText(rect.adjusted(52, 0, 0, 0), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                             str(index.data(PAYLOAD)))
+            fluent.paint.elided(painter, rect.adjusted(self.cell() + 24, 0, 0, 0), str(index.data(PAYLOAD)),
+                                fluent.font("body"), "text-secondary")
             painter.restore()
             return
         item: vm.AppItem = index.data(PAYLOAD)
+        enabled = bool(option.state & QStyle.StateFlag.State_Enabled)
         selected = bool(option.state & QStyle.StateFlag.State_Selected)
         hovered = bool(option.state & QStyle.StateFlag.State_MouseOver)
-        focused = bool(option.state & QStyle.StateFlag.State_HasFocus)
-        base, accent = palette.color(QPalette.ColorRole.Base), palette.color(QPalette.ColorRole.Highlight)
+        state = "rest"
+        if enabled and index.row() == self._pressed:
+            state = "pressed"
+        elif enabled and (hovered or selected):
+            state = "pressed" if hovered and selected else "hover"
+        fluent.paint.glass(painter, rect, "card", state=state)
         if selected:
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(accent)
-            painter.drawRoundedRect(rect, 6, 6)
-        elif hovered:
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(mix(base, accent, 0.12))
-            painter.drawRoundedRect(rect, 6, 6)
-        if focused and not selected:
-            painter.setPen(accent)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRoundedRect(rect.adjusted(0.5, 0.5, -0.5, -0.5), 6, 6)
-        x = int(rect.left()) + 10
-        y = int(rect.top() + (rect.height() - self.ICON) / 2)
-        app_icon(item).paint(painter, QRect(x, y, self.ICON, self.ICON))
-        text_x = x + self.ICON + 12
-        width = int(rect.right() - text_x - 10)
-        title_font = scaled_font(base_font, weight=QFont.Weight.DemiBold)
-        fm_title, fm = QFontMetrics(title_font), QFontMetrics(base_font)
-        top = rect.top() + (rect.height() - fm_title.height() - fm.height() - 2) / 2
-        text_colour = palette.color(QPalette.ColorRole.HighlightedText if selected else QPalette.ColorRole.Text)
-        painter.setFont(title_font)
-        painter.setPen(text_colour)
-        painter.drawText(QRectF(text_x, top, width, fm_title.height()), Qt.AlignmentFlag.AlignLeft,
-                         fm_title.elidedText(item.name, Qt.TextElideMode.ElideRight, width))
-        painter.setFont(base_font)
-        painter.setPen(text_colour if selected else palette.color(QPalette.ColorRole.PlaceholderText))
-        painter.drawText(QRectF(text_x, top + fm_title.height() + 2, width, fm.height()), Qt.AlignmentFlag.AlignLeft,
-                         fm.elidedText(item.subtitle or GROUP_BADGES[item.group], Qt.TextElideMode.ElideRight, width))
+            pill = QRectF(rect.left() + 1, rect.center().y() - 8, 3, 16)
+            fluent.paint.rounded_rect(painter, pill, 1.5, "accent" if enabled else "text-disabled")
+        cell = self.cell()
+        scale = self.magnifier.scale(index.row())
+        side = self.ICON * scale
+        cell_left = rect.left() + 12
+        target = QRectF(cell_left + (cell - side) / 2, rect.center().y() - side / 2, side, side)
+        ratio = painter.device().devicePixelRatioF() if painter.device() is not None else 1.0
+        moving = self.magnifier.animating(index.row())
+        size = cell if moving else max(1, round(side))
+        pixmap = fluent.icons.cached_pixmap(app_icon(item), size, ratio, enabled)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, moving)
+        if not moving:
+            target = QRectF(round(target.x() * ratio) / ratio, round(target.y() * ratio) / ratio, size, size)
+        painter.drawPixmap(target, pixmap, QRectF(pixmap.rect()))
+        text_x = cell_left + cell + 12
+        width = rect.right() - text_x - 12
+        title_font, body_font = fluent.font("body-strong"), fluent.font("caption")
+        title_height = QFontMetrics(title_font).height()
+        body_height = QFontMetrics(body_font).height()
+        top = rect.top() + (rect.height() - title_height - body_height - 2) / 2
+        fluent.paint.elided(painter, QRectF(text_x, top, width, title_height), item.name, title_font,
+                            "text" if enabled else "text-disabled")
+        fluent.paint.elided(painter, QRectF(text_x, top + title_height + 2, width, body_height),
+                            item.subtitle or GROUP_BADGES[item.group], body_font,
+                            "text-secondary" if enabled else "text-disabled")
         painter.restore()
 
 
@@ -221,9 +254,13 @@ class ApplicationsPage(Page):
         installed_layout.addLayout(search_row)
         row = QHBoxLayout()
         row.setSpacing(14)
-        list_card = Card(parent=installed, margins=6, spacing=0)
+        # The rows are cards of their own (AppDelegate): the list lies on the page, not on another card.
+        list_card = QWidget(installed)
+        list_layout = QVBoxLayout(list_card)
+        list_layout.setContentsMargins(0, 0, 0, 0)
         self.list = AppList(list_card)
-        self.list.setItemDelegate(AppDelegate(self.list))
+        self.delegate = AppDelegate(self.list)
+        self.list.setItemDelegate(self.delegate)
         self.list.setFrameShape(QListWidget.Shape.NoFrame)
         self.list.setMouseTracking(True)
         self.list.setUniformItemSizes(False)
@@ -232,7 +269,7 @@ class ApplicationsPage(Page):
         self.list.setWordWrap(False)
         self.list.setAccessibleName("Installed applications")
         self.list.setMinimumHeight(380)
-        list_card.addWidget(self.list)
+        list_layout.addWidget(self.list)
         self.detail = DetailPanel(installed)
         row.addWidget(list_card, 1)
         row.addWidget(self.detail, 0, Qt.AlignmentFlag.AlignTop)

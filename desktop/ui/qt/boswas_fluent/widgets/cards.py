@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRect, QRectF, QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QRect, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QIcon, QPainter, QPainterPath
 from PySide6.QtWidgets import (QAbstractButton, QFrame, QHBoxLayout, QLayout, QPushButton, QSizePolicy, QVBoxLayout,
                                QWidget)
 
-from .. import icons, paint
+from .. import glass, icons, paint
 from ..animation import Animation
 from ..theming import current_theme, duration, easing, qcolor
+from ..tokens import DERIVED
 from .basic import Button, IconButton, IconWidget, Label, StatusIcon, to_icon
 
 _WIDGET_MAX = 16777215
@@ -72,6 +73,9 @@ class RowButton(QAbstractButton):
     def paintEvent(self, _event) -> None:
         if not self.isEnabled() or not (self.isDown() or self.underMouse()):
             return
+        row = self.parentWidget()
+        if getattr(row, "paints_row_state", lambda: False)():
+            return                        # the row draws its own state (a SettingsCard on its own)
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         radius = current_theme().radius("card") if self.radius is None else self.radius
@@ -94,6 +98,12 @@ class SettingsCard(QFrame):
     With ``clickable=True`` the whole row is a button (``clicked``, ``click()``,
     Space or Enter) and shows a chevron; use it for rows that open something.
     ``card.button`` is that button (None for a row that is not clickable).
+
+    The card is Boswas glass while glass is on (``paint.glass``). A clickable
+    card shows the grey hover and pressed layers; ``set_hover_highlight(True)``
+    gives them to a card that is not clickable too (the rows of a list of
+    applications). ``set_icon_magnification(m)`` reserves room for the icon to
+    grow to ``m`` times its size without moving the text (``IconMagnifier``).
     """
 
     clicked = Signal()
@@ -105,6 +115,9 @@ class SettingsCard(QFrame):
         super().__init__(parent)
         self.setFrameShape(QFrame.Shape.NoFrame)
         self._mode = "card"
+        self._hover_highlight = False
+        self._pressed = False
+        self._icon_reserve = 1.0
         self._control: QWidget | None = None
         self.button: RowButton | None = None
         self._action_glyph = "chevron-right"
@@ -167,11 +180,73 @@ class SettingsCard(QFrame):
         if self.button is not None:
             self.button.setAccessibleDescription(description)
 
-    def set_icon(self, icon: QIcon | str | None, size: int = 20) -> None:
+    def set_icon(self, icon: QIcon | str | None, size: int | None = None) -> None:
         qicon = to_icon(icon)
         self.icon_widget.set_icon(qicon)
-        self.icon_widget.set_icon_size(size)
+        if size is not None:                  # else the size it has (20 unless it was changed)
+            self.icon_widget.set_icon_size(size)
+            self._sync_margins()
         self.icon_widget.setVisible(not qicon.isNull())
+
+    def set_icon_magnification(self, reserve: float) -> None:
+        """Reserve room for the icon to grow to ``reserve`` times its size; the text stays where it was."""
+        self._icon_reserve = max(1.0, float(reserve))
+        self.icon_widget.set_magnification(self._icon_reserve)
+        self._sync_margins()
+
+    def _sync_margins(self) -> None:
+        """Margins and spacing so that the icon's centre and the text stay where they are without room."""
+        extra = (self.icon_widget.cell() - self.icon_widget.icon_size()) / 2
+        left, top, right, bottom = (52, 8, 16, 8) if self._mode == "row" else (16, 12, 16, 12)
+        self._layout.setContentsMargins(max(0, round(left - extra)), top, right, bottom)
+        self._layout.setSpacing(max(0, round(16 - extra)))
+
+    # --- the pointer ---
+    def hover_highlight(self) -> bool:
+        return self._hover_highlight
+
+    def set_hover_highlight(self, on: bool) -> None:
+        """Show the hover and pressed layers although the card is not clickable."""
+        self._hover_highlight = bool(on)
+        self.setAttribute(Qt.WidgetAttribute.WA_Hover, self._hover_highlight)
+        self.update()
+
+    def paints_row_state(self) -> bool:
+        """Whether the card draws its hover and pressed layers itself (on its own, not inside an expander)."""
+        return self._mode == "card"
+
+    def row_state(self) -> str:
+        """``rest``, ``hover`` or ``pressed``: the layer the card shows now."""
+        if not self.isEnabled():
+            return "rest"
+        if self.button is not None:
+            if self.button.isDown():
+                return "pressed"
+            return "hover" if self.button.underMouse() else "rest"
+        if self._hover_highlight:
+            if self._pressed:
+                return "pressed"
+            return "hover" if self.underMouse() else "rest"
+        return "rest"
+
+    def mousePressEvent(self, event) -> None:
+        if self._hover_highlight and event.button() == Qt.MouseButton.LeftButton:
+            self._pressed = True
+            self.update()
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        if self._pressed:
+            self._pressed = False
+            self.update()
+        super().mouseReleaseEvent(event)
+
+    def event(self, event) -> bool:
+        if event.type() in (QEvent.Type.HoverEnter, QEvent.Type.HoverLeave) and self._hover_highlight:
+            if event.type() == QEvent.Type.HoverLeave:
+                self._pressed = False
+            self.update()
+        return super().event(event)
 
     def control(self) -> QWidget | None:
         return self._control
@@ -263,19 +338,15 @@ class SettingsCard(QFrame):
     def _set_mode(self, mode: str) -> None:
         """card (on its own), header (the head of an expander) or row (inside an expander)."""
         self._mode = mode
-        if mode == "row":
-            self.setMinimumHeight(self.ROW_MIN_HEIGHT)
-            self._layout.setContentsMargins(52, 8, 16, 8)
-        else:
-            self.setMinimumHeight(self.MIN_HEIGHT)
-            self._layout.setContentsMargins(16, 12, 16, 12)
+        self.setMinimumHeight(self.ROW_MIN_HEIGHT if mode == "row" else self.MIN_HEIGHT)
+        self._sync_margins()
         self._sync_button()
         self.update()
 
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)
         if self._mode == "card":
-            paint.card(painter, self.rect())
+            paint.card(painter, self.rect(), state=self.row_state())
         elif self._mode == "row":
             painter.fillRect(QRect(0, 0, self.width(), 1), qcolor("stroke-divider"))
 
@@ -324,6 +395,10 @@ class Expander(QFrame):
     def set_title(self, title: str) -> None:
         self.header.set_title(title)
         self.setAccessibleName(title)
+
+    def set_icon_magnification(self, reserve: float) -> None:
+        """Reserve room for the icon of the head to grow (``IconMagnifier``); the text stays where it was."""
+        self.header.set_icon_magnification(reserve)
 
     def add_widget(self, widget: QWidget) -> QWidget:
         """Append a widget to the content; returns it."""
@@ -549,7 +624,16 @@ class InfoBar(QFrame):
         self.setAccessibleDescription(StatusIcon.LABELS[_SEVERITY_ICON[self._severity]])
 
     def paintEvent(self, _event) -> None:
-        paint.card(QPainter(self), self.rect(), fill=_SEVERITY_FILL[self._severity])
+        painter = QPainter(self)
+        if self._severity != "info" and glass.enabled():
+            # Glass, washed with the status colour as much as its opaque tint is.
+            paint.glass(painter, self.rect(), "card")
+            theme = current_theme()
+            wash = qcolor(_SEVERITY_ICON[self._severity] if self._severity != "error" else "danger", theme)
+            wash.setAlphaF(DERIVED["status-tint"][theme.scheme])
+            paint.rounded_rect(painter, self.rect(), theme.radius("card"), wash)
+            return
+        paint.card(painter, self.rect(), fill=_SEVERITY_FILL[self._severity])
 
 
 # --- list rows, empty state --------------------------------------------------------------------------
@@ -639,11 +723,20 @@ class ListItem(QFrame):
         if self.button is not None:
             self.button.setAccessibleDescription(subtitle)
 
-    def set_icon(self, icon: QIcon | str | None, size: int = 20) -> None:
+    def set_icon(self, icon: QIcon | str | None, size: int | None = None) -> None:
         qicon = to_icon(icon)
         self.icon_widget.set_icon(qicon)
-        self.icon_widget.set_icon_size(size)
+        if size is not None:                  # else the size it has (20 unless it was changed)
+            self.icon_widget.set_icon_size(size)
+            self.set_icon_magnification(self.icon_widget.magnification())
         self.icon_widget.setVisible(not qicon.isNull() and self._leading is self.icon_widget)
+
+    def set_icon_magnification(self, reserve: float) -> None:
+        """Reserve room for the icon to grow to ``reserve`` times its size; the text stays where it was."""
+        self.icon_widget.set_magnification(reserve)
+        extra = (self.icon_widget.cell() - self.icon_widget.icon_size()) / 2
+        self._layout.setContentsMargins(max(0, round(12 - extra)), 6, 12, 6)
+        self._layout.setSpacing(max(0, round(12 - extra)))
 
     def set_leading(self, widget: QWidget) -> None:
         """Use a widget (an Avatar, a check box) instead of the icon."""

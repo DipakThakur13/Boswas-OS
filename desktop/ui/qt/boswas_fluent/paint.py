@@ -13,9 +13,11 @@ it needs no code of its own for either look.
 from __future__ import annotations
 
 import math
+from collections import OrderedDict
 
 from PySide6.QtCore import QPointF, QRect, QRectF, Qt
-from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QIcon, QLinearGradient, QPainter, QPainterPath, QPen
+from PySide6.QtGui import (QBrush, QColor, QFont, QFontMetrics, QIcon, QLinearGradient, QPainter, QPainterPath, QPen,
+                           QPixmap)
 
 from . import icons
 from .theming import current_theme, qcolor
@@ -76,10 +78,17 @@ _SOLID = {"card": "card", "pane": None, "flyout": "flyout"}
 _STATE_LAYERS = {"hover": "fill-subtle-hover", "pressed": "fill-subtle-pressed"}
 _GLOW_HEIGHT = 36.0          # logical pixels below the top edge that the inner glow reaches at most
 _HIGHLIGHT_DEPTH = 10.0      # how far down the sides the top highlight runs before it is the plain edge
+# Glass surfaces (and, with glass off, the opaque surfaces they replace) are drawn once per size, state and
+# theme into a pixmap and copied from then on (a copy costs a tenth of drawing them, a hundredth when only a part
+# is repainted); this many bytes of them are kept.
+GLASS_CACHE_BYTES = 24 << 20
+_glass_cache: OrderedDict[tuple, QPixmap] = OrderedDict()
+_glass_cache_bytes = 0
+glass_renders = 0            # surfaces drawn into the cache (tests)
 
 
 def glass(painter: QPainter, rect: QRect | QRectF, kind: str = "card", *, state: str = "rest",
-          radius: float | None = None, outline: bool = True) -> None:
+          radius: float | None = None, outline: bool = True, fill: bool = True) -> None:
     """A surface of Boswas glass, or with glass off the opaque surface it replaces.
 
     ``kind``: ``card`` (cards and rows; opaque: the card colour), ``pane`` (a navigation pane or side bar;
@@ -87,34 +96,87 @@ def glass(painter: QPainter, rect: QRect | QRectF, kind: str = "card", *, state:
     backdrop first, ``glass.paint_backdrop``, for acrylic). ``state`` ``hover`` or ``pressed`` adds the grey
     state layer of the scheme (``fill-subtle-hover``/``-pressed``) and, on glass, a brighter top edge.
     Glass is the kind's tint at its token opacity, a white inner glow below the top edge and a hairline that
-    is the white highlight at the top and a soft shadow at the bottom.
+    is the white highlight at the top and a soft shadow at the bottom (``outline``; ``fill=False`` draws only
+    the hairline).
     """
     from . import glass as _glass
     theme = current_theme()
     if radius is None:
         radius = 0.0 if kind == "pane" else float(theme.radius("flyout" if kind == "flyout" else "card"))
-    layer = _STATE_LAYERS.get(state)
-    if not _glass.enabled():
-        fill = _SOLID.get(kind, "card")
-        if fill is not None:
-            rounded_rect(painter, rect, radius, fill, "stroke-surface" if outline else None)
-        if layer is not None:
-            rounded_rect(painter, rect, radius, layer)
-        return
+    on = _glass.enabled()
+    draw = _glass_direct if on else _solid_direct
     box = QRectF(rect)
     if box.isEmpty():
         return
+    width, height = round(box.width()), round(box.height())
+    if abs(box.width() - width) > 0.01 or abs(box.height() - height) > 0.01 or width * height > 4_000_000:
+        draw(painter, box, kind, state, radius, outline, fill, theme)
+        return
+    device = painter.device()
+    ratio = round(device.devicePixelRatioF(), 3) if device is not None else 1.0
+    key = (on, kind, state, width, height, round(radius, 2), outline, fill, ratio, theme.scheme, theme.accent,
+           id(theme.tokens))
+    pixmap = _glass_cache.get(key)
+    if pixmap is None:
+        pixmap = _glass_pixmap(key, QRectF(0, 0, width, height), draw, kind, state, radius, outline, fill, theme,
+                               ratio)
+    else:
+        _glass_cache.move_to_end(key)
+    painter.drawPixmap(QPointF(box.left(), box.top()), pixmap)
+
+
+def _solid_direct(painter: QPainter, box: QRectF, kind: str, state: str, radius: float, outline: bool, fill: bool,
+                  theme) -> None:
+    """The opaque surface that glass replaces: the kind's colour, the surface outline, the state layer."""
+    layer = _STATE_LAYERS.get(state)
+    solid = _SOLID.get(kind, "card") if fill else None
+    if solid is not None or (outline and not fill):
+        rounded_rect(painter, box, radius, solid, "stroke-surface" if outline else None)
+    if layer is not None and fill:
+        rounded_rect(painter, box, radius, layer)
+
+
+def _glass_pixmap(key: tuple, box: QRectF, draw, kind: str, state: str, radius: float, outline: bool, fill: bool,
+                  theme, ratio: float) -> QPixmap:
+    global _glass_cache_bytes, glass_renders
+    pixmap = QPixmap(max(1, round(box.width() * ratio)), max(1, round(box.height() * ratio)))
+    pixmap.setDevicePixelRatio(ratio)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    canvas = QPainter(pixmap)
+    draw(canvas, box, kind, state, radius, outline, fill, theme)
+    canvas.end()
+    glass_renders += 1
+    size = pixmap.width() * pixmap.height() * 4
+    _glass_cache[key] = pixmap
+    _glass_cache_bytes += size
+    while _glass_cache_bytes > GLASS_CACHE_BYTES and len(_glass_cache) > 1:
+        _old, dropped = _glass_cache.popitem(last=False)
+        _glass_cache_bytes -= dropped.width() * dropped.height() * 4
+    return pixmap
+
+
+def clear_glass_cache() -> None:
+    """Forget the drawn glass surfaces (tests; a theme change makes new ones anyway)."""
+    global _glass_cache_bytes
+    _glass_cache.clear()
+    _glass_cache_bytes = 0
+
+
+def _glass_direct(painter: QPainter, box: QRectF, kind: str, state: str, radius: float, outline: bool, fill: bool,
+                  theme) -> None:
+    layer = _STATE_LAYERS.get(state)
     radius = max(0.0, min(radius, box.width() / 2, box.height() / 2))
     painter.save()
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     painter.setPen(Qt.PenStyle.NoPen)
     path = QPainterPath()
     path.addRoundedRect(box, radius, radius)
-    painter.fillPath(path, qcolor(f"glass-{kind if kind in GLASS_KINDS else 'card'}", theme))
-    if layer is not None:
+    if fill:
+        painter.fillPath(path, qcolor(f"glass-{kind if kind in GLASS_KINDS else 'card'}", theme))
+    if layer is not None and fill:
         painter.fillPath(path, qcolor(layer, theme))
     glow_colour = qcolor("glass-glow", theme)
-    if kind != "pane" and glow_colour.alpha() > 0:
+    if fill and kind != "pane" and glow_colour.alpha() > 0:
         glow = QLinearGradient(box.topLeft(), box.topLeft() + QPointF(0, min(box.height() * 0.6, _GLOW_HEIGHT)))
         glow.setColorAt(0, glow_colour)
         glow_colour.setAlpha(0)

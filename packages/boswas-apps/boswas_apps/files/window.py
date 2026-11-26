@@ -34,13 +34,17 @@ SORT_LABELS = (("name", "Name"), ("date", "Date modified"), ("type", "Type"), ("
 
 
 class _ContentFrame(QWidget):
-    """The surface behind the file views: the layer colour with a round top left corner."""
+    """The surface behind the file views: the layer colour with a round top left corner, or a sheet of glass
+    over the window's backdrop while Boswas glass is on."""
 
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)
         painter.setClipRect(self.rect())
         area = QRectF(self.rect()).adjusted(0, 0, 8, 8)
-        paint.rounded_rect(painter, area, fluent.theme().radius("flyout"), "layer", "stroke-surface")
+        if fluent.glass.enabled():
+            paint.glass(painter, area, "card", radius=fluent.theme().radius("flyout"))
+        else:
+            paint.rounded_rect(painter, area, fluent.theme().radius("flyout"), "layer", "stroke-surface")
 
 
 class MainWindow(fluent.FluentWindow):

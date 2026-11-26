@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import os
 import re
+from collections import OrderedDict
 from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QPoint, QRect, QSize, Qt
@@ -52,6 +53,8 @@ _paths: dict[str, Path | None] = {}
 _hicolor: dict[str, list[tuple[int, Path]]] = {}
 _icons: dict[tuple, QIcon] = {}
 _missing: set[str] = set()
+_pixmaps: OrderedDict[tuple, QPixmap] = OrderedDict()
+PIXMAP_CACHE = 256            # rendered icon pixmaps kept by cached_pixmap
 
 
 def icon_roots() -> list[Path]:
@@ -150,6 +153,7 @@ def clear_cache() -> None:
     _hicolor.clear()
     _icons.clear()
     _missing.clear()
+    _pixmaps.clear()
 
 
 def missing_icons() -> list[str]:
@@ -314,6 +318,23 @@ def pixmap(source: QIcon | str, size: int, *, color: str | None = None, enabled:
     mode = QIcon.Mode.Normal if enabled else QIcon.Mode.Disabled
     result = qicon.pixmap(QSize(size, size), ratio, mode, QIcon.State.Off)
     return result
+
+
+def cached_pixmap(qicon: QIcon, size: int, ratio: float = 1.0, enabled: bool = True) -> QPixmap:
+    """``qicon`` rendered at ``size`` logical pixels for a screen of device pixel ratio ``ratio``; the last
+    PIXMAP_CACHE renderings are kept (an icon that changes size while it animates is rendered once per
+    size). The cache is emptied when the theme is applied again."""
+    key = (qicon.cacheKey(), size, round(ratio, 3), enabled)
+    cached = _pixmaps.get(key)
+    if cached is not None:
+        _pixmaps.move_to_end(key)
+        return cached
+    mode = QIcon.Mode.Normal if enabled else QIcon.Mode.Disabled
+    rendered = qicon.pixmap(QSize(size, size), ratio, mode, QIcon.State.Off)
+    _pixmaps[key] = rendered
+    while len(_pixmaps) > PIXMAP_CACHE:
+        _pixmaps.popitem(last=False)
+    return rendered
 
 
 class _OpaqueTheme(Theme):

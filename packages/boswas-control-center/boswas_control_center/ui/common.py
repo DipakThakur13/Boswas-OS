@@ -56,12 +56,6 @@ def app_icon() -> QIcon:
     return themed if not themed.isNull() else mark_icon()
 
 
-def mix(a: QColor, b: QColor, amount: float) -> QColor:
-    """a blended towards b (amount 0..1)."""
-    return QColor(round(a.red() + (b.red() - a.red()) * amount), round(a.green() + (b.green() - a.green()) * amount),
-                  round(a.blue() + (b.blue() - a.blue()) * amount))
-
-
 def neutral_colour(palette: QPalette | None = None) -> QColor:
     """The colour of muted text (the palette argument is kept for callers; the colour is a token)."""
     return fluent.qcolor("text-muted")

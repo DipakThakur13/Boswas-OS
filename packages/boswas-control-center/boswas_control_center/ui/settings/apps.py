@@ -120,7 +120,7 @@ class InstalledAppsSection(_JobSection):
         row.addStretch(1)
         self.add(controls)
         self.count = self.add(fluent.Label("Reading…", "caption", self, tone="secondary"))
-        self.list = self.add(RowList(self))
+        self.list = self.add(RowList(self, applications=True))
         self.search.textChanged.connect(lambda _t: self.populate())
         self.source.activated.connect(lambda _i: self.populate())
         self.order.activated.connect(lambda _i: self.populate())
@@ -283,7 +283,7 @@ class OptionalFeaturesSection(_JobSection):
 
     def __init__(self, parent: QWidget | None = None, *, environ=None, runner=None):
         super().__init__(parent, environ=environ, runner=runner)
-        self.list = self.add(RowList(self))
+        self.list = self.add(RowList(self, applications=True))
         self.status: dict = {}
         self.offered: list[features.Feature] = []
 

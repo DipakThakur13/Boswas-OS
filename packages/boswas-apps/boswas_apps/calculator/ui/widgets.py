@@ -103,6 +103,10 @@ class KeyButton(QAbstractButton):
             fill = "accent-fill-pressed" if pressed else ("accent-fill-hover" if hovered else "accent")
             fluent.paint.rounded_rect(painter, box, radius, fill)
             text = "on-accent"
+        elif self.kind in (NUMBER, OPERATOR) and fluent.glass.enabled():
+            # Boswas glass: the digits on the lighter card glass, the operators on the deeper pane glass.
+            state = "pressed" if pressed else ("hover" if hovered else "rest")
+            fluent.paint.glass(painter, box, "card" if self.kind == NUMBER else "pane", state=state, radius=radius)
         else:
             if self.kind == NUMBER:
                 fluent.paint.rounded_rect(painter, box, radius, "surface-raised" if theme.is_dark else "surface",

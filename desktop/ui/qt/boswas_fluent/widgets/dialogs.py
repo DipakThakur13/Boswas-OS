@@ -10,7 +10,7 @@ from PySide6.QtGui import QAction, QIcon, QKeySequence, QPainter, QPainterPath
 from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QMenu, QPushButton, QSizePolicy, QVBoxLayout,
                                QWidget)
 
-from .. import icons, paint
+from .. import glass, icons, paint
 from ..animation import Animation
 from ..theming import current_theme, duration, easing, qcolor, repolish
 from .basic import Button, IconButton, Label, to_icon
@@ -31,13 +31,23 @@ class _DialogCard(QFrame):
         clip = QPainterPath()
         clip.addRoundedRect(box, radius, radius)
         painter.setClipPath(clip)
-        painter.fillRect(box, qcolor("flyout"))
+        on_glass = glass.enabled() and glass.paint_backdrop(painter, self, box)
+        if on_glass:
+            # Acrylic: the window's backdrop under the flyout glass, the button strip a deeper pane.
+            painter.setClipping(False)
+            paint.glass(painter, box, "flyout", radius=radius, outline=False)
+            painter.setClipPath(clip)
+        else:
+            painter.fillRect(box, qcolor("flyout"))
         if self.strip_top:
             strip = QRectF(0, self.strip_top, box.width(), box.height() - self.strip_top)
-            painter.fillRect(strip, qcolor("background"))
+            painter.fillRect(strip, qcolor("glass-pane" if on_glass else "background"))
             painter.fillRect(QRectF(0, self.strip_top, box.width(), 1), qcolor("stroke-divider"))
         painter.setClipping(False)
-        paint.rounded_rect(painter, box, radius, None, "stroke-surface")
+        if on_glass:
+            paint.glass(painter, box, "flyout", radius=radius, outline=True, fill=False)
+        else:
+            paint.rounded_rect(painter, box, radius, None, "stroke-surface")
 
 
 class ContentDialog(QWidget):
@@ -396,6 +406,17 @@ class Flyout(QWidget):
         box = self.surface.geometry()
         radius = current_theme().radius("flyout")
         paint.shadow(painter, box, radius, "flyout")
+        if glass.enabled():
+            # Acrylic: the backdrop of the window the flyout belongs to, under the flyout glass.
+            painter.save()
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            clip = QPainterPath()
+            clip.addRoundedRect(QRectF(box), radius, radius)
+            painter.setClipPath(clip)
+            glass.paint_backdrop(painter, self, box)
+            painter.restore()
+            paint.glass(painter, box, "flyout", radius=radius)
+            return
         paint.rounded_rect(painter, box, radius, "flyout", "stroke-surface")
 
 

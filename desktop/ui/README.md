@@ -87,12 +87,27 @@ dark accent with white text.
 |-------|------------|
 | `stroke` | One-pixel outlines, as an opacity of white (dark theme) or black (light theme) over whatever lies beneath: `control`, `surface`, `divider`, `window` |
 | `fill` | The state layers of controls, in the same way: `control`, `control-hover`, `control-pressed`, `subtle-hover`, `subtle-pressed`, `disabled`. "Subtle" controls have no fill at rest |
-| `material` | `mica`, `acrylic`, `chrome` and `smoke`: a `tint`, a `tint-opacity` and a `blur` radius each. Mica is for window chrome and long-lived surfaces, acrylic for flyouts and menus, chrome for the taskbar; smoke dims what lies behind a dialog |
+| `material` | `mica`, `acrylic`, `chrome` and `smoke`: a `tint`, a `tint-opacity` and a `blur` radius each. Mica is for window chrome and long-lived surfaces, acrylic for flyouts and menus, chrome for the taskbar; smoke dims what lies behind a dialog. `glass`: Boswas glass, the material of the Qt applications (below) |
 
 Mica, acrylic and chrome are drawn from the desktop wallpaper: blurred by
 `blur` logical pixels and covered with the tint. Windows that lie between
 the wallpaper and the surface are not part of the picture: there is no
-live blur (ADR-0036). The Qt toolkit fills with the tints, opaque.
+live blur (ADR-0036).
+
+`material.glass` is what the Qt toolkit draws with ([qt/README.md](qt/README.md#glass-glass)):
+
+| Key | What it is |
+|-----|------------|
+| `tint`, `tint-opacity` | The window backdrop: the desktop background covered with this tint. Each scheme (`dark`, `light`) gives its own `tint-opacity` (0.62 and 0.54), a minimum that the toolkit raises where a picture would leave text under 4.5:1 |
+| `blur`, `saturation`, `noise` | The backdrop's blur (80 logical pixels, a Gaussian of sigma blur/2 as the shell's materials), how much its colours are saturated (1.3) and the opacity of its grain (0.012), so that wide soft areas do not band |
+| `pane-tint`, `card-tint`, `flyout-tint` | The tints of the glass that lies on the backdrop: navigation panes (`@background`), cards and rows (`@surface`), flyouts, menus and dialogs (`@surface`) |
+| `dark` / `light`: `pane`, `card`, `flyout` | Their opacities (dark 0.34, 0.56, 0.84; light 0.4, 0.7, 0.86): the more a surface stands over content, the more opaque |
+| `dark` / `light`: `highlight`, `highlight-hover`, `glow`, `shadow` | The white top hairline of glass (stronger under the pointer), the white inner glow below the top edge and the black of the lower hairline |
+
+With `[appearance] transparency = false` or a high-contrast preset the
+toolkit draws every surface opaque. The shell, the compositor and the Rust
+`boswas-ui` crate do not read `glass` yet; it is an addition, so they read
+the other materials as before.
 
 ### Icon hues (`icon.hues`)
 
@@ -213,6 +228,9 @@ They check that:
   control radius, the taskbar is 48 high, the title bar 32 and a caption
   button 46 by 32, every stroke and fill opacity lies between 0 and 0.25,
   and every material's tint resolves;
+- glass holds: its tints resolve, both schemes give every level as an
+  opacity, blur, saturation and grain stay in range, and the pane, the card
+  and the flyout grow more opaque in that order;
 - icon glyphs stay readable on their tiles;
 - the committed colour schemes are what the generator produces now, and
   it writes nothing else;

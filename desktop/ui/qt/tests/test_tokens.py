@@ -88,6 +88,8 @@ class ThemeTest(unittest.TestCase):
             for status in ("accent", "info", "success", "warning", "danger"):
                 derived, role = theme.color(f"{status}-text"), theme.color(status)
                 surfaces = [theme.color(s) for s in ("background", "layer", "surface")]
+                if theme.has_glass:                # coloured text stays readable on glass as well
+                    surfaces.append(theme.glass_floor())
                 if all(tokens.contrast(role, s) >= tokens.TEXT_CONTRAST for s in surfaces):
                     self.assertEqual(derived, role, f"{scheme} {status}: readable roles are not touched")
                 for surface in surfaces:

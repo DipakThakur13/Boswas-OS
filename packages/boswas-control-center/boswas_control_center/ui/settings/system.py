@@ -499,6 +499,11 @@ class DefaultAppsSection(FilesSection):
             self.cards[kind.key] = self.add(fluent.SettingsCard(kind.title, kind.description,
                                                                 fluent.icon(kind.icon), box, self))
             box.setEnabled(False)
+        # The same look as the other lists of applications: the grey hover, the icon that grows.
+        for card in self.cards.values():
+            card.set_hover_highlight(True)
+        self.magnifier = fluent.IconMagnifier(self)
+        self.magnifier.set_rows(list(self.cards.values()))
 
     def watched(self) -> list[str]:
         try:
@@ -655,7 +660,7 @@ class StartupSection(FilesSection):
         self.add_button.clicked.connect(self.add_app)
         self.header = self.add(fluent.SettingsCard("Applications that start when you sign in", "", None,
                                                    self.add_button, self))
-        self.list = RowList(self)
+        self.list = RowList(self, applications=True)
         self.add(self.list)
         self.entries: list[defaultapps.Startup] = []
         self.apps: list[defaultapps.App] = []

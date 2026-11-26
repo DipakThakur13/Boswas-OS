@@ -34,9 +34,10 @@ in tokens.json, ADR-0039's "mica and acrylic" done in the toolkit):
 Costs: nothing is blurred per frame. The picture is decoded once, off the
 GUI thread (until it is ready a window is painted opaque); the reduced,
 blurred and tinted picture is made once per picture, scheme and accent
-(a few milliseconds); the backdrop of a window once per window size, kept
-for the last ``KEPT_BACKDROPS`` sizes. Painting it is one copy of the part
-that is repainted.
+(a few milliseconds); the backdrop of a window a little larger than the
+window (``BUCKET``), so that resizing does not make one per frame, and the
+last ``KEPT_BACKDROPS`` are kept. Painting it is one copy of the part that
+is repainted.
 """
 
 from __future__ import annotations
@@ -55,14 +56,18 @@ from .tokens import TEXT_CONTRAST, Theme, blend, contrast, luminance, to_hex
 TINY_WIDTH = 96            # the picture is first reduced to this many pixels across (the screen's aspect ratio)
 SOFT_WIDTH = 384           # and blurred at this width
 PROBE = (64, 36)           # the size at which the backdrop is searched for its darkest and brightest parts
-KEPT_BACKDROPS = 4         # window backdrops kept, one per window size
+KEPT_BACKDROPS = 3         # window backdrops kept
+BUCKET = 160               # a backdrop's sides are the window's rounded up to this (logical pixels)
 GRAIN_TILE = 64            # device pixels of the grain pattern, tiled
 LEGIBILITY_STEP = 0.02
 MAX_PICTURE_BYTES = 64 << 20
 DEFAULT_SCREEN = QSize(1920, 1080)
-# The text colours that may stand on glass, and the surfaces they stand on there.
-TEXT_ON_GLASS = ("text", "text-secondary", "text-muted", "accent-text", "info-text", "success-text", "warning-text",
-                 "danger-text")
+# The text colours that stand on glass, held to what the opaque surfaces guarantee (tests/test_contrast.py):
+# body text on every surface and state layer, muted and coloured text on every surface, the link colour of a
+# hovered or pressed hyperlink on the state layers.
+BODY_TEXT = ("text", "text-secondary")
+SURFACE_TEXT = ("text-muted", "accent-text", "info-text", "success-text", "warning-text", "danger-text")
+LAYER_TEXT = ("accent-text-strong",)
 _EXTREMES = 6              # darkest and brightest probe pixels that are checked
 
 
@@ -214,24 +219,33 @@ def _probe(image: QImage) -> list[str]:
 
 
 def glass_surfaces(theme: Theme, backdrop: str) -> dict[str, str]:
-    """Every opaque colour text can stand on where the backdrop is ``backdrop``: the backdrop, a pane and a
-    card of glass on it, each also under the hover and pressed layers."""
+    """The opaque colours text stands on where the backdrop is ``backdrop``: the backdrop, and a pane and a
+    card of glass on it."""
     surfaces = {"backdrop": backdrop}
     for kind in ("pane", "card"):
         colour, alpha = theme.rgba(f"glass-{kind}")
         surfaces[kind] = blend(backdrop, colour, alpha)
-    for name in list(surfaces):
-        for layer in ("fill-subtle-hover", "fill-subtle-pressed"):
-            colour, alpha = theme.rgba(layer)
-            surfaces[f"{layer} on {name}"] = blend(surfaces[name], colour, alpha)
     return surfaces
 
 
+def glass_layers(theme: Theme, backdrop: str) -> dict[str, str]:
+    """``glass_surfaces`` under the hover and the pressed layer."""
+    layers = {}
+    for name, surface in glass_surfaces(theme, backdrop).items():
+        for layer in ("fill-subtle-hover", "fill-subtle-pressed"):
+            colour, alpha = theme.rgba(layer)
+            layers[f"{layer} on {name}"] = blend(surface, colour, alpha)
+    return layers
+
+
 def legible(theme: Theme, backdrop: str) -> bool:
-    """Whether every text colour that may stand on glass keeps 4.5:1 on ``backdrop`` and the glass on it."""
-    texts = [theme.color(name) for name in TEXT_ON_GLASS]
-    return all(contrast(text, surface) >= TEXT_CONTRAST
-               for surface in glass_surfaces(theme, backdrop).values() for text in texts)
+    """Whether text on ``backdrop`` and on the glass on it keeps 4.5:1 as on the opaque surfaces (see
+    BODY_TEXT, SURFACE_TEXT, LAYER_TEXT)."""
+    surfaces = list(glass_surfaces(theme, backdrop).values())
+    layers = list(glass_layers(theme, backdrop).values())
+    pairs = [(name, surfaces + layers) for name in BODY_TEXT] + [(name, surfaces) for name in SURFACE_TEXT] \
+        + [(name, layers) for name in LAYER_TEXT]
+    return all(contrast(theme.color(name), surface) >= TEXT_CONTRAST for name, behind in pairs for surface in behind)
 
 
 def legible_opacity(theme: Theme, colours: list[str]) -> float:
@@ -358,41 +372,70 @@ class Backdrop:
         return self._soft[key]
 
     # --- the backdrop of a window ---
-    def window(self, theme: Theme, wallpaper: str, size: QSize, dpr: float, screen: QSize) -> QPixmap | None:
-        """The backdrop of a window of ``size`` (logical pixels) at ``dpr``, or None while the picture loads."""
+    def window(self, theme: Theme, wallpaper: str, size: QSize, dpr: float,
+               screen: QSize) -> tuple[QPixmap, QPointF] | None:
+        """The backdrop of a window of ``size`` (logical pixels) at ``dpr``: a pixmap and where the window's top
+        left corner lies in it; None while the picture loads.
+
+        A window shows the part of the screen-sized picture centred on the screen, so the backdrop of a
+        larger window holds that of a smaller one in its middle. A backdrop is therefore made a little larger
+        than the window (sides rounded up to BUCKET, at most the screen) and every smaller window, and every
+        window that grows within it while it is resized, is a part of it: no new backdrop per frame.
+        """
         soft = self.soft(theme, wallpaper, screen)
         if soft is None or size.isEmpty():
             return None
         image, alpha, _mean = soft
-        key = (theme.scheme, theme.accent, id(theme.tokens), wallpaper, alpha, size.width(), size.height(),
-               round(dpr, 3), screen.width(), screen.height(), image.cacheKey())
-        cached = self._windows.get(key)
-        if cached is not None:
-            self._windows.move_to_end(key)
-            return cached
         width, height = size.width(), size.height()
         sw, sh = max(1, screen.width()), max(1, screen.height())
-        fit = min(1.0, sw / width, sh / height)       # a window larger than the screen shows all of it
-        crop_w, crop_h = width * fit, height * fit
-        scale = image.width() / sw
-        source = QRectF((sw - crop_w) / 2 * scale, (sh - crop_h) / 2 * scale, crop_w * scale, crop_h * scale)
-        pixmap = QPixmap(max(1, round(width * dpr)), max(1, round(height * dpr)))
+        base = (theme.scheme, theme.accent, id(theme.tokens), wallpaper, alpha, round(dpr, 3), sw, sh,
+                image.cacheKey())
+        fits = width <= sw and height <= sh
+        if fits:
+            # The smallest kept backdrop that holds this window.
+            best = None
+            for key, pixmap in self._windows.items():
+                if key[:-2] == base and key[-2] >= width and key[-1] >= height and key[-2] <= sw:
+                    if best is None or key[-2] * key[-1] < best[0][-2] * best[0][-1]:
+                        best = (key, pixmap)
+            if best is not None:
+                key, pixmap = best
+                self._windows.move_to_end(key)
+                return pixmap, QPointF((key[-2] - width) // 2, (key[-1] - height) // 2)
+            made_w = min(sw, -(-width // BUCKET) * BUCKET)
+            made_h = min(sh, -(-height // BUCKET) * BUCKET)
+            scale = image.width() / sw
+            source = QRectF((sw - made_w) / 2 * scale, (sh - made_h) / 2 * scale, made_w * scale, made_h * scale)
+        else:
+            # A window larger than the screen shows all of the picture, enlarged.
+            made_w, made_h = width, height
+            key = base + (width + sw + 1, height)            # never the backdrop of a smaller window
+            cached = self._windows.get(key)
+            if cached is not None:
+                self._windows.move_to_end(key)
+                return cached, QPointF(0, 0)
+            fit = min(sw / width, sh / height)
+            scale = image.width() / sw
+            crop_w, crop_h = width * fit, height * fit
+            source = QRectF((sw - crop_w) / 2 * scale, (sh - crop_h) / 2 * scale, crop_w * scale, crop_h * scale)
+        pixmap = QPixmap(max(1, round(made_w * dpr)), max(1, round(made_h * dpr)))
         pixmap.setDevicePixelRatio(dpr)
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-        painter.drawImage(QRectF(0, 0, width, height), image, source)
+        painter.drawImage(QRectF(0, 0, made_w, made_h), image, source)
         noise = theme.glass("noise")
         if noise > 0:
             grain = self._grains.get(dpr)
             if grain is None:
                 grain = self._grains[dpr] = _grain(dpr, noise)
-            painter.drawTiledPixmap(QRectF(0, 0, width, height), grain)
+            painter.drawTiledPixmap(QRectF(0, 0, made_w, made_h), grain)
         painter.end()
         self.renders += 1
+        key = base + ((made_w, made_h) if fits else (width + sw + 1, height))
         self._windows[key] = pixmap
         while len(self._windows) > KEPT_BACKDROPS:
             self._windows.popitem(last=False)
-        return pixmap
+        return pixmap, QPointF((made_w - width) // 2, (made_h - height) // 2) if fits else QPointF(0, 0)
 
 
 _backdrop: Backdrop | None = None
@@ -427,8 +470,9 @@ def host_of(widget: QWidget) -> QWidget:
     return window
 
 
-def window_backdrop(window: QWidget) -> QPixmap | None:
-    """The backdrop pixmap of ``window`` for its size and screen now (None: glass is off or not ready)."""
+def window_backdrop(window: QWidget) -> tuple[QPixmap, QPointF] | None:
+    """The backdrop of ``window`` for its size and screen now: a pixmap and the window's top left corner in it
+    (None: glass is off or the picture is not ready)."""
     if not enabled():
         return None
     from .theming import manager
@@ -441,14 +485,16 @@ def paint_backdrop(painter: QPainter, widget: QWidget, rect: QRect | QRectF | No
     """Paint the backdrop under ``rect`` (default: all) of ``widget``: the part of its window's backdrop that
     lies there. False (and nothing painted) while glass is off or the picture loads."""
     host = host_of(widget)
-    pixmap = window_backdrop(host)
-    if pixmap is None:
+    found = window_backdrop(host)
+    if found is None:
         return False
+    pixmap, origin = found
     target = QRectF(widget.rect() if rect is None else rect)
     if host is widget or host.isAncestorOf(widget):
         offset = QPointF(widget.mapTo(host, QPoint(0, 0)))
     else:
         offset = QPointF(widget.mapToGlobal(QPoint(0, 0)) - host.mapToGlobal(QPoint(0, 0)))
+    offset += origin
     dpr = pixmap.devicePixelRatio()
     source = target.translated(offset)
     bounds = QRectF(0, 0, pixmap.width() / dpr, pixmap.height() / dpr)

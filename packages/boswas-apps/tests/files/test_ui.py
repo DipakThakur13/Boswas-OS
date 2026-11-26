@@ -1067,3 +1067,27 @@ class OpeningTest(FilesCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GlassTest(FilesCase):
+    def test_the_content_layer_is_glass_while_glass_is_on(self):
+        """Over the window's backdrop the views lie on a sheet of card glass; without glass on the layer colour."""
+        import boswas_fluent as fluent
+        from boswas_fluent import glass
+        from boswas_fluent.tokens import blend
+        from boswas_apps.files.window import _ContentFrame
+        testing.set_glass(True)
+        window = self.window()
+        frame = window.findChild(_ContentFrame)
+        self.assertIsNotNone(frame)
+        point = frame.mapTo(window, QPoint(frame.width() - 30, frame.height() - 6))
+        backdrop, origin = glass.window_backdrop(window)
+        below = backdrop.toImage().pixelColor(point + origin.toPoint()).name()
+        colour, alpha = fluent.theme().rgba("glass-card")
+        expected = blend(below, colour, alpha)
+        shown = window.grab().toImage().pixelColor(point)
+        want = [int(expected[i:i + 2], 16) for i in (1, 3, 5)]
+        self.assertTrue(all(abs(a - b) <= 4 for a, b in zip((shown.red(), shown.green(), shown.blue()), want)),
+                        f"{shown.name()} is the card glass over the backdrop {below} ({expected})")
+        testing.set_glass(False)
+        self.assertEqual(window.grab().toImage().pixelColor(point).name().upper(), fluent.theme().color("layer"))
