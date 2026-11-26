@@ -1766,6 +1766,7 @@ class InstanceTest(PhotosCase):
             self.assertEqual(main(["boswas-photos", "--slideshow", "relative.png", "/abs.png"]), 0)
         self.assertEqual(calls["app_id"], "com.boswas.Photos")
         self.assertEqual(calls["options"]["argv"], ["boswas-photos", "--slideshow", "/work/relative.png", "/abs.png"])
+        self.assertTrue(calls["options"]["multiple_windows"], "--new-window of a later start: a window of its own")
 
 
 class PackagingTest(unittest.TestCase):

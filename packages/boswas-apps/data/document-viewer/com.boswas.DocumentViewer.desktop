@@ -15,4 +15,4 @@ Actions=NewWindow;
 
 [Desktop Action NewWindow]
 Name=New Window
-Exec=boswas-document-viewer
+Exec=boswas-document-viewer --new-window

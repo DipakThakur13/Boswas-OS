@@ -15,4 +15,4 @@ Actions=NewWindow;
 
 [Desktop Action NewWindow]
 Name=New Window
-Exec=boswas-archive-manager
+Exec=boswas-archive-manager --new-window

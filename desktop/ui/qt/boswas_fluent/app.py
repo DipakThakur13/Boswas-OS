@@ -14,6 +14,15 @@ its arguments as one line of JSON, and exits with 0. The first instance
 raises its window and, if the window has a method
 ``handle_arguments(list[str])``, passes the arguments to it. Without a
 usable ``$XDG_RUNTIME_DIR`` every start is its own instance.
+
+A new window: ``--new-window`` (NEW_WINDOW) on the command line asks for
+another window. An application that can show several windows says so with
+``run(..., multiple_windows=True)``; a later start with ``--new-window``
+then builds one more window with ``window_factory`` in the running
+instance. Otherwise the option is taken out of the arguments and the
+window comes forward, as for any later start (an application with one
+window, such as Clock or Task Manager). A later start without the option
+goes to the window that was active last.
 """
 
 from __future__ import annotations
@@ -27,14 +36,16 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from PySide6.QtCore import QByteArray, QObject, QSocketNotifier, Signal
+from PySide6.QtCore import QByteArray, QEvent, QObject, QSocketNotifier, Qt, Signal
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication, QWidget
+from shiboken6 import isValid
 
 from . import desktop, icons
 from .theming import apply
 
 EXIT_ROOT = 4
+NEW_WINDOW = "--new-window"
 _MAX_MESSAGE = 64 * 1024
 _MAX_ARGUMENTS = 256
 _MAX_ARGUMENT = 8192
@@ -197,6 +208,56 @@ class SingleInstance(QObject):
             self._server = None
 
 
+def split_new_window(arguments: list[str]) -> tuple[bool, list[str]]:
+    """Whether ``arguments`` ask for a new window (NEW_WINDOW before a ``--``), and the arguments without it."""
+    wanted, rest, options = False, [], True
+    for argument in arguments:
+        if options and argument == "--":
+            options = False
+        elif options and argument == NEW_WINDOW:
+            wanted = True
+            continue
+        rest.append(argument)
+    return wanted, rest
+
+
+class _Windows(QObject):
+    """The windows ``run`` made, most recently active last: where a later start goes."""
+
+    def __init__(self, parent: QObject | None = None) -> None:
+        super().__init__(parent)
+        self._windows: list[QWidget] = []
+
+    def add(self, window: QWidget) -> None:
+        self._windows.append(window)
+        window.installEventFilter(self)
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        if event.type() == QEvent.Type.WindowActivate:
+            for index, window in enumerate(self._windows):
+                if window is watched:
+                    self._windows.append(self._windows.pop(index))
+                    break
+        return False
+
+    def windows(self) -> list[QWidget]:
+        """The windows that still exist (a window made for ``--new-window`` is deleted when it closes)."""
+        self._windows = [window for window in self._windows if isValid(window)]
+        return list(self._windows)
+
+    def target(self) -> QWidget | None:
+        """The window a later start goes to: the active one, else the one active last; a closed one only if no
+        other is open."""
+        windows = self.windows()
+        shown = [window for window in windows if window.isVisible()]
+        for window in shown:
+            if window.isActiveWindow():
+                return window
+        if shown:
+            return shown[-1]
+        return windows[0] if windows else None
+
+
 def activate_window(window: QWidget, activation_token: str = "") -> None:
     """Bring ``window`` to the user: shown, not minimised, raised, active (as far as the compositor allows).
 
@@ -256,14 +317,20 @@ def install_signal_handlers(app: QApplication) -> QObject:
 
 def run(app_id: str, window_factory: Callable[[list[str]], QWidget], *, argv: list[str] | None = None,
         display_name: str | None = None, version: str | None = None, icon: str | None = None,
-        single_instance: bool = True, allow_root: bool = False) -> int:
+        single_instance: bool = True, allow_root: bool = False, multiple_windows: bool = False) -> int:
     """Run an application until its last window closes; returns the exit code for ``sys.exit``.
 
     ``app_id`` is the desktop file name without ``.desktop``
     (``com.boswas.Files``). ``window_factory(arguments)`` builds and returns
     the main window; ``arguments`` are the command line arguments without the
-    program name and without the options Qt took for itself. ``icon`` is an
-    icon name for the windows (default: ``app_id``, then the window's own).
+    program name, without the options Qt took for itself and without
+    ``--new-window``. ``icon`` is an icon name for the windows (default:
+    ``app_id``, then the window's own).
+
+    ``multiple_windows=True``: a later start with ``--new-window`` gets a
+    window of its own, built by ``window_factory`` with that start's other
+    arguments and deleted when it is closed. Without it such a start brings
+    the window forward like any other (the application has one window).
 
     Returns 4 without starting when run as root (``allow_root=False``), and
     0 when another instance was running and has been told to come forward.
@@ -295,13 +362,24 @@ def run(app_id: str, window_factory: Callable[[list[str]], QWidget], *, argv: li
     qicon = icons.icon(icon or app_id)
     if not qicon.isNull():
         app.setWindowIcon(qicon)
-    window = window_factory(arguments)
+    window = window_factory(split_new_window(arguments)[1])
+    windows = _Windows(app)
+    windows.add(window)
 
     def another_start(forwarded: list) -> None:
-        handler = getattr(window, "handle_arguments", None)
+        token = instance.activation_token if instance is not None else ""
+        wanted, rest = split_new_window([str(item) for item in forwarded])
+        if wanted and multiple_windows:
+            extra = window_factory(rest)
+            extra.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+            windows.add(extra)
+            activate_window(extra, token)
+            return
+        target = windows.target() or window
+        handler = getattr(target, "handle_arguments", None)
         if callable(handler):
-            handler(list(forwarded))
-        activate_window(window, instance.activation_token if instance is not None else "")
+            handler(rest)
+        activate_window(target, token)
 
     if instance is not None:
         instance.message_received.connect(another_start)

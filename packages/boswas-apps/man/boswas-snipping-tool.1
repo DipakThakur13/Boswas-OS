@@ -100,10 +100,18 @@ is not available; opening and marking up pictures still works.
 .PP
 Only one Snipping Tool runs per session; starting it again brings the
 window forward, with the file or the options given.
+It has one window, as Snipping Tool has on Windows (\fB\-\-new\fR starts
+another snip in it); a start with
+.B \-\-new\-window
+brings the window forward as well.
 .SH OPTIONS
 .TP
 .B \-\-new
 Start a snip straight away.
+.TP
+.B \-\-new\-window
+Accepted, and the same as a start without it: Snipping Tool has one window,
+which comes forward.
 .TP
 .BI \-\-mode= mode
 What the snip takes:

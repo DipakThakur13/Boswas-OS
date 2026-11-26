@@ -10,11 +10,11 @@ StartupNotify=true
 StartupWMClass=com.boswas.Terminal
 Categories=System;TerminalEmulator;
 Keywords=terminal;shell;command line;prompt;console;bash;ssh;
-Actions=new-window;
+Actions=NewWindow;
 X-TerminalArgExec=-e
 X-TerminalArgTitle=--title
 X-TerminalArgDir=--working-directory
 
-[Desktop Action new-window]
+[Desktop Action NewWindow]
 Name=New Window
 Exec=boswas-terminal --new-window

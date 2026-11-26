@@ -15,6 +15,8 @@ def parse_arguments(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
                     "converters.")
     parser.add_argument("--mode", choices=state.PAGES, metavar="MODE",
                         help="open in this mode instead of the last one: " + ", ".join(state.PAGES))
+    parser.add_argument("--new-window", action="store_true",
+                        help="open a new calculator (every start is a calculator of its own anyway)")
     parser.add_argument("--version", action="version", version=f"boswas-calculator {_version()}")
     return parser.parse_known_args(argv)
 

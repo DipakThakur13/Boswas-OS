@@ -3,6 +3,7 @@
 boswas-calculator \- calculator with standard, scientific and programmer modes, date calculation and unit converters
 .SH SYNOPSIS
 .B boswas-calculator
+.RB [ \-\-new\-window ]
 .RB [ \-\-mode
 .IR MODE ]
 .br
@@ -55,6 +56,11 @@ M\-, MC). Neither is kept after the program ends. The mode last used, the
 angle unit, the word size and radix and the units of each converter are
 remembered. Every start of the program opens its own window.
 .SH OPTIONS
+.TP
+.B \-\-new\-window
+Open a new calculator. Every start of the program is a calculator of its own
+(as in Windows), so this is what a plain start does too; the desktop entry's
+\(lqNew Window\(rq action uses it.
 .TP
 .BI \-\-mode " MODE"
 Open in

@@ -26,8 +26,9 @@ def main(argv: list[str] | None = None) -> int:
 
     # A running instance may have another working directory: hand it absolute names.
     forwarded = [argv[0] if argv else PROGRAM, *cli.absolute(argv[1:])]
+    # --new-window of a later start: fluent.run builds a window of its own in the running Photos.
     return fluent.run(APP_ID, PhotosWindow, argv=forwarded, display_name=DISPLAY_NAME, version=__version__,
-                      icon="boswas-photos")
+                      icon="boswas-photos", multiple_windows=True)
 
 
 if __name__ == "__main__":

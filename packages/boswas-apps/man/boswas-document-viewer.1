@@ -3,6 +3,7 @@
 boswas-document-viewer \- read, search and print PDF documents
 .SH SYNOPSIS
 .B boswas-document-viewer
+.RB [ \-\-new\-window ]
 .RI [ file " ...]"
 .br
 .B boswas-document-viewer
@@ -13,7 +14,12 @@ is Document Viewer, the PDF reader of Boswas OS. It is built on Qt PDF.
 Each
 .I file
 opens in a tab. Only one instance runs per session: a later start hands its
-files to the window that is already open and brings it forward.
+files to the window that was active last and brings it forward, and a start
+with
+.B \-\-new\-window
+opens a window of its own in the running instance (the desktop entry's
+\(lqNew Window\(rq action, and the taskbar's \(lqNew window\(rq). The windows
+share the list of recent documents.
 .PP
 The program runs as the desktop user and refuses to start as root. It only
 reads documents; it cannot change them, and it has no annotation tools.
@@ -99,6 +105,9 @@ Alt+Enter|Document properties
 Esc|Leave full screen, close the find bar, drop the selection
 .TE
 .SH OPTIONS
+.TP
+.B \-\-new\-window
+Open the files in a new window, also when Document Viewer is already running.
 .TP
 .B \-\-help
 Show the usage and exit.

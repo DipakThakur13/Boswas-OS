@@ -49,13 +49,13 @@ class StaticTest(unittest.TestCase):
         with open(os.path.join(root, "data", "files", "com.boswas.Files.desktop"), encoding="utf-8") as handle:
             entry = handle.read()
         for line in ("Name=Files", "Icon=boswas-files", "MimeType=inode/directory;", "Exec=boswas-files %U",
-                     "StartupWMClass=com.boswas.Files", "[Desktop Action new-window]", "Name=New Window",
-                     "Exec=boswas-files --new-window"):
+                     "StartupWMClass=com.boswas.Files", "Actions=NewWindow;", "[Desktop Action NewWindow]",
+                     "Name=New Window", "Exec=boswas-files --new-window"):
             self.assertIn(line + "\n", entry)
         from boswas_apps.files import desktopapps
         app = desktopapps.load_app(os.path.join(root, "data", "files", "com.boswas.Files.desktop"), "com.boswas.Files.desktop", [])
         self.assertEqual(desktopapps.expand_exec(app, ["/a b"]), [["boswas-files", "file:///a%20b"]])
-        self.assertEqual(app.actions, {"new-window": ("New Window", "boswas-files --new-window")})
+        self.assertEqual(app.actions, {"NewWindow": ("New Window", "boswas-files --new-window")})
         with open(os.path.join(root, "bin", "boswas-files"), encoding="utf-8") as handle:
             launcher = handle.read()
         self.assertTrue(launcher.startswith("#!/usr/bin/python3 -IB\n"))

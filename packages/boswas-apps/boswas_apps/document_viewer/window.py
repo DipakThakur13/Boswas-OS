@@ -7,7 +7,7 @@ import os
 import shutil
 import tempfile
 
-from PySide6.QtCore import QAbstractListModel, QModelIndex, QPoint, QSize, Qt, QTimer
+from PySide6.QtCore import QAbstractListModel, QEvent, QModelIndex, QPoint, QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QActionGroup, QGuiApplication, QIcon, QImage, QKeySequence, QPixmap
 from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLineEdit,
                                QListView, QMenu, QProgressBar, QStackedWidget, QTabBar, QToolButton, QVBoxLayout,
@@ -76,14 +76,26 @@ class _RecentModel(QAbstractListModel):
         return None
 
 
+_stores: dict[str, Store] = {}
+
+
+def shared_store() -> Store:
+    """The Store of this process: every window of Document Viewer keeps its recent files in the same one."""
+    try:
+        directory = str(fluent.state_dir(APP_ID))
+    except OSError:
+        return Store(None)
+    store = _stores.get(directory)
+    if store is None:
+        store = _stores[directory] = Store(directory)
+    return store
+
+
 class ViewerWindow(fluent.FluentWindow):
     def __init__(self, arguments: list[str] | None = None) -> None:
         super().__init__(APP_ID, DISPLAY_NAME, icon="boswas-document-viewer", size=(1180, 800), minimum_size=(640, 460))
         self.worker = fluent.Worker(self, max_threads=2)
-        try:
-            self.store = Store(fluent.state_dir(APP_ID))
-        except OSError:
-            self.store = Store(None)
+        self.store = shared_store()
         try:
             self._thumb_dir = os.path.join(str(fluent.cache_dir(APP_ID)), "thumbnails")
             os.makedirs(self._thumb_dir, mode=0o700, exist_ok=True)
@@ -952,6 +964,12 @@ class ViewerWindow(fluent.FluentWindow):
             self.bar.layout().invalidate()
 
     # --- closing ---
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.ActivationChange and self.isActiveWindow() and not self.tabs:
+            self.recent_model.refresh()                 # another window may have opened a document since
+            self._sync()
+
     def closeEvent(self, event) -> None:
         if self._print_job is not None:
             self._print_job.cancel()
