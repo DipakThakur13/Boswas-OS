@@ -608,6 +608,12 @@ pub fn geometry(panel: Rect, layout: StartLayout) -> Geometry {
     }
 }
 
+/// The window the page scrolls in, for Start in `panel`: all that changes
+/// while the page scrolls.
+pub fn page_window(panel: Rect, st: &State) -> Rect {
+    geometry(panel, st.desktop.start.layout).view
+}
+
 /// What a part of the page shows.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Piece {

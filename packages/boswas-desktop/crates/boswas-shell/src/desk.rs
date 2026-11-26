@@ -664,7 +664,7 @@ impl Shell {
     // ---------------------------------------------------------------------
 
     /// Size (with shadow room), anchor, margins and origin of a flyout.
-    fn flyout_geometry(&mut self, kind: Flyout, output: (f32, f32)) -> (Anchor, Placement) {
+    pub(crate) fn flyout_geometry(&mut self, kind: Flyout, output: (f32, f32)) -> (Anchor, Placement) {
         let t = tokens();
         let bar = t.shell("taskbar-height");
         let (w, h) = output;

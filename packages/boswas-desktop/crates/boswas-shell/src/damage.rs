@@ -27,14 +27,41 @@ pub fn changed_rect(before: &[u8], after: &[u8], width: u32, height: u32) -> Opt
         }
         top.get_or_insert(y);
         bottom = y;
-        // The first and the last pixel of the row that differ.
-        let first = a.chunks_exact(4).zip(b.chunks_exact(4)).position(|(p, q)| p != q).unwrap_or(0);
-        let last = a.chunks_exact(4).zip(b.chunks_exact(4)).rposition(|(p, q)| p != q).unwrap_or(first);
+        let (first, last) = differing_pixels(a, b);
         left = left.min(first);
         right = right.max(last);
     }
     let top = top?;
     Some((left as u32, top as u32, (right - left + 1) as u32, (bottom - top + 1) as u32))
+}
+
+/// The first and the last pixel (four bytes each) in which two rows of the
+/// same length differ; (0, 0) when they do not. Compared eight bytes at a
+/// time: rows of a large surface are compared on every frame it changes.
+fn differing_pixels(a: &[u8], b: &[u8]) -> (usize, usize) {
+    let word = |s: &[u8], i: usize| u64::from_le_bytes(s[i * 8..i * 8 + 8].try_into().unwrap_or([0; 8]));
+    let words = a.len().min(b.len()) / 8;
+    let byte_at = |i: usize, x: u64, y: u64, last: bool| {
+        // Little endian: byte k of the word is bits 8k..8k+8.
+        let bits = x ^ y;
+        let k = if last { 7 - bits.leading_zeros() as usize / 8 } else { bits.trailing_zeros() as usize / 8 };
+        i * 8 + k
+    };
+    let tail = || {
+        let start = words * 8;
+        (start..a.len().min(b.len())).filter(|&i| a[i] != b[i])
+    };
+    let first = (0..words)
+        .find(|&i| word(a, i) != word(b, i))
+        .map(|i| byte_at(i, word(a, i), word(b, i), false))
+        .or_else(|| tail().next());
+    let last = tail()
+        .last()
+        .or_else(|| (0..words).rev().find(|&i| word(a, i) != word(b, i)).map(|i| byte_at(i, word(a, i), word(b, i), true)));
+    match (first, last) {
+        (Some(first), Some(last)) => (first / 4, last / 4),
+        _ => (0, 0),
+    }
 }
 
 /// Whether no pixel of a drawing (four bytes per pixel, alpha last) lets
@@ -69,8 +96,7 @@ pub fn changed_in(before: &[u8], after: &[u8], width: u32, area: PixelRect) -> O
         }
         top.get_or_insert(y);
         bottom = y;
-        let first = a.chunks_exact(4).zip(b.chunks_exact(4)).position(|(p, q)| p != q).unwrap_or(0);
-        let last = a.chunks_exact(4).zip(b.chunks_exact(4)).rposition(|(p, q)| p != q).unwrap_or(first);
+        let (first, last) = differing_pixels(a, b);
         left = left.min(first);
         right = right.max(last);
     }
@@ -135,6 +161,25 @@ mod tests {
         assert_eq!(changed_rect(&a, &b, 20, 30), Some((0, 0, 20, 30)));
         assert_eq!(changed_rect(&[], &b, 20, 30), Some((0, 0, 20, 30)));
         assert_eq!(changed_rect(&[], &[], 0, 0), None);
+    }
+
+    #[test]
+    fn the_first_and_last_differing_pixels_are_found_in_every_position() {
+        // Rows of 1 to 9 pixels (odd lengths leave a tail of four bytes),
+        // with a difference in each byte of each pixel.
+        for pixels in 1..10usize {
+            let a = vec![7u8; pixels * 4];
+            for first in 0..pixels {
+                for last in first..pixels {
+                    for byte in 0..4 {
+                        let mut b = a.clone();
+                        b[first * 4 + byte] = 9;
+                        b[last * 4 + (3 - byte)] = 9;
+                        assert_eq!(differing_pixels(&a, &b), (first, last), "{pixels} pixels, {first}..{last}, byte {byte}");
+                    }
+                }
+            }
+        }
     }
 
     #[test]

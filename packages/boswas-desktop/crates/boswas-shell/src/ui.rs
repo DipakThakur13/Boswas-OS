@@ -83,7 +83,15 @@ pub struct Resources {
     /// while nothing they depend on changed: a flyout that is drawn frame
     /// by frame (Start's page scrolling) does not blur its shadow and its
     /// material again each time.
-    panels: Vec<(PanelKey, Rc<Pixmap>)>,
+    panels: Vec<(PanelKey, Kept)>,
+}
+
+/// A panel as kept: drawn on the whole canvas, and the part of that
+/// picture it covers (with its place on the canvas, in device pixels).
+#[derive(Clone)]
+struct Kept {
+    whole: Rc<Pixmap>,
+    part: Option<(i32, i32, Rc<Pixmap>)>,
 }
 
 /// What an overlay panel's look depends on.
@@ -99,8 +107,9 @@ struct PanelKey {
     backdrop: Option<u64>,
 }
 
-/// Panels kept by [`Resources`].
-const MAX_PANELS: usize = 3;
+/// Panels kept by [`Resources`]: Start, quick settings, the two of the
+/// notification centre, and two more (menus, previews).
+const MAX_PANELS: usize = 6;
 
 impl Resources {
     pub fn new(theme: &'static Theme) -> Self {
@@ -410,9 +419,14 @@ impl Frame<'_> {
             transparency: self.res.transparency,
             backdrop: self.res.backdrop.as_ref().map(|_| self.res.backdrop_generation),
         };
-        let cached = self.res.panels.iter().find(|(k, _)| *k == key).map(|(_, p)| p.clone());
-        let pixmap = match cached {
-            Some(pixmap) => pixmap,
+        // Most recently used last.
+        let kept = match self.res.panels.iter().position(|(k, _)| *k == key) {
+            Some(index) => {
+                let entry = self.res.panels.remove(index);
+                let kept = entry.1.clone();
+                self.res.panels.push(entry);
+                kept
+            }
             None => {
                 let mut chrome = Canvas::new(self.canvas.width(), self.canvas.height(), self.canvas.scale())?;
                 {
@@ -427,22 +441,35 @@ impl Frame<'_> {
                     };
                     frame.paint_panel(rect, material);
                 }
-                let pixmap = Rc::new(chrome.into_pixmap());
+                // The part of the picture the panel and its shadow cover.
+                let e = tokens().elevation("flyout");
+                let reach = e.blur + e.y.abs() + 2.0;
+                let area = device_rect(&Rect::new(rect.x - reach, rect.y - reach, rect.w + 2.0 * reach, rect.h + 2.0 * reach), chrome.scale());
+                let whole = chrome.into_pixmap();
+                let part = tiny_skia::IntRect::from_xywh(area.0 as i32, area.1 as i32, area.2, area.3)
+                    .and_then(|r| whole.clone_rect(r).map(|p| (r.x(), r.y(), Rc::new(p))));
+                let kept = Kept { whole: Rc::new(whole), part };
                 if self.res.panels.len() >= MAX_PANELS {
                     self.res.panels.remove(0);
                 }
-                self.res.panels.push((key, pixmap.clone()));
-                pixmap
+                self.res.panels.push((key, kept.clone()));
+                kept
             }
         };
         // Usually the first thing drawn: then a copy does (of the part
-        // being drawn again, when only a part is).
+        // being drawn again, when only a part is). Over something drawn
+        // already, only the part of the picture the panel covers is laid
+        // on (the rest of it is transparent).
         if self.canvas.is_blank() {
-            self.canvas.copy_from_full(&pixmap);
+            self.canvas.copy_from_full(&kept.whole);
+        } else if let Some((x, y, part)) = &kept.part {
+            let paint = tiny_skia::PixmapPaint { quality: tiny_skia::FilterQuality::Nearest, ..tiny_skia::PixmapPaint::default() };
+            self.canvas.draw_device_pixmap(*x, *y, part.as_ref().as_ref(), &paint);
         } else {
             let (w, h) = (self.canvas.width(), self.canvas.height());
-            self.canvas.draw_pixmap(&pixmap, 0.0, 0.0, w, h, 1.0);
+            self.canvas.draw_pixmap(&kept.whole, 0.0, 0.0, w, h, 1.0);
         }
+        let pixmap = kept.whole;
         Some(pixmap)
     }
 

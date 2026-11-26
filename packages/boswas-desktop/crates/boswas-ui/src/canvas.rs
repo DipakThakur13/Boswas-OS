@@ -196,10 +196,10 @@ impl Canvas {
         for y in y0..y1 {
             let range = (y * w + x0) * 4..(y * w + x1) * 4;
             for (dst, src) in out[range.clone()].chunks_exact_mut(4).zip(data[range].chunks_exact(4)) {
-                dst[0] = src[2];
-                dst[1] = src[1];
-                dst[2] = src[0];
-                dst[3] = src[3];
+                // R, G, B, A to B, G, R, A: red and blue trade places.
+                let p = u32::from_le_bytes([src[0], src[1], src[2], src[3]]);
+                let q = (p & 0xff00_ff00) | ((p >> 16) & 0xff) | ((p & 0xff) << 16);
+                dst.copy_from_slice(&q.to_le_bytes());
             }
         }
     }

@@ -31,6 +31,77 @@ const MAX_BUFFERS: usize = 4;
 /// How far (logical pixels) a surface slides while it opens or closes.
 pub const SLIDE: f32 = 10.0;
 
+/// Canvases and buffers of surfaces that are gone, kept for the next ones
+/// (a flyout is a new surface each time it opens): their memory is
+/// already there, so opening Start does not allocate and fault in tens of
+/// megabytes again at 200 %.
+mod spare {
+    use super::{Buffers, Canvas};
+    use std::cell::RefCell;
+
+    /// Bytes of canvases kept at most.
+    const MAX_CANVAS_BYTES: usize = 64 * 1024 * 1024;
+    /// Sets of buffers kept at most.
+    const MAX_BUFFERS: usize = 2;
+
+    thread_local! {
+        static CANVASES: RefCell<Vec<Canvas>> = const { RefCell::new(Vec::new()) };
+        static BUFFERS: RefCell<Vec<Buffers>> = const { RefCell::new(Vec::new()) };
+    }
+
+    pub fn put_canvas(canvas: Canvas) {
+        CANVASES.with(|cell| {
+            let mut kept = cell.borrow_mut();
+            kept.push(canvas);
+            while kept.iter().map(|c| c.data().len()).sum::<usize>() > MAX_CANVAS_BYTES {
+                kept.remove(0);
+            }
+        });
+    }
+
+    pub fn take_canvas(width: f32, height: f32, scale: f32) -> Option<Canvas> {
+        CANVASES.with(|cell| {
+            let mut kept = cell.borrow_mut();
+            let index = kept.iter().position(|c| c.width() == width && c.height() == height && c.scale() == scale)?;
+            let mut canvas = kept.swap_remove(index);
+            canvas.reset();
+            Some(canvas)
+        })
+    }
+
+    pub fn put_buffers(buffers: Buffers) {
+        if buffers.pool.is_none() {
+            return;
+        }
+        BUFFERS.with(|cell| {
+            let mut kept = cell.borrow_mut();
+            kept.push(buffers);
+            if kept.len() > MAX_BUFFERS {
+                kept.remove(0);
+            }
+        });
+    }
+
+    pub fn take_buffers() -> Option<Buffers> {
+        BUFFERS.with(|cell| cell.borrow_mut().pop())
+    }
+}
+
+/// Keeps the canvas of a surface that is gone, for another.
+pub fn recycle_canvas(canvas: Canvas) {
+    spare::put_canvas(canvas);
+}
+
+/// A canvas of this size kept from a surface that is gone, made blank.
+pub fn reuse_canvas(width: f32, height: f32, scale: f32) -> Option<Canvas> {
+    spare::take_canvas(width, height, scale)
+}
+
+/// Keeps the buffers of a surface that is gone, for another.
+pub fn recycle_buffers(buffers: Buffers) {
+    spare::put_buffers(buffers);
+}
+
 /// The smallest rectangle holding both.
 pub fn union(a: PixelRect, b: PixelRect) -> PixelRect {
     let (x0, y0) = (a.0.min(b.0), a.1.min(b.1));
@@ -67,6 +138,14 @@ impl Buffers {
     /// A buffer holding `drawing` (what it lacked is copied into it), to
     /// attach. `None` when no buffer can be had.
     pub fn fill(&mut self, shm: &Shm, drawing: &Canvas) -> Option<&Buffer> {
+        if self.pool.is_none() {
+            // The buffers of a surface that is gone hold another drawing.
+            if let Some(mut kept) = spare::take_buffers() {
+                kept.changed((0, 0, u32::MAX, u32::MAX));
+                kept.last = None;
+                *self = kept;
+            }
+        }
         let (w, h) = drawing.pixel_size();
         if self.size != (w, h) {
             self.kept.clear();

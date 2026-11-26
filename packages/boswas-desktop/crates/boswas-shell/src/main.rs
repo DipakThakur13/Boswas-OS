@@ -33,6 +33,7 @@ mod open;
 mod osd;
 mod pam;
 mod present;
+mod prewarm;
 mod quick;
 mod settings;
 mod start;
@@ -229,6 +230,17 @@ pub(crate) struct Surface {
     changed_at: Option<Instant>,
 }
 
+impl Drop for Surface {
+    fn drop(&mut self) {
+        // The next surface of the same size (the next time a flyout
+        // opens) takes over the memory.
+        for canvas in [self.front.take(), self.spare.take()].into_iter().flatten() {
+            present::recycle_canvas(canvas);
+        }
+        present::recycle_buffers(std::mem::take(&mut self.buffers));
+    }
+}
+
 /// What changed in a surface's content since it was last drawn.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Change {
@@ -399,6 +411,8 @@ pub(crate) struct Shell {
     /// When the auto-hiding taskbar goes, unless something keeps it.
     pub taskbar_hide_at: Option<Instant>,
     pub exit: Option<i32>,
+    /// Icons, text and panels made ready before they are first shown.
+    pub prewarm: prewarm::Prewarm,
 }
 
 fn main() {
@@ -600,6 +614,7 @@ fn run(mode: Mode) -> Result<i32, Box<dyn std::error::Error>> {
         taskbar_hidden: false,
         taskbar_hide_at: None,
         exit: None,
+        prewarm: prewarm::Prewarm::default(),
     };
 
     match mode {
@@ -706,6 +721,7 @@ fn run(mode: Mode) -> Result<i32, Box<dyn std::error::Error>> {
         event_loop.dispatch(timeout, &mut shell)?;
         shell.housekeeping(Instant::now());
         shell.redraw_dirty();
+        shell.prewarm_tick();
     }
     Ok(shell.exit.unwrap_or(0))
 }
@@ -962,10 +978,16 @@ impl Shell {
         let fits = |c: &Canvas| c.width() == cw && c.height() == ch && c.scale() == scale;
         let front_fits = surface.front.as_ref().is_some_and(fits);
         let change = std::mem::replace(&mut surface.change, Change::None);
-        let change = if !front_fits || scrolling { Change::All } else { change };
+        // While Start's page scrolls, only its window changes.
+        let page_window = start::page_window(Rect::new(PAD, PAD, w - 2.0 * PAD, h - 2.0 * PAD), st);
+        let change = match change {
+            _ if !front_fits => Change::All,
+            change if scrolling => change.with(page_window),
+            change => change,
+        };
         let mut damage: Vec<PixelRect> = Vec::new();
         if change != Change::None {
-            let Some(mut canvas) = surface.spare.take().filter(fits).or_else(|| Canvas::new(cw, ch, scale)) else {
+            let Some(mut canvas) = surface.spare.take().filter(fits).or_else(|| present::reuse_canvas(cw, ch, scale)).or_else(|| Canvas::new(cw, ch, scale)) else {
                 return;
             };
             let parts = match &change {
@@ -1128,7 +1150,7 @@ impl Shell {
         // What the compositor shows: the drawing, or a frame of a transition
         // composed from it.
         let shown = if compose {
-            surface.spare.take().filter(fits).or_else(|| Canvas::new(cw, ch, scale)).map(|mut composed| {
+            surface.spare.take().filter(fits).or_else(|| present::reuse_canvas(cw, ch, scale)).or_else(|| Canvas::new(cw, ch, scale)).map(|mut composed| {
                 composed.reset();
                 composed.draw_pixmap(front.pixmap(), 0.0, (1.0 - presence) * present::SLIDE, cw, ch, presence);
                 composed
@@ -1190,6 +1212,11 @@ impl Shell {
             surface.frame_pending = true;
         }
         surface.dirty = animating || scrolling;
+        if scrolling {
+            // The page moves on: the next frame (the one where it comes to
+            // rest included) draws it again.
+            surface.change = std::mem::replace(&mut surface.change, Change::None).with(page_window);
+        }
         stats::drawn(&role, (pw, ph), painted, started.elapsed(), attached, &mut surface.changed_at);
     }
 

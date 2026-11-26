@@ -114,6 +114,27 @@ impl IconLoader {
         pixmap
     }
 
+    /// The icon `name` at `size` pixels as [`IconLoader::load`] gives it,
+    /// without keeping it: for drawing icons ahead of time on another
+    /// thread (with a loader of its own), to hand to [`IconLoader::keep`].
+    pub fn render(&self, name: &str, size: u32) -> Option<Pixmap> {
+        if name.is_empty() || size == 0 || size > 1024 {
+            return None;
+        }
+        self.find(name, size).and_then(|path| render_file(&path, size))
+    }
+
+    /// Whether the icon `name` at `size` pixels was looked up already.
+    pub fn has(&self, name: &str, size: u32) -> bool {
+        self.cache.contains_key(&(name.to_owned(), size))
+    }
+
+    /// Keeps an icon drawn ahead of time (see [`IconLoader::render`]),
+    /// unless it was looked up meanwhile.
+    pub fn keep(&mut self, name: &str, size: u32, pixmap: Option<Pixmap>) {
+        self.cache.entry((name.to_owned(), size)).or_insert_with(|| pixmap.map(Rc::new));
+    }
+
     /// The file that provides an icon, if any.
     pub fn find(&self, name: &str, size: u32) -> Option<PathBuf> {
         let path = Path::new(name);
