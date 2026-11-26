@@ -304,7 +304,9 @@ class IpDialog(fluent.ContentDialog):
         self.content_layout.addWidget(self.mode)
         self.form_holder = QWidget(self)
         form = QFormLayout(self.form_holder)
-        form.setContentsMargins(0, 8, 0, 0)
+        form.setContentsMargins(0, 8, 0, 4)
+        form.setVerticalSpacing(8)
+        form.setHorizontalSpacing(16)
         address, _slash, prefix = (settings.addresses[0] if settings.addresses else "").partition("/")
         self.address = self._field("IP address", address, "192.168.1.20")
         self.prefix = self._field("Subnet prefix length", prefix, "24")
@@ -316,6 +318,7 @@ class IpDialog(fluent.ContentDialog):
             form.addRow(fluent.Label(label, "body", self.form_holder), field)
         self.content_layout.addWidget(self.form_holder)
         self.problem = fluent.Label("", "caption", self, tone="danger", wrap=True)
+        self.problem.setMinimumHeight(2 * self.problem.fontMetrics().lineSpacing())   # the dialog does not grow
         self.content_layout.addWidget(self.problem)
         self.mode.setCurrentIndex(1 if settings.manual else 0)
         self.mode.currentIndexChanged.connect(self._check)
@@ -351,7 +354,6 @@ class IpDialog(fluent.ContentDialog):
         problem = self.problem_text()
         typed = any(field.text().strip() for field in (self.address, self.prefix))
         self.problem.setText(problem if typed else "")
-        self.problem.setVisible(bool(problem and typed))
         self.primary_button.setEnabled(not problem)
 
     def words(self) -> tuple[str, ...]:
@@ -380,6 +382,7 @@ class DnsDialog(fluent.ContentDialog):
             self.content_layout.addWidget(field)
             field.textChanged.connect(self._check)
         self.problem = fluent.Label("", "caption", self, tone="danger", wrap=True)
+        self.problem.setMinimumHeight(2 * self.problem.fontMetrics().lineSpacing())
         self.content_layout.addWidget(self.problem)
         self.mode.setCurrentIndex(1 if settings.manual_dns or settings.manual else 0)
         self.mode.currentIndexChanged.connect(self._check)
@@ -397,7 +400,6 @@ class DnsDialog(fluent.ContentDialog):
         problem = netconfig.dns_problem(self.servers()) if self.manual() else ""
         typed = bool(self.servers())
         self.problem.setText(problem if typed else "")
-        self.problem.setVisible(bool(problem and typed))
         self.primary_button.setEnabled(not problem)
 
     def words(self) -> tuple[str, ...]:
@@ -421,11 +423,11 @@ class WiredAdapter(QWidget):
         self.dns_button = fluent.Button("Edit", self)
         self.dns_button.clicked.connect(lambda: section.edit_dns(device))
         self.dns = fluent.SettingsCard("DNS server assignment", "",
-                                       fluent.icon("network-server-symbolic", "globe-symbolic"), self.dns_button, self)
+                                       fluent.icon("globe-symbolic"), self.dns_button, self)
         self.metered_switch = fluent.ToggleSwitch()
         self.metered_switch.clicked.connect(lambda on: section.set_metered(device, bool(on)))
         self.metered = fluent.SettingsCard("Metered connection", METERED_TEXT,
-                                           fluent.icon("network-cellular-symbolic", "network-wired-symbolic"),
+                                           fluent.icon("folder-download-symbolic"),
                                            self.metered_switch, self)
         self.missing = fluent.SettingsCard("No settings for this adapter yet",
                                            "NetworkManager makes a connection for it when a network cable is "

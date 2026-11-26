@@ -240,8 +240,8 @@ class UsbSection(ToolSection):
             card.open_button.clicked.connect(lambda _c=False, a=address: self.open_in_files(a))
             card.eject_button = fluent.Button("Eject", card, icon=fluent.icon("media-eject-symbolic"))
             card.eject_button.clicked.connect(lambda _c=False, a=address: self.eject(a))
-            card.set_control(card.open_button)
-            card.add_control(card.eject_button)
+            card.set_control(card.eject_button)
+            card.add_control(card.open_button)
             return card
 
         def update(address: str, card: fluent.SettingsCard) -> None:
