@@ -495,16 +495,26 @@ impl Shell {
         let scheme = if new.light { Scheme::Light } else { Scheme::Dark };
         let theme = Theme::accented(scheme, &new.accent);
         if self.res.theme.scheme != scheme {
-            self.res = Resources::new(theme);
+            // Other icons and panels; the fonts stay (reading them all
+            // again would stall the desktop for a moment).
+            let text = std::mem::replace(&mut self.res.text, boswas_ui::text::TextEngine::from_font_dirs(&[]));
+            self.res = Resources::with_text(theme, text);
         } else {
             self.res.theme = theme;
         }
         self.res.reduced_motion = new.reduced_motion;
         self.res.transparency = new.transparency;
         crate::ui::set_text_scale(new.text_scale);
-        self.res.backdrop = None;
-        self.res.backdrop_generation += 1;
-        self.background.load_picture(&new.wallpaper);
+        // The wallpaper is read, and the materials made from it again, only
+        // when it or the look changed: Settings sends every setting at every
+        // change, and a large picture takes a while to decode.
+        if first || old.wallpaper != new.wallpaper {
+            self.background.load_picture(&new.wallpaper);
+        }
+        if first || old.wallpaper != new.wallpaper || old.light != new.light || old.accent != new.accent || old.transparency != new.transparency {
+            self.res.backdrop = None;
+            self.res.backdrop_generation += 1;
+        }
         if self.st.mode == Mode::Desktop {
             // Do not disturb follows the setting when it changes (and at
             // start); quick settings and the notification centre switch it
