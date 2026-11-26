@@ -36,7 +36,9 @@ Recommends: boswas-desktop,
             locales,
             flatpak,
             pci.ids,
-            usb.ids
+            usb.ids,
+            udisks2,
+            dbus-bin
 Description: Boswas OS Control Center, Security Center and Software Center
  The settings hub of Boswas OS. One window in categories (Home, System,
  Bluetooth & devices, Network & internet, Personalization, Apps, Accounts,

@@ -27,14 +27,22 @@ read-only JSON queries of IP_QUERIES; timedatectl and localectl only with
 the subcommands and validated values of timedatectl_argv() and
 localectl_argv(), hostnamectl only to set the static host name
 (hostnamectl_argv()), systemctl only for the restarts and the one query of
-SYSTEMCTL_FORMS (systemd's own services ask polkit for the changes).
+SYSTEMCTL_FORMS (systemd's own services ask polkit for the changes) and to
+give the user manager the pointer size (cursor_environment_argv(), with
+dbus-update-activation-environment for D-Bus activation: XCURSOR_SIZE=N,
+nothing else).
 
 nmcli changes only what nmcli_change_argv() builds: a connection up, down,
 deleted or imported from a file the user chose, an adapter connected or
-disconnected; NetworkManager asks polkit, and a VPN's secret is asked by
-NetworkManager's agent, never put on a command line. fc-list and fc-cache
-only in their fixed forms (the font list; the cache of the user's own font
-folder), lpstat only to list printers, lp only to print CUPS's own test page
+disconnected, and a wired connection's addresses, DNS servers and metered
+state (connection modify uuid UUID with the properties of NMCLI_PROPERTIES,
+every value validated, addresses with the ipaddress module); NetworkManager
+asks polkit, and a VPN's secret is asked by NetworkManager's agent, never put
+on a command line. udisksctl only unmounts, locks and powers off a block
+device of /dev (udisksctl_argv(): the USB page's Eject; UDisks2 asks polkit),
+and boswas-files opens a folder by its absolute path (files_argv()).
+fc-list and fc-cache only in their fixed forms (the font list; the cache of
+the user's own font folder), lpstat only to list printers, lp only to print CUPS's own test page
 (TEST_PAGE) on a validated printer, dpkg-query only to read which package
 owns a file and which packages are installed, flatpak's permission store only
 to list and to remove one application's permission (permission_argv()).
@@ -54,6 +62,7 @@ started without arguments by ui/bridgeclient.py.
 
 from __future__ import annotations
 
+import ipaddress
 import os
 import re
 import select
@@ -94,6 +103,9 @@ EXECUTABLES = {
     "lp": "/usr/bin/lp",                                          # cups-client: only CUPS's own test page
     "dpkg-query": "/usr/bin/dpkg-query",                          # dpkg: owners of files, installed packages
     "boswas-camera": "/usr/bin/boswas-camera",                    # Camera (boswas-apps)
+    "udisksctl": "/usr/bin/udisksctl",                            # udisks2: only udisksctl_argv() (Eject)
+    "dbus-update-activation-environment": "/usr/bin/dbus-update-activation-environment",
+    # dbus-bin: only XCURSOR_SIZE=N (cursor_environment_argv())
 }
 ALLOWED_PATHS = frozenset(EXECUTABLES.values())
 
@@ -109,6 +121,8 @@ SYSOPS_OPERATIONS = frozenset({
     "journal-vacuum", "firmware-report", "flatpak-remote-enable", "flatpak-remote-disable",
 })
 PACKAGE_RE = re.compile(r"^[a-z0-9][a-z0-9+.-]{0,99}(:(amd64|i386|all))?$")
+# apt-install's one option (boswas-sysops 3.0~alpha1 and later): leave out what the packages only recommend.
+NO_RECOMMENDS = "--no-recommends"
 # flatpak: read-only queries of both installations; changes only to the user's own installation.
 FLATPAK_SUBCOMMANDS = frozenset({"remotes", "list", "search", "remote-add", "install", "uninstall", "update",
                                  "permission-list"})
@@ -154,6 +168,25 @@ NMCLI_CHANGE_WORDS = frozenset({"up", "down", "delete", "import", "connect", "di
 NMCLI_UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 NMCLI_IMPORT_TYPES = frozenset({"openvpn", "wireguard"})
 IFNAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.@:-]{0,14}$")
+MAX_DNS_SERVERS = 3
+# The properties `nmcli connection modify uuid UUID ...` may set (the Ethernet page), each with its check.
+NMCLI_PROPERTIES = {
+    "ipv4.method": lambda value: value in ("auto", "manual"),
+    "ipv4.addresses": lambda value: value == "" or _ipv4_interface(value),
+    "ipv4.gateway": lambda value: value == "" or _ip_address(value, 4),
+    "ipv4.dns": lambda value: _address_list(value, 4),
+    "ipv4.ignore-auto-dns": lambda value: value in ("yes", "no"),
+    "ipv6.dns": lambda value: _address_list(value, 6),
+    "ipv6.ignore-auto-dns": lambda value: value in ("yes", "no"),
+    "connection.metered": lambda value: value in ("yes", "no", "unknown"),
+}
+
+# udisksctl: the steps of Eject, each on one block device of /dev (a disk, a partition or an unlocked volume).
+UDISKS_ACTIONS = frozenset({"unmount", "lock", "power-off"})
+BLOCK_DEVICE_RE = re.compile(r"^/dev/(sd[a-z]{1,3}[0-9]{0,3}|mmcblk[0-9]{1,3}(p[0-9]{1,3})?|dm-[0-9]{1,4}|"
+                             r"nvme[0-9]{1,3}n[0-9]{1,3}(p[0-9]{1,3})?)$")
+# The pointer size the user manager and D-Bus activation pass to what they start.
+CURSOR_SIZES = (16, 96)
 
 # fontconfig and CUPS.
 FONT_LIST_FORMAT = "--format=%{family[0]}\\t%{style[0]}\\t%{file}\\n"
@@ -222,7 +255,7 @@ def argv(name: str, *args: str) -> list[str]:
         raise ValueError("fc-list is only used with its fixed format")
     if name == "lpstat" and tuple(args) not in LPSTAT_FORMS:
         raise ValueError("lpstat is only used to list printers")
-    if name in ("hostnamectl", "fc-cache", "lp", "dpkg-query"):
+    if name in ("hostnamectl", "fc-cache", "lp", "dpkg-query", "udisksctl", "dbus-update-activation-environment"):
         raise ValueError(f"{name} is started only through its builder")
     if name in ("timedatectl", "localectl"):
         raise ValueError(f"{name} is started only through {name}_argv()")
@@ -348,13 +381,55 @@ def hostnamectl_argv(name: str) -> list[str]:
     return [EXECUTABLES["hostnamectl"], "--static", "set-hostname", name]
 
 
+def _ip_address(value: object, version: int) -> bool:
+    """An IPv4 or IPv6 address as a host has it: no network, multicast, loopback or unspecified address."""
+    if not isinstance(value, str) or not value or len(value) > 64 or value != value.strip():
+        return False
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return (address.version == version and not address.is_multicast and not address.is_unspecified
+            and not address.is_loopback and str(address) == value.lower())
+
+
+def _ipv4_interface(value: object) -> bool:
+    """ADDRESS/PREFIX of a host in an IPv4 network: prefix 1 to 32, not the network or broadcast address."""
+    if not isinstance(value, str) or value.count("/") != 1:
+        return False
+    address, prefix = value.split("/")
+    if not _ip_address(address, 4) or not prefix.isdigit() or not 1 <= int(prefix) <= 32 or prefix != str(int(prefix)):
+        return False
+    network = ipaddress.ip_interface(value).network
+    return int(prefix) >= 31 or ipaddress.ip_address(address) not in (network.network_address,
+                                                                        network.broadcast_address)
+
+
+def _address_list(value: object, version: int) -> bool:
+    """"" or 1 to MAX_DNS_SERVERS addresses of one IP version, separated by commas, each once."""
+    if value == "":
+        return True
+    if not isinstance(value, str):
+        return False
+    parts = value.split(",")
+    return 1 <= len(parts) <= MAX_DNS_SERVERS and len(set(parts)) == len(parts) and \
+        all(_ip_address(part, version) for part in parts)
+
+
 def nmcli_change_argv(*words: str) -> list[str]:
-    """nmcli connection up|down|delete uuid UUID, connection import type openvpn|wireguard file PATH, or
-    device connect|disconnect IFNAME. NetworkManager asks polkit; no secret is ever an argument."""
+    """nmcli connection up|down|delete uuid UUID, connection import type openvpn|wireguard file PATH,
+    device connect|disconnect IFNAME, or connection modify uuid UUID PROPERTY VALUE... (NMCLI_PROPERTIES,
+    each property once, every value checked). NetworkManager asks polkit; no secret is ever an argument."""
     words = tuple(words)
     ok = False
     if len(words) == 4 and words[:2] in (("connection", "up"), ("connection", "down"), ("connection", "delete")):
         ok = words[2] == "uuid" and isinstance(words[3], str) and bool(NMCLI_UUID_RE.fullmatch(words[3]))
+    elif len(words) >= 6 and len(words) % 2 == 0 and words[:3] == ("connection", "modify", "uuid"):
+        properties = words[4::2]
+        ok = (isinstance(words[3], str) and bool(NMCLI_UUID_RE.fullmatch(words[3]))
+              and len(set(properties)) == len(properties)
+              and all(isinstance(name, str) and name in NMCLI_PROPERTIES and isinstance(value, str)
+                      and NMCLI_PROPERTIES[name](value) for name, value in zip(properties, words[5::2])))
     elif len(words) == 6 and words[:3] == ("connection", "import", "type") and words[4] == "file":
         path = words[5]
         ok = (words[3] in NMCLI_IMPORT_TYPES and _plain(path) and os.path.isabs(path)
@@ -364,6 +439,40 @@ def nmcli_change_argv(*words: str) -> list[str]:
     if not ok:
         raise ValueError(f"nmcli {' '.join(map(str, words))!r} is not an allowed change")
     return [EXECUTABLES["nmcli"], "-t", *words]
+
+
+def udisksctl_argv(action: str, device: str) -> list[str]:
+    """udisksctl unmount|lock|power-off -b DEVICE: one step of ejecting a drive (UDisks2 asks polkit)."""
+    if action not in UDISKS_ACTIONS or not isinstance(device, str) or not BLOCK_DEVICE_RE.fullmatch(device):
+        raise ValueError(f"udisksctl {action!r} {device!r} is not allowed")
+    return [EXECUTABLES["udisksctl"], action, "-b", device]
+
+
+def files_argv(folder: str) -> list[str]:
+    """boswas-files FOLDER: Files shows one folder, named by its absolute path (or computer:/// for This PC)."""
+    if folder != "computer:///" and (not _plain(folder) or not os.path.isabs(folder) or ".." in folder.split("/")):
+        raise ValueError("Files is opened at an absolute folder")
+    return [EXECUTABLES["boswas-files"], folder]
+
+
+def cursor_environment_argv(program: str, size: int) -> list[str]:
+    """systemctl --user set-environment XCURSOR_SIZE=N, or dbus-update-activation-environment XCURSOR_SIZE=N:
+    the pointer size (16 to 96) for the programs the user manager and D-Bus activation start from now on."""
+    if isinstance(size, bool) or not isinstance(size, int) or not CURSOR_SIZES[0] <= size <= CURSOR_SIZES[1]:
+        raise ValueError("a pointer size is a whole number from 16 to 96")
+    if program == "systemctl":
+        return [EXECUTABLES["systemctl"], "--user", "set-environment", f"XCURSOR_SIZE={size}"]
+    if program == "dbus-update-activation-environment":
+        return [EXECUTABLES[program], f"XCURSOR_SIZE={size}"]
+    raise ValueError(f"{program!r} does not set the pointer size")
+
+
+def _cursor_size_of(command: list[str]) -> int:
+    """The size of a command of cursor_environment_argv() (0 when it is not one)."""
+    word = command[-1] if command else ""
+    if not word.startswith("XCURSOR_SIZE=") or not word[13:].isdigit() or len(word) > 16:
+        return 0
+    return int(word[13:])
 
 
 def fc_cache_argv(directory: str) -> list[str]:
@@ -424,6 +533,8 @@ def valid_package(name: object) -> bool:
 def _validate_sysops(operation: str, args: tuple[str, ...]) -> None:
     if operation not in SYSOPS_OPERATIONS:
         raise ValueError(f"{operation!r} is not an allowed boswas-sysops operation")
+    if operation == "apt-install" and args[:1] == (NO_RECOMMENDS,):
+        args = args[1:]                         # the one option, first and once
     if operation in ("apt-install", "apt-remove"):
         if not 1 <= len(args) <= MAX_PACKAGES or not all(valid_package(a) for a in args):
             raise ValueError(f"{operation} needs 1-{MAX_PACKAGES} valid package names")
@@ -519,6 +630,22 @@ def _check(command: list[str]) -> None:
         names = args[1:] if mode == "owners" else args[2:]
         if not mode or command != dpkg_query_argv(mode, *names):
             raise ValueError("dpkg-query only reads owners and package states")
+    elif command[0] == EXECUTABLES["udisksctl"]:
+        if len(args) != 3 or args[1] != "-b" or command != udisksctl_argv(args[0], args[2]):
+            raise ValueError("udisksctl only unmounts, locks and powers off a block device")
+    elif command[0] == EXECUTABLES["boswas-files"]:
+        if len(args) != 1 or command != files_argv(args[0]):
+            raise ValueError("Files is opened at one absolute folder")
+    elif command[0] == EXECUTABLES["dbus-update-activation-environment"] or (
+            command[0] == EXECUTABLES["systemctl"] and args[:2] == ["--user", "set-environment"]):
+        size = _cursor_size_of(command)
+        program = "systemctl" if command[0] == EXECUTABLES["systemctl"] else "dbus-update-activation-environment"
+        try:
+            expected = cursor_environment_argv(program, size)
+        except ValueError:
+            expected = None
+        if command != expected:
+            raise ValueError("only the pointer size is passed to the user manager and D-Bus activation")
     elif command[0] == EXECUTABLES["flatpak"] and args[:1] == ["permission-remove"]:
         if len(args) != 4 or command != permission_remove_argv(*args[1:]):
             raise ValueError("flatpak permission-remove takes a table, an object and an application")

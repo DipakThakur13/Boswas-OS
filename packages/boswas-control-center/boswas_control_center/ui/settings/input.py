@@ -7,6 +7,14 @@ exactly the keys boswas-compositor(1) documents; drawing tablets have no
 settings there, so there is no section for them. PointerSection shows the
 pointer size of the Mouse page once more, on Accessibility > Mouse pointer.
 
+The compositor draws its own pointer at the new size at once. X11 programs
+and programs that draw their own pointer read XCURSOR_SIZE, which the
+session sets from the same key when it starts (boswas-session); after a
+change the user manager and D-Bus activation get the new value too
+(``systemctl --user set-environment`` and
+``dbus-update-activation-environment``, publish_cursor_size), so programs
+they start from then on use it. Programs already running keep their size.
+
 Keyboard layouts are shown by their names from the XKB data
 (boswas_control_center.xkb). XKB keeps four layouts at a time (the
 compositor's keymap drops a fifth), so no more than MAX_LAYOUTS can be
@@ -28,13 +36,19 @@ import boswas_fluent as fluent
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QAbstractItemView, QHBoxLayout, QLineEdit, QListWidget, QListWidgetItem, QSlider, QWidget
 
+from ... import commands
 from ... import compositorconfig as cc
 from ... import xkb
+from ...errors import CommandFailed, CommandUnavailable
+from . import context
 from .display import ConfigSection, combo, select
 
 INPUT_DEVICES = "/proc/bus/input/devices"
 MAX_LAYOUTS = xkb.MAX_LAYOUTS
 POINTER_SIZES = ((24, "Small"), (32, "Medium"), (48, "Large"), (64, "Extra large"))
+POINTER_SIZE_TEXT = ("The desktop's pointer changes at once. X11 programs and programs that draw their own pointer "
+                     "use the new size when they start after your next sign-in; open ones keep theirs")
+ENVIRONMENT_TIMEOUT = 10.0
 _BTN_TOOL_PEN, _BTN_TOOL_FINGER = 0x140, 0x145
 _INPUT_PROP_DIRECT = 1
 
@@ -95,6 +109,45 @@ def slider_row(low: int, high: int, left: str, right: str, name: str) -> tuple[Q
     return holder, slider, value
 
 
+def publish_cursor_size(runner, size: object) -> list[list[str]]:
+    """Give the user manager and D-Bus activation the pointer size (XCURSOR_SIZE) for what they start from now on.
+
+    Runs on a worker thread after the size was saved. Best effort: a program
+    that is missing or fails changes nothing about the setting itself.
+    Returns the commands that ran.
+    """
+    ran = []
+    if isinstance(size, bool) or not isinstance(size, int):
+        return ran
+    for program in ("systemctl", "dbus-update-activation-environment"):
+        try:
+            command = commands.cursor_environment_argv(program, size)
+        except ValueError:
+            return ran
+        if not runner.available(command[0]):
+            continue
+        try:
+            runner.run(command, ENVIRONMENT_TIMEOUT)
+        except (CommandFailed, CommandUnavailable):
+            continue
+        ran.append(command)
+    return ran
+
+
+class _SizeSection(ConfigSection):
+    """A section with the pointer size: after a change of it the session's environment follows."""
+
+    def __init__(self, parent: QWidget | None = None, *, config: cc.Settings | None = None, runner=None) -> None:
+        self.runner = runner if runner is not None else context.runner()
+        super().__init__(parent, config=config)
+
+    def perform(self, changes: dict) -> object:
+        applied = super().perform(changes)
+        if ("pointer", "cursor_size") in changes:
+            publish_cursor_size(self.runner, changes[("pointer", "cursor_size")])
+        return applied
+
+
 class _Pointing(ConfigSection):
     """What the mouse and the touchpad sections share: the speed slider and the bound switches."""
 
@@ -113,7 +166,7 @@ class _Pointing(ConfigSection):
             self.speed.setValue(round(snapshot.get(self.table, "accel_speed") * 10))
 
 
-class MouseSection(_Pointing):
+class MouseSection(_SizeSection, _Pointing):
     page = "mouse"
     title = "Mouse"
     order = 30
@@ -138,7 +191,7 @@ class MouseSection(_Pointing):
         self.scroll.activated.connect(
             lambda _i: self.change({("pointer", "natural_scroll"): self.scroll.currentData()}))
         self.size = combo((f"{label} ({size})", size) for size, label in POINTER_SIZES)
-        self.card("Pointer size", "Takes effect for windows as they are redrawn", "view-fullscreen-symbolic", self.size)
+        self.card("Pointer size", POINTER_SIZE_TEXT, "view-fullscreen-symbolic", self.size)
         self.size.activated.connect(lambda _i: self.change({("pointer", "cursor_size"): self.size.currentData()}))
 
     def show_state(self, snapshot: cc.Snapshot) -> None:
@@ -153,7 +206,7 @@ class MouseSection(_Pointing):
         select(self.size, size, f"Custom ({size})")
 
 
-class PointerSection(ConfigSection):
+class PointerSection(_SizeSection):
     """The size of the pointer alone, for Accessibility > Mouse pointer (the Mouse page has it too)."""
 
     page = "mouse-pointer"
@@ -163,7 +216,7 @@ class PointerSection(ConfigSection):
 
     def build(self) -> None:
         self.size = combo((f"{label} ({size})", size) for size, label in POINTER_SIZES)
-        self.card("Pointer size", "A bigger pointer is easier to find. Takes effect for windows as they are redrawn",
+        self.card("Pointer size", f"A bigger pointer is easier to find. {POINTER_SIZE_TEXT}",
                   "view-fullscreen-symbolic", self.size)
         self.size.activated.connect(lambda _i: self.change({("pointer", "cursor_size"): self.size.currentData()}))
 

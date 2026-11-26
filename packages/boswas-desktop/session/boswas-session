@@ -31,7 +31,56 @@ export SDL_VIDEODRIVER=wayland
 export CLUTTER_BACKEND=wayland
 export _JAVA_AWT_WM_NONREPARENTING=1
 export XCURSOR_THEME="${XCURSOR_THEME:-Boswas-Cursors}"
-export XCURSOR_SIZE="${XCURSOR_SIZE:-24}"
+
+# The pointer size: [pointer] cursor_size of the compositor's configuration
+# (boswas-compositor(1)), from the last of its files that sets it, as the
+# compositor reads them (a file above 256 KiB is skipped), 16 to 96, 24 when
+# none does. The compositor draws its own pointer at this size; X11 programs
+# and programs that draw their own pointer read XCURSOR_SIZE, so it follows
+# the setting (Settings > Mouse, Accessibility > Mouse pointer), not the
+# environment of the login. Settings also changes the user manager's copy
+# when the size changes, for programs started after that.
+# BEGIN cursor_size
+cursor_size() {
+	size=24
+	for file in "$@"; do
+		if [ ! -f "$file" ] || [ ! -r "$file" ]; then
+			continue
+		fi
+		[ "$(wc -c <"$file" 2>/dev/null || echo 262145)" -le 262144 ] || continue
+		value=$(awk '
+			/^[ \t]*\[/ {
+				table = $0
+				sub(/^[ \t]*\[[ \t]*/, "", table)
+				sub(/[ \t]*\].*$/, "", table)
+				next
+			}
+			(table == "pointer" && /^[ \t]*cursor_size[ \t]*=/) ||
+			(table == "" && /^[ \t]*pointer\.cursor_size[ \t]*=/) {
+				value = $0
+				sub(/^[^=]*=[ \t]*/, "", value)
+				sub(/[ \t]*(#.*)?\r?$/, "", value)
+				if (value ~ /^[0-9]+$/) found = value + 0
+			}
+			END {
+				if (found != "") {
+					if (found < 16) found = 16
+					if (found > 96) found = 96
+					print found
+				}
+			}' "$file" 2>/dev/null)
+		[ -n "$value" ] && size=$value
+	done
+	echo "$size"
+}
+# END cursor_size
+case "${XDG_CONFIG_HOME:-}" in
+	/*) user_config="$XDG_CONFIG_HOME" ;;
+	*) user_config="$HOME/.config" ;;
+esac
+XCURSOR_SIZE=$(cursor_size /usr/share/boswas/compositor/compositor.toml /etc/boswas/compositor.toml \
+	"$user_config/boswas/compositor.toml")
+export XCURSOR_SIZE
 
 # Boswas defaults for KDE applications (colour scheme, icon theme). The
 # directory is appended, so /etc/xdg and the user's own settings win.

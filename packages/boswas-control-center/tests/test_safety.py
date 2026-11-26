@@ -11,13 +11,17 @@ a fixed set and validated arguments; apt-get only ever simulates;
 timedatectl, localectl, ip, locale, gio, nmcli and busctl only with their
 fixed argument forms (busctl: AccountsService calls without any secret and
 logind's two read-only questions); hostnamectl only for the static host
-name, systemctl only to restart and to ask whether Bluetooth runs, nmcli
-changes only in the forms of nmcli_change_argv, fc-cache only for the user's
-font folder, lp only for CUPS's own test page, dpkg-query only to read, the
-flatpak permission store only to list and to remove one decision;
-passwd only without arguments on a pseudo-terminal, the one new way a
-program is started (commands.CommandRunner.converse); only userfiles.py
-writes or deletes files. The desktop entries are valid and there is no
+name, systemctl only to restart, to ask whether Bluetooth runs and to pass
+the pointer size on (with dbus-update-activation-environment: XCURSOR_SIZE
+only), nmcli changes only in the forms of nmcli_change_argv (a wired
+connection's addresses, DNS and metered state by validated properties),
+udisksctl only to unmount, lock and power off a block device, Files only at
+an absolute folder, fc-cache only for the user's font folder, lp only for
+CUPS's own test page, dpkg-query only to read, the flatpak permission store
+only to list and to remove one decision; passwd only without arguments on a
+pseudo-terminal, the one new way a program is started
+(commands.CommandRunner.converse); only userfiles.py writes or deletes
+files. The desktop entries are valid and there is no
 Install Boswas OS entry (the image generates it in live sessions only). No
 teal anywhere in the data or code.
 
@@ -64,7 +68,8 @@ EXPECTED_EXECUTABLES = {
     "flatpak": "/usr/bin/flatpak", "nmcli": "/usr/bin/nmcli", "lsblk": "/usr/bin/lsblk", "pkexec": "/usr/bin/pkexec",
     "hostnamectl": "/usr/bin/hostnamectl", "fc-list": "/usr/bin/fc-list", "fc-cache": "/usr/bin/fc-cache",
     "lpstat": "/usr/bin/lpstat", "lp": "/usr/bin/lp", "dpkg-query": "/usr/bin/dpkg-query",
-    "boswas-camera": "/usr/bin/boswas-camera",
+    "boswas-camera": "/usr/bin/boswas-camera", "udisksctl": "/usr/bin/udisksctl",
+    "dbus-update-activation-environment": "/usr/bin/dbus-update-activation-environment",
 }
 EXPECTED_SYSOPS = {"apt-refresh", "apt-upgrade", "apt-install", "apt-remove", "apt-install-local", "apt-clean",
                    "journal-vacuum", "firmware-report", "flatpak-remote-enable", "flatpak-remote-disable"}
@@ -466,6 +471,80 @@ class ProcessTest(unittest.TestCase):
                         commands.logind_argv("CanRebootToBootLoaderMenu"), commands.argv("systemctl", "is-active",
                                                                                          "bluetooth.service")):
             commands._check(command)
+
+    def test_the_forms_of_eject_ethernet_and_the_pointer_size(self):
+        uuid = "5b2c7f2e-1d3a-4c55-9e0b-3f6a7d8e9a10"
+        modify = ("connection", "modify", "uuid", uuid)
+        good = [("ipv4.method", "manual", "ipv4.addresses", "192.168.1.20/24", "ipv4.gateway", "192.168.1.1"),
+                ("ipv4.method", "auto", "ipv4.addresses", "", "ipv4.gateway", ""),
+                ("ipv4.dns", "1.1.1.1,9.9.9.9", "ipv4.ignore-auto-dns", "yes", "ipv6.dns", "2606:4700:4700::1111",
+                 "ipv6.ignore-auto-dns", "yes"),
+                ("ipv4.dns", "", "ipv4.ignore-auto-dns", "no", "ipv6.dns", "", "ipv6.ignore-auto-dns", "no"),
+                ("connection.metered", "yes"), ("connection.metered", "unknown"), ("ipv4.addresses", "10.0.0.5/31")]
+        for words in good:
+            command = commands.nmcli_change_argv(*modify, *words)
+            self.assertEqual(command, ["/usr/bin/nmcli", "-t", *modify, *words])
+            commands._check(command)
+        bad = [("ipv4.method", "link-local"), ("ipv4.method", "manual", "ipv4.method", "auto"),
+               ("ipv4.addresses", "192.168.1.0/24"), ("ipv4.addresses", "192.168.1.255/24"),
+               ("ipv4.addresses", "192.168.1.20"), ("ipv4.addresses", "192.168.1.20/33"),
+               ("ipv4.addresses", "192.168.1.20/024"), ("ipv4.addresses", "127.0.0.1/8"),
+               ("ipv4.addresses", "224.0.0.1/4"), ("ipv4.gateway", "fe80::1"), ("ipv4.gateway", " 192.168.1.1"),
+               ("ipv4.dns", "1.1.1.1 8.8.8.8"), ("ipv4.dns", "1.1.1.1,1.1.1.1"),
+               ("ipv4.dns", "1.1.1.1,2.2.2.2,3.3.3.3,4.4.4.4"), ("ipv4.dns", "::1"), ("ipv6.dns", "1.1.1.1"),
+               ("ipv6.dns", "2001:0db8::1"), ("connection.metered", "maybe"),
+               ("ipv4.ignore-auto-dns", "true"), ("802-1x.password", "secret"), ("vpn.secrets", "password=x"),
+               ("connection.id", "x"), ("ipv4.method",), ()]
+        for words in bad:
+            with self.assertRaises(ValueError, msg=words):
+                commands.nmcli_change_argv(*modify, *words)
+        with self.assertRaises(ValueError):
+            commands.nmcli_change_argv("connection", "modify", "id", "Wired", "connection.metered", "yes")
+        self.assertEqual(commands.udisksctl_argv("power-off", "/dev/sdb"), ["/usr/bin/udisksctl", "power-off", "-b",
+                                                                            "/dev/sdb"])
+        for action, device in (("unmount", "/dev/sdb1"), ("lock", "/dev/sdc2"), ("unmount", "/dev/dm-3"),
+                               ("power-off", "/dev/mmcblk0"), ("unmount", "/dev/mmcblk0p1")):
+            commands._check(commands.udisksctl_argv(action, device))
+        for action, device in (("mount", "/dev/sdb1"), ("format", "/dev/sdb"), ("unmount", "/dev/../etc/passwd"),
+                               ("unmount", "sdb1"), ("unmount", "/dev/sda1 /dev/sdb"), ("power-off", "/dev/loop0"),
+                               ("unmount", "-b")):
+            with self.assertRaises(ValueError, msg=(action, device)):
+                commands.udisksctl_argv(action, device)
+        self.assertEqual(commands.files_argv("/media/alice/USB STICK"),
+                         ["/usr/bin/boswas-files", "/media/alice/USB STICK"])
+        commands._check(commands.files_argv("computer:///"))
+        for folder in ("relative", "/media/../etc", "", "trash:///", "-x"):
+            with self.assertRaises(ValueError, msg=folder):
+                commands.files_argv(folder)
+        self.assertEqual(commands.cursor_environment_argv("systemctl", 48),
+                         ["/usr/bin/systemctl", "--user", "set-environment", "XCURSOR_SIZE=48"])
+        self.assertEqual(commands.cursor_environment_argv("dbus-update-activation-environment", 16),
+                         ["/usr/bin/dbus-update-activation-environment", "XCURSOR_SIZE=16"])
+        for program, size in (("systemctl", 15), ("systemctl", 97), ("systemctl", True), ("systemctl", "48"),
+                              ("busctl", 48)):
+            with self.assertRaises(ValueError, msg=(program, size)):
+                commands.cursor_environment_argv(program, size)
+        for command in (["/usr/bin/systemctl", "--user", "set-environment", "LD_PRELOAD=/tmp/x.so"],
+                        ["/usr/bin/systemctl", "--user", "set-environment", "XCURSOR_SIZE=48", "PATH=/tmp"],
+                        ["/usr/bin/systemctl", "--user", "unset-environment", "XCURSOR_SIZE"],
+                        ["/usr/bin/dbus-update-activation-environment", "--systemd", "XCURSOR_SIZE=48"],
+                        ["/usr/bin/dbus-update-activation-environment", "XCURSOR_SIZE=480"],
+                        ["/usr/bin/udisksctl", "mount", "-b", "/dev/sdb1"],
+                        ["/usr/bin/udisksctl", "unmount", "/dev/sdb1"],
+                        ["/usr/bin/boswas-files", "/a", "/b"], ["/usr/bin/boswas-files", "relative"]):
+            with self.assertRaises(ValueError, msg=command):
+                commands._check(command)
+        for bad in (("udisksctl", "unmount", "-b", "/dev/sdb1"), ("dbus-update-activation-environment", "X=1")):
+            with self.assertRaises(ValueError, msg=bad):
+                commands.argv(*bad)
+        # apt-install's one option: first, once, and only for apt-install.
+        self.assertEqual(commands.sysops_argv("apt-install", "--no-recommends", "cups")[2:],
+                         ["apt-install", "--no-recommends", "cups"])
+        for bad in (("apt-install", "cups", "--no-recommends"), ("apt-install", "--no-recommends"),
+                    ("apt-install", "--no-recommends", "--no-recommends", "cups"),
+                    ("apt-remove", "--no-recommends", "cups"), ("apt-install", "--install-suggests", "cups")):
+            with self.assertRaises(ValueError, msg=bad):
+                commands.sysops_argv(*bad)
 
     def test_operations_named_by_the_ui_are_allowed(self):
         """Every JobSpec in the code names an allowed operation (checked from the source, not at run time)."""
