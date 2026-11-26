@@ -236,17 +236,20 @@ pub fn draw(f: &mut Frame, st: &State, interactive: bool) {
                 crate::weather::draw(f, &shown, room);
             }
         }
-        return;
+        return draw_osd(f, st, interactive);
     }
 
     let radius = tokens().radius_control;
     let centre = w / 2.0;
     let field_w = 296.0_f32.min(w - 48.0);
     let mut y = (h * 0.24).max(24.0);
-    // Avatar and name.
-    f.canvas.fill_circle(centre, y + 60.0, 60.0, Rgba::WHITE.alpha(0.16));
-    f.canvas.stroke_circle(centre, y + 60.0, 59.5, 1.0, Rgba::WHITE.alpha(0.22));
-    f.icon_tinted("avatar-default-symbolic", centre - 28.0, y + 32.0, 56.0, Rgba::WHITE);
+    // Avatar (the account picture, where there is one) and name.
+    let login = if view.greeter { view.login_name() } else { st.user.clone() };
+    if !crate::accounts::draw(f, st.pictures.get(&login), centre, y + 60.0, 60.0) {
+        f.canvas.fill_circle(centre, y + 60.0, 60.0, Rgba::WHITE.alpha(0.16));
+        f.canvas.stroke_circle(centre, y + 60.0, 59.5, 1.0, Rgba::WHITE.alpha(0.22));
+        f.icon_tinted("avatar-default-symbolic", centre - 28.0, y + 32.0, 56.0, Rgba::WHITE);
+    }
     y += 136.0;
     let name = ramp("title", Rgba::WHITE).weight(500);
     f.text_centered(&view.display_name, Rect::new(24.0, y, w - 48.0, name.line_height()), &name);
@@ -319,8 +322,11 @@ pub fn draw(f: &mut Frame, st: &State, interactive: bool) {
             if touch.focused {
                 f.focus_ring(row, radius);
             }
-            f.canvas.fill_circle(row.x + 22.0, row.y + 22.0, 14.0, Rgba::WHITE.alpha(0.18));
-            f.icon_tinted("avatar-default-symbolic", row.x + 14.0, row.y + 14.0, 16.0, Rgba::WHITE);
+            let picture = view.users.get(index).and_then(|(login, _)| st.pictures.get(login));
+            if !crate::accounts::draw(f, picture, row.x + 22.0, row.y + 22.0, 14.0) {
+                f.canvas.fill_circle(row.x + 22.0, row.y + 22.0, 14.0, Rgba::WHITE.alpha(0.18));
+                f.icon_tinted("avatar-default-symbolic", row.x + 14.0, row.y + 14.0, 16.0, Rgba::WHITE);
+            }
             f.text_left(label, Rect::new(row.x + 46.0, row.y, row.w - 54.0, row.h), &name_style);
             uy += 48.0;
         }
@@ -342,6 +348,16 @@ pub fn draw(f: &mut Frame, st: &State, interactive: bool) {
         right = power.x - 16.0;
     }
     status_icons(f, st, right, h - 48.0);
+    draw_osd(f, st, interactive);
+}
+
+/// The level of the volume and brightness keys, in the lock screen's own
+/// surface: while the session is locked the compositor shows nothing else.
+fn draw_osd(f: &mut Frame, st: &State, interactive: bool) {
+    if let (true, Some(osd)) = (interactive, st.osd.as_ref()) {
+        let (w, h) = (f.canvas.width(), f.canvas.height());
+        crate::osd::paint(f, osd, crate::osd::auth_rect(w, h));
+    }
 }
 
 #[cfg(test)]
