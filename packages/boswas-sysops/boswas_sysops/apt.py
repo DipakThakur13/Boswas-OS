@@ -261,17 +261,20 @@ def upgrade(ctx: Context, args: list[str]) -> tuple[str, dict]:
 
 
 def install(ctx: Context, args: list[str]) -> tuple[str, dict]:
-    names = validate.packages(args)
+    """apt-install [--no-recommends] PKG...: --no-recommends leaves out what the packages only recommend (so
+    that a Recommends that policy excludes, such as cups-browsed of cups-daemon, does not stop the install)."""
+    without_recommends, names = validate.install_arguments(args)
     refused = sorted({validate.bare_name(n) for n in names if policy.excluded(n)})
     if refused:
         raise SysopsError("NOT_ALLOWED", f"Boswas OS policy keeps this software off the device: {', '.join(refused)}.",
                           {"packages": refused})
-    plan = simulate(ctx, "install", *names)
+    options = ("--no-install-recommends",) if without_recommends else ()
+    plan = simulate(ctx, *options, "install", *names)
     check_plan(ctx, plan)
     if plan.empty:
         return "Already installed and up to date.", {"installed": []}
     locks.check(ctx.root, locks.FOR_PACKAGES)
-    run_apt(ctx, "Installing", "-y", "install", *names)
+    run_apt(ctx, "Installing", "-y", *options, "install", *names)
     items = plan_items(plan)
     return f"Installed {', '.join(names)}.", {"installed": items}
 
