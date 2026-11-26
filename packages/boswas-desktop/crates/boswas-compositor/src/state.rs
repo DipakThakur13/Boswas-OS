@@ -305,6 +305,10 @@ pub struct Boswas {
     pub cursor_status: CursorImageStatus,
     pub cursor_theme: CursorTheme,
     pub dnd_icon: Option<WlSurface>,
+    /// The layer surface that had the keyboard on demand (the desktop's
+    /// icons) when an exclusive one (a menu, a flyout) took it: it gets the
+    /// keyboard back when that one goes.
+    pub keyboard_before_exclusive: Option<WlSurface>,
     /// Set while Super is held and nothing else has been pressed: releasing
     /// it then opens the launcher.
     pub super_tap: bool,
@@ -533,6 +537,7 @@ impl Boswas {
             cursor_status: CursorImageStatus::default_named(),
             cursor_theme,
             dnd_icon: None,
+            keyboard_before_exclusive: None,
             super_tap: false,
             suppressed_keys: HashSet::new(),
             pressed_button: None,
