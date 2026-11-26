@@ -166,6 +166,10 @@ pub enum Action {
     Magnify(Zoom),
     /// Super+Ctrl+C, where Settings allows it: the colour filter on or off.
     ToggleColorFilter,
+    /// Super+V: the clipboard history (the shell's).
+    Clipboard,
+    /// Super+. and Super+;: the emoji and symbols panel (the shell's).
+    Emoji,
 }
 
 /// What a magnifier key does.
@@ -350,6 +354,8 @@ pub fn shortcut(mods: &ModifiersState, sym: Keysym, modified: Keysym, locked: bo
             keysyms::KEY_r => Some(Action::Run),
             keysyms::KEY_space => Some(Action::NextLayout),
             keysyms::KEY_F11 => Some(Action::Fullscreen),
+            keysyms::KEY_v => Some(Action::Clipboard),
+            keysyms::KEY_period | keysyms::KEY_semicolon => Some(Action::Emoji),
             _ => None,
         };
     }
@@ -935,6 +941,8 @@ impl Boswas {
             Action::QuickSettings => event(self, "quick-settings"),
             Action::Notifications => event(self, "notifications"),
             Action::Run => event(self, "run"),
+            Action::Clipboard => event(self, "clipboard"),
+            Action::Emoji => event(self, "emoji"),
             Action::Capture { region } => self.request_capture(region),
             Action::Media(key) => {
                 let locked = self.lock.locked;
@@ -1526,6 +1534,12 @@ mod tests {
         assert_eq!(press(&logo, keysyms::KEY_r), Some(Action::Run));
         assert_eq!(press(&logo, keysyms::KEY_m), Some(Action::MinimizeAll { restore: false }));
         assert_eq!(press(&logo, keysyms::KEY_space), Some(Action::NextLayout));
+        assert_eq!(press(&logo, keysyms::KEY_v), Some(Action::Clipboard));
+        assert_eq!(press(&logo, keysyms::KEY_V), Some(Action::Clipboard), "with Caps Lock on");
+        assert_eq!(press(&logo, keysyms::KEY_period), Some(Action::Emoji));
+        assert_eq!(press(&logo, keysyms::KEY_semicolon), Some(Action::Emoji));
+        assert_eq!(press(&mods(false, false, true, false), keysyms::KEY_v), None, "Ctrl+V is the application's");
+        assert_eq!(press(&mods(true, false, false, true), keysyms::KEY_v), None);
         let alt = mods(false, true, false, false);
         assert_eq!(press(&alt, keysyms::KEY_Tab), Some(Action::CycleWindows { backwards: false }));
         assert_eq!(press(&alt, keysyms::KEY_F4), Some(Action::Close));

@@ -120,6 +120,13 @@ do_not_disturb_to = "07:00"
 banners_off = []
 toast_seconds = 5
 
+[clipboard]
+# Super+V shows the last items copied (kept in memory; pinned items are
+# kept in the user's state directory). cleared_at is written by Settings
+# ("Clear clipboard data"): what was copied before then is forgotten.
+history = true
+cleared_at = 0
+
 [policy]
 # Users may shorten the lock timeout but not lengthen or disable it.
 lock_idle_max_seconds = 600
