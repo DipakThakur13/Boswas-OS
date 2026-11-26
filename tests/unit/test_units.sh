@@ -30,6 +30,16 @@ for dir in packages/boswas-compat packages/boswas-device-agent packages/boswas-c
 	fi
 done
 
+# The generator of the shell's emoji data (packages/boswas-desktop/tools).
+out="$(cd "$BOSWAS_REPO_ROOT/packages/boswas-desktop" && python3 -B -m unittest discover -s tools/tests 2>&1)"
+count="$(grep -oE '^Ran [0-9]+ tests?' <<<"$out" | grep -oE '[0-9]+')"
+skipped="$(grep -oE 'skipped=[0-9]+' <<<"$out" | grep -oE '[0-9]+' || true)"
+if grep -qE '^OK' <<<"$out"; then
+	pass "boswas-desktop tools unit tests (${count:-?} tests${skipped:+, $skipped skipped})"
+else
+	fail "boswas-desktop tools unit tests: $(grep -E '^(FAIL|ERROR):' <<<"$out" | head -5 | tr '\n' ';')"
+fi
+
 # The system applications (boswas-apps): one suite per application, on the
 # toolkit of this checkout.
 apps="$BOSWAS_REPO_ROOT/packages/boswas-apps"
