@@ -1384,6 +1384,38 @@ mod tests {
         assert_eq!(list[0].start, at("2026-11-26T14:00:00"), "19:30 in India is 14:00 UTC");
     }
 
+    /// Compares the expansion with Calendar's own: `tests/fixtures/calendar`
+    /// holds a document in Calendar's format and what Calendar's Python
+    /// model says happens in one week of it (`generate.py` writes both;
+    /// `BOSWAS_AGENDA_FIXTURE=DIR` compares another pair). Skipped where the
+    /// time-zone database is not installed.
+    #[test]
+    fn matches_calendars_own_expansion() {
+        let dir = std::env::var_os("BOSWAS_AGENDA_FIXTURE").map_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/calendar"), PathBuf::from);
+        let mut zones = tzif::Cache::new(Path::new(tzif::ZONEINFO));
+        if ["Europe/Berlin", "Asia/Kolkata", "America/New_York", "Australia/Sydney"].iter().any(|z| zones.get(z).is_none()) {
+            eprintln!("skipped: the time-zone database is not installed");
+            return;
+        }
+        let doc = Document::parse(&std::fs::read_to_string(dir.join("calendar.json")).unwrap(), &mut zones).unwrap();
+        let expected: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("expected.json")).unwrap()).unwrap();
+        let local = zones.get(expected["local"].as_str().unwrap()).cloned().unwrap();
+        let (start, end) = (expected["start"].as_i64().unwrap(), expected["end"].as_i64().unwrap());
+        let mut mine: Vec<(String, i64, i64, bool)> = occurrences(&doc, start, end, &local, &mut zones, 100_000).into_iter().map(|o| (o.summary, o.start_epoch, o.end_epoch, o.all_day)).collect();
+        let mut theirs: Vec<(String, i64, i64, bool)> = expected["occurrences"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|o| (o["summary"].as_str().unwrap().to_owned(), o["start"].as_i64().unwrap(), o["end"].as_i64().unwrap(), o["all_day"].as_bool().unwrap()))
+            .collect();
+        mine.sort();
+        theirs.sort();
+        let missing: Vec<_> = theirs.iter().filter(|o| !mine.contains(o)).collect();
+        let extra: Vec<_> = mine.iter().filter(|o| !theirs.contains(o)).collect();
+        assert!(missing.is_empty() && extra.is_empty(), "{} expected, {} found\nmissing: {missing:?}\nextra: {extra:?}", theirs.len(), mine.len());
+        assert!(theirs.len() > 50, "a fixture with something in it");
+    }
+
     #[test]
     fn only_the_users_own_regular_file_is_read() {
         let dir = std::env::temp_dir().join(format!("boswas-agenda-{}", std::process::id()));

@@ -2113,6 +2113,31 @@ mod tests {
         assert_eq!(st.desk_items().len(), 3);
     }
 
+    /// Drawing a full desktop is cheap enough to do on every hover change.
+    #[test]
+    fn a_full_desktop_draws_quickly() {
+        let entries: Vec<Entry> = (0..300).map(|i| entry(&format!("Document number {i} with a long name.txt"), i % 7 == 0, i as u64, i as i64)).collect();
+        let st = state_with(entries);
+        let mut res = crate::ui::Resources::new(boswas_ui::Theme::of(Scheme::Dark));
+        let mut canvas = boswas_ui::Canvas::new(1920.0, 1080.0, 1.0).unwrap();
+        let mut hits = Vec::new();
+        let mut frame = |res: &mut crate::ui::Resources, canvas: &mut boswas_ui::Canvas, hits: &mut Vec<Hit>| {
+            hits.clear();
+            let mut f = Frame { canvas, res, pointer: Some((40.0, 40.0)), pressed: false, hits, focus: None, origin: (0.0, 0.0) };
+            draw(&mut f, &st, (1920.0, 1080.0));
+        };
+        frame(&mut res, &mut canvas, &mut hits);
+        let started = Instant::now();
+        for _ in 0..5 {
+            frame(&mut res, &mut canvas, &mut hits);
+        }
+        let each = started.elapsed() / 5;
+        assert!(!hits.is_empty());
+        // A debug build is far slower than the package; this catches a
+        // drawing that went wrong (icons decoded or files read each time).
+        assert!(each < Duration::from_millis(400), "{each:?} per frame");
+    }
+
     #[test]
     fn renaming_replaces_the_selected_name_and_keeps_the_extension() {
         let mut field = TextField::default();
