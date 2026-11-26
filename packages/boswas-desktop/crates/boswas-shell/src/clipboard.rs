@@ -848,6 +848,18 @@ mod tests {
     }
 
     #[test]
+    fn the_settings_arrive_with_the_desktop_s_and_default_to_on() {
+        use crate::settings::Desktop;
+        use serde_json::json;
+        let d = Desktop::parse(&json!({"scheme": "dark", "clipboard": {"history": false, "cleared_at": 1764180000}})).unwrap();
+        assert_eq!((d.clipboard_history, d.clipboard_cleared_at), (false, 1_764_180_000));
+        let d = Desktop::parse(&json!({"scheme": "dark"})).unwrap();
+        assert_eq!((d.clipboard_history, d.clipboard_cleared_at), (true, 0), "an older compositor: on, never cleared");
+        let d = Desktop::parse(&json!({"scheme": "dark", "clipboard": {"history": "no", "cleared_at": -3}})).unwrap();
+        assert_eq!((d.clipboard_history, d.clipboard_cleared_at), (true, 0));
+    }
+
+    #[test]
     fn searching_looks_in_text_and_file_names() {
         let mut history = History::default();
         history.add(text("Quarterly Report"), 1);

@@ -680,6 +680,38 @@ mod tests {
         crate::ui::set_text_scale(100);
     }
 
+    /// Without a single font, and without the emoji font, both flyouts
+    /// still draw their shapes and controls, in both schemes.
+    #[test]
+    fn both_flyouts_draw_without_fonts_and_without_the_emoji_font() {
+        use crate::emoji;
+        let repository_fonts = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../../desktop/fonts/orbitron/static");
+        for dirs in [Vec::new(), vec![repository_fonts]] {
+            for scheme in [Scheme::Dark, Scheme::Light] {
+                let resources = || {
+                    let text = boswas_ui::text::TextEngine::from_font_dirs(&dirs);
+                    assert_eq!(text.emoji_family(), None);
+                    Resources::with_text(boswas_ui::Theme::of(scheme), text)
+                };
+                let mut st = State::for_tests();
+                with_items(&mut st);
+                let (w, h) = panel_size((1366.0, 768.0));
+                let (canvas, hits) = testing::render_with(resources(), w + 24.0, h + 24.0, 1.0, None, None, |f| draw(f, &st, Rect::new(12.0, 12.0, w, h)));
+                assert!(canvas.data().chunks_exact(4).any(|p| p[3] > 0));
+                assert!(testing::hits_are_inside(&hits, w + 24.0, h + 24.0));
+                assert!(hits.iter().any(|h| matches!(h.action, Action::Clip(Act::Paste(_)))), "cards without text are still cards");
+                for tab in emoji::Tab::ALL {
+                    st.emoji.tab = tab;
+                    st.emoji.reset();
+                    let (w, h) = emoji::panel_size((1366.0, 768.0));
+                    let (canvas, hits) = testing::render_with(resources(), w + 24.0, h + 24.0, 1.0, None, None, |f| emoji::draw(f, &st, Rect::new(12.0, 12.0, w, h)));
+                    assert!(canvas.data().chunks_exact(4).any(|p| p[3] > 0));
+                    assert!(testing::hits_are_inside(&hits, w + 24.0, h + 24.0), "{tab:?}");
+                }
+            }
+        }
+    }
+
     #[test]
     fn cards_fit_their_text_and_pictures() {
         let mut res = Resources::new(boswas_ui::Theme::of(Scheme::Dark));

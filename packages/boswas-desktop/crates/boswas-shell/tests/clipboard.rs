@@ -10,6 +10,8 @@
 //! * Super+., typing a name and Enter insert an emoji: the window gets
 //!   Ctrl+V and reads the emoji, and then the clipboard holds again what
 //!   the window had copied.
+//! * With the history off nothing is kept; Super+V says so, and its Turn on
+//!   writes the user's setting and the history works from then on.
 //!
 //! Skipped (with a message) where the compositor was not built next to the
 //! shell (`cargo test -p boswas-shell` alone) or no font is installed.
@@ -116,13 +118,21 @@ impl Session {
 }
 
 fn start() -> Option<Session> {
+    start_with("")
+}
+
+/// The session, with more lines for the compositor's configuration.
+fn start_with(extra: &str) -> Option<Session> {
     let shell = PathBuf::from(env!("CARGO_BIN_EXE_boswas-shell"));
     let compositor = shell.with_file_name("boswas-compositor");
     if !compositor.is_file() {
         eprintln!("skipped: {} was not built", compositor.display());
         return None;
     }
-    let root = PathBuf::from(format!("/tmp/bwc{}", std::process::id()));
+    // One directory per session: the tests run side by side.
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let root = PathBuf::from(format!("/tmp/bwc{}-{n}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(root.join("home")).unwrap();
     std::fs::create_dir_all(root.join("run")).unwrap();
@@ -133,7 +143,7 @@ fn start() -> Option<Session> {
         format!(
             "[policy]\nprivileged_protocols = \"all\"\nlock_idle_max_seconds = 0\n[lock]\nidle_seconds = 0\ncommand = [\"{0}\", \"--lock\"]\n[shell]\ncommand = [\"{0}\"]\n[xwayland]\nenabled = false\n{1}\n",
             shell.display(),
-            std::env::var("BOSWAS_TEST_CONFIG").unwrap_or_else(|_| "[appearance]\nreduced_motion = true".into()).replace("\\n", "\n"),
+            std::env::var("BOSWAS_TEST_CONFIG").unwrap_or_else(|_| "[appearance]\nreduced_motion = true".into()).replace("\\n", "\n") + "\n" + extra,
         ),
     )
     .unwrap();
@@ -299,19 +309,14 @@ impl Window {
             queue.blocking_dispatch(&mut app).unwrap();
         }
         let (w, h) = (480i32, 320i32);
-        let file = std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(format!("/tmp/bwc-buffer-{}", std::process::id()))
-            .unwrap();
+        let path = format!("/tmp/bwc-buffer-{}-{:?}", std::process::id(), std::thread::current().id());
+        let file = std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(true).open(&path).unwrap();
         file.set_len((w * h * 4) as u64).unwrap();
         let pool = shm.create_pool(file.as_fd(), w * h * 4, &qh, ());
         let buffer = pool.create_buffer(0, w, h, w * 4, wl_shm::Format::Xrgb8888, &qh, ());
         surface.attach(Some(&buffer), 0, 0);
         surface.commit();
-        let _ = std::fs::remove_file(format!("/tmp/bwc-buffer-{}", std::process::id()));
+        let _ = std::fs::remove_file(&path);
         std::mem::forget((toplevel, xdg, surface, buffer, pool));
         let mut window = Self { queue, app, manager, device };
         window.until("the keyboard", |a| a.entered.is_some());
@@ -329,6 +334,7 @@ impl Window {
 
     /// Copies text (with more types, such as a password manager's hint).
     fn copy(&mut self, text: &str, more: &[(&str, &str)]) {
+        self.until("the keyboard", |a| a.entered.is_some());
         let qh = self.queue.handle();
         let mut offers = vec![("text/plain;charset=utf-8".to_owned(), text.as_bytes().to_vec())];
         offers.extend(more.iter().map(|(m, v)| ((*m).to_owned(), v.as_bytes().to_vec())));
@@ -444,4 +450,47 @@ fn copied_items_are_pasted_from_the_history_and_emoji_are_inserted() {
     assert!(recent.contains("\u{1F600}"), "{recent}");
     let log = session.log();
     assert!(!log.contains("panicked"), "{log}");
+}
+
+#[test]
+fn with_the_history_off_nothing_is_kept_until_it_is_turned_on() {
+    let Some(mut session) = start_with("[clipboard]\nhistory = false\n") else {
+        return;
+    };
+    std::thread::sleep(Duration::from_secs(3));
+    if session.log().contains("no usable font") {
+        eprintln!("skipped: no font is installed, so the desktop does not start");
+        return;
+    }
+    let stream = UnixStream::connect(session.root.join("run").join(&session.display)).unwrap();
+    let conn = Connection::from_socket(stream).unwrap();
+    let mut window = Window::open(&conn);
+    window.copy("copied while it is off", &[]);
+    // Super+V shows that it is off; Enter is its Turn on, and pastes nothing.
+    window.app.keys.clear();
+    session.keys(&[KEY_LEFTMETA, KEY_V]);
+    std::thread::sleep(Duration::from_millis(800));
+    session.shot("clipboard-off");
+    session.keys(&[KEY_ENTER]);
+    let user = session.root.join("home/.config/boswas/compositor.toml");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !std::fs::read_to_string(&user).is_ok_and(|t| t.contains("history = true")) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let written = std::fs::read_to_string(&user).unwrap_or_else(|_| panic!("not turned on:\n{}", session.log()));
+    assert_eq!(written, "[clipboard]\nhistory = true\n");
+    window.queue.roundtrip(&mut window.app).unwrap();
+    assert!(!window.app.keys.iter().any(|(k, _)| *k == KEY_V), "nothing was pasted: {:?}", window.app.keys);
+    session.keys(&[KEY_ESC]);
+    std::thread::sleep(Duration::from_millis(800));
+    // From now on it keeps what is copied.
+    window.copy("one", &[]);
+    window.copy("two", &[]);
+    window.app.keys.clear();
+    session.keys(&[KEY_LEFTMETA, KEY_V]);
+    std::thread::sleep(Duration::from_millis(800));
+    session.keys(&[KEY_DOWN]);
+    session.keys(&[KEY_ENTER]);
+    window.wait_for_paste();
+    assert_eq!(window.clipboard(), "one", "{}", session.log());
 }
