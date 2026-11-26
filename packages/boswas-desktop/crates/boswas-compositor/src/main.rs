@@ -10,6 +10,7 @@ mod cursor;
 mod effects;
 mod exit;
 mod focus;
+mod glass;
 mod handlers;
 mod input;
 mod ipc;

@@ -26,12 +26,135 @@
 //! * **Off.** With transparency effects off or a high-contrast preset every
 //!   surface is its opaque tint ([`Glass::opaque`]).
 
+use std::{cell::RefCell, rc::Rc};
+
 use tiny_skia::{FilterQuality, Pattern, Pixmap, SpreadMode, Transform};
 
 use crate::{
     canvas::{Canvas, Corners},
+    material::{Backdrop, Recipe},
     tokens::{tokens, Rgba, Scheme, Theme, TEXT_CONTRAST},
 };
+
+/// Where a glass surface's backdrop comes from.
+pub enum Source<'a> {
+    /// Glass is off (transparency effects off, a high-contrast preset):
+    /// opaque tints.
+    Off,
+    /// The compositor blurs what lies behind the surface: only the tint is
+    /// drawn, made legible over the luminosity band.
+    Live,
+    /// The wallpaper, blurred here.
+    Wallpaper(&'a mut Backdrop),
+    /// No backdrop is known yet: the opaque tint, as with glass off.
+    Unknown,
+}
+
+impl Source<'_> {
+    /// Whether the surface is translucent.
+    pub fn translucent(&self) -> bool {
+        matches!(self, Source::Live | Source::Wallpaper(_))
+    }
+}
+
+thread_local! {
+    /// Opacities found legible lately: (theme, kind, extremes) and the
+    /// opacity. A surface is drawn again on every hover change.
+    static LEGIBLE: RefCell<Vec<(usize, Kind, Vec<Rgba>, f32)>> = const { RefCell::new(Vec::new()) };
+    /// The grain tile of each noise opacity (in ten-thousandths).
+    static GRAINS: RefCell<Vec<(u32, Rc<Pixmap>)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// [`legible_opacity`], remembered for the last few backdrops.
+pub fn legible_opacity_kept(theme: &Theme, glass: &Glass, kind: Kind, extremes: &[Rgba]) -> f32 {
+    let id = std::ptr::from_ref(theme) as usize;
+    if let Some(found) = LEGIBLE.with(|kept| kept.borrow().iter().find(|(t, k, e, _)| *t == id && *k == kind && e == extremes).map(|entry| entry.3)) {
+        return found;
+    }
+    let alpha = legible_opacity(theme, glass, kind, extremes);
+    LEGIBLE.with(|kept| {
+        let mut kept = kept.borrow_mut();
+        if kept.len() >= 16 {
+            kept.remove(0);
+        }
+        kept.push((id, kind, extremes.to_vec(), alpha));
+    });
+    alpha
+}
+
+/// The grain tile of a noise opacity, made once.
+pub fn grain(noise: f32) -> Option<Rc<Pixmap>> {
+    let key = (noise.clamp(0.0, 1.0) * 10000.0).round() as u32;
+    if key == 0 {
+        return None;
+    }
+    GRAINS.with(|kept| {
+        let mut kept = kept.borrow_mut();
+        if let Some((_, tile)) = kept.iter().find(|(k, _)| *k == key) {
+            return Some(tile.clone());
+        }
+        let tile = Rc::new(grain_tile(noise)?);
+        kept.push((key, tile.clone()));
+        Some(tile)
+    })
+}
+
+/// The opacities a kind is drawn with over a source: the backdrop layer
+/// (`tint`, raised for legibility) and, for flyouts, the flyout glass on it.
+pub fn layers(theme: &Theme, glass: &Glass, kind: Kind, extremes: &[Rgba]) -> [(Rgba, f32); 2] {
+    let none = (Rgba::TRANSPARENT, 0.0);
+    match kind {
+        Kind::Backdrop | Kind::Taskbar => {
+            let (tint, _) = glass.layer(kind);
+            [(tint, legible_opacity_kept(theme, glass, kind, extremes)), none]
+        }
+        Kind::Flyout => {
+            let backdrop = legible_opacity_kept(theme, glass, Kind::Backdrop, extremes);
+            [(glass.tint, backdrop), (glass.flyout_tint, glass.flyout)]
+        }
+        Kind::Card | Kind::Pane => [glass.layer(kind), none],
+    }
+}
+
+/// A whole glass surface: its backdrop from `source`, its tint (raised for
+/// legibility), the grain, the inner glow and the hairline; with glass off
+/// the opaque tint and the plain surface outline. `origin` is where the
+/// canvas's top-left corner lies on the output (logical pixels), for the
+/// wallpaper. The shell and the compositor draw every glass surface with
+/// this.
+#[allow(clippy::too_many_arguments)]
+pub fn paint(canvas: &mut Canvas, x: f32, y: f32, w: f32, h: f32, radii: Corners, origin: (f32, f32), theme: &Theme, kind: Kind, source: Source<'_>) {
+    let radius = radii.iter().copied().fold(0.0f32, f32::max);
+    let Some(glass) = Glass::of(theme).filter(|_| source.translucent()) else {
+        let tint = Glass::of(theme).map_or(theme.surface, |g| g.opaque(kind));
+        canvas.fill_rounded_rect4(x, y, w, h, radii, tint);
+        canvas.stroke_rounded_rect(x, y, w, h, radius, 1.0, tokens().stroke(theme.scheme, "surface"));
+        return;
+    };
+    match source {
+        Source::Wallpaper(backdrop) => {
+            let extremes = backdrop.extremes(glass.blur, glass.saturation);
+            let recipe = Recipe {
+                blur: glass.blur,
+                saturation: glass.saturation,
+                layers: layers(theme, &glass, kind, &extremes),
+                noise: glass.noise,
+            };
+            backdrop.fill_recipe(canvas, x, y, w, h, radii, origin, &recipe);
+        }
+        _ => {
+            for (tint, opacity) in layers(theme, &glass, kind, &band_extremes(theme.scheme)) {
+                if opacity > 0.0 {
+                    canvas.fill_rounded_rect4(x, y, w, h, radii, tint.alpha(opacity));
+                }
+            }
+            if let Some(tile) = grain(glass.noise) {
+                draw_grain(canvas, x, y, w, h, radii, &tile);
+            }
+        }
+    }
+    draw_edges(canvas, x, y, w, h, radius, &glass, kind, false);
+}
 
 /// The opacity of a tint is raised in steps of this much until text on it is
 /// legible.

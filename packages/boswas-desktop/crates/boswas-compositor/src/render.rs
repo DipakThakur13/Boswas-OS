@@ -54,6 +54,7 @@ render_elements! {
     Surface=WaylandSurfaceRenderElement<R>,
     Memory=MemoryRenderBufferRenderElement<R>,
     Solid=SolidColorRenderElement,
+    Blur=crate::glass::blur::BlurElement<R>,
 }
 
 /// The elements of one output.
@@ -106,6 +107,7 @@ where
             Self::Surface(_) => "Surface",
             Self::Memory(_) => "Memory",
             Self::Solid(_) => "Solid",
+            Self::Blur(_) => "Blur",
             Self::_GenericCatcher(_) => "_GenericCatcher",
         })
     }
@@ -241,6 +243,7 @@ impl Boswas {
                         .map(|e| OutputRenderElement::Window(Wrap::from(e))),
                 );
             }
+            self.blur_behind_surfaces(renderer, output, scale, &mut elements);
             return (elements, Color32F::BLACK);
         }
 
@@ -252,6 +255,7 @@ impl Boswas {
         }
         layer_elements(renderer, output, Layer::Bottom, scale, &mut elements);
         layer_elements(renderer, output, Layer::Background, scale, &mut elements);
+        self.blur_behind_surfaces(renderer, output, scale, &mut elements);
         (elements, background)
     }
 
@@ -582,7 +586,7 @@ impl Boswas {
 }
 
 /// The surfaces of one layer of an output, front to back.
-fn layer_elements<R>(
+pub(crate) fn layer_elements<R>(
     renderer: &mut R,
     output: &Output,
     layer: Layer,
