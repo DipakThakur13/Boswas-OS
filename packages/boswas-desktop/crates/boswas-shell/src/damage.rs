@@ -56,7 +56,7 @@ fn differing_pixels(a: &[u8], b: &[u8]) -> (usize, usize) {
         .map(|i| byte_at(i, word(a, i), word(b, i), false))
         .or_else(|| tail().next());
     let last = tail()
-        .last()
+        .next_back()
         .or_else(|| (0..words).rev().find(|&i| word(a, i) != word(b, i)).map(|i| byte_at(i, word(a, i), word(b, i), true)));
     match (first, last) {
         (Some(first), Some(last)) => (first / 4, last / 4),

@@ -571,6 +571,65 @@ mod tests {
         hover_matches_whole(&|f| lock::draw(f, &st, true), 1024.0, 768.0, 1.25, "the lock screen");
     }
 
+    /// The repository's icon theme, so that icons are really rasterised.
+    fn repository_icons() -> boswas_ui::icons::IconLoader {
+        let icons = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../../desktop/icons");
+        boswas_ui::icons::IconLoader::with_base_dirs("Boswas-Prism", &[icons])
+    }
+
+    #[test]
+    fn start_opens_without_rasterising_an_icon_once_the_icons_are_prepared() {
+        use crate::config::AllView;
+        let mut st = with_many_apps(State::for_tests());
+        for scale in [1.0, 1.25, 2.0] {
+            let mut res = crate::ui::Resources::new(boswas_ui::Theme::of(Scheme::Dark));
+            res.icons = repository_icons();
+            // What the worker thread does: another loader rasterises, the
+            // shell's keeps.
+            let worker = repository_icons();
+            for (name, size) in crate::prewarm::icons_wanted(&st.apps, scale) {
+                res.icons.keep(&name, size, worker.render(&name, size));
+            }
+            let (sw, sh) = (832.0 + 2.0 * PAD, 918.0 + 2.0 * PAD);
+            let panel = Rect::new(PAD, PAD, 832.0, 918.0);
+            let draw = |res: &mut crate::ui::Resources, st: &State| {
+                let mut canvas = boswas_ui::Canvas::new(sw, sh, scale).unwrap();
+                let mut hits = Vec::new();
+                start::draw(&mut Frame { canvas: &mut canvas, res, pointer: None, pressed: false, hits: &mut hits, focus: None, origin: (0.0, 0.0) }, st, panel);
+            };
+            // What the drawing ahead of time does at a quiet moment (it
+            // also rasterises the few symbolic icons of Start's frame).
+            st.config.view = AllView::Category;
+            st.start.reset();
+            draw(&mut res, &st);
+            let prepared = res.icons.looked_up();
+            for view in AllView::ALL {
+                st.config.view = view;
+                st.start.reset();
+                draw(&mut res, &st);
+                st.start.expanded = true;
+                st.start.scroll = 1.0e6;
+                draw(&mut res, &st);
+            }
+            assert_eq!(res.icons.looked_up(), prepared, "at {scale}: Start rasterised icons itself");
+            st.start.reset();
+        }
+        // And without preparing, Start rasterises once, then never again.
+        let mut res = crate::ui::Resources::new(boswas_ui::Theme::of(Scheme::Dark));
+        res.icons = repository_icons();
+        let panel = Rect::new(PAD, PAD, 832.0, 918.0);
+        for _ in 0..2 {
+            let mut canvas = boswas_ui::Canvas::new(832.0 + 2.0 * PAD, 918.0 + 2.0 * PAD, 2.0).unwrap();
+            let mut hits = Vec::new();
+            start::draw(&mut Frame { canvas: &mut canvas, res: &mut res, pointer: None, pressed: false, hits: &mut hits, focus: None, origin: (0.0, 0.0) }, &st, panel);
+        }
+        let first = res.icons.looked_up();
+        assert!(first > 0);
+        let mut canvas = boswas_ui::Canvas::new(832.0 + 2.0 * PAD, 918.0 + 2.0 * PAD, 2.0).unwrap();
+        start::draw(&mut Frame { canvas: &mut canvas, res: &mut res, pointer: None, pressed: false, hits: &mut Vec::new(), focus: None, origin: (0.0, 0.0) }, &st, panel);
+        assert_eq!(res.icons.looked_up(), first, "a second opening rasterises no icon");
+    }
+
     /// Drawing Start is cheap enough to scroll it at the refresh rate of a
     /// fast display.
     #[test]
@@ -595,6 +654,73 @@ mod tests {
         // slower than the package; this only catches a drawing that went
         // wrong (a page drawn whole, icons decoded every time).
         assert!(each < std::time::Duration::from_millis(250), "{each:?} per frame");
+    }
+
+    /// Start at 200 %, the largest Start (832 by 918 at 1920x1080: 3.2
+    /// million pixels), drawn as the shell draws it: whole (while its page
+    /// scrolls, compared with the drawing before) and for a hover change
+    /// (the tiles the pointer left and entered). The limits hold for an
+    /// optimised build on a loaded build machine, with room to spare:
+    /// `cargo test --release start_at_200 -- --nocapture` prints the
+    /// figures. An unoptimised build only checks that it all works.
+    #[test]
+    fn start_at_200_percent_stays_within_a_frame() {
+        use std::time::Duration;
+        let st = with_many_apps(State::for_tests());
+        let (sw, sh, scale) = (832.0 + 2.0 * PAD, 918.0 + 2.0 * PAD, 2.0);
+        let panel = Rect::new(PAD, PAD, 832.0, 918.0);
+        let mut res = crate::ui::Resources::new(boswas_ui::Theme::of(Scheme::Dark));
+        res.icons = repository_icons();
+        let draw = |res: &mut crate::ui::Resources, canvas: &mut boswas_ui::Canvas, pointer: Option<(f32, f32)>| {
+            let mut hits = Vec::new();
+            start::draw(&mut Frame { canvas, res, pointer, pressed: false, hits: &mut hits, focus: None, origin: (0.0, 0.0) }, &st, panel);
+            hits
+        };
+        // As after the first opening (or the preparation ahead of time).
+        let mut front = boswas_ui::Canvas::new(sw, sh, scale).unwrap();
+        let hits = draw(&mut res, &mut front, None);
+        let mut spare = boswas_ui::Canvas::new(sw, sh, scale).unwrap();
+        draw(&mut res, &mut spare, None);
+        let (pw, ph) = front.pixel_size();
+        let median = |mut samples: Vec<Duration>| {
+            samples.sort();
+            samples[samples.len() / 2]
+        };
+        let mut whole = Vec::new();
+        for _ in 0..9 {
+            let started = Instant::now();
+            spare.reset();
+            draw(&mut res, &mut spare, None);
+            let _ = crate::damage::changed_rect(front.data(), spare.data(), pw, ph);
+            std::mem::swap(&mut front, &mut spare);
+            whole.push(started.elapsed());
+        }
+        let tiles: Vec<Rect> = hits.iter().filter(|h| matches!(h.action, Action::Start(start::Act::App(_)))).map(|h| h.rect).collect();
+        assert!(tiles.len() >= 8);
+        let mut hover = Vec::new();
+        let mut pointer = None;
+        for tile in &tiles {
+            let to = Some(tile.center());
+            let started = Instant::now();
+            let rects: Vec<_> = crate::ui::hover_changes(&hits, (sw, sh), pointer, to).iter().map(|r| crate::ui::device_rect(r, scale)).collect();
+            let clip = spare.begin_clip(&rects);
+            draw(&mut res, &mut spare, to);
+            spare.end_clip();
+            for rect in clip {
+                if let Some(changed) = crate::damage::changed_in(front.data(), spare.data(), pw, rect) {
+                    crate::damage::copy_rect(spare.data(), front.pixmap_mut().data_mut(), pw, changed);
+                }
+            }
+            hover.push(started.elapsed());
+            pointer = to;
+        }
+        let (whole, hover) = (median(whole), median(hover));
+        println!("Start at 200 % ({pw}x{ph}): {whole:?} a whole frame, {hover:?} a hover change");
+        #[cfg(not(debug_assertions))]
+        {
+            assert!(whole < Duration::from_millis(45), "a whole frame of Start at 200 % took {whole:?}");
+            assert!(hover < Duration::from_millis(6), "a hover change in Start at 200 % took {hover:?}");
+        }
     }
 
     #[test]

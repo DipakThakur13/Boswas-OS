@@ -55,6 +55,22 @@ fn icon_sizes() -> Vec<f32> {
     vec![tile, tile - 4.0, 32.0, list, 40.0, 24.0, bar, bar - 4.0]
 }
 
+/// The icons (names and sizes in pixels) applications are drawn with at
+/// `scale`, with the stand-in for those without one.
+pub fn icons_wanted(apps: &[crate::apps::App], scale: f32) -> Vec<(String, u32)> {
+    let mut wanted: Vec<(String, u32)> = Vec::new();
+    let names = apps.iter().map(|a| a.icon.as_str()).chain(["application-x-executable"]);
+    for name in names.filter(|n| !n.is_empty()) {
+        for size in icon_sizes() {
+            let item = (name.to_owned(), (size * scale).round().max(1.0) as u32);
+            if !wanted.contains(&item) {
+                wanted.push(item);
+            }
+        }
+    }
+    wanted
+}
+
 impl Shell {
     /// Called once per turn of the event loop: starts or continues the
     /// work, when there is something to do.
@@ -110,17 +126,7 @@ impl Shell {
     /// Rasterises, on a worker thread, the icons of every application that
     /// are not kept yet, at the sizes they are drawn at.
     fn rasterise_icons(&mut self, scale: f32) {
-        let mut wanted: Vec<(String, u32)> = Vec::new();
-        let names = self.st.apps.iter().map(|a| a.icon.as_str()).chain(["application-x-executable"]);
-        for name in names.filter(|n| !n.is_empty()) {
-            for size in icon_sizes() {
-                let pixels = (size * scale).round().max(1.0) as u32;
-                let item = (name.to_owned(), pixels);
-                if !self.res.icons.has(name, pixels) && !wanted.contains(&item) {
-                    wanted.push(item);
-                }
-            }
-        }
+        let wanted: Vec<(String, u32)> = icons_wanted(&self.st.apps, scale).into_iter().filter(|(name, size)| !self.res.icons.has(name, *size)).collect();
         if wanted.is_empty() {
             self.prewarm.icons_done = true;
             return;

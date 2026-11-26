@@ -42,6 +42,8 @@ pub struct IconLoader {
     dirs: Vec<IconDir>,
     pixmap_dirs: Vec<PathBuf>,
     cache: HashMap<(String, u32), Option<Rc<Pixmap>>>,
+    /// Icons looked up and rasterised here (not handed over), in all.
+    looked_up: usize,
 }
 
 impl IconLoader {
@@ -95,6 +97,7 @@ impl IconLoader {
             dirs,
             pixmap_dirs,
             cache: HashMap::new(),
+            looked_up: 0,
         }
     }
 
@@ -109,6 +112,7 @@ impl IconLoader {
         if let Some(cached) = self.cache.get(&key) {
             return cached.clone();
         }
+        self.looked_up += 1;
         let pixmap = self.find(name, size).and_then(|path| render_file(&path, size)).map(Rc::new);
         self.cache.insert(key, pixmap.clone());
         pixmap
@@ -133,6 +137,13 @@ impl IconLoader {
     /// unless it was looked up meanwhile.
     pub fn keep(&mut self, name: &str, size: u32, pixmap: Option<Pixmap>) {
         self.cache.entry((name.to_owned(), size)).or_insert_with(|| pixmap.map(Rc::new));
+    }
+
+    /// How many icons [`IconLoader::load`] looked up and rasterised itself
+    /// (those not kept already), in all: a drawing that is to need none
+    /// can be checked with it.
+    pub fn looked_up(&self) -> usize {
+        self.looked_up
     }
 
     /// The file that provides an icon, if any.

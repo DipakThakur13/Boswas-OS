@@ -153,10 +153,10 @@ mod tests {
     fn a_second_adds_up_its_frames() {
         let size = Size::from((100, 100));
         let mut second = Second::default();
-        record(&mut second, size, Duration::from_millis(2), None);
+        assert_eq!(record(&mut second, size, Duration::from_millis(2), None), 1.0);
         let corner = [Rectangle::new(Point::from((0, 0)), Size::from((50, 50)))];
-        record(&mut second, size, Duration::from_millis(4), Some(&corner));
-        record(&mut second, size, Duration::from_millis(3), Some(&[]));
+        assert!((record(&mut second, size, Duration::from_millis(4), Some(&corner)) - 0.25).abs() < 1e-9, "a quarter of the output");
+        assert_eq!(record(&mut second, size, Duration::from_millis(3), Some(&[])), 0.0);
         assert_eq!(second.frames, 3);
         assert_eq!(second.full, 1);
         assert_eq!(second.slowest, Duration::from_millis(4));
