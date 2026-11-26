@@ -309,7 +309,7 @@ impl Boswas {
     }
 
     /// What the shell needs to match the session's look, and the settings
-    /// of its taskbar, Start and notifications (they are kept in the same
+    /// of its taskbar, Start, notifications and desktop icons (they are kept in the same
     /// layered files as everything else, and reach the shell this way).
     /// The lock screen is started as a trusted client too and takes from
     /// it whether to show the weather.
@@ -329,6 +329,14 @@ impl Boswas {
                 "clock_seconds": c.taskbar.clock_seconds,
                 "badges": c.taskbar.badges,
                 "windows": c.multitasking.taskbar_windows,
+                "widgets": c.taskbar.widgets,
+            },
+            "desktop": {
+                "icons": c.desktop.icons,
+                "system_icons": c.desktop.system_icons,
+                "icon_size": c.desktop.icon_size,
+                "auto_arrange": c.desktop.auto_arrange,
+                "align_to_grid": c.desktop.align_to_grid,
             },
             "start": {
                 "layout": c.start.layout,

@@ -15,6 +15,7 @@
 //! the keyboard reach it.
 
 mod action;
+mod agenda;
 mod apps;
 mod calendar;
 mod capture;
@@ -41,7 +42,10 @@ mod svc;
 mod taskbar;
 mod ui;
 mod wallpaper;
+mod tzif;
 mod weather;
+mod widget_sources;
+mod widgets;
 
 use std::{
     collections::HashMap,
@@ -450,6 +454,7 @@ fn run(mode: Mode) -> Result<i32, Box<dyn std::error::Error>> {
         locale,
         flyout: None,
         start: Start::default(),
+        board: if mode == Mode::Desktop { widgets::Board::new() } else { widgets::Board::default() },
         quick: Quick::default(),
         notes: Notes::default(),
         menus: Vec::new(),
@@ -889,6 +894,7 @@ impl Shell {
                         Some(state::Flyout::Quick) => quick::draw(&mut frame, st, panel),
                         Some(state::Flyout::Notifications) => notify::draw_centre(&mut frame, st, panel),
                         Some(state::Flyout::TrayOverflow) => taskbar::draw_overflow(&mut frame, st, panel),
+                        Some(state::Flyout::Widgets) => widgets::draw(&mut frame, st, panel),
                         None => {}
                     },
                     Role::Menu(level) => {

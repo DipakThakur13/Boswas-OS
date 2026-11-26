@@ -227,6 +227,7 @@ impl Shell {
                     self.mark(Role::Flyout);
                 }
             }
+            (Role::Flyout, Some(Flyout::Widgets)) => self.widgets_scroll(steps),
             (Role::Flyout, Some(Flyout::Notifications)) => {
                 let max = self.st.notes.history.len().saturating_sub(1) as i64;
                 let scroll = (self.st.notes.scroll as i64 + i64::from(steps)).clamp(0, max) as usize;
@@ -404,6 +405,7 @@ impl Shell {
             },
             Action::Capture(_) => {}
             Action::Lock(act) => self.lock_action(act, index),
+            Action::Widgets(act) => self.widgets_action(act, Some(index)),
         }
     }
 
@@ -414,6 +416,7 @@ impl Shell {
             Act::Status => self.toggle_flyout(Flyout::Quick, output),
             Act::Clock => self.toggle_flyout(Flyout::Notifications, output),
             Act::TrayOverflow => self.toggle_flyout(Flyout::TrayOverflow, output),
+            Act::Widgets => self.toggle_flyout(Flyout::Widgets, output),
             Act::TaskView => {
                 self.close_transients();
                 self.send_control("overview");
@@ -800,6 +803,7 @@ impl Shell {
         match self.open_kind() {
             Some(Flyout::Start) => self.start_key(&event, typed),
             Some(Flyout::Quick) => self.quick_key(&event, typed),
+            Some(Flyout::Widgets) => self.widgets_key(&event),
             Some(Flyout::Notifications | Flyout::TrayOverflow) => match event.keysym {
                 Keysym::Escape => self.close_flyout(),
                 Keysym::Return | Keysym::KP_Enter | Keysym::space => {

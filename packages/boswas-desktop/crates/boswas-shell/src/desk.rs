@@ -279,6 +279,7 @@ impl Shell {
             ControlEvent::Launcher => self.toggle_flyout(Flyout::Start, None),
             ControlEvent::QuickSettings => self.toggle_flyout(Flyout::Quick, None),
             ControlEvent::Notifications => self.toggle_flyout(Flyout::Notifications, None),
+            ControlEvent::Widgets => self.toggle_flyout(Flyout::Widgets, None),
             ControlEvent::Lock(locked) => {
                 self.st.locked = locked;
                 if locked {
@@ -472,6 +473,7 @@ impl Shell {
         if self.st.weather.poll(chrono::Utc::now().timestamp()) {
             self.mark(Role::Auth);
         }
+        self.widgets_tick();
         let clock = chrono::Local::now();
         self.follow_dnd_schedule(chrono::Timelike::hour(&clock) * 60 + chrono::Timelike::minute(&clock));
         let seconds = self.st.mode == Mode::Desktop && self.st.desktop.taskbar.clock_seconds;
@@ -673,6 +675,7 @@ impl Shell {
             Flyout::Quick => quick::panel_size(&self.st, output),
             Flyout::Notifications => (t.shell("notification-width").min(w - 2.0 * PAD), (h - bar - 2.0 * PAD).max(200.0)),
             Flyout::TrayOverflow => taskbar::overflow_size(&self.st),
+            Flyout::Widgets => crate::widgets::panel_size(output),
         };
         let (sw, sh) = (pw + 2.0 * PAD, ph + 2.0 * PAD);
         let top = h - bar - sh;
@@ -683,6 +686,8 @@ impl Shell {
                 (Anchor::BOTTOM | Anchor::LEFT, ((sw as u32, sh as u32), (0, 0, bar as i32, 0), (0.0, top)))
             }
             Flyout::Start => (Anchor::BOTTOM, ((sw as u32, sh as u32), (0, 0, bar as i32, 0), (((w - sw) / 2.0).floor(), top))),
+            // The widgets board comes from the left edge.
+            Flyout::Widgets => (Anchor::BOTTOM | Anchor::LEFT, ((sw as u32, sh as u32), (0, 0, bar as i32, 0), (0.0, top))),
             Flyout::TrayOverflow => {
                 // Above the chevron.
                 let (inline, hidden) = taskbar::split_tray(&self.st.sys.tray);
@@ -745,6 +750,7 @@ impl Shell {
                 self.sync_toasts();
             }
             Flyout::TrayOverflow => {}
+            Flyout::Widgets => self.widgets_opened(),
         }
         self.st.flyout = Some(kind);
         self.st.focus = None;
@@ -827,6 +833,9 @@ impl Shell {
     }
 
     fn forget_flyout(&mut self) {
+        if self.st.flyout == Some(Flyout::Widgets) {
+            self.widgets_closed();
+        }
         self.st.flyout = None;
         self.flyout_closing = false;
         self.st.focus = None;
@@ -978,6 +987,7 @@ impl Shell {
                 self.power(action);
             }
             Cmd::Tray { key, id } => self.service(Command::TrayMenuActivate { key, id }),
+            Cmd::Widgets(cmd) => self.widgets_command(cmd),
             Cmd::Submenu | Cmd::Nothing => {}
         }
     }

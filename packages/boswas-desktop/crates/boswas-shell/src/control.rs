@@ -44,6 +44,8 @@ pub enum ControlEvent {
     QuickSettings,
     /// Super+N.
     Notifications,
+    /// Super+W: the widgets board.
+    Widgets,
     /// Super+R.
     Run,
     /// Print, Super+Shift+S or the public `capture` command.
@@ -247,6 +249,7 @@ pub fn parse_message(message: &Value) -> Vec<ControlEvent> {
         Some("config") => parse_appearance(data).into_iter().collect(),
         Some("quick-settings") => vec![ControlEvent::QuickSettings],
         Some("notifications") => vec![ControlEvent::Notifications],
+        Some("widgets") => vec![ControlEvent::Widgets],
         Some("run") => vec![ControlEvent::Run],
         Some("capture") => vec![ControlEvent::Capture {
             whole_screen: data.get("mode").and_then(Value::as_str) == Some("screen"),
@@ -368,6 +371,7 @@ mod tests {
         );
         assert_eq!(ev("capturing", json!({"programs": []})), [ControlEvent::Capturing(Vec::new())]);
         assert_eq!(ev("notifications", json!({})), [ControlEvent::Notifications]);
+        assert_eq!(ev("widgets", json!({})), [ControlEvent::Widgets]);
         assert_eq!(ev("run", json!({})), [ControlEvent::Run]);
         assert_eq!(ev("capture", json!({"mode": "screen"})), [ControlEvent::Capture { whole_screen: true }]);
         assert_eq!(ev("capture", json!({})), [ControlEvent::Capture { whole_screen: false }]);

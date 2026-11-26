@@ -97,6 +97,8 @@ auto_hide = false
 task_view = true
 clock_seconds = false
 badges = true
+# The widgets button at the left end of the taskbar (Super+W opens the board too).
+widgets = true
 
 [start]
 layout = "default"
@@ -111,6 +113,16 @@ snap_layouts_on_drag = true
 # "desktop": only the windows of the current desktop; "all": of every one.
 taskbar_windows = "desktop"
 alt_tab_windows = "desktop"
+
+[desktop]
+# The files and folders of the desktop folder (XDG_DESKTOP_DIR) as icons.
+icons = true
+# Besides them: "home", "trash" and "computer", in this order.
+system_icons = ["trash"]
+# "small" (32 px), "medium" (48 px) or "large" (96 px).
+icon_size = "medium"
+auto_arrange = false
+align_to_grid = true
 
 [notifications]
 do_not_disturb = false

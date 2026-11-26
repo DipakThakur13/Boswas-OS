@@ -39,6 +39,8 @@ pub enum Flyout {
     Notifications,
     /// Tray icons that do not fit on the taskbar.
     TrayOverflow,
+    /// The widgets board.
+    Widgets,
 }
 
 /// A tooltip waiting to be shown or showing.
@@ -76,6 +78,8 @@ pub struct State {
 
     pub flyout: Option<Flyout>,
     pub start: Start,
+    /// The widgets board and what its cards show.
+    pub board: crate::widgets::Board,
     pub quick: Quick,
     pub notes: Notes,
     /// The open context menu and its open submenus.
@@ -166,6 +170,7 @@ impl State {
             locale: "en_IN.UTF-8".into(),
             flyout: None,
             start: Start::default(),
+            board: crate::widgets::Board::default(),
             quick: Quick::default(),
             notes: Notes::default(),
             menus: Vec::new(),
