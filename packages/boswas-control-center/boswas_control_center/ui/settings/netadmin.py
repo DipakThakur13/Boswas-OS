@@ -1,4 +1,4 @@
-"""Network & internet: VPN connections and the network adapters.
+"""Network & internet: VPN connections, the network adapters and the wired connection's settings.
 
 Page "vpn":
   VPN connections      the VPN and WireGuard connections of NetworkManager,
@@ -17,6 +17,20 @@ Page "advanced-network":
                        Enable (`nmcli device disconnect|connect`), disabling
                        after a question
 (Connection details, on the same page, is connectivity.DetailsSection.)
+Page "ethernet":
+  Wired connection     per wired adapter, as in Windows' Ethernet page: IP
+                       assignment (Automatic (DHCP) or Manual: an IPv4
+                       address, its prefix length, a gateway and DNS
+                       servers), DNS server assignment (automatic or a list
+                       of IPv4 and IPv6 servers), Metered connection, and the
+                       adapter's properties (link speed, IPv4 and IPv6
+                       addresses, gateways, DNS servers, MAC) with Copy. The
+                       settings belong to the connection profile the adapter
+                       uses, changed with `nmcli connection modify uuid UUID`
+                       (validated properties only) and applied with
+                       `nmcli connection up uuid UUID` when it is active.
+                       Whether the cable is in is the bridge's
+                       connectivity.EthernetSection above it.
 
 NetworkManager asks polkit for the changes; reading runs on a worker thread.
 """
@@ -24,7 +38,8 @@ NetworkManager asks polkit for the changes; reading runs on a worker thread.
 from __future__ import annotations
 
 import boswas_fluent as fluent
-from PySide6.QtWidgets import QWidget
+from PySide6.QtGui import QGuiApplication
+from PySide6.QtWidgets import QComboBox, QFormLayout, QLineEdit, QVBoxLayout, QWidget
 
 from ... import commands, netconfig, probes, sysinfo
 from ...errors import Failed
@@ -35,6 +50,8 @@ from .widgets import RowList, ask, window_of
 NMCLI_CHANGE_TIMEOUT = 120.0
 TYPE_ICONS = {"wifi": "network-wireless-symbolic", "ethernet": "network-wired-symbolic",
               "wireguard": "network-vpn-symbolic", "tun": "network-vpn-symbolic", "bt": "bluetooth-active-symbolic"}
+METERED_TEXT = ("Programs that respect it download less, such as updates in the background, while this connection is "
+                "used")
 SECRETS_TEXT = ("This VPN asks for a password or another secret when it connects, and this desktop has no prompt "
                 "for NetworkManager's secrets yet. Save the secret in the connection with nmtui in a terminal, or "
                 "use a WireGuard or certificate-based connection.")
@@ -274,4 +291,323 @@ class AdaptersSection(ToolSection):
         self.change(apply)
 
 
-SECTIONS = (VpnSection, AdaptersSection)
+class IpDialog(fluent.ContentDialog):
+    """Edit IP settings: Automatic (DHCP) or Manual with an IPv4 address, prefix length, gateway and DNS servers."""
+
+    def __init__(self, parent: QWidget, settings: netconfig.WiredSettings):
+        super().__init__(parent, "Edit IP settings", f"{settings.name}: how this computer gets its IPv4 address.",
+                         primary="Save", close="Cancel")
+        self.mode = QComboBox(self)
+        self.mode.addItem("Automatic (DHCP)", False)
+        self.mode.addItem("Manual", True)
+        self.mode.setAccessibleName("IP assignment")
+        self.content_layout.addWidget(self.mode)
+        self.form_holder = QWidget(self)
+        form = QFormLayout(self.form_holder)
+        form.setContentsMargins(0, 8, 0, 4)
+        form.setVerticalSpacing(8)
+        form.setHorizontalSpacing(16)
+        address, _slash, prefix = (settings.addresses[0] if settings.addresses else "").partition("/")
+        self.address = self._field("IP address", address, "192.168.1.20")
+        self.prefix = self._field("Subnet prefix length", prefix, "24")
+        self.gateway = self._field("Gateway", settings.gateway, "192.168.1.1")
+        self.dns1 = self._field("Preferred DNS", settings.dns[0] if settings.dns else "", "")
+        self.dns2 = self._field("Alternate DNS", settings.dns[1] if len(settings.dns) > 1 else "", "")
+        for label, field in (("IP address", self.address), ("Subnet prefix length", self.prefix),
+                             ("Gateway", self.gateway), ("Preferred DNS", self.dns1), ("Alternate DNS", self.dns2)):
+            form.addRow(fluent.Label(label, "body", self.form_holder), field)
+        self.content_layout.addWidget(self.form_holder)
+        self.problem = fluent.Label("", "caption", self, tone="danger", wrap=True)
+        self.problem.setMinimumHeight(2 * self.problem.fontMetrics().lineSpacing())   # the dialog does not grow
+        self.content_layout.addWidget(self.problem)
+        self.mode.setCurrentIndex(1 if settings.manual else 0)
+        self.mode.currentIndexChanged.connect(self._check)
+        for field in (self.address, self.prefix, self.gateway, self.dns1, self.dns2):
+            field.textChanged.connect(self._check)
+        self._check()
+
+    def _field(self, name: str, text: str, placeholder: str) -> QLineEdit:
+        field = QLineEdit(text, self)
+        field.setAccessibleName(name)
+        field.setPlaceholderText(placeholder)
+        field.setMinimumWidth(220)
+        return field
+
+    def manual(self) -> bool:
+        return bool(self.mode.currentData())
+
+    def servers(self) -> list[str]:
+        return [field.text().strip() for field in (self.dns1, self.dns2) if field.text().strip()]
+
+    def problem_text(self) -> str:
+        if not self.manual():
+            return ""
+        problem = netconfig.ipv4_problem(self.address.text(), self.prefix.text(), self.gateway.text())
+        if problem:
+            return problem
+        return netconfig.dns_problem(self.servers()).replace("Type at least one DNS server.",
+                                                              "Type at least one DNS server: a manual address gets "
+                                                              "none from the network.")
+
+    def _check(self, *_args) -> None:
+        self.form_holder.setEnabled(self.manual())
+        problem = self.problem_text()
+        typed = any(field.text().strip() for field in (self.address, self.prefix))
+        self.problem.setText(problem if typed else "")
+        self.primary_button.setEnabled(not problem)
+
+    def words(self) -> tuple[str, ...]:
+        if not self.manual():
+            return netconfig.ip_words(False)
+        return netconfig.ip_words(True, self.address.text(), self.prefix.text(), self.gateway.text(), self.servers())
+
+
+class DnsDialog(fluent.ContentDialog):
+    """Edit DNS settings: the network's servers (DHCP) or a list of up to three IPv4 and three IPv6 servers."""
+
+    def __init__(self, parent: QWidget, settings: netconfig.WiredSettings):
+        super().__init__(parent, "Edit DNS settings", f"{settings.name}: the servers that turn names into addresses.",
+                         primary="Save", close="Cancel")
+        self.mode = QComboBox(self)
+        self.mode.addItem("Automatic (DHCP)", False)
+        self.mode.addItem("Manual", True)
+        self.mode.setAccessibleName("DNS server assignment")
+        if settings.manual:                      # no DHCP: the servers can only be set by hand
+            self.mode.model().item(0).setEnabled(False)
+        self.content_layout.addWidget(self.mode)
+        self.fields = [QLineEdit(settings.dns[index] if index < len(settings.dns) else "", self) for index in range(4)]
+        for index, field in enumerate(self.fields):
+            field.setAccessibleName(("Preferred DNS", "Alternate DNS", "Third DNS", "Fourth DNS")[index])
+            field.setPlaceholderText("IPv4 or IPv6 address")
+            self.content_layout.addWidget(field)
+            field.textChanged.connect(self._check)
+        self.problem = fluent.Label("", "caption", self, tone="danger", wrap=True)
+        self.problem.setMinimumHeight(2 * self.problem.fontMetrics().lineSpacing())
+        self.content_layout.addWidget(self.problem)
+        self.mode.setCurrentIndex(1 if settings.manual_dns or settings.manual else 0)
+        self.mode.currentIndexChanged.connect(self._check)
+        self._check()
+
+    def manual(self) -> bool:
+        return bool(self.mode.currentData())
+
+    def servers(self) -> list[str]:
+        return [field.text().strip() for field in self.fields if field.text().strip()]
+
+    def _check(self, *_args) -> None:
+        for field in self.fields:
+            field.setEnabled(self.manual())
+        problem = netconfig.dns_problem(self.servers()) if self.manual() else ""
+        typed = bool(self.servers())
+        self.problem.setText(problem if typed else "")
+        self.primary_button.setEnabled(not problem)
+
+    def words(self) -> tuple[str, ...]:
+        return netconfig.dns_words(self.servers() if self.manual() else None)
+
+
+class WiredAdapter(QWidget):
+    """The settings and properties of one wired adapter."""
+
+    def __init__(self, section: "WiredSection", device: str, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.section, self.device = section, device
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 12)
+        layout.setSpacing(4)
+        self.heading = fluent.Label(device, "body-strong", self)
+        layout.addWidget(self.heading)
+        self.ip_button = fluent.Button("Edit", self)
+        self.ip_button.clicked.connect(lambda: section.edit_ip(device))
+        self.ip = fluent.SettingsCard("IP assignment", "", fluent.icon("network-wired-symbolic"), self.ip_button, self)
+        self.dns_button = fluent.Button("Edit", self)
+        self.dns_button.clicked.connect(lambda: section.edit_dns(device))
+        self.dns = fluent.SettingsCard("DNS server assignment", "",
+                                       fluent.icon("globe-symbolic"), self.dns_button, self)
+        self.metered_switch = fluent.ToggleSwitch()
+        self.metered_switch.clicked.connect(lambda on: section.set_metered(device, bool(on)))
+        self.metered = fluent.SettingsCard("Metered connection", METERED_TEXT,
+                                           fluent.icon("folder-download-symbolic"),
+                                           self.metered_switch, self)
+        self.missing = fluent.SettingsCard("No settings for this adapter yet",
+                                           "NetworkManager makes a connection for it when a network cable is "
+                                           "plugged in.", fluent.icon("network-wired-symbolic"), None, self)
+        self.copy_button = fluent.Button("Copy", self, icon=fluent.icon("edit-copy-symbolic"))
+        self.copy_button.setToolTip("Copy the properties as text")
+        self.copy_button.clicked.connect(lambda: section.copy(device))
+        self.properties = fluent.SettingsExpander("Properties", "", fluent.icon("dialog-information-symbolic"),
+                                                  self.copy_button, self)
+        self.rows: list[fluent.SettingsCard] = []
+        for widget in (self.ip, self.dns, self.metered, self.missing, self.properties):
+            layout.addWidget(widget)
+
+    def update_state(self, device: sysinfo.NetDevice, settings: netconfig.WiredSettings | None,
+                     details: netconfig.WiredDetails, busy: bool) -> None:
+        self.heading.setText(f"{device.device} · {settings.name if settings else device.state_label}")
+        for card in (self.ip, self.dns, self.metered):
+            card.setVisible(settings is not None)
+        self.missing.setVisible(settings is None)
+        if settings is not None:
+            self.ip.set_description(netconfig.ip_assignment_text(settings))
+            self.dns.set_description(netconfig.dns_assignment_text(settings))
+            if self.metered_switch.isChecked() != (settings.metered == "yes"):
+                self.metered_switch.setChecked(settings.metered == "yes")
+        for widget in (self.ip_button, self.dns_button, self.metered_switch):
+            widget.setEnabled(not busy and settings is not None)
+            widget.setAccessibleName({self.ip_button: f"Edit the IP assignment of {device.device}",
+                                      self.dns_button: f"Edit the DNS servers of {device.device}",
+                                      self.metered_switch: f"Metered connection on {device.device}"}[widget])
+        rows = netconfig.detail_rows(details)
+        while len(self.rows) < len(rows):
+            self.rows.append(self.properties.add_row("", ""))
+        for index, row in enumerate(self.rows):
+            row.setVisible(index < len(rows))
+            if index < len(rows):
+                row.set_title(rows[index][0])
+                row.set_description(rows[index][1])
+        self.properties.header.set_description(
+            f"{device.state_label}" + (f" · {netconfig.netinfo.speed_text(details.speed)}" if details.speed else ""))
+        self.copy_button.setEnabled(bool(rows))
+
+
+class WiredSection(ToolSection):
+    page = "ethernet"
+    title = "Wired connection"
+    order = 20
+    keywords = ("ip address", "static ip", "manual ip", "dhcp", "dns", "dns server", "gateway", "subnet", "metered",
+                "mac address", "link speed", "ethernet settings")
+
+    def __init__(self, parent: QWidget | None = None, *, runner=None, root: str | None = None):
+        super().__init__(parent)
+        self.runner = runner or context.runner()
+        self.root = context.root if root is None else root
+        self.list = self.add(RowList(self))
+        self.empty = self.add(fluent.SettingsCard("No wired network adapter was found", "", None, None, self))
+        self.empty.hide()
+        self.state: dict[str, tuple] = {}
+        self.dialog: fluent.ContentDialog | None = None
+
+    def read(self):
+        if not self.runner.available(commands.EXECUTABLES["nmcli"]):
+            raise Failed("NetworkManager's nmcli is not installed.")
+
+        def run(*words: str) -> str:
+            result = self.runner.run(commands.argv("nmcli", "-t", *words), READ_TIMEOUT)
+            if result.code != 0:
+                raise tool_failure("Reading the wired connection", result)
+            return result.stdout
+
+        devices = [d for d in sysinfo.parse_nmcli_devices(run("-f", "DEVICE,TYPE,STATE,CONNECTION", "device"))
+                   if d.kind == "ethernet"]
+        connections = netconfig.parse_wired_connections(run("-f", "NAME,UUID,TYPE,DEVICE,ACTIVE", "connection", "show"))
+        root = probes.Root(self.root)
+        state = {}
+        for device in devices:
+            profile = netconfig.profile_for(device.device, connections)
+            settings = None
+            if profile is not None:
+                shown = run("-f", netconfig.WIRED_FIELDS, "connection", "show", "uuid", profile.uuid)
+                settings = netconfig.parse_wired_settings(shown, profile.uuid, profile.name)
+            try:
+                shown = run("-f", netconfig.DEVICE_FIELDS, "device", "show", device.device)
+            except (Failed, ValueError):
+                shown = ""
+            details = netconfig.parse_device_details(shown, netconfig.link_speed(root, device.device))
+            state[device.device] = (device, settings, details, profile)
+        return state
+
+    def show_state(self, state) -> None:
+        self.state = state
+        self.show_notice("")
+        self.list.sync(list(state), lambda name: WiredAdapter(self, name, self.list),
+                       lambda name, row: row.update_state(*state[name][:3], self.busy))
+        self.empty.setVisible(not state)
+
+    def load_failed(self, exc: Exception) -> None:
+        self.list.sync([], lambda _k: None, lambda _k, _r: None)
+        self.show_notice(f"The wired connection's settings are not available: {exc}", "warning")
+
+    def set_enabled(self, enabled: bool) -> None:
+        for name in self.list.keys():
+            device, settings, details, _profile = self.state[name]
+            self.list.row(name).update_state(device, settings, details, not enabled)
+
+    def deactivate(self) -> None:
+        super().deactivate()
+        if self.dialog is not None and self.dialog.is_open():
+            self.dialog.reject()
+
+    def _settings(self, device: str) -> tuple[netconfig.WiredSettings, netconfig.WiredConnection] | None:
+        entry = self.state.get(device)
+        if entry is None or entry[1] is None or entry[3] is None:
+            return None
+        return entry[1], entry[3]
+
+    def _open(self, dialog: fluent.ContentDialog, device: str, what: str) -> None:
+        self.dialog = dialog
+
+        def finished(result) -> None:
+            words = dialog.words() if result == fluent.ContentDialog.Result.PRIMARY else None
+            dialog.deleteLater()
+            self.dialog = None
+            if words:
+                self.modify(device, words, what)
+
+        dialog.finished.connect(finished)
+        dialog.open()
+
+    def edit_ip(self, device: str) -> None:
+        found = self._settings(device)
+        if found is None or self.busy or (self.dialog is not None and self.dialog.is_open()):
+            return
+        self._open(IpDialog(self, found[0]), device, "The IP settings")
+
+    def edit_dns(self, device: str) -> None:
+        found = self._settings(device)
+        if found is None or self.busy or (self.dialog is not None and self.dialog.is_open()):
+            return
+        self._open(DnsDialog(self, found[0]), device, "The DNS servers")
+
+    def set_metered(self, device: str, metered: bool) -> None:
+        if self.rendering:
+            return
+        self.modify(device, netconfig.metered_words(metered), "Metered connection")
+
+    def modify(self, device: str, words: tuple[str, ...], what: str) -> None:
+        """Change the profile the adapter uses; when it is active, apply it again so that the change counts now."""
+        found = self._settings(device)
+        if found is None:
+            return
+        settings, profile = found
+        try:
+            change = commands.nmcli_change_argv("connection", "modify", "uuid", profile.uuid, *words)
+        except ValueError as exc:
+            self.show_error(f"{what} could not be changed: {exc}")
+            return
+
+        def apply() -> None:
+            result = self.runner.run(change, NMCLI_CHANGE_TIMEOUT)
+            if result.code != 0:
+                raise nmcli_failure(f"Changing {settings.name}", result)
+            if profile.active:
+                result = self.runner.run(commands.nmcli_change_argv("connection", "up", "uuid", profile.uuid),
+                                         NMCLI_CHANGE_TIMEOUT)
+                if result.code != 0:
+                    raise nmcli_failure(f"Applying the change to {settings.name}", result)
+
+        self.change(apply, f"{what}: saved for {settings.name}. " +
+                    ("The connection was started again to use the change." if profile.active else
+                     "The change is used when the connection starts."))
+
+    def copy(self, device: str) -> None:
+        entry = self.state.get(device)
+        if entry is None:
+            return
+        rows = netconfig.detail_rows(entry[2])
+        if rows:
+            QGuiApplication.clipboard().setText(f"Ethernet ({device})\n" +
+                                                "\n".join(f"  {label}: {value}" for label, value in rows))
+            self.show_notice("Copied the properties to the clipboard.", "success")
+
+
+SECTIONS = (VpnSection, AdaptersSection, WiredSection)

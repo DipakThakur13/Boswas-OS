@@ -88,10 +88,25 @@ if __name__ == "__main__":
 
 `fluent.run` creates the QApplication with the desktop file name, lets only
 one instance run, applies the theme, handles Ctrl+C and returns the exit
-code. A later start of the program raises the first window and calls its
-`handle_arguments(list[str])`, if it has that method. Connect long-lived
-signals such as `fluent.manager().changed` to methods of your widgets, not
-to lambdas: Qt drops a connection to a method when the widget is destroyed.
+code. A later start of the program raises the window that was active last
+and calls its `handle_arguments(list[str])`, if it has that method. Connect
+long-lived signals such as `fluent.manager().changed` to methods of your
+widgets, not to lambdas: Qt drops a connection to a method when the widget
+is destroyed.
+
+**New window.** `--new-window` (`fluent.NEW_WINDOW`) on the command line asks
+for another window; it is what the desktop entry's `[Desktop Action
+NewWindow]` runs (`Exec=boswas-notes --new-window`) and what the shell runs
+for "New window". An application that can show several windows passes
+`multiple_windows=True` to `run`: a later start with `--new-window` then
+builds one more window with `window_factory(arguments)` in the running
+instance (the window is deleted when it is closed, so keep shared state such
+as a recent-files list outside the window). Without it the option is taken
+out of the arguments and the window comes forward: an application with one
+window (Clock, Task Manager, Media Player) needs no code for it, and gets no
+`NewWindow` action. `window_factory` and `handle_arguments` never see the
+option; `fluent.split_new_window(arguments)` takes it out for programs that
+manage their windows themselves (Files, Text Editor, Terminal).
 
 ## Rules for application authors
 
@@ -375,7 +390,8 @@ colour names; `clear_glass_cache()`.
 
 | Name | What it does |
 |------|--------------|
-| `fluent.run(app_id, window_factory, *, argv=None, display_name=None, version=None, icon=None, single_instance=True, allow_root=False) -> int` | See above. `window_factory(arguments) -> QWidget`. Returns 4 when run as root, 0 when another instance took over |
+| `fluent.run(app_id, window_factory, *, argv=None, display_name=None, version=None, icon=None, single_instance=True, allow_root=False, multiple_windows=False) -> int` | See above. `window_factory(arguments) -> QWidget`. `multiple_windows`: `--new-window` builds another window in the running instance. Returns 4 when run as root, 0 when another instance took over |
+| `fluent.NEW_WINDOW`, `fluent.split_new_window(arguments) -> (bool, list)` | `"--new-window"`; whether the arguments ask for a new window (before a `--`), and the arguments without the option |
 | `fluent.SingleInstance(app_id)` | `start(arguments) -> bool` (False: another instance was told), signal `message_received(list)`, `close()`. Socket: `$XDG_RUNTIME_DIR/boswas-fluent/<app_id>.sock` |
 | `fluent.Worker(parent=None, max_threads=4)` | `submit(fn, *args, on_done=None, on_error=None, key=None, **kwargs)`, `busy(key)`, `pending()`, `wait(timeout)`, `discard(task_id)`, `shutdown()` |
 | `fluent.run_in_thread(fn, on_done=None, on_error=None)` | One call on a shared Worker |

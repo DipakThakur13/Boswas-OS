@@ -45,6 +45,11 @@ class CommandLineTest(unittest.TestCase):
         self.assertEqual(parsed.errors, [])
         self.assertEqual(parsed.forwarded(), ["--new", "--mode=screen", "--delay=5", "--", "/home/asha/shot.png"])
 
+    def test_new_window_is_accepted_and_changes_nothing(self):
+        parsed = cli.parse(["--new-window"])
+        self.assertEqual((parsed.errors, parsed.new, parsed.forwarded()), ([], False, []))
+        self.assertIn("--new-window", cli.USAGE)
+
     def test_values_may_follow_as_their_own_argument_and_modes_have_other_names(self):
         parsed = cli.parse(["--mode", "Rectangle", "--delay", "10"])
         self.assertEqual((parsed.mode, parsed.delay, parsed.path), ("region", 10, None))

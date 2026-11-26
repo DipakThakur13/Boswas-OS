@@ -14,7 +14,7 @@ from .. import __version__
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog=PROGRAM, description="Open, extract and create ZIP and TAR archives.",
-        usage=f"{PROGRAM} [ARCHIVE ...]\n"
+        usage=f"{PROGRAM} [--new-window] [ARCHIVE ...]\n"
               f"       {PROGRAM} --extract ARCHIVE ... [--to FOLDER]\n"
               f"       {PROGRAM} --extract-here ARCHIVE ...\n"
               f"       {PROGRAM} --create OUTPUT FILE ...")
@@ -27,6 +27,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--create", action="store_true",
                         help="pack the FILEs into the new archive OUTPUT (.zip, .tar, .tar.gz, .tar.xz, .tar.bz2), "
                              "showing only a progress window")
+    parser.add_argument("--new-window", action="store_true",
+                        help="open a new window (every start has a window of its own anyway)")
     parser.add_argument("--version", action="version", version=f"{PROGRAM} {__version__}")
     parser.add_argument("paths", nargs="*", metavar="PATH", help="archives to open or extract, or OUTPUT and FILEs")
     return parser

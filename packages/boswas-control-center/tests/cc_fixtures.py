@@ -241,6 +241,31 @@ NMCLI_CONNECTIONS = (f"Office VPN:{VPN_UUID}:vpn::no\n"
                      f"wg-home:{WG_UUID}:wireguard:wg-home:yes\n"
                      "Home\\:Net:11111111-2222-3333-4444-555555555555:802-11-wireless:wlp2s0:yes\n"
                      "not a uuid:x:vpn::no\n")
+WIRED_UUID = "7d3c1a2b-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
+NMCLI_WIRED_DEVICES = "enp3s0:ethernet:connected:Wired connection 1\nwlp2s0:wifi:disconnected:--\n"
+NMCLI_WIRED_CONNECTIONS = (f"Office VPN:{VPN_UUID}:vpn::no\n"
+                           f"Wired connection 1:{WIRED_UUID}:802-3-ethernet:enp3s0:yes\n"
+                           "Spare:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:802-3-ethernet::no\n")
+NMCLI_WIRED_SETTINGS = (f"connection.id:Wired connection 1\nconnection.uuid:{WIRED_UUID}\n"
+                        "connection.metered:unknown\nipv4.method:auto\nipv4.addresses:\nipv4.gateway:--\n"
+                        "ipv4.dns:\nipv4.ignore-auto-dns:no\nipv6.dns:\nipv6.ignore-auto-dns:no\n")
+NMCLI_WIRED_DEVICE = ("GENERAL.HWADDR:52\\:54\\:00\\:12\\:34\\:56\nIP4.ADDRESS[1]:192.168.1.23/24\n"
+                      "IP4.GATEWAY:192.168.1.1\nIP4.DNS[1]:192.168.1.1\nIP6.ADDRESS[1]:fe80\\:\\:5054\\:ff\\:fe12\\:3456/64\n"
+                      "IP6.GATEWAY:--\n")
+
+
+def wired_outputs(settings: str = NMCLI_WIRED_SETTINGS) -> dict:
+    """The answers of nmcli for a computer whose Ethernet adapter enp3s0 is connected (see test_pages_ui)."""
+    from boswas_control_center import netconfig
+    nmcli = E["nmcli"]
+    return {
+        (nmcli, "-t", "-f", "DEVICE,TYPE,STATE,CONNECTION", "device"): completed(NMCLI_WIRED_DEVICES),
+        (nmcli, "-t", "-f", "NAME,UUID,TYPE,DEVICE,ACTIVE", "connection", "show"): completed(NMCLI_WIRED_CONNECTIONS),
+        (nmcli, "-t", "-f", netconfig.WIRED_FIELDS, "connection", "show", "uuid", WIRED_UUID): completed(settings),
+        (nmcli, "-t", "-f", netconfig.DEVICE_FIELDS, "device", "show", "enp3s0"): completed(NMCLI_WIRED_DEVICE),
+    }
+
+
 PERMISSIONS = ("devices\tcamera\torg.example.Meet\tyes\t0x00\n"
                "location\tlocation\torg.example.Maps\tEXACT,1700000000\t\n"
                "screenshot\tscreenshot\torg.example.Draw\tno\t\n"
@@ -613,6 +638,7 @@ def make_root(base: Path, live: bool = False, battery: bool = True, uu_log: bool
         write(root / "sys/class/net" / device / "statistics/rx_bytes", f"{received}\n")
         write(root / "sys/class/net" / device / "statistics/tx_bytes", f"{sent}\n")
         write(root / "sys/class/net" / device / "address", mac + "\n")
+    write(root / "sys/class/net/enp3s0/speed", "1000\n")
     # sysfs: an Ethernet controller without a driver, a GPU with one, a USB keyboard (serial numbers present but
     # never read), the ids databases and /proc/stat.
     pci = root / "sys/bus/pci/devices"
@@ -700,6 +726,46 @@ def make_xdg(base: Path) -> dict:
     write(home / ".local/share/fonts/HandwritingDemo.ttf", b"\x00\x01\x00\x00" + b"\x00" * 200)
     return {"HOME": str(base / "home/alice"), "XDG_DATA_DIRS": f"{base / 'usr/share'}", "LANG": "en_US.UTF-8",
             "PATH": "/usr/bin:/bin", "XDG_RUNTIME_DIR": str(runtime)}
+
+
+def add_usb_stick(root: Path, mounted: str | None = "/media/alice/USB STICK", encrypted: bool = False) -> None:
+    """A USB stick on port 1-4: /dev/sdb with one partition sdb1 (or an open LUKS volume dm-0 on it), mounted at
+    ``mounted`` (None: not mounted), laid out as the kernel's /sys and /proc/self/mountinfo show it."""
+    root = Path(root)
+    device = root / "sys/devices/pci0000:00/0000:00:14.0/usb1/1-4"
+    write(device / "idVendor", "0781\n")
+    write(device / "idProduct", "5583\n")
+    write(device / "bDeviceClass", "00\n")
+    write(device / "product", "Ultra Fit\n")
+    write(device / "manufacturer", "SanDisk\n")
+    write(device / "serial", "SECRET-STICK-SERIAL\n")
+    (root / "sys/bus/usb/drivers/usb-storage").mkdir(parents=True, exist_ok=True)
+    (device / "1-4:1.0").mkdir(parents=True, exist_ok=True)
+    os.symlink(root / "sys/bus/usb/drivers/usb-storage", device / "1-4:1.0/driver")
+    os.symlink(device, root / "sys/bus/usb/devices/1-4")
+    scsi = device / "1-4:1.0/host6/target6:0:0/6:0:0:0"
+    write(scsi / "vendor", "SanDisk \n")
+    write(scsi / "model", "Ultra Fit       \n")
+    disk = scsi / "block/sdb"
+    write(disk / "dev", "8:16\n")
+    write(disk / "size", "61341696\n")
+    write(disk / "removable", "1\n")
+    os.symlink(scsi, disk / "device")
+    write(disk / "sdb1/dev", "8:17\n")
+    write(disk / "sdb1/partition", "1\n")
+    (disk / "holders").mkdir(exist_ok=True)
+    (disk / "sdb1/holders").mkdir(exist_ok=True)
+    (root / "sys/block").mkdir(parents=True, exist_ok=True)
+    os.symlink(disk, root / "sys/block/sdb")
+    lines = ["22 1 259:2 / / rw,relatime shared:1 - ext4 /dev/mapper/boswas--vg-root rw"]
+    if encrypted:
+        (disk / "sdb1/holders/dm-0").mkdir()
+        write(root / "sys/block/dm-0/dev", "254:0\n")
+    if mounted is not None:
+        point = mounted.replace(" ", "\\040")
+        lines.append(f"85 22 {'254:0' if encrypted else '8:17'} / {point} rw,nosuid,nodev shared:45 - vfat "
+                     f"/dev/{'mapper/luks-1' if encrypted else 'sdb1'} rw")
+    write(root / "proc/self/mountinfo", "\n".join(lines) + "\n")
 
 
 class Rig:

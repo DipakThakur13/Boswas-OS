@@ -123,13 +123,29 @@ Deleted pictures.
 .I $XDG_DATA_HOME/boswas/wallpapers/
 Copies of the pictures set as desktop background.
 .TP
-.I $XDG_CONFIG_HOME/boswas/compositor.toml
+.I $XDG_CONFIG_HOME/boswas/appearance.toml
 "Set as desktop background" writes the key
 .B wallpaper
 of the table
 .B [appearance]
-here, leaving the rest of the file as it is, and runs
+here, as Control Center does, leaving the colour mode and the rest of the
+file as it is, and runs
 .BR "boswas-compositor \-\-send reload-config" .
+The desktop reads this file after
+.IR compositor.toml ,
+so it wins; a file the desktop would ignore (not TOML, or with another
+table) is replaced by one that holds the
+.B [appearance]
+values that can be kept.
+.TP
+.I $XDG_CONFIG_HOME/boswas/compositor.toml
+A
+.B wallpaper
+left in its
+.B [appearance]
+table by earlier versions of Photos is removed (the rest of the file stays
+as it is): it would come back when a preset reset removes
+.IR appearance.toml .
 .SH NOTES
 Which picture formats can be opened depends on the Qt image plugins
 installed: PNG, JPEG, GIF, BMP, ICO and SVG always; WebP and TIFF with

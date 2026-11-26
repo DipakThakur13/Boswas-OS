@@ -165,9 +165,37 @@ Printers lists the printers of CUPS
 .RB ( lpstat ),
 prints CUPS's own test page
 .RB ( "lp \-d" " printer " /usr/share/cups/data/testprint )
-and, without CUPS, installs the package cups through the system helper.
+and, without CUPS, installs the package cups through the system helper,
+without what it only recommends
+.RB ( "apt\-install \-\-no\-recommends cups" ):
+cups\-daemon recommends cups\-browsed, which Boswas OS leaves out.
 Cameras lists the cameras of /sys/class/video4linux and opens the Camera
-application; USB lists the connected USB devices. VPN lists the VPN and
+application. USB lists the connected USB devices; a drive on one opens in
+Files at its folder and is ejected
+.RB ( "udisksctl unmount" ,
+.BR lock ,
+.BR power\-off ,
+the steps Files takes through UDisks2), unless the system uses it (a file
+system mounted outside /media and /run/media, such as the boot medium of a
+live session). Ethernet shows each wired adapter's IP assignment
+(automatic, or a manual IPv4 address, prefix length, gateway and DNS
+servers), its DNS servers (automatic, or up to three IPv4 and three IPv6
+servers), whether the connection is metered, and its properties (link
+speed, addresses, gateways, DNS servers, MAC); changes are made with
+.B nmcli connection modify uuid
+.I UUID
+and validated properties, then
+.B nmcli connection up
+when the connection is active. Display and Power & battery both show the
+screen brightness. When the pointer size changes (Mouse, Accessibility >
+Mouse pointer), the user manager and D\-Bus activation get the new
+XCURSOR_SIZE
+.RB ( "systemctl \-\-user set\-environment" ,
+.BR dbus\-update\-activation\-environment ),
+for the programs they start from then on; the session sets it from the same
+setting at sign\-in
+.RB ( boswas\-session ),
+and programs that are open keep their size. VPN lists the VPN and
 WireGuard connections of NetworkManager, connects, disconnects and removes
 them and imports a WireGuard or OpenVPN file the person chooses
 .RB ( "nmcli connection" ...);
@@ -206,8 +234,10 @@ only), flatpak, nmcli (queries, and the connection and adapter changes
 above), ip (queries only), lsblk, timedatectl, localectl, hostnamectl (the
 static host name only), locale \-a, busctl (calls to the AccountsService
 and two read\-only questions to logind), passwd (without arguments),
-systemctl (restarting, and whether Bluetooth runs), fc\-list, fc\-cache (the
-user's font folder), lpstat, lp (CUPS's test page only), and the polkit
+systemctl (restarting, whether Bluetooth runs, and XCURSOR_SIZE for the
+user manager), dbus\-update\-activation\-environment (XCURSOR_SIZE only),
+udisksctl (unmount, lock and power\-off of a block device), fc\-list,
+fc\-cache (the user's font folder), lpstat, lp (CUPS's test page only), and the polkit
 authorization tool), each with a validated argument list and a
 timeout, and never through a shell; and the services bridge, by its fixed
 path and without arguments. The only files it writes are listed under
@@ -316,6 +346,23 @@ AccountsService.
 .I ~/.local/share/recently\-used.xbel
 The shared list of recently used files, emptied by "Clear" on Privacy &
 security > Activity history.
+.TP
+.I ~/.local/state/com.boswas.TextEditor/recent.json
+.TQ
+.I ~/.local/state/com.boswas.DocumentViewer/documents.json
+.TQ
+.I ~/.local/state/com.boswas.MediaPlayer/recent.json
+.TQ
+.I ~/.local/state/com.boswas.MediaPlayer/resume.json
+.TQ
+.I ~/.local/state/com.boswas.ArchiveManager/state.json
+The recent lists of the Boswas applications (in
+.B $XDG_STATE_HOME
+when it is set), emptied by the same "Clear": recent files, recent documents
+and the page each was left at, recently played media and where each video
+was stopped, recent archives. The other settings in these files stay; a
+missing file is skipped and nothing is followed through a symbolic link.
+An application that is open writes its list again when it next saves it.
 .TP
 .I ~/.cache
 .TQ

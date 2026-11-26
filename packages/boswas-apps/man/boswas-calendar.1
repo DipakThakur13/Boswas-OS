@@ -128,6 +128,11 @@ Print a summary of the options and exit.
 .PP
 Only one Calendar runs per session; starting it again brings the window
 forward and passes the arguments on.
+It has one window, as the calendar of Windows has: two windows would edit
+the same calendar file, and Calendar does not notice a change made to it
+elsewhere. A start with
+.B \-\-new\-window
+therefore brings the window forward as well.
 .SH FILES
 .TP
 .I $XDG_DATA_HOME/com.boswas.Calendar/calendar.json

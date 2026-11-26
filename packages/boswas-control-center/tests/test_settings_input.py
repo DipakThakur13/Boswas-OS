@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -13,8 +16,10 @@ import cc_fixtures  # noqa: E402,F401  (import paths)
 import test_settings_display as shared  # noqa: E402
 from test_xkb import SAMPLE  # noqa: E402
 
+from boswas_control_center import commands  # noqa: E402
 from boswas_control_center import compositorconfig as cc  # noqa: E402
 from boswas_control_center import xkb  # noqa: E402
+from boswas_control_center.errors import CommandFailed  # noqa: E402
 
 try:
     from boswas_fluent import testing
@@ -107,11 +112,31 @@ if HAVE_QT:
         def test_an_unreadable_list_is_unknown(self):
             self.assertIsNone(sections.read_touchpads("/nonexistent/devices"))
 
+    class EnvironmentRunner:
+        """Records the commands that pass the pointer size on; the programs exist or not as a test says."""
+
+        def __init__(self, installed=("systemctl", "dbus-update-activation-environment"), failing=()):
+            self.installed = {commands.EXECUTABLES[name] for name in installed}
+            self.failing = {commands.EXECUTABLES[name] for name in failing}
+            self.ran = []
+
+        def available(self, path):
+            return path in self.installed
+
+        def run(self, command, timeout):
+            commands._check(command)
+            assert timeout > 0
+            self.ran.append(command)
+            if command[0] in self.failing:
+                raise CommandFailed(command[0], "no user manager")
+            return commands.Completed(0, "", "")
+
     class MouseTest(InputCase):
         def test_shows_and_changes_the_pointer_settings(self):
             self.write("[pointer]\naccel_speed = 0.4\naccel_profile = \"flat\"\nleft_handed = true\n"
                        "natural_scroll = true\ncursor_size = 40\n")
-            section = self.open(sections.MouseSection(config=self.settings))
+            runner = EnvironmentRunner()
+            section = self.open(sections.MouseSection(config=self.settings, runner=runner))
             self.assertEqual(section.speed.value(), 4)
             self.assertFalse(section.precision.isChecked())
             self.assertEqual((section.primary.currentText(), section.scroll.currentText(), section.size.currentText()),
@@ -131,7 +156,26 @@ if HAVE_QT:
                              ["Small (24)", "Medium (32)", "Large (48)", "Extra large (64)"])
             self.assertFalse(section.notice.isVisible())
             self.assertGreaterEqual(self.compositor.reloads, 2)
+            self.assertEqual(runner.ran, [["/usr/bin/systemctl", "--user", "set-environment", "XCURSOR_SIZE=48"],
+                                          ["/usr/bin/dbus-update-activation-environment", "XCURSOR_SIZE=48"]],
+                             "the size, and only after the size changed, reaches what starts programs later")
+            self.assertIn("open ones keep theirs", section.size.parent().description())
             testing.grab(section, self.tmp / "mouse.png")
+
+        def test_the_pointer_size_alone_and_its_environment(self):
+            runner = EnvironmentRunner(installed=("systemctl",))
+            section = self.open(sections.PointerSection(config=self.settings, runner=runner))
+            shared.choose(section.size, 64)
+            shared.settle(section)
+            self.assertEqual(self.get("pointer", "cursor_size"), 64)
+            self.assertEqual(runner.ran, [["/usr/bin/systemctl", "--user", "set-environment", "XCURSOR_SIZE=64"]],
+                             "without dbus-update-activation-environment the user manager alone")
+            failing = EnvironmentRunner(failing=("systemctl",))
+            self.assertEqual(sections.publish_cursor_size(failing, 32),
+                             [["/usr/bin/dbus-update-activation-environment", "XCURSOR_SIZE=32"]])
+            self.assertEqual(len(failing.ran), 2, "a failure is not an error of the setting")
+            for odd in (8, 97, True, "48", None):
+                self.assertEqual(sections.publish_cursor_size(EnvironmentRunner(), odd), [], odd)
 
         def test_a_file_the_desktop_rejects_is_told_and_repaired_by_a_change(self):
             self.write("[pointer]\nleft_handed = true\nwheel = 3\n")
@@ -331,6 +375,51 @@ if HAVE_QT:
                 section = self.keep(cls())
                 self.assertIsInstance(section.config, cc.Settings)
                 section.deactivate()
+
+
+SESSION = Path(__file__).resolve().parents[2] / "boswas-desktop" / "session" / "boswas-session"
+
+
+@unittest.skipUnless(SESSION.is_file() and shutil.which("sh") and shutil.which("awk"),
+                     "the session script of this checkout, sh and awk are needed")
+class SessionPointerSizeTest(unittest.TestCase):
+    """boswas-session sets XCURSOR_SIZE from the key Settings writes (its cursor_size function, run by sh)."""
+
+    def size(self, *files: Path) -> str:
+        text = SESSION.read_text(encoding="utf-8")
+        function = text[text.index("# BEGIN cursor_size"):text.index("# END cursor_size")]
+        result = subprocess.run(["sh", "-c", function + '\ncursor_size "$@"', "sh", *map(str, files)],
+                                capture_output=True, text=True, timeout=30, check=True)
+        return result.stdout.strip()
+
+    def test_the_session_reads_what_settings_writes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            env = {"HOME": str(home), "XDG_CONFIG_HOME": str(home / "config")}
+            defaults = home / "defaults.toml"
+            defaults.write_text("[pointer]\ncursor_theme = \"Boswas-Cursors\"\ncursor_size = 24\n")
+            system = home / "system.toml"
+            user = home / "config" / "boswas" / "compositor.toml"
+            settings = cc.Settings(env, system_files=(str(defaults), str(system)), control=cc.Control({}))
+            self.assertEqual(self.size(defaults, system, user), "24")
+            settings.update({("pointer", "cursor_size"): 48})
+            self.assertEqual(self.size(defaults, system, user), "48")
+            system.write_text("# administrator\n[ pointer ]\ncursor_size = 32 # bigger for everyone\n")
+            self.assertEqual(self.size(defaults, system, user), "48", "the user's file is read last")
+            settings.update({("pointer", "cursor_size"): None})
+            self.assertEqual(self.size(defaults, system, user), "32")
+            user.write_text("pointer.cursor_size = 500\n[keyboard]\ncursor_size = 80\n")
+            self.assertEqual(self.size(defaults, system, user), "96", "clamped as the compositor clamps it")
+            user.write_text("[pointer]\ncursor_size = 1.5\n" + "#" * 300000)
+            self.assertEqual(self.size(defaults, system, user), "32", "a file the compositor ignores is skipped")
+            self.assertEqual(self.size(home / "missing.toml"), "24")
+
+    def test_the_script_exports_it(self):
+        text = SESSION.read_text(encoding="utf-8")
+        self.assertIn('XCURSOR_SIZE=$(cursor_size /usr/share/boswas/compositor/compositor.toml '
+                      '/etc/boswas/compositor.toml \\\n\t"$user_config/boswas/compositor.toml")\nexport XCURSOR_SIZE',
+                      text)
+        self.assertNotIn("XCURSOR_SIZE:-24", text)
 
 
 if __name__ == "__main__":

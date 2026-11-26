@@ -1084,6 +1084,12 @@ class ApplicationTest(EditorTestCase):
         self.keep(other)
         self.assertEqual(self.names(other), ["Untitled"])
 
+    def test_the_desktop_entry_offers_a_new_window(self):
+        entry = (Path(__file__).resolve().parents[2] / "data" / "text-editor" / "com.boswas.TextEditor.desktop")
+        text = entry.read_text(encoding="utf-8")
+        self.assertIn("Actions=NewWindow;\n", text)
+        self.assertIn("[Desktop Action NewWindow]\nName=New Window\nExec=boswas-text-editor --new-window\n", text)
+
     def test_arguments_travel_between_two_starts(self):
         from boswas_apps.text_editor.__main__ import forwarded, parse_arguments
         options, _rest = parse_arguments(["notes.txt", "--new-window", "file:///tmp/a%20b.txt", "/abs/x.txt"])

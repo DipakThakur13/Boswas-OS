@@ -923,5 +923,22 @@ class LookTest(CalculatorTestCase):
         self.assertLessEqual(self.page.pads.geometry().bottom(), self.page.height())
 
 
+class NewWindowTest(unittest.TestCase):
+    def test_every_start_is_a_calculator_of_its_own_and_new_window_says_so(self):
+        from unittest import mock
+
+        from boswas_apps.calculator import __main__ as cli
+        options, rest = cli.parse_arguments(["--new-window", "--mode", "scientific"])
+        self.assertTrue(options.new_window)
+        self.assertEqual((options.mode, rest), ("scientific", []))
+        seen = {}
+        with mock.patch.object(fluent, "run", lambda app_id, factory, **kw: seen.update(kw) or 0):
+            self.assertEqual(cli.main(["boswas-calculator", "--new-window"]), 0)
+        self.assertFalse(seen["single_instance"], "no running calculator to hand the start to")
+        entry = (PACKAGE.parents[1] / "data" / "calculator" / "com.boswas.Calculator.desktop").read_text()
+        self.assertIn("Actions=NewWindow;Scientific;Programmer;\n", entry)
+        self.assertIn("[Desktop Action NewWindow]\nName=New Window\nExec=boswas-calculator --new-window\n", entry)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -555,38 +555,87 @@ class DesktopConfigTest(TempCase):
             for line in kept:
                 position = after_text.index(line, position) + len(line)
 
-    def test_set_wallpaper_writes_the_file_atomically(self):
-        config = self.tmp / "config" / "boswas" / "compositor.toml"
-        self.assertEqual(desktopcfg.config_path(), config)
+    def test_remove_key(self):
+        cases = [
+            ('[appearance]\nscheme = "dark"\nwallpaper = "/old.png" # mine\n[input]\nx = 1\n',
+             '[appearance]\nscheme = "dark"\n[input]\nx = 1\n'),
+            ('# top\n[appearance]\n  wallpaper = """\n/a\n"""\n\n[x]\n', '# top\n[appearance]\n\n[x]\n'),
+            ('appearance.wallpaper = "/w"\nappearance.scheme = "light"\n', 'appearance.scheme = "light"\n'),
+            ('[appearance]\r\nwallpaper = "/w"\r\nscheme = "dark"\r\n', '[appearance]\r\nscheme = "dark"\r\n'),
+            ('[other]\nwallpaper = "keep"\n', '[other]\nwallpaper = "keep"\n'),            # not set: unchanged
+            ("", ""),
+        ]
+        for before, expected in cases:
+            self.assertEqual(desktopcfg.remove_key(before, "appearance", "wallpaper"), expected, before)
+        for text in ('appearance = { wallpaper = "/w" }\n', "[appearance\n"):
+            with self.assertRaises(desktopcfg.ConfigError, msg=text):
+                desktopcfg.remove_key(text, "appearance", "wallpaper")
+
+    def test_set_wallpaper_writes_appearance_toml_as_settings_does(self):
+        boswas = self.tmp / "config" / "boswas"
+        look, config = boswas / "appearance.toml", boswas / "compositor.toml"
+        self.assertEqual((desktopcfg.config_path(), desktopcfg.appearance_path()), (config, look))
         self.assertEqual(desktopcfg.current_wallpaper(), "")
-        desktopcfg.set_wallpaper("/pics/one.png")
-        self.assertEqual(config.read_text(), '[appearance]\nwallpaper = "/pics/one.png"\n')
-        config.write_text('# hand-made\n[appearance]\nscheme = "light"\nwallpaper = "/pics/one.png"\n[input]\nnatural = true\n')
-        os.chmod(config, 0o640)
+        self.assertEqual(desktopcfg.set_wallpaper("/pics/one.png"), look)
+        self.assertEqual(look.read_text(), desktopcfg.APPEARANCE_HEADER + '[appearance]\nwallpaper = "/pics/one.png"\n')
+        self.assertEqual(stat.S_IMODE(look.stat().st_mode), 0o600)
+        self.assertFalse(config.exists(), "compositor.toml is not created")
+        # What boswas-preset and Control Center write: the colour mode stays.
+        look.write_text('# Written by boswas-preset\n[appearance]\nscheme = "light"\nwallpaper = "/usr/share/w.png"\n')
         desktopcfg.set_wallpaper("/pics/two.jpg")
-        self.assertEqual(config.read_text(),
-                         '# hand-made\n[appearance]\nscheme = "light"\nwallpaper = "/pics/two.jpg"\n[input]\nnatural = true\n')
-        self.assertEqual(stat.S_IMODE(config.stat().st_mode), 0o640)
+        self.assertEqual(look.read_text(),
+                         '# Written by boswas-preset\n[appearance]\nscheme = "light"\nwallpaper = "/pics/two.jpg"\n')
+        self.assertEqual(tomllib.loads(look.read_text())["appearance"], {"scheme": "light", "wallpaper": "/pics/two.jpg"})
         self.assertEqual(desktopcfg.current_wallpaper(), "/pics/two.jpg")
-        self.assertEqual([p.name for p in config.parent.iterdir()], ["compositor.toml"])     # no temporary file left
+        self.assertEqual(sorted(p.name for p in boswas.iterdir()), ["appearance.toml"])     # no temporary file left
         with self.assertRaises(desktopcfg.ConfigError):
             desktopcfg.set_wallpaper("relative.png")
 
-    def test_a_broken_file_is_left_alone(self):
-        config = fx.write(self.tmp / "config" / "boswas" / "compositor.toml", b"[appearance\nbroken")
+    def test_a_stale_copy_in_compositor_toml_is_removed(self):
+        boswas = self.tmp / "config" / "boswas"
+        config = fx.write(boswas / "compositor.toml",
+                          '# hand-made\n[appearance]\nwallpaper = "/pics/old.png"\nreduced_motion = true\n'
+                          '[pointer]\ncursor_size = 32\n'.encode())
+        os.chmod(config, 0o640)
+        self.assertEqual(desktopcfg.current_wallpaper(), "/pics/old.png")       # only there, so it is in use
+        desktopcfg.set_wallpaper("/pics/new.png")
+        self.assertEqual(config.read_text(), '# hand-made\n[appearance]\nreduced_motion = true\n[pointer]\ncursor_size = 32\n')
+        self.assertEqual(stat.S_IMODE(config.stat().st_mode), 0o640)
+        self.assertEqual(desktopcfg.current_wallpaper(), "/pics/new.png")
+        # A compositor.toml that cannot be edited stays as it is: appearance.toml wins over it.
+        fx.write(config, b'appearance = { wallpaper = "/pics/x.png" }\n')
+        desktopcfg.set_wallpaper("/pics/third.png")
+        self.assertEqual(config.read_text(), 'appearance = { wallpaper = "/pics/x.png" }\n')
+        self.assertEqual(desktopcfg.current_wallpaper(), "/pics/third.png")
+
+    def test_an_appearance_file_the_desktop_would_ignore_is_written_anew(self):
+        look = self.tmp / "config" / "boswas" / "appearance.toml"
+        for broken in (b"[appearance\nbroken", 'scheme = "dark"\n[keyboard]\nlayout = "de"\n'.encode(),
+                       b'appearance = { scheme = "light" }\n'):
+            fx.write(look, broken)
+            self.assertEqual(desktopcfg.current_wallpaper(), "")
+            desktopcfg.set_wallpaper("/pics/one.png")
+            document = tomllib.loads(look.read_text())
+            self.assertEqual(list(document), ["appearance"], broken)
+            self.assertEqual(document["appearance"]["wallpaper"], "/pics/one.png")
+            self.assertEqual(desktopcfg.current_wallpaper(), "/pics/one.png")
+        self.assertEqual(document["appearance"].get("scheme"), "light", "what the table held is kept")
+        fx.write(look, b'[appearance]\nscheme = "dark"\n[extra]\nx = [1, 2]\n')
+        desktopcfg.set_wallpaper("/pics/two.png")
+        self.assertEqual(tomllib.loads(look.read_text()), {"appearance": {"scheme": "dark", "wallpaper": "/pics/two.png"}})
+
+    def test_an_unreadable_appearance_file_stops_it(self):
+        look = fx.write(self.tmp / "config" / "boswas" / "appearance.toml", b"\xff\xfe not utf-8")
         with self.assertRaises(desktopcfg.ConfigError):
             desktopcfg.set_wallpaper("/pics/one.png")
-        self.assertEqual(config.read_bytes(), b"[appearance\nbroken")
-        config.write_bytes(b"\xff\xfe not utf-8")
-        with self.assertRaises(desktopcfg.ConfigError):
-            desktopcfg.set_wallpaper("/pics/one.png")
-        config.write_bytes(b"#" * (desktopcfg.MAX_CONFIG_BYTES + 1))
+        self.assertEqual(look.read_bytes(), b"\xff\xfe not utf-8")
+        look.write_bytes(b"#" * (desktopcfg.MAX_CONFIG_BYTES + 1))
         with self.assertRaises(desktopcfg.ConfigError):
             desktopcfg.set_wallpaper("/pics/one.png")
 
     def test_a_link_to_the_file_stays_a_link(self):
-        real = fx.write(self.tmp / "dotfiles" / "compositor.toml", b"[appearance]\n")
-        link = self.tmp / "config" / "boswas" / "compositor.toml"
+        real = fx.write(self.tmp / "dotfiles" / "appearance.toml", b"[appearance]\n")
+        link = self.tmp / "config" / "boswas" / "appearance.toml"
         link.parent.mkdir(parents=True)
         link.symlink_to(real)
         desktopcfg.set_wallpaper("/pics/one.png")

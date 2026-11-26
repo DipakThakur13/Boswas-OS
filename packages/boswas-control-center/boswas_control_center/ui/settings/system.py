@@ -17,8 +17,10 @@ Category "Apps":
                         on/off, add an installed application, remove one the
                         user added
 Category "Privacy & security":
-  Recent files          (page recent-files) empties the shared list of
-                        recently used files
+  Recent files          (page recent-files, "Activity history") empties the
+                        shared list of recently used files and the recent
+                        lists of the Boswas applications (userfiles.
+                        APP_HISTORIES), and lists what it clears
 
 timedatectl and localectl are run on a worker thread with a long time-out:
 systemd's services ask polkit, and the shell's agent shows the question.
@@ -785,34 +787,56 @@ class RecentFilesSection(FilesSection):
     page = "recent-files"
     title = "Recent files"
     order = 30
-    keywords = ("recent files", "recently used", "history", "clear history")
+    keywords = ("recent files", "recently used", "history", "clear history", "activity history", "recently played",
+                "recent documents")
 
     def __init__(self, parent: QWidget | None = None, *, environ=None):
         super().__init__(parent, environ=environ)
         self.count = 0
         self.clear_button = fluent.Button("Clear", self, icon=fluent.icon("edit-clear-symbolic"))
-        self.clear_button.setAccessibleName("Clear the list of recently used files")
+        self.clear_button.setAccessibleName("Clear the activity history")
         self.clear_button.clicked.connect(self.clear)
-        self.card = self.add(fluent.SettingsCard("Recently used files", "", fluent.icon("document-open-symbolic"),
+        self.card = self.add(fluent.SettingsCard("Clear activity history", "", fluent.icon("document-open-symbolic"),
                                                  self.clear_button, self))
         self.clear_button.setEnabled(False)
+        self.lists = self.add(fluent.SettingsExpander(
+            "What Clear removes", "The lists of what you opened. The files themselves are not touched",
+            fluent.icon("view-list-symbolic"), None, self, expanded=True))
+        self.shared_row = self.lists.add_row("Recently used files", "")
+        self.app_rows: dict[tuple[str, str], fluent.SettingsCard] = {}
+        for history in userfiles.APP_HISTORIES:
+            self.app_rows[(history.app_id, history.file)] = self.lists.add_row(f"{history.app}: {history.what}", "")
+        self.lists.add_row("Not affected", "Files and Photos keep no list of recent items; your files, settings and "
+                           "playlists stay. An app that is open writes its list again when it next saves it: close "
+                           "it first")
 
     def watched(self) -> list[str]:
         try:
-            return [userfiles.data_dir(self.environ)]
+            state = userfiles.state_dir(self.environ)
+            return [userfiles.data_dir(self.environ), state,
+                    *(os.path.join(state, app_id) for app_id in {h.app_id for h in userfiles.APP_HISTORIES})]
         except userfiles.UserFileError:
             return []
 
-    def read(self) -> int:
-        return userfiles.recent_files_count(self.environ)
+    def read(self):
+        return userfiles.recent_files_count(self.environ), userfiles.app_history_counts(self.environ)
 
-    def show_state(self, count: int) -> None:
-        self.count = count
-        self.card.set_description(
-            ("The list applications share is empty." if not count else
-             f"The list applications share names {count} file{'s' if count != 1 else ''}.")
-            + " Text Editor and Media Player keep their own lists; clear those in their menus.")
-        self.clear_button.setEnabled(count > 0 and not self.busy)
+    @staticmethod
+    def _items(count: int, word: str = "item") -> str:
+        return f"{count} {word}{'s' if count != 1 else ''}" if count else "Empty"
+
+    def show_state(self, state) -> None:
+        shared, apps = state
+        self.count = shared + sum(count for _history, count in apps)
+        self.shared_row.set_description(f"The list applications share (recently-used.xbel): "
+                                        f"{self._items(shared, 'file').lower()}")
+        for history, count in apps:
+            row = self.app_rows.get((history.app_id, history.file))
+            if row is not None:
+                row.set_description(self._items(count))
+        self.card.set_description("Nothing is remembered now." if not self.count else
+                                  f"{self.count} item{'s' if self.count != 1 else ''} in the lists below")
+        self.clear_button.setEnabled(self.count > 0 and not self.busy)
 
     def set_enabled(self, enabled: bool) -> None:
         self.clear_button.setEnabled(enabled and self.count > 0)
@@ -822,12 +846,16 @@ class RecentFilesSection(FilesSection):
         removed = []
 
         def apply() -> None:
-            try:
-                removed.append(userfiles.clear_recent_files(environ))
-            except userfiles.UserFileError as exc:
-                raise Failed(f"The list could not be cleared. {exc}") from None
+            problems = []
+            for step in (userfiles.clear_recent_files, userfiles.clear_app_histories):
+                try:
+                    removed.append(step(environ))
+                except userfiles.UserFileError as exc:
+                    problems.append(str(exc))
+            if problems:
+                raise Failed("Not everything could be cleared. " + " ".join(problems))
 
-        self.change(apply, "The list of recently used files was cleared. The files themselves were not touched.")
+        self.change(apply, "The activity history was cleared. The files themselves were not touched.")
 
 
 SECTIONS = (DateTimeSection, RegionSection, DefaultAppsSection, StartupSection, RecentFilesSection)

@@ -8,6 +8,7 @@ Run: QT_QPA_PLATFORM=offscreen python3 -B -m unittest discover -s tests
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import tempfile
@@ -23,6 +24,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import cc_fixtures as fx  # noqa: E402
 
 from boswas_control_center import commands, defaultapps, timedate, userfiles  # noqa: E402
+
+SHOTS = os.environ.get("BOSWAS_TEST_SHOTS")
 
 try:
     from PySide6.QtCore import Qt
@@ -396,6 +399,117 @@ class RecentFilesTest(unittest.TestCase):
             self.assertEqual(userfiles.data_dir(dict(env, XDG_DATA_HOME="relative")), str(Path(tmp) / ".local/share"))
 
 
+APPS = Path(__file__).resolve().parents[2] / "boswas-apps"
+
+
+def app_modules():
+    """The modules of the Boswas applications that write the recent lists (None without the package)."""
+    if not (APPS / "boswas_apps").is_dir():
+        return None
+    if str(APPS) not in sys.path:
+        sys.path.insert(0, str(APPS))
+    from boswas_apps.archive_manager import state as archive_state
+    from boswas_apps.document_viewer import store as viewer_store
+    from boswas_apps.media_player import model as player_model
+    from boswas_apps.text_editor import settings as editor_settings
+    return editor_settings, viewer_store, player_model, archive_state
+
+
+class AppHistoriesTest(unittest.TestCase):
+    """The recent lists of the applications, written and read back by the applications' own code."""
+
+    def setUp(self):
+        self.modules = app_modules()
+        if self.modules is None:
+            self.skipTest("packages/boswas-apps is not in this checkout")
+        self._tmp = tempfile.TemporaryDirectory()
+        self.home = Path(self._tmp.name)
+        self.addCleanup(self._tmp.cleanup)
+        self.env = {"HOME": str(self.home)}
+        self.state = self.home / ".local" / "state"
+
+    def fill(self, state: Path) -> None:
+        editor, viewer, player, archive = self.modules
+        (state / "com.boswas.TextEditor").mkdir(parents=True)
+        editor.save_recent(state / "com.boswas.TextEditor", ["/home/a/notes.txt", "/home/a/todo.md"])
+        store = viewer.Store(state / "com.boswas.DocumentViewer")
+        (state / "com.boswas.DocumentViewer").mkdir(parents=True)
+        store.add_recent("/home/a/report.pdf", "Report", 12)
+        store.add_recent("/home/a/manual.pdf", "Manual", 300)
+        store.set_view("/home/a/old.pdf", {"page": 4, "zoom": 1.5, "mode": "custom"})
+        store.sidebar = False
+        store.save()
+        (state / "com.boswas.MediaPlayer").mkdir(parents=True)
+        recents = player.Recents(state / "com.boswas.MediaPlayer" / "recent.json")
+        recents.add(player.Track("/home/a/Music/song.flac", "Song"))
+        recents.save()
+        resume = player.ResumePositions(state / "com.boswas.MediaPlayer" / "resume.json")
+        resume.remember("/home/a/Videos/film.mkv", 600000, 7200000)
+        resume.remember("/home/a/Videos/talk.webm", 90000, 3600000)
+        resume.save()
+        (state / "com.boswas.ArchiveManager").mkdir(parents=True)
+        kept = archive.State(state / "com.boswas.ArchiveManager")
+        kept.policy = "rename"
+        kept.add_recent("/home/a/photos.zip")
+
+    def test_count_and_clear_every_list_in_its_own_format(self):
+        editor, viewer, player, archive = self.modules
+        self.assertEqual([count for _h, count in userfiles.app_history_counts(self.env)], [0, 0, 0, 0, 0])
+        self.assertEqual(userfiles.clear_app_histories(self.env), 0)        # nothing there: nothing created
+        self.assertFalse(self.state.exists())
+        self.fill(self.state)
+        counts = {(h.app_id, h.file): count for h, count in userfiles.app_history_counts(self.env)}
+        self.assertEqual(counts, {("com.boswas.TextEditor", "recent.json"): 2,
+                                  ("com.boswas.DocumentViewer", "documents.json"): 3,
+                                  ("com.boswas.MediaPlayer", "recent.json"): 1,
+                                  ("com.boswas.MediaPlayer", "resume.json"): 2,
+                                  ("com.boswas.ArchiveManager", "state.json"): 1})
+        self.assertEqual(userfiles.clear_app_histories(self.env), 9)
+        self.assertEqual(editor.load_recent(self.state / "com.boswas.TextEditor"), [])
+        store = viewer.Store(self.state / "com.boswas.DocumentViewer")
+        self.assertEqual((store.recent, store.views, store.sidebar), ([], {}, False), "the sidebar setting stays")
+        self.assertEqual(player.Recents(self.state / "com.boswas.MediaPlayer" / "recent.json").items, [])
+        self.assertEqual(player.ResumePositions(self.state / "com.boswas.MediaPlayer" / "resume.json").positions, {})
+        kept = archive.State(self.state / "com.boswas.ArchiveManager")
+        self.assertEqual((kept.recent, kept.policy), ([], "rename"), "the choices stay")
+        for path in self.state.rglob("*.json"):
+            self.assertEqual(os.stat(path).st_mode & 0o777, 0o600, path)
+            self.assertNotIn(b"/home/a", path.read_bytes(), path)
+        self.assertEqual(sorted(p.name for p in (self.state / "com.boswas.MediaPlayer").iterdir()),
+                         ["recent.json", "resume.json"], "no temporary file is left")
+        self.assertEqual([count for _h, count in userfiles.app_history_counts(self.env)], [0, 0, 0, 0, 0])
+
+    def test_xdg_state_home_and_damaged_files(self):
+        xdg = dict(self.env, XDG_STATE_HOME=str(self.home / "state"))
+        self.assertEqual(userfiles.state_dir(xdg), str(self.home / "state"))
+        self.assertEqual(userfiles.state_dir(dict(self.env, XDG_STATE_HOME="relative")), str(self.state))
+        self.fill(self.home / "state")
+        damaged = self.home / "state" / "com.boswas.TextEditor" / "recent.json"
+        damaged.write_bytes(b"\xff not json /home/a/secret.txt")
+        self.assertEqual(userfiles.clear_app_histories(xdg), 7)
+        self.assertEqual(json.loads(damaged.read_text()), [], "a damaged list is replaced by an empty one")
+        self.assertFalse(self.state.exists())
+
+    def test_symbolic_links_are_not_followed(self):
+        self.fill(self.state)
+        victim = fx.write(self.home / "victim.json", '["keep"]')
+        recent = self.state / "com.boswas.TextEditor" / "recent.json"
+        recent.unlink()
+        os.symlink(victim, recent)
+        elsewhere = self.home / "elsewhere"
+        os.rename(self.state / "com.boswas.ArchiveManager", elsewhere)
+        os.symlink(elsewhere, self.state / "com.boswas.ArchiveManager")
+        with self.assertRaises(userfiles.UserFileError) as caught:
+            userfiles.clear_app_histories(self.env)
+        self.assertIn("symbolic link", str(caught.exception))
+        self.assertEqual(victim.read_text(), '["keep"]')
+        self.assertIn("photos.zip", (elsewhere / "state.json").read_text())
+        viewer = self.modules[1].Store(self.state / "com.boswas.DocumentViewer")
+        self.assertEqual(viewer.recent, [], "the other lists are cleared all the same")
+        counts = {(h.app_id, h.file): count for h, count in userfiles.app_history_counts(self.env)}
+        self.assertEqual(counts[("com.boswas.TextEditor", "recent.json")], 0, "a link is not read either")
+
+
 class FakeRunner:
     """Stands in for commands.CommandRunner: records, answers from a table, and can be held back."""
 
@@ -765,15 +879,53 @@ class ApplicationsSectionsTest(SectionCase if PYSIDE else unittest.TestCase):
         path = fx.write(self.home / ".local/share/recently-used.xbel", '<xbel><bookmark href="file:///a"/>'
                         '<bookmark href="file:///b"/><bookmark href="file:///c"/></xbel>')
         section = self.put(system.RecentFilesSection(self.host, environ=self.env))
-        self.assertIn("names 3 files", section.card.description())
+        self.assertEqual(section.card.description(), "3 items in the lists below")
+        self.assertIn("recently-used.xbel): 3 files", section.shared_row.description())
         testing.click(section.clear_button)
         self.settle(section)
         self.assertEqual(path.read_bytes(), userfiles.EMPTY_RECENT)
-        self.assertIn("is empty", section.card.description())
+        self.assertEqual(section.card.description(), "Nothing is remembered now.")
         self.assertFalse(section.clear_button.isEnabled())
         self.assertEqual(section.notice.severity(), "success")
         fx.write(path, '<xbel><bookmark href="file:///new"/></xbel>')    # an application opens a file
-        self.assertTrue(testing.wait_until(lambda: "names 1 file." in section.card.description(), 5))
+        self.assertTrue(testing.wait_until(lambda: section.card.description() == "1 item in the lists below", 5))
+
+    def test_activity_history_lists_and_clears_the_apps_lists(self):
+        modules = app_modules()
+        if modules is None:
+            self.skipTest("packages/boswas-apps is not in this checkout")
+        AppHistoriesTest.fill(type("Filler", (), {"modules": modules})(), self.home / ".local/state")
+        section = self.put(system.RecentFilesSection(self.host, environ=self.env))
+        titles = [card.title() for card in section.lists.cards()]
+        self.assertEqual(titles, ["Recently used files", "Text Editor: Recent files",
+                                  "Document Viewer: Recent documents, and the page and zoom each was left at",
+                                  "Media Player: Recently played", "Media Player: Where each video was stopped",
+                                  "Archive Manager: Recent archives", "Not affected"], "the page lists what it clears")
+        self.assertEqual([card.description() for card in section.lists.cards()][1:6],
+                         ["2 items", "3 items", "1 item", "2 items", "1 item"])
+        self.assertEqual(section.card.description(), "9 items in the lists below")
+        if SHOTS:
+            for scheme in ("dark", "light"):
+                testing.set_scheme(scheme)
+                testing.grab(self.host, Path(SHOTS) / f"activity-history-{scheme}.png")
+        testing.click(section.clear_button)
+        self.settle(section)
+        self.assertEqual(section.notice.severity(), "success")
+        self.assertEqual([card.description() for card in section.lists.cards()][1:6], ["Empty"] * 5)
+        self.assertEqual(modules[0].load_recent(self.home / ".local/state/com.boswas.TextEditor"), [])
+        self.assertFalse(section.clear_button.isEnabled())
+
+    def test_a_list_that_cannot_be_cleared_is_said(self):
+        fx.write(self.home / ".local/share/recently-used.xbel", '<xbel><bookmark href="file:///a"/></xbel>')
+        state = self.home / ".local/state"
+        state.mkdir(parents=True, exist_ok=True)
+        os.symlink(self.tmp, state / "com.boswas.TextEditor")
+        section = self.put(system.RecentFilesSection(self.host, environ=self.env))
+        testing.click(section.clear_button)
+        self.settle(section)
+        self.assertIn("Not everything could be cleared", section.error.message())
+        self.assertIn("symbolic link", section.error.message())
+        self.assertEqual(section.shared_row.description(), "The list applications share (recently-used.xbel): empty")
 
     def test_registration(self):
         names = lambda page: [c.__name__ for c in settings.sections_for(page)        # noqa: E731

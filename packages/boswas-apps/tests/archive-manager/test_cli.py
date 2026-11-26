@@ -120,6 +120,11 @@ class PackagingTest(unittest.TestCase):
         icons = PACKAGE.parents[1] / "desktop" / "icons" / "Boswas-Prism" / "scalable" / "apps"
         self.assertTrue((icons / (entry["Icon"] + ".svg")).is_file())
         self.assertIn("[Desktop Action NewWindow]", lines)
+        self.assertEqual(lines[lines.index("[Desktop Action NewWindow]") + 2], "Exec=boswas-archive-manager --new-window")
+
+    def test_new_window_is_accepted(self):
+        plan, rest = cli.plan(["--new-window", "a.zip"])
+        self.assertEqual((plan.mode, plan.archives, rest), ("browse", [os.path.abspath("a.zip")], []))
 
     def test_manual_page(self):
         text = (PACKAGE / "man" / "boswas-archive-manager.1").read_text()

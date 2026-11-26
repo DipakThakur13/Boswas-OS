@@ -5,7 +5,10 @@ whether they are installed (`dpkg-query -W`, read-only) and installs or
 removes them through the system helper (sysops apt-install / apt-remove,
 which simulate first and refuse what Boswas policy excludes or protects).
 Language support is offered for the languages whose locales are generated
-on this device (`locale -a`): Firefox in that language.
+on this device (`locale -a`): Firefox in that language. Printing is
+installed without what its packages only recommend (sysops apt-install
+--no-recommends): cups-daemon recommends cups-browsed, which Boswas policy
+excludes, and APT would otherwise make the whole install fail.
 
 Names checked against docs/architecture/package-manifest.md where it names
 them (7zip, fonts-noto-color-emoji, flatpak, firefox-esr); the others are
@@ -25,6 +28,11 @@ class Feature:
     description: str
     packages: tuple[str, ...]
     icon: str = "package-x-generic"
+    recommends: bool = True               # False: installed with --no-recommends (see the module text)
+
+    def install_words(self, missing: tuple[str, ...]) -> tuple[str, ...]:
+        """The sysops arguments that install the ``missing`` packages of this feature."""
+        return ("apt-install", *(() if self.recommends else ("--no-recommends",)), *missing)
 
 
 FEATURES = (
@@ -32,9 +40,9 @@ FEATURES = (
             "GStreamer (MP3 encoders, older and less common formats)",
             ("gstreamer1.0-plugins-ugly", "gstreamer1.0-libav"), "applications-multimedia"),
     Feature("printing", "Printing support", "CUPS, the printing system, with driverless printing for most network "
-            "and USB printers", ("cups",), "printer"),
+            "and USB printers", ("cups",), "printer", recommends=False),
     Feature("pdf-printer", "Print to PDF", "A printer that saves what you print as a PDF file (needs printing "
-            "support)", ("printer-driver-cups-pdf",), "application-pdf"),
+            "support)", ("printer-driver-cups-pdf",), "application-pdf", recommends=False),
     Feature("7zip", "7-Zip archives", "Open and create .7z archives in Archive Manager", ("7zip",),
             "application-x-7z-compressed"),
     Feature("cjk-fonts", "Chinese, Japanese and Korean fonts", "Noto fonts for text in Chinese, Japanese and Korean",

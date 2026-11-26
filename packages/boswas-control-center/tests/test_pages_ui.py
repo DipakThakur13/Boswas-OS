@@ -26,6 +26,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import cc_fixtures as fx  # noqa: E402
 
+SHOTS = os.environ.get("BOSWAS_TEST_SHOTS")
+SCHEME = "light" if os.environ.get("BOSWAS_TEST_SCHEME") == "light" else "dark"
+
 try:
     from PySide6.QtCore import QCoreApplication, QEvent, qInstallMessageHandler
     from PySide6.QtWidgets import QApplication
@@ -300,7 +303,8 @@ class PrintersTest(PageCase):
         section.install_button.click()
         self.settle(w)
         self.assertIn("cups", self.questions[-1][1])
-        self.assertEqual(self.cmd.streamed, [commands.sysops_argv("apt-install", "cups")])
+        self.assertEqual(self.cmd.streamed, [commands.sysops_argv("apt-install", "--no-recommends", "cups")],
+                         "cups-daemon recommends cups-browsed, which policy excludes")
 
 
 class DevicesTest(PageCase):
@@ -317,6 +321,56 @@ class DevicesTest(PageCase):
         usb = self.section(w, "usb", "usb-devices")
         self.assertEqual([usb.list.row(k).title() for k in usb.list.keys()], ["USB Keyboard"])
         self.assertNotIn("SECRET", usb.list.row(usb.list.keys()[0]).description())
+
+
+class UsbDriveTest(PageCase):
+    def setUp(self):
+        super().setUp()
+        fx.add_usb_stick(self.rig.root)
+        self.steps = [commands.udisksctl_argv("unmount", "/dev/sdb1"), commands.udisksctl_argv("power-off", "/dev/sdb")]
+
+    def test_open_in_files_and_eject(self):
+        w = self.window()
+        usb = self.section(w, "usb", "usb-devices")
+        self.assertEqual([usb.list.row(k).title() for k in usb.list.keys()], ["USB Keyboard", "Ultra Fit"])
+        keyboard, stick = (usb.list.row(k) for k in usb.list.keys())
+        self.assertFalse(keyboard.eject_button.isVisibleTo(usb) or keyboard.open_button.isVisibleTo(usb))
+        self.assertTrue(stick.eject_button.isEnabled() and stick.open_button.isEnabled())
+        self.assertIn("/media/alice/USB STICK", stick.description())
+        self.assertNotIn("SECRET", stick.description())
+        self.assertEqual(self.ran("udisksctl"), [], "showing the page changes nothing")
+        if SHOTS:
+            testing.grab(w, Path(SHOTS) / f"usb-eject-{SCHEME}.png")
+        stick.open_button.click()
+        self.settle(w)
+        self.assertEqual(self.cmd.started[-1], [E["boswas-files"], "/media/alice/USB STICK"])
+        for command in self.steps:
+            self.cmd.outputs[tuple(command)] = fx.completed()
+        stick.eject_button.click()
+        self.settle(w)
+        self.assertEqual(self.ran("udisksctl"), self.steps, "unmount, then power off, as Files does")
+        self.assertEqual(usb.notice.message(), "Ultra Fit can be removed now.")
+
+    def test_a_drive_in_use_and_one_the_system_uses(self):
+        self.cmd.outputs[tuple(self.steps[0])] = fx.completed("", 1, "Error unmounting /dev/sdb1: "
+                                                                    "GDBus.Error:org.freedesktop.UDisks2.Error."
+                                                                    "DeviceBusy: target is busy")
+        w = self.window()
+        usb = self.section(w, "usb", "usb-devices")
+        usb.list.row("1-4").eject_button.click()
+        self.settle(w)
+        self.assertEqual(self.ran("udisksctl"), self.steps[:1], "no power-off after a failed unmount")
+        self.assertIn("is in use", usb.error.message())
+        (self.rig.root / "proc/self/mountinfo").write_text(
+            "85 22 8:17 / /run/live/medium ro shared:45 - iso9660 /dev/sdb1 ro\n")
+        usb.reload()
+        self.settle(w)
+        stick = usb.list.row("1-4")
+        self.assertFalse(stick.eject_button.isEnabled())
+        self.assertIn("in use by the system", stick.description())
+        usb.eject("1-4")
+        self.settle(w)
+        self.assertEqual(len(self.ran("udisksctl")), 1, "the boot medium is never ejected")
 
 
 class NetworkTest(PageCase):
@@ -377,6 +431,145 @@ class NetworkTest(PageCase):
         wifi.switch.click()
         self.settle(w)
         self.assertEqual(self.cmd.changes(), [[E["nmcli"], "-t", "device", "disconnect", "wlp2s0"]])
+
+
+class EthernetTest(PageCase):
+    def setUp(self):
+        super().setUp()
+        self.cmd.outputs.update(fx.wired_outputs())
+        self.modify = lambda *words: tuple(commands.nmcli_change_argv("connection", "modify", "uuid", fx.WIRED_UUID,
+                                                                      *words))
+        self.up = tuple(commands.nmcli_change_argv("connection", "up", "uuid", fx.WIRED_UUID))
+
+    def test_shows_the_settings_and_properties(self):
+        w = self.window()
+        section = self.section(w, "ethernet", "wired-connection")
+        self.assertEqual(section.list.keys(), ["enp3s0"])
+        adapter = section.list.row("enp3s0")
+        self.assertEqual(adapter.heading.text(), "enp3s0 · Wired connection 1")
+        self.assertEqual(adapter.ip.description(), "Automatic (DHCP)")
+        self.assertEqual(adapter.dns.description(), "Automatic (DHCP)")
+        self.assertFalse(adapter.metered_switch.isChecked())
+        rows = {row.title(): row.description() for row in adapter.properties.cards() if not row.isHidden()}
+        self.assertEqual(rows, {"Link speed": "1 Gb/s", "IPv4 address": "192.168.1.23/24", "IPv4 gateway": "192.168.1.1",
+                                "IPv6 address": "fe80::5054:ff:fe12:3456/64", "DNS servers": "192.168.1.1",
+                                "Physical address (MAC)": "52:54:00:12:34:56"})
+        self.assertEqual(self.cmd.changes(), [], "showing the page changes nothing")
+        adapter.copy_button.click()
+        self.assertIn("Physical address (MAC): 52:54:00:12:34:56", QApplication.clipboard().text())
+
+    def test_manual_ip_address_and_dns(self):
+        w = self.window()
+        section = self.section(w, "ethernet", "wired-connection")
+        adapter = section.list.row("enp3s0")
+        manual = self.modify("ipv4.method", "manual", "ipv4.addresses", "192.168.1.50/24", "ipv4.gateway",
+                             "192.168.1.1", "ipv4.dns", "192.168.1.1", "ipv4.ignore-auto-dns", "yes", "ipv6.dns", "",
+                             "ipv6.ignore-auto-dns", "yes")
+        self.cmd.outputs[manual] = fx.completed()
+        self.cmd.outputs[self.up] = fx.completed("Connection successfully activated\n")
+        adapter.ip_button.click()
+        dialog = section.dialog
+        self.assertIsNotNone(dialog)
+        self.assertFalse(dialog.form_holder.isEnabled(), "Automatic: nothing to type")
+        dialog.mode.setCurrentIndex(1)
+        self.assertFalse(dialog.primary_button.isEnabled())
+        dialog.address.setText("192.168.1.50")
+        dialog.prefix.setText("24")
+        dialog.gateway.setText("10.0.0.1")
+        self.assertIn("same network", dialog.problem.text())
+        dialog.gateway.setText("192.168.1.1")
+        self.assertIn("at least one DNS server", dialog.problem.text())
+        dialog.dns1.setText("192.168.1.1")
+        self.assertTrue(dialog.primary_button.isEnabled())
+        if SHOTS:
+            testing.grab(w, Path(SHOTS) / f"ethernet-ip-dialog-{SCHEME}.png")
+        dialog.primary_button.click()
+        self.settle(w)
+        self.assertEqual(self.cmd.changes(), [list(manual), list(self.up)], "modify, then apply to the active one")
+        self.assertIn("The connection was started again", section.notice.message())
+
+    def test_dns_servers_and_metered(self):
+        w = self.window()
+        section = self.section(w, "ethernet", "wired-connection")
+        adapter = section.list.row("enp3s0")
+        dns = self.modify("ipv4.dns", "1.1.1.1", "ipv4.ignore-auto-dns", "yes", "ipv6.dns", "2606:4700:4700::1111",
+                          "ipv6.ignore-auto-dns", "yes")
+        for command in (dns, self.modify("connection.metered", "yes"), self.up):
+            self.cmd.outputs[command] = fx.completed()
+        adapter.dns_button.click()
+        dialog = section.dialog
+        self.assertTrue(dialog.mode.model().item(0).isEnabled(), "with DHCP the network's servers can be used")
+        dialog.mode.setCurrentIndex(1)
+        dialog.fields[0].setText("1.1.1.1")
+        dialog.fields[1].setText("not-an-address")
+        self.assertFalse(dialog.primary_button.isEnabled())
+        self.assertIn("not an IPv4 or IPv6", dialog.problem.text())
+        dialog.fields[1].setText("2606:4700:4700::1111")
+        dialog.primary_button.click()
+        self.settle(w)
+        self.assertEqual(self.cmd.changes(), [list(dns), list(self.up)])
+        adapter.metered_switch.click()
+        self.settle(w)
+        self.assertEqual(self.cmd.changes()[-2:], [list(self.modify("connection.metered", "yes")), list(self.up)])
+        section.edit_dns("enp3s0")
+        section.dialog.close_button.click()                                   # Cancel changes nothing
+        self.settle(w)
+        self.assertEqual(len(self.cmd.changes()), 4)
+
+    def test_a_refusal_is_said_and_a_profile_that_is_not_active_is_not_started(self):
+        self.cmd.outputs.update(fx.wired_outputs())
+        devices = (E["nmcli"], "-t", "-f", "DEVICE,TYPE,STATE,CONNECTION", "device")
+        self.cmd.outputs[devices] = fx.completed("enp3s0:ethernet:unavailable:--\n")
+        connections = (E["nmcli"], "-t", "-f", "NAME,UUID,TYPE,DEVICE,ACTIVE", "connection", "show")
+        self.cmd.outputs[connections] = fx.completed(f"Wired connection 1:{fx.WIRED_UUID}:802-3-ethernet::no\n")
+        metered = self.modify("connection.metered", "yes")
+        self.cmd.outputs[metered] = fx.completed("", 4, "Error: Insufficient privileges.")
+        w = self.window()
+        section = self.section(w, "ethernet", "wired-connection")
+        section.list.row("enp3s0").metered_switch.click()
+        self.settle(w)
+        self.assertEqual(self.cmd.changes(), [list(metered)], "not active: nothing to start again")
+        self.assertIn("Insufficient privileges", section.error.message())
+        self.cmd.outputs[metered] = fx.completed()
+        section.list.row("enp3s0").metered_switch.click()
+        self.settle(w)
+        self.assertIn("used when the connection starts", section.notice.message())
+
+    def test_without_a_profile_or_nmcli(self):
+        connections = (E["nmcli"], "-t", "-f", "NAME,UUID,TYPE,DEVICE,ACTIVE", "connection", "show")
+        self.cmd.outputs[connections] = fx.completed("")
+        w = self.window()
+        section = self.section(w, "ethernet", "wired-connection")
+        adapter = section.list.row("enp3s0")
+        self.assertFalse(adapter.missing.isHidden())
+        self.assertTrue(adapter.ip.isHidden())
+        self.cmd.installed.discard(E["nmcli"])
+        section.reload()
+        self.settle(w)
+        self.assertIn("nmcli is not installed", section.notice.message())
+
+
+class BrightnessOnDisplayTest(PageCase):
+    def test_display_shows_the_brightness_and_power_still_does(self):
+        w = self.window()
+        bridge = bridgeclient.for_widget(w)
+        bridge.set_state(sb.BRIGHTNESS, sb.BrightnessState(0.6))
+        section = self.section(w, "display", "brightness")
+        self.settle(w)
+        self.assertEqual(w.current_page(), "display")
+        self.assertTrue(section.isVisibleTo(w))
+        self.assertEqual(section.value.text(), "60 %")
+        section.slider.setValue(40)
+        self.assertEqual(bridgeclient.for_widget(section).commands("set-brightness")[-1]["level"], 0.4)
+        if SHOTS:
+            testing.grab(w, Path(SHOTS) / f"display-brightness-{SCHEME}.png")
+        power = self.section(w, "power", "brightness")
+        self.assertIsNot(power, section, "each page has its own section on the same bridge")
+        w.handle_arguments(["--page", "power", "--section", "brightness"])
+        self.settle(w)
+        self.assertEqual(w.current_page(), "power")
+        first = w.search("brightness")[0]
+        self.assertEqual((first.page, first.section), ("display", "brightness"), "search lands on Display")
 
 
 class FontsTest(PageCase):
@@ -446,7 +639,7 @@ class AppsTest(PageCase):
         self.answer = True
         printing.action.click()
         self.settle(w)
-        self.assertEqual(self.cmd.streamed, [commands.sysops_argv("apt-install", "cups")])
+        self.assertEqual(self.cmd.streamed, [commands.sysops_argv("apt-install", "--no-recommends", "cups")])
 
 
 class PrivacyTest(PageCase):

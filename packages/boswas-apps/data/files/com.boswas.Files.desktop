@@ -11,9 +11,9 @@ StartupWMClass=com.boswas.Files
 MimeType=inode/directory;
 Categories=System;FileTools;FileManager;Utility;Core;Qt;
 Keywords=files;folders;file manager;explorer;browse;directory;disk;drive;usb;trash;recycle bin;search;copy;move;
-Actions=new-window;
+Actions=NewWindow;
 X-DBUS-ServiceName=org.freedesktop.FileManager1
 
-[Desktop Action new-window]
+[Desktop Action NewWindow]
 Name=New Window
 Exec=boswas-files --new-window

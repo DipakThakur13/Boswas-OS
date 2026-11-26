@@ -927,8 +927,9 @@ class WallpaperTest(ImageCase):
         self.assertEqual(stored.parent, self.tmp / "xdg_data_home" / "boswas" / "wallpapers")
         self.assertEqual(stored.read_bytes(), Path(path).read_bytes())
         self.assertRegex(stored.name, r"^Desk-Top-[0-9a-f]{12}\.png$")
-        config = self.tmp / "xdg_config_home" / "boswas" / "compositor.toml"
-        self.assertEqual(config.read_text(), f'[appearance]\nwallpaper = "{stored}"\n')
+        look = self.tmp / "xdg_config_home" / "boswas" / "appearance.toml"
+        self.assertEqual(look.read_text(), desktopcfg.APPEARANCE_HEADER + f'[appearance]\nwallpaper = "{stored}"\n')
+        self.assertFalse((look.parent / "compositor.toml").exists())
         os.unlink(path)                                         # the original may go: the desktop has its own copy
         self.assertTrue(stored.is_file())
 
@@ -956,8 +957,8 @@ class WallpaperTest(ImageCase):
             written = fx.write(self.pics / ("w." + extension), data)
             self.assertEqual(decode.load(str(written)).image.size(), QSize(100, 50))
 
-    def test_a_configuration_that_cannot_be_edited_stops_it(self):
-        fx.write(self.tmp / "xdg_config_home" / "boswas" / "compositor.toml", b'appearance = { scheme = "dark" }\n')
+    def test_a_configuration_that_cannot_be_read_stops_it(self):
+        fx.write(self.tmp / "xdg_config_home" / "boswas" / "appearance.toml", b"\xff\xfe not utf-8")
         path = self.save(quadrants(), "a.png")
         loaded = decode.load(path)
         run, calls = self.runner()
