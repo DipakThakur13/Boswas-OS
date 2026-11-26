@@ -279,6 +279,8 @@ impl Shell {
             ControlEvent::Launcher => self.toggle_flyout(Flyout::Start, None),
             ControlEvent::QuickSettings => self.toggle_flyout(Flyout::Quick, None),
             ControlEvent::Notifications => self.toggle_flyout(Flyout::Notifications, None),
+            ControlEvent::Clipboard => self.toggle_flyout(Flyout::Clipboard, None),
+            ControlEvent::Emoji => self.toggle_flyout(Flyout::Emoji, None),
             ControlEvent::Lock(locked) => {
                 self.st.locked = locked;
                 if locked {
@@ -293,7 +295,10 @@ impl Shell {
                     self.sync_toasts();
                 }
             }
-            ControlEvent::Config(desktop) => self.apply_desktop(*desktop),
+            ControlEvent::Config(desktop) => {
+                self.clip_settings(desktop.clipboard_history, desktop.clipboard_cleared_at);
+                self.apply_desktop(*desktop);
+            }
             ControlEvent::Run => {
                 if self.st.mode == Mode::Desktop && !self.st.locked {
                     let last = self.st.run_history.entries.last().cloned();
@@ -348,7 +353,11 @@ impl Shell {
                     self.close_transients();
                 }
             }
-            ControlEvent::Reply { id, ok, data } => self.reply(id, ok, &data),
+            ControlEvent::Reply { id, ok, data } => {
+                if !self.clip_reply(id, ok) {
+                    self.reply(id, ok, &data);
+                }
+            }
         }
     }
 
@@ -673,6 +682,8 @@ impl Shell {
             Flyout::Quick => quick::panel_size(&self.st, output),
             Flyout::Notifications => (t.shell("notification-width").min(w - 2.0 * PAD), (h - bar - 2.0 * PAD).max(200.0)),
             Flyout::TrayOverflow => taskbar::overflow_size(&self.st),
+            Flyout::Clipboard => crate::clipview::panel_size(output),
+            Flyout::Emoji => crate::emoji::panel_size(output),
         };
         let (sw, sh) = (pw + 2.0 * PAD, ph + 2.0 * PAD);
         let top = h - bar - sh;
@@ -683,6 +694,11 @@ impl Shell {
                 (Anchor::BOTTOM | Anchor::LEFT, ((sw as u32, sh as u32), (0, 0, bar as i32, 0), (0.0, top)))
             }
             Flyout::Start => (Anchor::BOTTOM, ((sw as u32, sh as u32), (0, 0, bar as i32, 0), (((w - sw) / 2.0).floor(), top))),
+            // The clipboard history and the emoji panel: at the bottom, in
+            // the middle (where the text being typed usually is not hidden).
+            Flyout::Clipboard | Flyout::Emoji => {
+                (Anchor::BOTTOM, ((sw as u32, sh as u32), (0, 0, bar as i32, 0), (((w - sw) / 2.0).floor(), top)))
+            }
             Flyout::TrayOverflow => {
                 // Above the chevron.
                 let (inline, hidden) = taskbar::split_tray(&self.st.sys.tray);
@@ -745,6 +761,8 @@ impl Shell {
                 self.sync_toasts();
             }
             Flyout::TrayOverflow => {}
+            Flyout::Clipboard => self.open_clipboard(),
+            Flyout::Emoji => self.open_emoji(),
         }
         self.st.flyout = Some(kind);
         self.st.focus = None;

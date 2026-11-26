@@ -112,6 +112,7 @@ APPEARANCE_HEADER = ("# Written by boswas-preset and by Boswas Control Center; t
                      "scheme and wallpaper.\n")
 
 _I32 = (-2 ** 31, 2 ** 31 - 1)
+_I64 = (-2 ** 63, 2 ** 63 - 1)
 _U32 = (0, 2 ** 32 - 1)
 _OUTPUT_NAME = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _XKB_LIST = re.compile(r"^[A-Za-z0-9_./()+-]*(,[A-Za-z0-9_./()+-]*)*$")
@@ -469,6 +470,11 @@ SCHEMA: dict[str, dict[str, Key]] = {
         "banners_off": _names((), None, "application names", MAX_MUTED),
         "toast_seconds": _number_choice(5, TOAST_SECONDS, "time", _nearest(TOAST_SECONDS)),
     },
+    "clipboard": {
+        "history": _boolean(True),
+        # When "Clear clipboard data" was used (Unix seconds); the compositor reads a negative time as 0.
+        "cleared_at": _integer(0, 0, 2 ** 63 - 1, storage=_I64, what="time", clamped=False),
+    },
     "policy": {
         "lock_idle_max_seconds": Key("int", 600, lambda v: _is_int(v) and _U32[0] <= v <= _U32[1], _same, _same,
                                      user=False),
@@ -488,7 +494,7 @@ OUTPUT_KEYS: dict[str, Key] = {
 # The order tables and keys are written in.
 _TABLE_ORDER = ("keyboard", "pointer", "touchpad", "output", "outputs", "night_light", "power", "lock", "xwayland",
                 "apps", "appearance", "accessibility", "color_filter", "magnifier", "taskbar", "start", "multitasking",
-                "notifications")
+                "notifications", "clipboard")
 # Which of the user's two files holds an [appearance] key (see the module text).
 _APPEARANCE_FILE_KEYS = ("scheme", "wallpaper")
 

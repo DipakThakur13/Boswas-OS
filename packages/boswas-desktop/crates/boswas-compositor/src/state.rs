@@ -273,6 +273,8 @@ pub struct Boswas {
     pub filter_commit: smithay::backend::renderer::utils::CommitCounter,
     /// Accessibility of the keyboard: sticky and filter keys.
     pub key_access: crate::keyaccess::KeyAccess,
+    /// A paste the shell asked for, waiting for the held keys (paste.rs).
+    pub paste: crate::paste::Paste,
 
     // Protocol state
     _globals: Globals,
@@ -487,6 +489,7 @@ impl Boswas {
             filter_id: smithay::backend::renderer::element::Id::new(),
             filter_commit: smithay::backend::renderer::utils::CommitCounter::default(),
             key_access: crate::keyaccess::KeyAccess::default(),
+            paste: crate::paste::Paste::default(),
             _globals: Globals {
                 xdg_decoration_state,
                 output_manager_state,

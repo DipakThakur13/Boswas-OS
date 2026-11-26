@@ -55,9 +55,11 @@ firefox-esr
 # Boswas Terminal. Lato: secondary
 # text in Boswas artwork; the brand typeface Orbitron ships in
 # boswas-branding. Liberation is metric-compatible with common Windows fonts
-# for documents and Wine applications)
+# for documents and Wine applications. Noto Color Emoji: the colour emoji
+# of the shell's emoji panel, Super+., and of applications)
 fonts-hack
 fonts-inter
 fonts-lato
 fonts-liberation2
+fonts-noto-color-emoji
 fonts-noto-core

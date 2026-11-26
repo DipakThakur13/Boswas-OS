@@ -22,4 +22,8 @@ pub enum Action {
     Lock(lock::Act),
     /// The desktop background (for its context menu).
     Desktop,
+    /// The clipboard history's flyout.
+    Clip(crate::clipview::Act),
+    /// The emoji panel.
+    Emoji(crate::emoji::Act),
 }

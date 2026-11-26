@@ -14,6 +14,7 @@ mod handlers;
 mod input;
 mod ipc;
 mod keyaccess;
+mod paste;
 mod render;
 mod scale;
 mod shell;

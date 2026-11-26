@@ -347,6 +347,10 @@ impl Boswas {
             "lock": {
                 "show_weather": c.lock.show_weather,
             },
+            "clipboard": {
+                "history": c.clipboard.history,
+                "cleared_at": c.clipboard.cleared_at,
+            },
         })
     }
 
@@ -637,6 +641,10 @@ impl Boswas {
                 self.stop();
                 Ok(Value::Null)
             }
+            // The clipboard history and the emoji panel: paste what the
+            // shell put on the clipboard into the focused window. No keys
+            // are named; see paste.rs.
+            "paste" => self.request_paste(),
             "pointer" | "button" | "key" | "scroll" if !self.ipc.test_input => {
                 Err("input injection is only available with --test-input".into())
             }

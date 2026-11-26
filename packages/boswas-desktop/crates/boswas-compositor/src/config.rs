@@ -54,6 +54,9 @@ pub struct Config {
     pub start: Start,
     pub notifications: Notifications,
     pub multitasking: Multitasking,
+    /// The shell's clipboard history (Super+V): read here and passed on to
+    /// the shell with the appearance.
+    pub clipboard: Clipboard,
     pub policy: Policy,
 }
 
@@ -355,6 +358,24 @@ pub struct Multitasking {
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+pub struct Clipboard {
+    /// The shell keeps the last items copied, in memory, and Super+V shows
+    /// them. Off: only what is on the clipboard now (and pinned items).
+    pub history: bool,
+    /// When Settings last cleared the clipboard data (Unix time, seconds;
+    /// 0 never): the shell forgets what was copied before then, except
+    /// pinned items, and empties the clipboard if it held such an item.
+    pub cleared_at: i64,
+}
+
+impl Default for Clipboard {
+    fn default() -> Self {
+        Self { history: true, cleared_at: 0 }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct Policy {
     /// The longest automatic lock timeout a user may choose, in seconds;
     /// 0 lets the user decide (including never).
@@ -388,6 +409,7 @@ impl Default for Config {
             start: Start::default(),
             notifications: Notifications::default(),
             multitasking: Multitasking::default(),
+            clipboard: Clipboard::default(),
             policy: Policy::default(),
         }
     }
@@ -672,6 +694,7 @@ impl Config {
 
     /// Clamps every value to its supported range and applies `[policy]`.
     fn sanitize(&mut self, warnings: &mut Vec<String>) {
+        self.clipboard.cleared_at = self.clipboard.cleared_at.max(0);
         self.keyboard.repeat_delay = self.keyboard.repeat_delay.clamp(100, 2000);
         self.keyboard.repeat_rate = self.keyboard.repeat_rate.clamp(1, 100);
         self.pointer.accel_speed = if self.pointer.accel_speed.is_finite() {
@@ -1196,6 +1219,20 @@ mod tests {
         // The shipped defaults file says the same as the built-in value.
         let shipped = Config::from_toml(include_str!("../../../config/compositor.toml")).unwrap();
         assert_eq!(shipped.lock, Lock::default());
+    }
+
+    #[test]
+    fn the_clipboard_history_is_the_user_s_to_turn_off_and_to_clear() {
+        let dir = tempfile::tempdir().unwrap();
+        let shipped = Config::from_toml(include_str!("../../../config/compositor.toml")).unwrap();
+        assert_eq!(shipped.clipboard, Clipboard::default());
+        assert!(shipped.clipboard.history, "on unless turned off, as on Windows");
+        let user = file(dir.path(), "user.toml", "[clipboard]\nhistory = false\ncleared_at = 1764180000\n");
+        let (c, warnings) = Config::load_from(&[Path::new("/nonexistent")], Some(&user));
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(c.clipboard, Clipboard { history: false, cleared_at: 1_764_180_000 });
+        // A time before 1970 means never.
+        assert_eq!(Config::from_toml("[clipboard]\ncleared_at = -5\n").unwrap().clipboard.cleared_at, 0);
     }
 
     #[test]

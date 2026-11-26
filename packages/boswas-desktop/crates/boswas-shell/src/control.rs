@@ -46,6 +46,10 @@ pub enum ControlEvent {
     Notifications,
     /// Super+R.
     Run,
+    /// Super+V: the clipboard history.
+    Clipboard,
+    /// Super+. or Super+;: the emoji panel.
+    Emoji,
     /// Print, Super+Shift+S or the public `capture` command.
     Capture { whole_screen: bool },
     /// A volume, brightness or media key (`volume-up`, `media-play`, ...).
@@ -248,6 +252,8 @@ pub fn parse_message(message: &Value) -> Vec<ControlEvent> {
         Some("quick-settings") => vec![ControlEvent::QuickSettings],
         Some("notifications") => vec![ControlEvent::Notifications],
         Some("run") => vec![ControlEvent::Run],
+        Some("clipboard") => vec![ControlEvent::Clipboard],
+        Some("emoji") => vec![ControlEvent::Emoji],
         Some("capture") => vec![ControlEvent::Capture {
             whole_screen: data.get("mode").and_then(Value::as_str) == Some("screen"),
         }],
@@ -369,6 +375,8 @@ mod tests {
         assert_eq!(ev("capturing", json!({"programs": []})), [ControlEvent::Capturing(Vec::new())]);
         assert_eq!(ev("notifications", json!({})), [ControlEvent::Notifications]);
         assert_eq!(ev("run", json!({})), [ControlEvent::Run]);
+        assert_eq!(ev("clipboard", json!({})), [ControlEvent::Clipboard]);
+        assert_eq!(ev("emoji", json!({})), [ControlEvent::Emoji]);
         assert_eq!(ev("capture", json!({"mode": "screen"})), [ControlEvent::Capture { whole_screen: true }]);
         assert_eq!(ev("capture", json!({})), [ControlEvent::Capture { whole_screen: false }]);
         assert_eq!(ev("media-key", json!({"key": "volume-up"})), [ControlEvent::MediaKey("volume-up".into())]);

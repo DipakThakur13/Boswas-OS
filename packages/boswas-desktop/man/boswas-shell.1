@@ -60,6 +60,27 @@ notification opens the picture, its button the folder), and the dialog that
 asks for a password when polkit needs one (with a choice of administrator
 when several may authorise the action);
 .IP \(bu 2
+the clipboard history (Super+V): the last 25 things copied (text, rich
+text as its text, pictures up to 8 MB, lists of files), newest first, each
+with Pin and Delete, Clear all (pinned items stay) and a search. Enter or a
+click pastes an item into the window that had the keyboard: the item goes
+on the clipboard and the compositor gives the window Ctrl+V (Ctrl+Shift+V
+in a terminal). The arrow keys choose, Delete removes, Ctrl+P pins, typing
+searches. The history is kept in memory only and is gone when the session
+ends, except pinned items (see FILES). It never keeps what a program marks
+as secret (password managers set \fBx\-kde\-passwordManagerHint\fR, and the
+concealed and transient markers of other systems), nothing copied while the
+session is locked, and nothing at all when \fB[clipboard] history\fR is
+false; the lock screen and the login screen do not watch the clipboard;
+.IP \(bu 2
+the emoji and symbols panel (Super+. or Super+;): emoji by category with a
+choice of skin tone, kaomoji and symbols, a search by name and keyword, and
+the recently used ones. Enter or a click inserts the item into the window
+that had the keyboard in the same way as a paste, and then the clipboard
+holds again what it held before (what was on it is copied into memory for
+that moment only). Emoji are drawn by the colour emoji font (Noto Color
+Emoji); without it the text fonts draw what they can;
+.IP \(bu 2
 the question "Allow \fIprogram\fR to see your screen?" when a screenshot
 tool, a recorder or screen sharing asks the compositor for pictures of the
 screen. Neither answer is the default, and Enter alone allows nothing.
@@ -98,8 +119,8 @@ direction, Enter or Space activates it, Escape closes. In Start, typing
 always searches, the arrow keys go through the whole page (it scrolls along),
 Page Up, Page Down, Home and End scroll it; in menus the arrow keys move and
 open submenus. The
-shortcuts that open things (Super, Super+A, Super+N, Super+R, Print and so
-on) belong to the compositor and are listed in
+shortcuts that open things (Super, Super+A, Super+N, Super+R, Super+V,
+Super+., Print and so on) belong to the compositor and are listed in
 .BR boswas-compositor (1).
 .SH FILES
 .TP
@@ -113,8 +134,8 @@ apply: Files, Firefox ESR and the Software Center on the taskbar.
 .PP
 The look and the settings of the taskbar, Start and notifications are part
 of the compositor's configuration (\fB[appearance]\fR, \fB[accessibility]\fR,
-\fB[taskbar]\fR, \fB[start]\fR, \fB[multitasking]\fR and
-\fB[notifications]\fR in
+\fB[taskbar]\fR, \fB[start]\fR, \fB[multitasking]\fR,
+\fB[notifications]\fR and \fB[clipboard]\fR in
 .BR boswas-compositor (1)),
 which passes them on when it starts the shell and when its files are
 read again.
@@ -143,6 +164,25 @@ turn their banners off.
 .I ~/.local/state/boswas/apps\-seen.json
 When each installed application was first seen, for "Recently added". The
 applications installed when the shell first ran do not count as new.
+.TP
+.I ~/.local/state/boswas/clipboard\-pinned.json
+The pinned items of the clipboard history (or under \fB$XDG_STATE_HOME\fR):
+text, lists of files and pictures of at most 256 KB, at most 25 items and
+4 MB. Readable by the user only (mode 0600, in a directory of mode 0700),
+replaced as a whole when an item is pinned, unpinned or deleted, and read
+only when it is a regular file within those limits; entries that are not
+as written are skipped.
+.TP
+.I ~/.local/state/boswas/emoji.json
+The emoji, kaomoji and symbols used recently (at most 40) and the chosen
+skin tone (mode 0600). Only items of the panel's own list are read back.
+.PP
+When the history is off and Turn on is chosen in its flyout, the shell
+sets \fB[clipboard] history = true\fR in
+.I ~/.config/boswas/compositor.toml
+(the one line, or the table added; the file is left alone when the result
+could not be read back for certain, and Settings opens instead) and asks
+the compositor to read its files again.
 .TP
 .I ~/.local/state/boswas/weather.json
 The weather summary the lock screen shows (or under
@@ -180,7 +220,11 @@ its trusted Wayland connection nor its control connection to the
 compositor. Run starts a program with its arguments; there is no shell and
 nothing is expanded. Passwords and Wi-Fi passphrases are wiped from memory
 after use. Wallpapers, icons, window previews and what tray items send are
-decoded in the shell with size limits.
+decoded in the shell with size limits. The clipboard is read through
+clipboard control, which the compositor offers to the programs it starts
+itself and to no application; each transfer has a size and a time limit,
+and what the shell puts on the clipboard is marked so that it does not
+take it in again.
 .SH SEE ALSO
 .BR boswas-compositor (1),
 .BR boswas-session (1),
