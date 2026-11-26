@@ -80,6 +80,8 @@ pub struct State {
     pub start: Start,
     /// The widgets board and what its cards show.
     pub board: crate::widgets::Board,
+    /// The desktop icons.
+    pub desk: crate::desktop_icons::Desk,
     pub quick: Quick,
     pub notes: Notes,
     /// The open context menu and its open submenus.
@@ -171,6 +173,7 @@ impl State {
             flyout: None,
             start: Start::default(),
             board: crate::widgets::Board::default(),
+            desk: crate::desktop_icons::Desk::default(),
             quick: Quick::default(),
             notes: Notes::default(),
             menus: Vec::new(),

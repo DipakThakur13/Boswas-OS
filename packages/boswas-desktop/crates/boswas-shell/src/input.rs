@@ -38,6 +38,10 @@ impl Shell {
         };
         let position = (event.position.0 as f32, event.position.1 as f32);
         let role = self.surfaces[index].role;
+        // The desktop icons take what happens on the wallpaper.
+        if role == Role::Wallpaper && self.desk_pointer(index, event) {
+            return;
+        }
         match event.kind {
             PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => {
                 let surface = &mut self.surfaces[index];
@@ -359,6 +363,7 @@ impl Shell {
                     self.close_menus();
                 }
             }
+            Action::Dismiss if self.st.desk.renaming.is_some() => self.desk_commit_rename(),
             Action::Dismiss => {
                 if self.st.menus.is_empty() {
                     self.close_flyout();
@@ -406,6 +411,7 @@ impl Shell {
             Action::Capture(_) => {}
             Action::Lock(act) => self.lock_action(act, index),
             Action::Widgets(act) => self.widgets_action(act, Some(index)),
+            Action::Desk(_) => {}
         }
     }
 
@@ -797,6 +803,9 @@ impl Shell {
         if self.st.dialog.is_some() {
             return self.dialog_key(&event, typed);
         }
+        if self.st.desk.renaming.is_some() {
+            return self.desk_rename_key(&event, typed);
+        }
         if !self.st.menus.is_empty() {
             return self.menu_key(event.keysym);
         }
@@ -821,7 +830,8 @@ impl Shell {
                     }
                 }
             },
-            None => {}
+            // Nothing of the shell's is open: the desktop has the keyboard.
+            None => self.desk_key(&event, typed),
         }
     }
 

@@ -23,6 +23,8 @@ mod config;
 mod control;
 mod damage;
 mod desk;
+mod desktop_files;
+mod desktop_icons;
 mod dialogs;
 mod glyph;
 mod greetd;
@@ -170,6 +172,8 @@ pub(crate) enum Role {
     Capture,
     /// Lock screen or greeter.
     Auth,
+    /// The field over a desktop icon's label while it is renamed.
+    Rename,
 }
 
 /// The Wayland object behind a shell surface.
@@ -455,6 +459,7 @@ fn run(mode: Mode) -> Result<i32, Box<dyn std::error::Error>> {
         flyout: None,
         start: Start::default(),
         board: if mode == Mode::Desktop { widgets::Board::new() } else { widgets::Board::default() },
+        desk: desktop_icons::Desk::default(),
         quick: Quick::default(),
         notes: Notes::default(),
         menus: Vec::new(),
@@ -749,7 +754,9 @@ impl Shell {
     fn output_added(&mut self, output: &wl_output::WlOutput) {
         match self.st.mode {
             Mode::Desktop => {
-                self.create_layer(Role::Wallpaper, output, Self::full_screen(Layer::Background, "boswas-wallpaper", KeyboardInteractivity::None, -1));
+                // The wallpaper takes the keyboard on a click while it shows desktop icons.
+                let keyboard = self.desk_keyboard();
+                self.create_layer(Role::Wallpaper, output, Self::full_screen(Layer::Background, "boswas-wallpaper", keyboard, -1));
                 self.create_taskbar(output);
             }
             Mode::Greeter => {
@@ -836,6 +843,8 @@ impl Shell {
         }
         let now = Instant::now();
         let first_auth = self.surfaces.iter().position(|s| s.role == Role::Auth) == Some(index);
+        // The desktop icons are on the primary output's wallpaper.
+        let icons_here = role == Role::Wallpaper && self.primary_output().as_ref() == Some(&self.surfaces[index].output);
         let Shell {
             surfaces,
             res,
@@ -879,6 +888,9 @@ impl Shell {
                     Role::Wallpaper => {
                         background.paint(frame.canvas, frame.res.theme);
                         frame.area(Rect::new(0.0, 0.0, w, h), Action::Desktop);
+                        if icons_here {
+                            desktop_icons::draw(&mut frame, st, (w, h));
+                        }
                     }
                     Role::Taskbar => taskbar::draw(&mut frame, st),
                     Role::Dismiss => {
@@ -932,6 +944,7 @@ impl Shell {
                         background.paint(frame.canvas, frame.res.theme);
                         lock::draw(&mut frame, st, first_auth);
                     }
+                    Role::Rename => desktop_icons::draw_rename(&mut frame, st),
                 }
             }
             // A stretched surface reacts over its whole area.
@@ -1372,11 +1385,20 @@ impl PointerHandler for Shell {
 }
 
 impl DataDeviceHandler for Shell {
-    fn enter(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice, _: f64, _: f64, _: &wl_surface::WlSurface) {}
-    fn leave(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice) {}
-    fn motion(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice, _: f64, _: f64) {}
+    // A drag from another program: the desktop icons take files.
+    fn enter(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice, x: f64, y: f64, surface: &wl_surface::WlSurface) {
+        self.desk_drag_enter(surface, x, y);
+    }
+    fn leave(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice) {
+        self.desk_drag_leave();
+    }
+    fn motion(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice, x: f64, y: f64) {
+        self.desk_drag_motion(x, y);
+    }
     fn selection(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice) {}
-    fn drop_performed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice) {}
+    fn drop_performed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice) {
+        self.desk_drop();
+    }
 }
 
 impl DataOfferHandler for Shell {
@@ -1387,7 +1409,11 @@ impl DataOfferHandler for Shell {
 impl DataSourceHandler for Shell {
     fn accept_mime(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource, _: Option<String>) {}
 
-    fn send_request(&mut self, _: &Connection, _: &QueueHandle<Self>, source: &WlDataSource, mime: String, mut pipe: WritePipe) {
+    fn send_request(&mut self, _: &Connection, _: &QueueHandle<Self>, source: &WlDataSource, mime: String, pipe: WritePipe) {
+        // Files the desktop icons copied.
+        let Some(mut pipe) = self.desk_clipboard_send(source, &mime, pipe) else {
+            return;
+        };
         let Some((own, bytes)) = &self.clipboard else {
             return;
         };
@@ -1403,6 +1429,7 @@ impl DataSourceHandler for Shell {
     }
 
     fn cancelled(&mut self, _: &Connection, _: &QueueHandle<Self>, source: &WlDataSource) {
+        self.desk_clipboard_cancelled(source);
         // Another program took the clipboard: the picture can be freed.
         if self.clipboard.as_ref().is_some_and(|(own, _)| own.inner() == source) {
             self.clipboard = None;

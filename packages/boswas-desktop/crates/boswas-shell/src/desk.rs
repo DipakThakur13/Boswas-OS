@@ -529,6 +529,7 @@ impl Shell {
             }
             // The toasts' heights follow the text size.
             self.sync_toasts();
+            self.desk_settings_changed();
         }
         self.mark_all();
     }
@@ -787,7 +788,7 @@ impl Shell {
     }
 
     /// The invisible surface behind flyouts and menus.
-    fn ensure_dismiss(&mut self, output: &WlOutput) {
+    pub(crate) fn ensure_dismiss(&mut self, output: &WlOutput) {
         if self.has(Role::Dismiss) {
             return;
         }
@@ -865,6 +866,7 @@ impl Shell {
         self.st.tooltip = None;
         self.st.preview = None;
         self.st.capture = None;
+        self.st.desk.renaming = None;
         self.press = None;
         self.forget_flyout();
     }
@@ -988,6 +990,7 @@ impl Shell {
             }
             Cmd::Tray { key, id } => self.service(Command::TrayMenuActivate { key, id }),
             Cmd::Widgets(cmd) => self.widgets_command(cmd),
+            Cmd::Desk(cmd) => self.desk_command(cmd),
             Cmd::Submenu | Cmd::Nothing => {}
         }
     }
@@ -1065,13 +1068,10 @@ impl Shell {
         vec![Item::new("Taskbar settings", "preferences-system-symbolic", Cmd::Spawn(start::settings_command("taskbar")))]
     }
 
+    /// The menu of the desktop's background (desktop_icons.rs): View,
+    /// Sort by, Refresh, Paste, New, Open in Terminal and the settings.
     pub fn desktop_menu(&self) -> Vec<Item> {
-        vec![
-            Item::new("Display settings", "preferences-desktop-display", Cmd::Spawn(start::settings_command("display"))),
-            Item::new("Personalise", "preferences-desktop-theme-global", Cmd::Spawn(start::settings_command("personalization"))),
-            Item::separator(),
-            Item::new("All settings", "preferences-system-symbolic", Cmd::Spawn(vec!["boswas-control-center".into()])),
-        ]
+        self.desk_background_menu()
     }
 
     // ---------------------------------------------------------------------

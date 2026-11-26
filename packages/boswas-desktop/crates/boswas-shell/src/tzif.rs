@@ -379,10 +379,6 @@ impl Rule {
         }
     }
 
-    #[cfg(test)]
-    pub fn instant_of(&self, local: i64) -> i64 {
-        instant_with(local, |instant| self.offset_at(instant))
-    }
 }
 
 /// Zones read once and kept (a world clock is drawn every second).
