@@ -55,7 +55,18 @@ pub struct Prewarm {
     done: Option<Key>,
     /// The slices still to draw.
     work: Option<Work>,
+    /// When a flyout, menu or dialog was last open, and whether what was
+    /// kept for them has been let go since (see `release_when_idle`).
+    used_at: Option<Instant>,
+    released: bool,
 }
+
+/// How long the shell keeps the canvases and buffers of closed flyouts
+/// for the next one after the last was open.
+pub const KEEP_SPARES: Duration = Duration::from_secs(180);
+/// Shadow pictures larger than this are let go once the panels they were
+/// made for are kept (a flyout's shadow at 200 % is over ten megabytes).
+const LARGE_SHADOW: usize = 1024 * 1024;
 
 /// The sizes (logical pixels) an application's icon is drawn at: Start's
 /// tiles (and pressed), recommendations, the list, search results and the
@@ -89,6 +100,7 @@ impl Shell {
         if self.st.mode != Mode::Desktop {
             return;
         }
+        self.release_when_idle(Instant::now());
         let Some(taskbar) = self.surfaces.iter().find(|s| s.role == Role::Taskbar && s.configured) else {
             return;
         };
@@ -174,8 +186,28 @@ impl Shell {
                 work.longest.as_micros()
             );
             self.prewarm.done = Some(work.key);
+            // The panels are made: their large shadows are not needed.
+            boswas_ui::canvas::trim_shadows(LARGE_SHADOW);
         } else {
             self.prewarm.work = Some(work);
+        }
+    }
+
+    /// A few minutes after the last flyout, menu or dialog closed, lets go
+    /// of the canvases and buffers kept for the next one (up to 64 MB at
+    /// 200 %) and of large shadow pictures; the icons, shaped text and
+    /// panels stay.
+    fn release_when_idle(&mut self, now: Instant) {
+        if self.st.flyout.is_some() || !self.st.menus.is_empty() || self.st.dialog.is_some() || self.st.capture.is_some() {
+            self.prewarm.used_at = Some(now);
+            self.prewarm.released = false;
+            return;
+        }
+        let idle = self.prewarm.used_at.is_some_and(|at| now.duration_since(at) >= KEEP_SPARES);
+        if idle && !self.prewarm.released {
+            self.prewarm.released = true;
+            let freed = crate::present::release_spares() + boswas_ui::canvas::trim_shadows(LARGE_SHADOW);
+            tracing::debug!(target: "boswas_shell::stats", "let go of {} MB kept for flyouts", freed / (1024 * 1024));
         }
     }
 

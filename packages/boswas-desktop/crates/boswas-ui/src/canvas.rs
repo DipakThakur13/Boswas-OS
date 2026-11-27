@@ -714,6 +714,19 @@ thread_local! {
 }
 
 /// The shadow picture for `key`, drawn with `render` when there is none yet.
+/// Lets go of the kept shadow pictures larger than `bytes` (of this
+/// thread), returning the bytes freed. A large shadow (a flyout's at 200 %
+/// is over ten megabytes) is needed only to make its panel, which the
+/// shell keeps; drawn again, it takes a few milliseconds.
+pub fn trim_shadows(bytes: usize) -> usize {
+    SHADOWS.with(|cell| {
+        let mut cache = cell.borrow_mut();
+        let before: usize = cache.iter().map(|(_, p)| p.data().len()).sum();
+        cache.retain(|(_, picture)| picture.data().len() <= bytes);
+        before - cache.iter().map(|(_, p)| p.data().len()).sum::<usize>()
+    })
+}
+
 fn shadow_picture(key: ShadowKey, render: impl FnOnce() -> Option<Pixmap>) -> Option<std::rc::Rc<Pixmap>> {
     SHADOWS.with(|cell| {
         let mut cache = cell.borrow_mut();
@@ -871,6 +884,19 @@ mod tests {
             theirs.draw_pixmap(x, y, picture.as_ref(), &paint, Transform::identity(), None);
             assert_eq!(ours.data(), theirs.data(), "at ({x}, {y})");
         }
+    }
+
+    #[test]
+    fn large_shadows_can_be_let_go_and_are_drawn_again_the_same() {
+        let mut first = Canvas::new(400.0, 300.0, 2.0).unwrap();
+        first.shadow(40.0, 40.0, 300.0, 200.0, 8.0, 24.0, 4.0, 0.4);
+        let mut small = Canvas::new(60.0, 60.0, 1.0).unwrap();
+        small.shadow(10.0, 10.0, 20.0, 20.0, 4.0, 6.0, 1.0, 0.4);
+        assert!(trim_shadows(64 * 1024) > 1_000_000, "the large shadow was let go");
+        assert_eq!(trim_shadows(64 * 1024), 0, "the small one is kept");
+        let mut again = Canvas::new(400.0, 300.0, 2.0).unwrap();
+        again.shadow(40.0, 40.0, 300.0, 200.0, 8.0, 24.0, 4.0, 0.4);
+        assert_eq!(first.data(), again.data());
     }
 
     #[test]

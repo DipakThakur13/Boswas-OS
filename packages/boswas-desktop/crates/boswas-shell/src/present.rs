@@ -85,6 +85,21 @@ mod spare {
     pub fn take_buffers() -> Option<Buffers> {
         BUFFERS.with(|cell| cell.borrow_mut().pop())
     }
+
+    /// Lets go of everything kept; returns the bytes of canvases freed.
+    pub fn clear() -> usize {
+        let canvases = CANVASES.with(|cell| std::mem::take(&mut *cell.borrow_mut()));
+        BUFFERS.with(|cell| cell.borrow_mut().clear());
+        canvases.iter().map(|c| c.data().len()).sum()
+    }
+}
+
+/// Lets go of the canvases and buffers kept from surfaces that are gone
+/// (the shell does after a few minutes without a flyout): the next flyout
+/// then makes its own, which costs a few milliseconds at 200 % once.
+/// Returns the bytes of canvases freed.
+pub fn release_spares() -> usize {
+    spare::clear()
 }
 
 /// Keeps the canvas of a surface that is gone, for another.
