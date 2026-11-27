@@ -808,7 +808,10 @@ weakening Secure Boot, and an honest position on Google Play.
   to every client outside a sandbox and guarded by the user's consent:
   ADR-0037. The input-method and virtual-keyboard protocols exist and
   join the privileged set: ADR-0036. There is still no protocol for
-  global key grabs or for output configuration.)*
+  global key grabs or for output configuration.)* *(Since ADR-0058 the
+  shell uses clipboard control for the clipboard history, and the
+  compositor sends the focused window the key stroke that pastes when the
+  shell asks with the trusted `paste` command, which names no keys.)*
 - **`policy.privileged_protocols`.** `"shell"` is the shipped value. `"all"`
   offers the privileged globals to `Normal` clients too; it exists for
   development. The `[policy]` table is read from the system files only
@@ -1037,6 +1040,15 @@ pictures of the screen to any program.
 *Since ADR-0051* the `[lock]` table also holds `show_weather`, which is
 not lock policy: a user's file may set it.
 
+*Since ADR-0064* the lock screen starts from the background the desktop
+shell drew, which it shares in `$XDG_RUNTIME_DIR/boswas-shell-background`
+(mode 0600, read without following a link and only when its length is
+exactly what its header says). A program of the user can write that file
+and so choose the picture behind the lock screen; that is within the
+limit above (it could set the wallpaper as well). Locking is unchanged:
+the outputs are blank until the lock surfaces arrive, and only the lock
+screen unlocks.
+
 ## ADR-0029 boswas-bootsplash replaces Plymouth
 
 *What the boot screen shows and which typeface it uses were changed by
@@ -1261,7 +1273,10 @@ values, not the mechanism) or presets must recolour the shell.
   package's build directory.
 - **Build settings:** release profile with thin LTO and integer overflow
   checks on (`boswas-desktop` also aborts on a panic instead of
-  unwinding); build paths are remapped out of the binaries.
+  unwinding); build paths are remapped out of the binaries. *(Changed by
+  ADR-0064: in `boswas-desktop` the crate tiny-skia alone is built
+  without overflow checks, as its own releases are; its arithmetic wraps
+  as upstream intends and bounds are still checked.)*
 - **`unsafe`:** in shipped code (`src/`) confined to an allowlist that
   `tests/static/test_sources.sh` enforces. `boswas-ui` forbids it.
   `boswas-bootsplash` denies it outside `src/sys.rs`. In `boswas-desktop`
@@ -1642,12 +1657,19 @@ configuration are missing. The feature list is in
   show the blurred wallpaper even where a window lies behind them. The
   compositor's own overlays (the window picker, the snap layouts, the
   window menu, Task View) are filled with the material's tint alone.
-  There is no live blur of windows.
+  There is no live blur of windows. *(Changed by ADR-0063: the shell and
+  the compositor's own surfaces are Boswas glass; on OpenGL ES the
+  compositor blurs what really lies behind a surface that asks for it
+  with `ext-background-effect-v1`; with pixman the backdrop is still the
+  wallpaper, which the compositor reads back from the shell's background
+  surface, decoding no file itself.)*
 - **Night light is a gamma ramp.** The compositor loads a ramp for the
   colour temperature into each display controller (the DRM gamma
   tables). `[night_light]` switches it on, sets 2500 to 6500 kelvin and
   can schedule it by the clock; quick settings switch it through the
   shell's control connection. No client protocol for gamma is offered.
+  *(Changed by ADR-0062: the tile turns it on or off now, with a
+  schedule until the schedule's next change.)*
 - **Each monitor has its own settings.** `[outputs.NAME]`, by connector
   name: on or off, mode, scale, position and rotation, applied at start,
   on hotplug and on `reload-config`. The last enabled monitor is never
@@ -1707,10 +1729,14 @@ configuration are missing. The feature list is in
 - **Night light needs a driver with gamma tables.** On a display
   controller without them nothing is tinted (a debug message says so).
   The nested and headless back ends have no colour pipeline: night light
-  can be switched there and changes nothing.
+  can be switched there and changes nothing. *(Changed by ADR-0062:
+  where no monitor has a gamma ramp, and on those back ends, quick
+  settings shows night light as not available.)*
 - **No blur of windows:** a flyout over a window shows the wallpaper's
   colours, not the window's. Qt applications get the material tints as
-  opaque fills (ADR-0039).
+  opaque fills (ADR-0039). *(Changed by ADR-0063: on OpenGL ES the
+  windows under the shell's glass and the compositor's overlays are
+  blurred live; with pixman they still are not.)*
 - **No protocol means a file.** A program that changes the monitors
   writes `compositor.toml` and asks for a reload. Control Center's
   Display page does exactly that (ADR-0041).
@@ -1982,7 +2008,10 @@ glyphs in the atlas, or a font in the initramfs after all).
   update of `boswas-branding` alone.
 - **Not implemented:** real mica and acrylic (windows and popups are
   filled with the material tints, opaque: blurring is the compositor's
-  job and Qt cannot ask for it); shadows of menus, combo box popups and
+  job and Qt cannot ask for it) *(changed by ADR-0057: windows and popups
+  show a blurred, tinted copy of the desktop background, Boswas glass;
+  still not a live blur, which the compositor offers since ADR-0063 and
+  the toolkit does not ask for yet)*; shadows of menus, combo box popups and
   tooltips; animated state changes of standard widgets; the urgency and
   the action buttons of a notification sent through `fluent.notify`. The
   README lists the rest.
@@ -2731,7 +2760,9 @@ virtual machine of ADR-0044:
 - **Only what changed.** The shell compares each drawing with the one it
   sent last, damages only the changed rectangle and does not commit a
   drawing that changed nothing. Smithay uploads only damaged rectangles
-  of shared-memory buffers.
+  of shared-memory buffers. *(Changed by ADR-0056: the shell draws again
+  only the controls that changed, keeps its buffers and leaves the fades
+  and slides of its panels to the compositor.)*
 - **Opaque where opaque.** The shell declares a surface opaque when no
   pixel of it is transparent; title bars and window borders declare their
   opaque part. The damage tracker then neither draws behind them nor
@@ -2974,6 +3005,8 @@ Follows ADR-0045 (frame pacing) and ADR-0036 (outputs). Reported on
 - **The shell** already drew its transitions on frame callbacks; a bug
   that made closing panels vanish without their fade (no frame was ever
   requested for a transition that started fully visible) is fixed.
+  *(Changed by ADR-0056: the compositor fades and slides the shell's
+  panels, through `wp_alpha_modifier` and the layer margin.)*
 
 **Consequences.**
 
@@ -3153,7 +3186,9 @@ light.
   far as 4.5:1 for text on it needs, by the same rule in Rust
   (`boswas-ui`) and Python (`boswas_fluent`); contrast tests cover every
   accent in both schemes. With transparency off the shell's surfaces have
-  opaque tints.
+  opaque tints. *(Changed by ADR-0063: the shell's and the compositor's
+  surfaces are Boswas glass, and a high-contrast preset turns it off as
+  well.)*
 - **Accessibility:**
   - **Text size** 100 to 225 %: the shell's text, the title bars (as far
     as their 32 px height allows, about 180 %), and in Qt applications the
@@ -3255,7 +3290,10 @@ light.
   `fonts-crosextra-carlito`, `fonts-crosextra-caladea`,
   `build-essential`, `firefox-esr-l10n-*`, `cups`). Installing `cups`
   may be refused if APT would bring `cups-browsed`, which the image pins
-  out and the system helper's policy excludes.
+  out and the system helper's policy excludes. *(Since ADR-0061 Control
+  Center installs `cups` without what it only recommends, so
+  `cups-browsed` is not asked for; Debian 13's metadata is still not
+  checked.)*
 
 **Revisit when** the first run on real hardware and services shows that
 a page reads a format wrongly; when the desktop gets a secret agent for
@@ -3982,3 +4020,1639 @@ starts at 150 %.
 
 **Revisit when** real monitors' EDIDs give recommendations people change
 back, or X11 programs must be sharp on scaled monitors.
+
+## ADR-0056 The shell draws only what changed; the compositor runs the transitions
+
+Follows ADR-0045 (only what changed) and ADR-0048 (the display's refresh
+rate). Reported on 2026-11-26: "Refresh rate is still laggy sometimes and
+the performance of the compositor lags".
+
+**Context.** New per-frame statistics in both programs (below) were read
+with release builds on the headless compositor, the real shell and two
+`foot` windows, with input injected through the control socket, at
+1920x1080 and 2560x1440, at scales 1, 1.25, 1.5 and 2 and at 60 and
+144 Hz (16 configurations, the build before and after run back to back
+in each):
+
+- A hover change in Start redrew the whole surface (8 to 14 ms). Every
+  frame allocated and zeroed a canvas, compared, converted, scanned and
+  copied the whole surface and made a new `wl_buffer`; a new buffer per
+  frame also rules out partial uploads on OpenGL ES.
+- Opening and closing transitions were composed in the shell on every
+  frame: a bilinear blend of the whole surface, 10 to 20 ms a frame at
+  200 %, with 69 % of the frames of opening and closing Start late.
+- The first opening of Start rasterised every icon, shaped every label,
+  drew the shadow layer by layer and rendered the material: 375 ms at
+  2560x1440, 200 %, 144 Hz.
+- The panel cache held three entries, first in first out, and the
+  notification centre uses two, so Start's panel was evicted; a scrolling
+  Start redrew everything; Alt+Tab redrew and uploaded its panel on every
+  Tab; Task View redrew its cards and strip on every opening; a change in
+  Settings read every font again on a scheme switch and decoded the
+  wallpaper again on any change.
+- Checked and found fine: an output without damage is not drawn, frame
+  callbacks are paced on idle commits, cursor moves cause small damage,
+  the magnifier and the colour filters cost nothing when off, the clock's
+  minute redraws only its own rectangle.
+
+**Decision.**
+
+- **Only the controls that changed are drawn.** A hover or press change
+  draws again only the controls the pointer entered or left, on a spare
+  canvas with a clip (`Canvas::begin_clip` skips any drawing that cannot
+  reach the clip), and copies them over; inside them the pixels are
+  exactly those of a whole drawing. Shell code marks changes with
+  `touch()` (everything) or `touch_rect()`; setting `dirty` alone no
+  longer redraws content, so anything animated calls `touch()` every
+  frame. The hover rule: a control's hover look stays within its hit
+  rectangle plus 3 px, or the code calls `touch()`; hits that cannot take
+  the focus and do nothing (no action, Dismiss, Desktop), and hits that
+  cover the whole surface, have no hover look.
+- **Kept buffers** (`crates/boswas-shell/src/present.rs`). Each surface
+  keeps its drawing, a spare canvas and up to four shared-memory buffers;
+  a buffer remembers what part of the drawing it lacks, and only that
+  part is converted and copied into it when it is used again. Changed
+  rectangles are found eight bytes at a time. The canvases and buffers of
+  a closed flyout are kept for the next one.
+- **The compositor runs the transitions.** A layer surface that the shell
+  opens with an animation and anchors to the top or bottom edge (Start,
+  quick settings, the notification centre and the other flyouts) is drawn
+  once; every frame of its fade changes only its opacity through
+  `wp_alpha_modifier`, which the compositor already offered, and its slide
+  (10 logical pixels) only the layer surface's margin. Centred dialogs
+  keep the composed path.
+- **Ready before it is opened** (`crates/boswas-shell/src/prewarm.rs`).
+  Once the desktop is up, and again after a change of scale, theme,
+  wallpaper or applications, the icons of Start and the taskbar are
+  rasterised on a worker thread, and at a quiet moment (nothing drawn or
+  moving, no flyout open) Start, quick settings and the notification
+  centre are drawn once on a canvas nobody sees, which shapes their text
+  and keeps their panels. Shaped lines of text are kept; a large shadow is
+  the shadow of a small rectangle with its middle stretched (within two
+  colour levels of the layered drawing, the tolerance shadows already
+  had). *(Changed by ADR-0064: the drawing ahead of time runs in slices,
+  one per turn of the event loop while it is quiet, and Start's panel and
+  the flyouts' icons are made on a worker thread, `panels`.)*
+- **Smaller fixes:** the panel cache keeps six panels, most recently used,
+  and blends only the panel's own area; a scrolling Start redraws only the
+  window the page scrolls in, with a final frame when it comes to rest;
+  the compositor's Alt+Tab keeps its panel as three pictures (background,
+  selection frame, labels), so a step draws nothing again, and Task View
+  keeps its cards and strip while it is closed; a change in Settings reads
+  the fonts and decodes the wallpaper only when they changed.
+- **Statistics in the log.** `BOSWAS_LOG=info,boswas_compositor::stats=trace`
+  logs one line per compositor frame (its cost, the time since the frame
+  before it on that output, the share of the output drawn) besides the
+  summary per second of ADR-0045 (`=debug`).
+  `BOSWAS_LOG=info,boswas_shell::stats=debug` logs one line per drawing
+  of a shell surface (its size, the time the drawing took and the time
+  until it was sent, the rectangle sent, the time since the change that
+  caused it) and "flyouts drawn ahead of time in N ms". Without those
+  levels nothing is measured. *(Since ADR-0064 that line also gives the
+  number of slices and the longest, and more lines are logged there.)*
+
+**Why.** The hitches came from work that did not need doing on the frame
+that showed them: whole surfaces redrawn for a hover, memory allocated and
+copied on every frame, transitions composed in the shell, and icons,
+text and panels made on first use. The compositor already holds the
+drawing of a surface and can fade and move it on its own; a stable buffer
+is what lets it upload only what changed.
+
+**Left out**, measured and not fixed in this round:
+
+- The snipping overlay: about 50 ms a frame at 200 % on its first frame
+  and while a selection is dragged (it draws a full-screen pattern).
+- The lock screen's first frame, 90 to 240 ms: a new process that reads
+  every font and draws the default background.
+- Task View's opening frame (30 to 50 ms), and about 8 ms a frame at
+  2560x1440 with pixman; the compositor's transition frames with pixman
+  at 144 Hz and 200 % (p95 about 10 ms, over the budget of 6.9 ms).
+- Opening a flyout damages the whole screen for one frame (about 13 ms at
+  1440p), because the invisible full-screen surface behind it appears.
+
+*(Taken on by ADR-0064: the snipping overlay draws only what a drag
+changes; the lock screen starts from the background the desktop drew, 72
+to 117 ms from the lock request to the screen; Task View keeps its cards
+and fades one picture; what appears in front no longer makes the
+compositor draw the whole screen, which brought its fades at 144 Hz and
+200 % within the budget. Task View at 2560x1440 and 144 Hz is still about
+1 ms over, and the lock screen not yet within one or two frames.)*
+
+**Consequences.**
+
+- Pooled over the 16 configurations (shell, in ms): opening and closing
+  Start p99 217 → 10.2 and worst 382 → 21.0, late frames 69 % → 9 %;
+  hovering in Start p99 24.7 → 8.3; quick settings worst 136 → 6.7;
+  notification centre p99 114 → 7.3; the compositor's Alt+Tab p99
+  247 → 44. At 2560x1440, 200 %, 144 Hz the first opening of Start takes
+  17 ms (375 before), a step of Alt+Tab 2.2 ms (18.6), and at 60 Hz the
+  median time from a hover to its commit is 1.3 ms (12.7).
+  `docs/architecture/verification.md` has the table.
+- Memory at 2560x1440 and 200 %: the shell's resident size just after the
+  start is 127 MB (72 before), after opening the flyouts 156 MB (145):
+  icons and panels are kept. The compositor uses about 14 MB more. The
+  preparation costs about 200 ms once on the shell's main thread, at a
+  quiet moment after the start and after each change that redoes it.
+  *(Changed by ADR-0064: the preparation runs in slices of a few
+  milliseconds, and with the C library told to map large blocks on their
+  own the shell takes 101 MB after the start and 119 MB after opening the
+  flyouts, measured with glass.)*
+- The compositor draws more frames over budget while Start opens and
+  closes (323 where there were 162), because the transition now runs at
+  the refresh rate (2,252 frames where there were 1,048); its median and
+  p99 per frame did not change.
+- A new kind of shell surface only adds an arm to `draw()`; a layer
+  surface made with `animate: true` and anchored to the top or bottom
+  edge is faded by the compositor.
+- **Verified:** the desktop workspace's tests (on the merged tree 544
+  passed and 5 ignored), with guards: a hover redrawn in part is pixel for
+  pixel the whole drawing (Start in its three views, the taskbar, quick
+  settings, the notification centre, a menu and the lock screen, at 100
+  and 150 %), and a pass across Start's controls redraws under 5 % of its
+  pixels; Start opens without rasterising an icon once the icons are
+  prepared; a release-only budget for Start at 200 % (1712x1884 pixels:
+  measured 12 to 14 ms for a whole frame and 0.7 to 1.2 ms for a hover
+  change, limits 45 and 6 ms); end to end, an output with nothing new is
+  not drawn and frame callbacks still come at its pace; the stretched
+  shadow, the clip and the buffer helpers. Screenshots before and after
+  at 1920x1080 and 125 % and at 2560x1440 and 200 % are identical but for
+  at most one colour level in 3 to 11 pixels of shadow corners. The
+  compositor's fade and slide were looked at frame by frame on closing.
+- **Not verified:** a real GPU (partial uploads are now possible and
+  unmeasured), a real vertical blank, the DRM and the nested back ends,
+  more than one output. The opening fade was not caught half-way in
+  either build.
+
+**Revisit when** a real GPU shows frames that miss the refresh, or when
+the snipping overlay, the lock screen's first frame and Task View are
+taken on. *(They were, in ADR-0064.)*
+
+## ADR-0057 Boswas glass in the applications
+
+Changes ADR-0039 (the toolkit filled windows and popups with opaque
+material tints). Reported on 2026-11-26: on the Command Center's apps
+section the background of an app under the pointer was black and should
+be grey; "use glass morphism on this UI, Windows style"; an icon under
+the pointer should grow, like macOS; then "create glass-morphism UI of
+the current UI so it would feel better than macOS".
+
+**Context.**
+
+- The black row was in Control Center's Apps > Software Center, list
+  Installed (`AppDelegate` in `ui/applications.py`), black in the dark
+  scheme and black with almost invisible text in the light one. The
+  delegate mixed the palette's Base and Highlight colours; the toolkit's
+  style sheet makes list views transparent
+  (`QListView { background: transparent; selection-background-color:
+  transparent }`), so Qt makes the view's Base and Highlight transparent,
+  and the helper `mix()` dropped the transparency: opaque black. Selected
+  rows were invisible for the same reason.
+- Windows and popups of the toolkit were filled with opaque tints; real
+  mica and acrylic were left out in ADR-0039.
+
+**Decision.**
+
+- **Colours come from the theme, never from `option.palette`.** The
+  delegate draws hover and press in the scheme's grey layers
+  (`fill-subtle-hover`, `fill-subtle-pressed`), the selection as the
+  accent pill and the focus with the toolkit's focus ring. `mix()` is gone
+  from `ui/common.py`, and the preset preview of Personalization takes
+  `fluent.qcolor("accent")`. No other painting from the palette is left in
+  Control Center, the toolkit or the applications.
+- **Boswas glass, the toolkit's material** (`material.glass` in
+  `desktop/ui/tokens.json`, `desktop/ui/qt/boswas_fluent/glass.py`). A
+  window's backdrop is the picture of `[appearance] wallpaper`, or without
+  one the shell's default background computed the same way: reduced,
+  saturated (1.3), blurred once (80 logical pixels), tinted and given a
+  fine grain (0.012) so that wide areas do not band. The tint opacity of
+  the tokens (0.62 dark, 0.54 light) is a minimum: it is raised in steps of
+  0.02 until every text colour keeps 4.5:1 on the darkest and the
+  brightest parts of the picture, also under the glass and the state
+  layers (measured: the Pearl wallpaper under the dark scheme 0.92, Ocean
+  under the light scheme 0.94). On the backdrop lie glass panes, cards and
+  flyouts (opacity 0.34, 0.56, 0.84 dark; 0.40, 0.70, 0.86 light) with an
+  inner glow and a hairline that is a white highlight at the top and a
+  shadow at the bottom.
+- **Where:** every `FluentWindow` (`backdrop=True` is the default) and
+  every `QDialog` that is a window of its own; the navigation pane is a
+  glass sheet, cards are glass, and menus, combo box lists, tool tips,
+  `ContentDialog` and `Flyout` are frosted glass over their window's
+  backdrop (acrylic); an `InfoBar` other than the informational one is
+  glass with a wash of its status colour. Files' content area is glass;
+  Calculator's digit keys are card glass and its operator keys pane glass.
+  Text Editor's writing area stays opaque.
+- **Where a window is:** Wayland does not tell a client, so a window shows
+  the part of the picture that a window of its size centred on the screen
+  would cover. The backdrop does not move with the window and does not
+  zoom when it is resized.
+- **Costs:** nothing is blurred per frame. The wallpaper is decoded off
+  the GUI thread (until it is ready the window is opaque); the blurred
+  picture is made once per picture, scheme and accent (about 32 ms); a
+  window's backdrop once per 160-pixel step of its size (3.3 ms at scale 1,
+  14.5 ms at scale 2), and the last three are kept; glass surfaces, and
+  with glass off the opaque ones, are drawn once per size and state into a
+  pixmap and copied (37 µs where drawing took 237 µs). *(Changed by
+  ADR-0064: while a window resized by hand outgrows its backdrop, the new
+  one is made only once the size has stood still for 150 ms; until then
+  the kept one shows, centred, with its mean colour beyond it.)*
+- **Coloured text on glass:** the `*-text` colours and
+  `accent-text-strong` keep 4.5:1 down to a slightly darker or lighter
+  "glass floor" (`DERIVED["glass-floor"]`: 0.08 dark, 0.07 light). In the
+  light scheme the success, danger and info text is therefore a little
+  darker for everyone, with glass on or off.
+- **Off** with `[appearance] transparency = false` (Settings >
+  Personalization > Colours, or Accessibility > Visual effects,
+  "Transparency effects"), with the high-contrast preset Boswas Carbon
+  (read from `~/.config/boswasrc`), with a token file that has no
+  `material.glass`, or when an application calls
+  `manager().set_glass(False)`. Every surface is then its opaque tint,
+  pixel for pixel the look before glass.
+- **Icons that grow under the pointer** (`magnify.py`): the icon of the
+  row under the pointer grows to 1.4 times its size and its two
+  neighbours to 1.15, eased with `fluent.Animation` (the fast duration,
+  the decelerate curve) at the screen's refresh rate; the row with the
+  keyboard focus grows the same way while the pointer is elsewhere; with
+  reduced motion the icon takes its size at once. No text moves (a row
+  reserves the room), only the rows whose size changes are painted again,
+  and scaled icons come from a pixmap cache (`icons.cached_pixmap()`).
+  `IconMagnifier` serves rows of widgets, `ViewMagnifier` item views.
+  Control Center uses it, with the grey hover and 24 px icons
+  (`RowList(applications=True)`), on Installed apps, Optional features,
+  Startup and App permissions, over the cards of Default apps, and in the
+  Software Center's list.
+- Toolkit interface: `SettingsCard.set_hover_highlight`, `row_state` and
+  `set_icon_magnification` (and `set_icon` no longer resets the icon to
+  20 px), `IconWidget.set_magnification` and `set_scale`,
+  `ListItem.set_icon_magnification` and `Expander.set_icon_magnification`;
+  `testing.hover()` moves a real pointer through the window and
+  `testing.set_glass()` chooses the look; tests draw opaque unless
+  `BOSWAS_FLUENT_TEST_GLASS=1`. `desktop/ui/qt/README.md` is the
+  reference.
+
+**Why.**
+
+- The palette of a styled view is not a source of colours: the style sheet
+  changes it behind the delegate's back. The theme is the one source the
+  contrast tests check.
+- Windows 11's Mica shows the desktop background, tinted, behind a
+  window. Qt cannot ask the compositor for a blurred backdrop, so the
+  toolkit makes one from the same picture. Raising the tint where the
+  picture needs it keeps the contrast rule of ADR-0033 and ADR-0049 on any
+  wallpaper.
+- The magnification is the dock's cue the user asked for, kept inside the
+  row so that nothing else moves, and following the keyboard as well.
+
+**Left out.**
+
+- Live blur: windows behind a window are not part of its backdrop, and the
+  backdrop does not follow the window's position. *(The compositor offers
+  live blur on OpenGL ES since ADR-0063; the toolkit does not use it
+  yet.)*
+- Shadows of cards outside their outline (a widget cannot paint beyond its
+  rectangle: their glass ends in a darker lower hairline) and of menus.
+  Flyouts and dialogs have real shadows.
+- The shell and the compositor's own surfaces do not read
+  `material.glass`; their materials are those of ADR-0036. *(Changed by
+  ADR-0063: they are the same glass, drawn by `boswas-ui`.)*
+
+**Consequences.**
+
+- Installed applications get glass only with a `tokens.json` that has
+  `material.glass`, which `boswas-branding` installs; with an older token
+  file they stay opaque. The keys are additions; the Rust programs read
+  materials by name and are unaffected.
+- Paint times offscreen (median of 40, in ms): Installed apps, whole list
+  6.7–7.8 before, 4.0–4.5 with glass off, 5.3–5.8 with glass on; one row
+  0.5–0.7, 0.2, 0.35–0.39; Files with 1,117 items 11.2–13.3, 9.1–9.9,
+  8.9–12.1.
+- With glass forced on for every suite nothing crashes; five tests that
+  compare exact colours of the opaque look fail then, as intended, and
+  are unchanged. Control Center's tests follow the real appearance; the
+  new ones set glass explicitly.
+- **Verified:** the toolkit's tests (176 at the merge of this work, 148
+  before; 180 on the merged tree), also on PySide6 6.8.2.1; the token
+  tests (12); Control Center (702 at the merge, 5 skipped); the
+  applications (2,335 at the merge). New tests: hovered rows are the grey
+  layer and never black (Software Center and Installed apps, both
+  schemes, glass on and off, with real hover events); icon sizes over time
+  and with reduced motion, keyboard focus, no text moving; one backdrop
+  per size step while resizing; legibility on black, white and saturated
+  pictures; transparency off and the high-contrast preset; popups and
+  dialogs drawn as glass. Looked at: the black row reproduced on the
+  headless compositor with a real pointer and grey after the change;
+  Installed apps in the Ocean, Classic and Pearl wallpapers, dark and
+  light, at 175 % text, with transparency off, with the keyboard focus;
+  dialogs and message boxes; Files, Calculator, Weather, Text Editor and
+  Task Manager.
+- **Not verified:** a real session on hardware or a GPU; scales above 1
+  live; a live tool tip; turning transparency off, changing the wallpaper
+  or applying a preset in a running session (unit tests only); hover and
+  magnification live on Installed apps rows with an enabled Uninstall
+  button; the live screenshots used an older debug build of the
+  compositor.
+
+**Revisit when** the compositor can give a client a blurred backdrop, or a
+Wayland client can know where its window is. *(The first is the case on
+OpenGL ES since ADR-0063.)*
+
+## ADR-0058 Clipboard history and the emoji and symbols panel
+
+Follows ADR-0026 (clipboard control for the programs the compositor starts
+itself) and ADR-0035. Requested on 2026-11-26: "create more functioning
+features rather than just UI"; asked, the user chose a clipboard history
+and an emoji and symbols panel, as Windows has them (Win+V, Win+.).
+
+**Context.** The compositor offered clipboard control
+(`zwlr_data_control_v1`) to the shell only, and the shell did not use it.
+There was no way to paste something copied earlier and no emoji picker.
+The shell cannot type into another program: there is no virtual keyboard
+for it, by design (ADR-0026).
+
+**Decision.**
+
+- **Keys:** Super+V sends the shell a `clipboard` event, Super+. and
+  Super+; an `emoji` event (compositor shortcuts). Ctrl+V stays the
+  application's.
+- **Clipboard control stays the shell's.** It is offered to the programs
+  the compositor starts with shell trust (and to every program outside a
+  sandbox only in the development mode `privileged_protocols = "all"`);
+  the input method and sandboxed clients never get it, and the lock screen
+  and the login screen do not watch the clipboard. The shell reads it with
+  `crates/boswas-shell/src/datacontrol.rs` (the client side of
+  `wayland-protocols-wlr`, already in the lock file); every read has a
+  size and a time limit (3 s).
+- **The history** (`clipboard.rs`): the last 25 items that are not pinned,
+  newest first; the same item copied again moves to the top. Text (rich
+  text as its plain text, at most 1 MB), PNG pictures up to 8 MB (their
+  thumbnails decoded off the main thread) and lists of files as URIs (at
+  most 1,000). Kept in memory only, so gone when the session ends.
+- **Never kept:** what carries KDE's password-manager hint
+  `x-kde-passwordManagerHint` (read alone first, so the secret itself is
+  never requested; every value but `public` counts as secret), the markers
+  other systems use for concealed or transient content
+  (`application/x-nspasteboard-concealed-type`,
+  `org.nspasteboard.ConcealedType`, `org.nspasteboard.TransientType`,
+  `ExcludeClipboardContentFromMonitorProcessing`, `x-kde-onetime-copy`),
+  Windows' `CanIncludeInClipboardHistory` of 0 (through Wine), what the
+  shell put there itself (`application/x-boswas-shell`), and anything
+  copied while the session is locked.
+- **Pinned items** are kept in `$XDG_STATE_HOME/boswas/clipboard-pinned.json`
+  (format in `docs/architecture/platform-contracts.md`): mode 0600 in a
+  directory of mode 0700, replaced atomically, at most 25 items and 4 MB,
+  pictures only up to 256 KB, read only when it is a regular file within
+  those limits and never through a link; entries that are not as written
+  are skipped.
+- **The flyout** (`clipview.rs`), bottom centre on the acrylic material:
+  cards with up to three lines of text, a picture's thumbnail or the file
+  names, each with Pin and Delete; Clear all (pinned items stay); a search.
+  The arrow keys choose, Enter or a click pastes, Delete removes, Ctrl+P
+  pins, typing searches, Escape closes; the keys act on the newest card
+  until another is chosen, as on Windows.
+- **Pasting** is a trusted control command, `paste`
+  (`crates/boswas-compositor/src/paste.rs`), that names no keys. The shell
+  puts the item on the clipboard, closes the flyout and sends `paste`; the
+  compositor waits up to 800 ms for the keys still held (the Enter that
+  chose the item) to be released, then gives the focused window Ctrl+V,
+  or Ctrl+Shift+V when its application id is one of a built-in list of
+  terminals (`com.boswas.Terminal`, foot, Konsole, GNOME Terminal and
+  Console, kitty, Alacritty, WezTerm, Ghostty and others). The keys go
+  straight to that window, past the shortcuts and sticky and filter keys,
+  and are looked up in the current layout (Control, Shift and V), so
+  Dvorak and swapped Ctrl and Caps Lock work. It is refused while the
+  session is locked, when no window has the keyboard, and when the focus
+  moved before the keys went out; the public socket refuses it.
+- **Settings:** `[clipboard] history` (default `true`) and `cleared_at`
+  (Unix seconds, default 0), both the user's, passed to the shell in the
+  compositor's `config` event. Settings > System > Clipboard has
+  "Clipboard history" and "Clear clipboard data", which writes
+  `cleared_at` as now (the button then reads "Cleared"): the shell forgets
+  every unpinned item copied before then and empties the clipboard if it
+  still holds one. A time rather than a command, because the public
+  socket's commands are pinned by a static test and Settings already
+  writes this file. With the history off, Super+V shows only a card that
+  says so and offers Turn on, which sets the one line in the user's
+  `compositor.toml` (the result checked by parsing it; Settings opens
+  where that cannot be done safely) and asks the compositor to reload.
+- **The emoji panel** (`emoji.rs`): the tabs Emoji, Kaomoji and Symbols, a
+  search by name and keyword, a bar of categories, the recently used items
+  (at most 40) and a choice of six skin tones, both kept in
+  `$XDG_STATE_HOME/boswas/emoji.json`. An item goes into the focused window
+  through the clipboard: the shell copies what the clipboard holds into
+  memory (at most 24 types, 32 MB, 1.5 s), puts the item there, asks for a
+  paste, and gives the old content back about 250 ms after the window read
+  the item, or after 2 s at most. The input-method protocol was not used:
+  it reaches only programs that support text input (no X11 programs), and
+  it would compete with an input method the administrator configured.
+- **The data:** `crates/boswas-shell/data/emoji.tsv` is generated by
+  `packages/boswas-desktop/tools/build_emoji.py` from `emoji-test.txt`,
+  `UnicodeData.txt` and CLDR's English annotations, as Debian's
+  `unicode-data` and `unicode-cldr-core` install them: emoji 15.1 with
+  348 sets of skin tones, the generator's own kaomoji and ranges of
+  symbols. `--check` exits 1 when the committed file is stale and 2 when
+  the sources are missing; the generator's tests run in the unit stage and
+  in the package build. The data is under the Unicode License v3
+  (`data/README`, `debian/copyright`).
+- **Colour emoji** come from Noto Color Emoji (`Face::Emoji` in
+  `boswas-ui`); `fonts-noto-color-emoji` is in the desktop package list and
+  a recommendation of `boswas-desktop`. Without it the text fonts draw
+  what they can.
+
+**Why.**
+
+- Windows users press Win+V and Win+. without thinking; both need the
+  clipboard of every program, which only the shell may see.
+- A paste command that names no keys cannot be used to type for anybody;
+  the key stroke that pastes is the one each kind of program expects.
+- Password managers mark their copies; a history that kept them would
+  turn a copy for one paste into a stored secret. Memory only, and pinned
+  items on request, is what Windows does without an account.
+- The clipboard reaches every program, X11 ones included, and gives the
+  user's previous copy back.
+
+**Left out.**
+
+- An administrator's switch in `[policy]` to turn the history off, a
+  history kept across sessions (only pinned items are) or shared between
+  devices, opening the flyout at the text cursor, and a "Clipboard" entry
+  in Start's settings search *(added by ADR-0062)*.
+- Larger emoji at larger text sizes: the glyphs stay 26 px, only the text
+  grows.
+
+**Consequences.**
+
+- While an emoji is inserted, the previous clipboard content, a secret
+  included, is held in the shell's memory until it is given back.
+- The shell writes one key of the user's `compositor.toml` (Turn on), as
+  the desktop icons' View menu does (ADR-0060).
+- **Verified:** the compositor's tests (125 unit and 22 end-to-end at the
+  merge of this work), with a new end-to-end test: the shell's `paste`
+  gives an editor Ctrl+V and `foot` Ctrl+Shift+V, the window reads the
+  clipboard, nothing happens while locked, and the public socket refuses
+  the command. The shell's `tests/clipboard.rs` runs the real compositor
+  and shell with a small test client (passed 5 of 5 runs): copy, Super+V,
+  Down, Enter, and the window gets Ctrl+V and reads the right item; an item
+  with the password-manager hint is not kept; Ctrl+P writes the pinned
+  file with mode 0600; Super+., "grinning" and Enter insert the grinning
+  face (U+1F600) and the clipboard is given back; with the history off
+  nothing is kept, and Turn on writes the setting. Unit tests for the cap, duplicates and Clear all,
+  the hints, the choice of type to read, rich text to text, damaged,
+  linked and oversized pinned files, the transfer limits, emoji search,
+  recent items and tones, the Turn-on edit, drawing at 100, 175 and 225 %
+  with and without fonts and the emoji font. The generator's tests (4, one
+  skipped where `unicode-data` is not installed) and `--check` against the
+  extracted packages; Control Center (699 at the merge). Looked at: both
+  flyouts live at 1920x1080 and 1366x768, 100 and 175 %, dark and light,
+  the history-off card, the pictures of the tests at 225 %, and the
+  Settings page.
+- **Not verified:** real hardware; an X11 program pasting through
+  Xwayland; a real password manager (KeePassXC); real GTK, Qt and Electron
+  programs reading a pasted or restored clipboard; other keyboard layouts
+  live (only the lookup code); the Settings page on PySide6 6.8. The data
+  was generated from Ubuntu 24.04's `unicode-data` 15.1.0-1 and
+  `unicode-cldr-core` 44 (Debian's archive could not be reached); if
+  Debian 13's differ, `--check` says so and the file is regenerated there.
+  How much of emoji 15.1 Debian 13's Noto Color Emoji covers.
+
+**Revisit when** an organisation must be able to turn the history off,
+an input method is shipped, or Debian 13's Unicode data differs from the
+generated file.
+
+## ADR-0059 The widgets board
+
+Requested on 2026-11-26 with ADR-0058: asked for features that work, the
+user chose a widgets board, as Windows has (Win+W).
+
+**Context.** The applications already keep what a board would show, in
+files of the user: Weather writes the lock screen's summary (ADR-0051),
+Calendar its events and Clock its world clocks and alarms. Windows' board
+also shows news, stocks and other feeds from online services, which
+Boswas OS does not contact (`docs/security/privacy.md`).
+
+**Decision.**
+
+- **Opening it:** Super+W (a compositor shortcut that sends the shell a
+  `widgets` event) or the widgets button of the taskbar. The board is a
+  large flyout from the left edge above the taskbar, on the acrylic
+  material, with the date and "Add widgets" over the cards; Tab, Enter and
+  Escape work on it.
+- **The widgets button** sits at the left end of the taskbar; when the
+  taskbar's group is at the left it moves beside the tray, as on Windows.
+  While Weather's summary is at most three hours old it shows the weather
+  icon and the temperature (136 px wide, with the condition, on a taskbar
+  at least 900 px wide; else 84 px); otherwise a plain widgets mark. It is
+  `[taskbar] widgets` (default `true`), "Widgets" under Personalization >
+  Taskbar > Taskbar items, and only on the desktop, never on the lock or
+  login screen.
+- **The cards**, each opening its application:
+  - Weather: the lock screen's summary (`weather.json`, ADR-0051).
+  - Calendar: the events of the next seven days from
+    `$XDG_DATA_HOME/com.boswas.Calendar/calendar.json`, read up to 8 MB,
+    with repeating events expanded by `crates/boswas-shell/src/agenda.rs`,
+    a line-by-line port of Calendar's `recurrence.py` and `model.py`, and
+    time zones read from `/usr/share/zoneinfo` by `tzif.rs` (skipped and
+    repeated hours as Calendar and Clock handle them).
+  - Clock: the world clocks and the next alarm from
+    `$XDG_DATA_HOME/com.boswas.Clock/clock.json`, read up to 4 MB.
+  - System: processor and memory, sampled from `/proc` about once a second
+    and only while the board is open; the space on the home file system;
+    the battery. It opens Task Manager.
+  - Media: what is playing (the shell's media service, MPRIS), with play,
+    pause and the next track; it opens the playing program.
+  - Photos: the newest PNG or JPEG picture in Pictures and one level of
+    folders below it (at most 40 MB, never through a link); a click opens
+    that picture.
+- **Reading:** only regular files of the user, never through a link, on a
+  worker thread when the board opens and again every 30 seconds while it
+  is open; nothing is written.
+- **Arranging:** a card's menu opens its application, makes it small or
+  medium, moves it up or down, or removes it; "Add widgets" lists the
+  cards that are not on the board. The arrangement is
+  `~/.config/boswas/shell.toml`'s `[widgets] cards` (the order) and
+  `small` (the cards shown small). The default board, Weather, Calendar,
+  Clock, System, Media (small) and Photos, is not written to the file
+  until the user changes it.
+
+**Why.**
+
+- Everything on the board is something the user put on the device; the
+  board adds no service, no network access and no account. Reading the
+  applications' own files keeps one source for each, and porting
+  Calendar's rules keeps its repeating events identical (checked against
+  Calendar's own model).
+- The board and its button work as on Windows, so people find them where
+  they expect.
+
+**Left out.**
+
+- News, stocks, sports, traffic and any other online feed (no network,
+  nothing chosen by a service).
+- A to-do card: Reminders shows notifications and keeps no list.
+- Widgets of other programs, and widgets on the lock screen beyond the
+  weather card of ADR-0051.
+
+**Consequences.**
+
+- The button and the Weather card depend on Weather's summary, which
+  Weather removes when "Show weather on the lock screen" (`[lock]
+  show_weather`) is off; the button then shows the plain mark.
+- **Verified:** the shell's tests (170 unit tests at the merge of this
+  work, 127 before) and the end-to-end test `tests/desktop.rs` (real
+  compositor and shell): Super+W, Tab and Enter open Weather. The
+  calendar expansion matches Calendar's Python model exactly for seven
+  random seeds of 162 events (all-day events, time zones, exceptions,
+  moved events, rules down to hours; about 2,000 occurrences); a copy
+  runs with the ordinary tests (`tests/fixtures/calendar/`, made by its
+  `generate.py`). The compositor (124 unit and 21 end-to-end tests at the
+  merge); Control Center (698 at the merge), with the real compositor
+  accepting every key Settings writes. Looked at live on the headless
+  compositor with simulated services and a home with real Calendar and
+  Clock files and a weather summary: every card with live readings, the
+  weather on the button, a card's menu, removing and adding cards, Tab
+  and Enter, at 1920x1080 and 1366x768, at 100, 175 and 225 % text, in
+  both schemes.
+- **Not verified:** real hardware and services (the battery, a real media
+  player), and more than one monitor.
+
+**Revisit when** a source that is not the user's own (an online feed)
+is wanted, or Reminders gets a list of tasks.
+
+## ADR-0060 Desktop icons
+
+Requested on 2026-11-26 with ADR-0058 and ADR-0059: icons on the desktop,
+as Windows shows them. The shell's documentation listed them as missing.
+
+**Context.** The background had a short menu and nothing else. Files
+already has the rules for names, the Trash and the clipboard formats
+(`boswas_apps/files`).
+
+**Decision.**
+
+- **What is shown:** the files and folders of the desktop folder
+  (`XDG_DESKTOP_DIR` of `user-dirs.dirs`, else `~/Desktop`; at most 2,000)
+  and the system icons chosen in Settings, Home, Trash and This device
+  (the Trash by default), on the wallpaper of the primary output. They sit
+  on a grid from the top left, column by column, the system icons first,
+  then folders, then files; the cells are 76, 86 or 128 px wide for small,
+  medium and large icons (32, 48 or 96 px) and grow with the text size. The
+  folder is created when `user-dirs.dirs` names it (as xdg-user-dirs does),
+  else with the first new item, paste or drop; a folder set to the home
+  folder means no files are shown (xdg-user-dirs' way of turning one off).
+- **Using them:** a click selects, Ctrl and Shift add, a drag on the
+  background selects with a band; a double-click or Enter opens (folders
+  and the system icons in Files, files with their default application by
+  the shell's opener of ADR-0054); a drag moves icons, onto a folder into
+  it and onto the Trash to the Trash; F2 renames in a field over the
+  label; Delete moves to the Trash; Ctrl+C, Ctrl+X and Ctrl+V copy, cut
+  and paste in the formats Files uses (`text/uri-list`,
+  `x-special/gnome-copied-files`); Ctrl+A selects all, Ctrl+Shift+N makes
+  a folder, F5 reads the folder again, the arrow keys move and typing goes
+  to an icon by its name; the Menu key or Shift+F10 opens the menu.
+- **The menus:** on the background View (large, medium or small icons;
+  auto arrange; align to grid; show desktop icons), Sort by (name, size,
+  item type, date modified), Refresh, Paste, New (folder, text document),
+  Open in Terminal, Display settings, Personalise and All settings; on
+  icons Open, Open with, Cut, Copy, Rename, Delete and Properties (Files,
+  with the item selected); on a system icon Open and Properties.
+- **Settings:** `[desktop]` of the compositor's configuration, the user's:
+  `icons` (default `true`), `system_icons` (from `"home"`, `"trash"`,
+  `"computer"`, in this order; default `["trash"]`), `icon_size`
+  (`"small"`, `"medium"`, the default, `"large"`), `auto_arrange`
+  (`false`), `align_to_grid` (`true`); unknown values are reported and
+  replaced. Settings shows them as "Desktop icons" on Personalization >
+  Themes. The View menu changes four of them in the user's
+  `compositor.toml`, editing only the `[desktop]` table and refusing when
+  the result would change anything else, and asks the compositor to
+  reload.
+- **Places:** while auto arrange is off, where icons were put by hand is
+  kept in grid cells (fractions where they are not aligned), with the
+  order of Sort by, in `$XDG_STATE_HOME/boswas/desktop-layout.json`
+  (format in `docs/architecture/platform-contracts.md`). Once the folder
+  has been shown, icons keep their places when new files appear; Sort by
+  or another icon size makes them flow again.
+- **Launchers:** a `.desktop` file on the desktop is started only when it
+  is a regular file (not a link) owned by the user with the execute bit
+  set, which Files sets with Properties > "Allow running this file as a
+  program". Any other launcher opens as text, with a notice that says why.
+- **Files are changed as Files changes them** (`desktop_files.rs`): names
+  validated by Files' rules, free names found as Files finds them ("New
+  folder (2)", "Holiday - Copy.png"), the Trash by the freedesktop.org
+  specification as Files' `trash.py` (the info file made first with
+  `O_EXCL`); nothing overwritten (`RENAME_NOREPLACE`, `O_EXCL`), nothing
+  done through a symbolic link (a link is trashed, moved, copied and
+  renamed as itself), no shell. An item on another drive is not moved to
+  the Trash; a notice says so.
+- **Drag and drop:** icons move within the desktop; files dragged in from
+  other programs (a Wayland drag of `text/uri-list`) are copied into the
+  folder, or moved when the other program asks for a move.
+- **Thumbnails:** PNG and JPEG files show a picture, made by the shell on
+  a worker thread and kept in memory only (not in `~/.cache/thumbnails`).
+  The folder is watched with inotify; reading it and every change happen
+  on worker threads.
+- **The keyboard comes back to the desktop.** When a menu, a flyout or the
+  rename field closes, the compositor gives the keyboard back to the
+  desktop if it had it before (`shell/wm.rs`), so F2 or Delete work after
+  a menu; windows get the focus as before.
+
+**Why.**
+
+- People coming from Windows keep files and launchers on the desktop and
+  expect its menus, keys and Trash to behave as there.
+- Files' rules, reused, mean the desktop and Files never disagree about a
+  name, a copy or the Trash. A launcher can run any command; the execute
+  bit set by the user in Files is the trust mark other desktops use too.
+
+**Left out.**
+
+- Dragging icons out of the desktop into Files or another program.
+- Icons on monitors other than the primary one, a Trash per drive, and
+  thumbnails of other kinds of file.
+
+**Consequences.**
+
+- The shell writes the user's `compositor.toml` (`[desktop]` only) and its
+  own `desktop-layout.json`.
+- When a drop from another program ends, that program may not learn that
+  a move was done: a Qt test window reported "IgnoreAction" though the
+  files arrived. Not investigated.
+- **Verified:** the shell's tests (170 unit tests at the merge of this
+  work) and the end-to-end test `tests/desktop.rs` with the real
+  compositor and shell: Ctrl+Shift+N makes a folder, typing renames it,
+  Delete puts it in the Trash with its info file. Unit tests for the
+  launcher rule, names, free names, the Trash, copying and moving, the
+  places file, the View menu's edit and the menus. Looked at live:
+  selecting by click, Ctrl and band, tooltips, both menus, New > Folder
+  with the rename field, F2, Delete, copy and paste ("Holiday -
+  Copy.png"), a PDF opened by a double-click (in a stand-in Document
+  Viewer), moving icons with their places kept, View > Large icons
+  writing the setting and reloading, and a file dropped from a PySide6
+  test window copied to where it was dropped; at 1920x1080 and 1366x768,
+  100, 175 and 225 % text, both schemes, dark and light wallpapers.
+- **Not verified:** real hardware; the clipboard and drag and drop with a
+  real Files session; more than one monitor; the inotify watch on a
+  network home folder.
+
+**Revisit when** icons should be dragged into other programs, or appear on
+every monitor.
+
+## ADR-0061 Controls that only pretended now work
+
+Requested on 2026-11-26: every control that does nothing should be fixed.
+A read-only audit of the tree at 16ceea5 found sixteen controls that did
+nothing or only pretended. This records the eight fixed in the
+applications, Settings and the session; the shell's and the compositor's
+items are listed at the end, for the round that is running now.
+
+**Context.**
+
+- "New window" (in the taskbar's menu, by the middle button, with
+  Super+Shift+1 to 9, and Document Viewer's own "New Window" action) ran
+  the program's plain command; most Boswas applications run once per
+  session, so the open window only came forward.
+- Photos' "Set as desktop background" wrote `wallpaper` into
+  `compositor.toml`, and `appearance.toml`, which presets and Settings
+  write, overrides it: after any theme or background chosen in Settings
+  the background never changed, yet Photos said it had.
+- The session exported `XCURSOR_SIZE=24` whatever the pointer size, so X11
+  programs and programs that draw their own pointer kept 24 px.
+- Privacy & security > Activity history cleared
+  `~/.local/share/recently-used.xbel`, which no Boswas program writes; the
+  applications' own recent lists stayed.
+- Home and search promised brightness on Display; it was on Power &
+  battery.
+- Ethernet and USB only showed a state and a list.
+- "Install printing support" could be refused: `cups-daemon` recommends
+  `cups-browsed`, which the image pins out and the system helper refuses.
+
+**Decision.**
+
+- **New windows.** The toolkit has `fluent.NEW_WINDOW` (`--new-window`),
+  `fluent.split_new_window()` and `run(..., multiple_windows=False)`. With
+  `multiple_windows=True` a later start with `--new-window` builds one
+  more window in the running program, deleted when it closes; otherwise
+  the option is dropped and the window comes forward. A plain later start
+  goes to the window that was active last (before: to the first, even if
+  it was closed). Document Viewer (its windows share one store of recent
+  documents) and Photos have several windows; Calculator and Archive
+  Manager already start a window per start and accept the option; Snipping
+  Tool accepts it and keeps one window. Files, Terminal, Text Editor,
+  Photos, Document Viewer, Calculator and Archive Manager have `[Desktop
+  Action NewWindow]` with `Exec=boswas-NAME --new-window` (Files and
+  Terminal called it `new-window`; Document Viewer's ran the plain
+  command). Clock, Calendar, Media Player, Weather, Task Manager, Camera
+  and Snipping Tool keep one window and come forward; their manual pages
+  say so.
+- **Photos' background** goes into `[appearance] wallpaper` of
+  `appearance.toml`, as Settings writes it: the colour mode and the rest of
+  the file are kept, the change is atomic, a file the compositor would
+  ignore is rewritten with the `[appearance]` values that can be kept,
+  and a stale `wallpaper` in `compositor.toml` is removed (the result
+  checked by parsing).
+- **The pointer size for X11 and self-drawing programs.** `boswas-session`
+  sets `XCURSOR_SIZE` from `[pointer] cursor_size` of the compositor's
+  three files (the last that sets it wins, clamped to 16 to 96, a file over
+  256 KiB skipped, 24 without one). When the size changes, Settings runs
+  `systemctl --user set-environment XCURSOR_SIZE=N` and
+  `dbus-update-activation-environment XCURSOR_SIZE=N` (fixed forms;
+  failures ignored), and the Mouse pointer card says that open programs
+  keep their size and X11 and self-drawing programs get the new one at the
+  next sign-in.
+- **Clear activity history** also empties the Boswas applications' recent
+  lists in `$XDG_STATE_HOME`: Text Editor's `recent.json`, Document
+  Viewer's `documents.json` (the recent list and the page and zoom kept
+  per document), Media Player's `recent.json` and `resume.json`, Archive
+  Manager's `state.json`. Each is rewritten in its application's format
+  with its other settings kept; a missing file is skipped, a damaged one
+  replaced by an empty list, a link never followed, and the page names a
+  list that could not be cleared. The page lists every list with its
+  count. Files and Photos keep no recent list.
+- **Brightness** has its home on Display, between the monitors and night
+  light, and stays on Power & battery; search for "brightness" leads to
+  Display.
+- **Ethernet:** a "Wired connection" section per adapter: IP assignment
+  (automatic, or a manual IPv4 address with prefix length, gateway and DNS
+  servers), DNS server assignment (automatic, or up to three IPv4 and
+  three IPv6 servers), a Metered connection switch, and the properties
+  (link speed, addresses, gateways, DNS servers, hardware address) with
+  Copy. Changes run `nmcli connection modify uuid UUID` with a fixed set of
+  properties (`ipv4.method`, `ipv4.addresses`, `ipv4.gateway`,
+  `ipv4.dns`, `ipv4.ignore-auto-dns`, `ipv6.dns`, `ipv6.ignore-auto-dns`,
+  `connection.metered`), each value checked with Python's `ipaddress`, and
+  `nmcli connection up uuid UUID` when the connection is active.
+- **USB:** a drive on a USB device has "Open in Files" (its mounted folder,
+  else This PC) and "Eject": `udisksctl unmount`, `lock` (an open encrypted
+  volume) and `power-off`, the steps Files takes through UDisks2. A drive
+  with a file system mounted outside `/media` and `/run/media` (the live
+  session's boot medium, for example) is never ejected. Control Center
+  recommends `udisks2` and `dbus-bin`.
+- **Printing:** `boswas-sysops apt-install` takes `--no-recommends` (first
+  argument, once), which becomes `apt-get --no-install-recommends`; "Install
+  printing support" and the optional features Printing and Print to PDF
+  use it.
+
+**Why.** Each control said it did something it did not, or did it where
+nothing would see it. The fixes use what the system already has: the
+toolkit's single-instance handshake, the file Settings already writes,
+the session's environment, the applications' own files, NetworkManager
+and UDisks2 through their command-line tools in fixed forms.
+
+**Left out.** Manual IPv6 addresses and DNS over HTTPS on the Ethernet
+page (Windows has both).
+
+**Left for the round now running** (shell and compositor, from the
+audit) *(done in ADR-0062, except Super+K)*:
+
+- The shell's side of New window: "New window of X" in the taskbar's menu,
+  the middle button, Super+Shift+1 to 9 and Start's Files button still
+  run the plain command; they are to run the entry's NewWindow action
+  (its id compared without case, `-` and `_`, so that Firefox's
+  `new-window` counts) or `boswas-files --new-window`, and the menu is to
+  stop listing that action twice. Programs the shell starts are to get the
+  current `XCURSOR_SIZE`.
+- The night light tile shows only whether night light is enabled, not
+  whether it is active under a schedule, and gives no hint on outputs
+  without gamma tables.
+- The battery percentage in quick settings does nothing when clicked.
+- No right-click menu on the Start button, the clock, the status button,
+  Task View, the layout indicator and Start's search results.
+- The volume and brightness keys on the login screen do nothing, and
+  while the session is locked they change the level without showing it.
+- The account picture chosen in Settings is not shown in Start, on the
+  lock screen or on the login screen.
+- Dark mode and the accent colour do not reach GTK programs and Firefox
+  (`org.gnome.desktop.interface color-scheme` is not written).
+- `[keyboard] numlock` is written by Settings and read by nothing.
+- Windows shortcuts that are neither handled nor documented: Super+S, X,
+  K, P, T, B, U and Home, Super+Alt+D, Super+Shift+Up and Down,
+  Ctrl+Alt+Del.
+
+**Consequences.**
+
+- "Install printing support" no longer brings `avahi-daemon` and `colord`
+  (`ipp-usb` on Ubuntu), which `cups-daemon` only recommends. Without
+  `avahi-daemon` CUPS does not find printers on the network by itself, and
+  the image's package lists do not name it. Even with it, the host firewall
+  (inbound default drop, `security/firewall/nftables.conf`) drops the
+  multicast DNS answers (UDP 5353) that discovery waits for, so finding
+  network printers needs a firewall rule as well: a policy decision left for
+  later. A printer added by its address (CUPS's own page) works without
+  either.
+- **Verified:** the toolkit (152 tests at the merge of this work, 148
+  before), Control Center (716, 5 skipped), `boswas-sysops` (123, 121
+  before), the applications (2,342 in 15 suites); the session's
+  `cursor_size` under dash and mawk, and by a Control Center test that
+  writes the size with Control Center's own writer; under PySide6 6.8.2.1
+  the toolkit's `test_app`, Control Center's interface suites, Photos,
+  Calculator, Archive Manager and Snipping Tool (Document Viewer cannot run
+  there: no Qt PDF). In this sandbox's APT cache (Ubuntu 24.04, cups
+  2.4.7) `cups-browsed` is only a recommendation of `cups-daemon` and
+  nothing depends on it. Screenshots of Display, Power & battery,
+  Ethernet with its IP dialog, USB, Activity history and Mouse pointer,
+  whole windows in both schemes, were looked at (and caught a squeezed IP
+  dialog and missing icons, corrected).
+- **Not verified:** the real NetworkManager (the terse output of `nmcli`,
+  and whether `ipv6.dns` and `ipv6.ignore-auto-dns` are accepted with IPv6
+  turned off); real UDisks2 and polkit with a USB drive; a real systemd
+  user manager and D-Bus activation environment; two windows of an
+  application in a real session (activation is the compositor's
+  decision); Debian 13's own metadata for cups 2.4.10.
+
+**Revisit when** the shell's round has closed the items above, or Debian
+13's `cups` needs what it now only recommends.
+
+## ADR-0062 Shell controls that only pretended, and the Windows shortcuts
+
+Follows ADR-0061, which fixed the items of the audit of 2026-11-26 in the
+applications, Settings and the session and listed the shell's and the
+compositor's for this round. Requested on 2026-11-26: every control that
+does nothing should be fixed, and the Windows shortcuts people press
+without thinking should work.
+
+**Context.** The list at the end of ADR-0061:
+
+- "New window of" in the taskbar's menu, the middle button,
+  Super+Shift+1 to 9 and Start's Files button ran the program's plain
+  command, which only brings a one-window Boswas application forward, and
+  the taskbar's menu listed the application's own "New Window" action a
+  second time. Programs the shell started kept the `XCURSOR_SIZE` the
+  session started with.
+- The night light tile showed whether night light was switched on, not
+  whether the screens were tinted under a schedule, and gave no hint
+  where no monitor can be tinted. The battery percentage in quick
+  settings did nothing when clicked.
+- The Start button, the clock, the network, volume and battery button,
+  Task View, the keyboard layout indicator and Start's search results
+  had no right-click menu.
+- On the login screen the volume and brightness keys did nothing; while
+  the session was locked they changed the level without showing it.
+- The account picture chosen in Settings appeared nowhere in the shell.
+- Dark mode and the accent colour did not reach GTK programs and Firefox.
+- `[keyboard] numlock` was written by Settings and read by nothing.
+- Super+S, X, K, P, T, B, U and Home, Super+Alt+D, Super+Shift+Up and
+  Down and Ctrl+Alt+Del were neither handled nor documented.
+- Start's search had no entry for Settings > System > Clipboard
+  (ADR-0058).
+
+**Decision.**
+
+- **A new window** is the desktop entry's "new window" action: the
+  `[Desktop Action ...]` group whose id, in lower case and without `-`
+  and `_`, is `newwindow` (the Boswas applications' `NewWindow`, Firefox's
+  `new-window`, `New_Window`); an entry without one runs its plain `Exec`,
+  and an application with one window brings it forward
+  (`crates/boswas-shell/src/apps.rs`). "New window of X" in the taskbar's
+  menu, the middle button on the button of a running application,
+  Super+Shift+1 to 9 while that application runs, and Start's Files
+  button (`boswas-files --new-window`) open a window that way. The
+  taskbar's menu no longer lists that action among the application's own
+  actions; Start's menu of an application still lists all of them.
+- **The pointer size for what the shell starts.** The compositor's
+  `config` event carries `cursor_size` (`[pointer] cursor_size`), and
+  every program the shell starts gets `XCURSOR_SIZE` set to it, so a size
+  changed in Settings reaches programs started from Start and the taskbar
+  at once. Until the first event the session's value stays.
+- **Right-click menus** (`crates/boswas-shell/src/quicklinks.rs`, on the
+  shell's menu code), each entry only where what it opens is installed
+  (on the `PATH`). Settings pages open with `boswas-control-center --page
+  KEY`, and a test checks every key against Control Center's catalogue
+  (`catalog.py`).
+  - Start's quick-link menu (the secondary button on Start, or Super+X,
+    which chooses the first entry): Installed apps, Power options, System,
+    Network connections, Disks (only where `gnome-disks` is installed),
+    Terminal, Task Manager, Settings, Files (a new window), Search, Run,
+    "Shut down or sign out" (Sign out, Sleep, Hibernate where allowed,
+    Restart, Shut down, by the shell's existing power paths) and Desktop
+    (show the desktop).
+  - The clock: Adjust date and time, Notification settings.
+  - The network, volume and battery button, one button for the three
+    icons: Network and internet settings, Sound settings, Open volume
+    mixer (the Sound page), and Power settings where there is a battery.
+  - The Task View button and the taskbar's background: Task Manager,
+    Taskbar settings.
+  - The keyboard layout indicator: Language and region, Keyboard settings.
+  - An application in Start and an application found by Start's search:
+    Open, pin to or unpin from Start and the taskbar, Open file location
+    (`boswas-files --select` with its desktop entry; without Files the
+    entry's folder with its default application), Uninstall (Settings >
+    Apps > Installed apps), then the application's actions. A settings
+    page found by the search has Open, a command Run.
+- **The battery percentage** in quick settings is a button that opens
+  Settings > Power & battery.
+- **Night light now** (`crates/boswas-compositor/src/nightlight.rs`). The
+  tile shows whether the screens are tinted now (`active`). A click sends
+  `night-light` with `active`: with a schedule, the choice holds until
+  the schedule's next start or end and then the schedule decides again;
+  a change of `[night_light]` in Settings ends it too; without a schedule
+  the click is the session's switch, as before. The compositor sends the
+  `night-light` event also when the schedule changes the tint. The event
+  and the reply add `override` (a choice against the schedule holds) and
+  `available`: some monitor's display controller has a gamma ramp (on the
+  DRM back end; before any monitor is known it is assumed); the headless
+  and nested back ends say `false`. Where night light is not available
+  the tile is greyed and its tooltip says why. Tinting in the renderer
+  instead was not chosen, to keep this round out of the drawing code.
+- **The keys on the lock and login screens.** The lock screen and the
+  login screen handle volume up and down, mute and brightness up and down
+  themselves and show the level inside their own surface, centred above
+  the hint, redrawing only that rectangle; the desktop shell ignores the
+  keys while the session is locked, so a press counts once. The other
+  media keys and microphone mute do nothing there.
+- **Account pictures** (`crates/boswas-shell/src/accounts.rs`). Settings
+  saves the picture as `~/.face` and hands it to AccountsService
+  (`SetIconFile`), which keeps a copy in
+  `/var/lib/AccountsService/icons/LOGIN` that every user can read. The
+  desktop and the lock screen show the newest of that copy, `~/.face` and
+  `~/.face.icon`; the login screen, which runs as another user, reads
+  only AccountsService's copies of the people it lists. A file is used
+  only when it is a regular file of at most 8 MB, decoded (PNG or JPEG)
+  within 8192 pixels on a side, cropped to its centred square and kept as
+  a round picture of 256 pixels; it is shown in Start's user button, on
+  the lock screen and on the login screen (the large picture and the list
+  of users). Without one the person glyph stays. Whether it changed is a
+  `stat` when Start opens and when a lock or login screen starts.
+- **Dark mode and the accent for GTK programs and Firefox**
+  (`crates/boswas-shell/src/gsettings.rs`). They take the colour scheme
+  from the settings portal, which `xdg-desktop-portal-gtk` answers from
+  GSettings. At start and on every `config` event the desktop shell (not
+  the lock or login screen) sets `org.gnome.desktop.interface`
+  `color-scheme` (`prefer-dark` or `default`) and `accent-color`, the
+  nearest of GNOME's accents (iris purple, azure blue, sky teal, mint
+  green, sun yellow, coral red, orchid pink, slate slate). It runs
+  `gsettings get` and runs `set` only for a value that differs, with fixed
+  arguments, without a shell, on a thread of its own, and starts nothing
+  when neither value changed since it last asked. A key the installed
+  schemas lack (`accent-color` before gsettings-desktop-schemas 47) is
+  skipped; without `gsettings` nothing happens. `boswas-desktop` depends
+  on `libglib2.0-bin` (the `gsettings` program), `dconf-gsettings-backend`
+  (so that the values are stored and seen by other programs) and
+  `gsettings-desktop-schemas` (the schema); the package stage checks the
+  three.
+- **`[keyboard] numlock`.** Num Lock is set when the session starts and
+  whenever the setting changes; a reload that leaves the setting as it
+  was keeps Num Lock as the user left it. The compositor presses and
+  releases the Num Lock key through the keymap, so the light and the
+  focused window follow. A reload with an identical keymap would reset
+  Num Lock without telling the focused window (Smithay skips an identical
+  keymap), so it is released before the keymap is applied and locked
+  again after.
+- **Shortcuts** (`crates/boswas-compositor/src/input.rs`, `winkeys.rs`,
+  `projection.rs`); none is taken while the session is locked, none
+  replaces an existing binding (Super+Shift+S still captures a region,
+  Super+D still shows the desktop):
+  - Super+S: Start with the keys going to its search box (event
+    `search`).
+  - Super+X: the quick-link menu at the Start button (`quick-links`).
+  - Super+Alt+D: the calendar, which opens the notification centre
+    (`calendar`).
+  - Super+T: the keyboard on the taskbar's application buttons, again
+    the next one; Super+B: on the notification area (the chevron of the
+    hidden icons, else the first tray icon) (`focus-taskbar` with `area`
+    `apps` or `tray`). The arrow keys and Tab move, Enter or Space press,
+    Escape, any other key or a click elsewhere gives the keyboard back.
+  - Super+Home: every window of the current desktop but the active one is
+    minimised; again, they come back.
+  - Super+Shift+Up: a floating window takes the full height of the usable
+    area, keeping its width and place; Super+Shift+Down puts a stretched
+    window back, else does what Super+Down does (a snapped or maximised
+    window is restored, a floating one minimised).
+  - Super+U: Settings > Accessibility (the compositor starts `[apps]
+    settings`, with `--page accessibility` when it is Control Center).
+  - Super+P: the projection flyout (`projection`, with the number of
+    connected monitors and the mode now): PC screen only, Duplicate,
+    Extend, Second screen only. Super+P again or the arrow keys move,
+    Enter or a click takes the choice; with one monitor only PC screen
+    only and Extend can be taken. The shell sends the trusted command
+    `project`; the choice holds for the session on top of the
+    `[outputs.NAME]` settings (nothing is written to a file) and over a
+    reload. The PC's screen is the built-in panel (eDP, LVDS, DSI), else
+    the first monitor by name; Duplicate puts every monitor at the same
+    place of the desktop; the last monitor is never turned off.
+  - Ctrl+Alt+Del: the security options (`security`), over the whole
+    screen on the desktop: Lock, Sign out, Change a password (Settings >
+    Accounts > Your info, at Your account), Task Manager (where
+    installed), Cancel, and the power button at the bottom right; the
+    arrow keys and Tab move, Escape cancels. Like Super+L it reaches the
+    compositor also while a program has taken the other shortcuts (a
+    remote desktop, a virtual machine). Not on the lock or login screen.
+- **Start's search** finds "Clipboard" (Settings > System > Clipboard).
+
+**Why.**
+
+- Every one of these controls promised something it did not do, and
+  Windows users reach for these keys and menus first. The Windows layout
+  of each menu is kept, with Boswas's own pages behind the entries.
+- An action id compared without case, `-` and `_` matches the Boswas
+  applications, Firefox and Chromium without a list of programs.
+- GTK programs and Firefox read the portal; writing the two GSettings keys
+  the portal reports is the only way to reach them without a GTK theme.
+  Reading first and writing only a difference keeps a `config` event from
+  starting programs for nothing.
+- A night light choice that holds until the schedule's next change is
+  what Windows does; a choice that the next second of the schedule undid
+  would look broken.
+- The lock screen is the only surface while locked; the level has to be
+  drawn there.
+
+**Left out.**
+
+- Super+K (Cast): neither handled nor documented; there is nothing to
+  cast to.
+- Switch user on the security screen: greetd cannot keep one session
+  running while another person signs in.
+- Uninstall in Start's menus opens Installed apps and cannot go to the
+  application: Control Center has no argument for that.
+
+**Consequences.**
+
+- The shell writes two keys of the user's GSettings database, and
+  `boswas-desktop` pulls in GLib's tools, the dconf back end and GNOME's
+  desktop schemas.
+- The control socket's trusted side gained `night-light` with `active`,
+  `project` and `projection`; the events `search`, `quick-links`,
+  `calendar`, `focus-taskbar`, `projection` and `security`; `config`
+  gained `cursor_size` (`docs/architecture/platform-contracts.md`). The
+  public socket's commands are unchanged.
+- **Verified:** on the branch of this work the desktop workspace's
+  `cargo test --locked` passed 583 tests and ignored 6; on the merged tree
+  with ADR-0063, 612 passed, none failed, 6 ignored; the release-only
+  frame budgets of ADR-0056 passed; the static checks passed 82. New
+  tests: the new-window action and its stand-in, every menu with the tools
+  installed and missing, the page keys against the catalogue, the
+  GSettings mapping and "only when different", the picture limits and the
+  round crop, the security screen's choices and keyboard order, the
+  projection choices, the taskbar's keyboard focus within the hover rule
+  of ADR-0056, the level's place on the lock screen, the tile's
+  explanation and the battery button, every new shortcut in the key
+  table; end to end with the real compositor: Num Lock at start, after a
+  change in Settings and over a reload, night light turned on now against
+  a schedule and Settings ending it, every new shortcut's event reaching a
+  subscribed client, Super+Home, Super+Shift+Up and Down, and `project`
+  with one monitor. Run live on the headless compositor with the real
+  shell, simulated services, injected input and logging stand-ins for the
+  Boswas programs and `gsettings`: Super+X and Enter started
+  `boswas-control-center --page installed-apps`; the clock's menu
+  `--page date-time`; the battery `--page power`; Ctrl+Alt+Del > Change a
+  password `--page users --section your-account`; Super+U `--page
+  accessibility`; the middle button and Super+Shift+4 on a running
+  application its new-window action; `gsettings` was only read, the light
+  scheme already matching; Super+Shift+Up stretched a `foot` window to the
+  full height and Down put it back; the volume key on the real lock screen
+  showed the level; a `~/.face` picture appeared on the lock screen and in
+  Start. Every menu and screen was looked at in pictures at 100 and 200 %
+  in both schemes.
+- **Not verified:** real hardware (the media keys, the Num Lock light,
+  the gamma ramp check and the tint, the monitors switched by Super+P;
+  the headless back end has one monitor, so Duplicate, Second screen only
+  and several monitors did not run); GTK programs and Firefox following
+  the scheme (only a stand-in `gsettings` ran), and whether Debian 13's
+  GTK portal passes `accent-color` on; the real AccountsService picture
+  path; Ctrl+Alt+Del through a real client that inhibits shortcuts (unit
+  tests only); Rust 1.85 (the sandbox's toolchain is newer); the package
+  build, lintian and the package stage.
+
+**Revisit when** Control Center can open Installed apps at one
+application, greetd can keep a session while another person signs in,
+or monitors without a gamma ramp need night light (a tint drawn in the
+renderer).
+
+## ADR-0063 One glass system for the desktop, and live blur
+
+Changes ADR-0036 (materials drawn from the wallpaper, no live blur) and
+ADR-0057 (the shell and the compositor's own surfaces did not read
+`material.glass`). Requested on 2026-11-26 with ADR-0057: "use glass
+morphism on this UI, Windows style", an icon under the pointer that
+grows "like macOS", and "create glass-morphism UI of the current UI so it
+would feel better than macOS"; this is the shell's and the compositor's
+part.
+
+**Context.** After ADR-0057 the applications were Boswas glass, while the
+shell drew the older materials of ADR-0036 (the wallpaper blurred under a
+flat tint) and the compositor's own overlays (Alt+Tab, the window menu,
+the snap layouts, Task View's strip) only their tint: three looks on one
+screen. No surface showed the windows behind it, and Qt cannot ask the
+compositor for a blurred backdrop.
+
+**Decision.**
+
+- **One glass, in `boswas-ui`** (`crates/boswas-ui/src/glass.rs`), a port
+  of the toolkit's (`glass.py`): the tints and opacities of
+  `material.glass`, the grain, the inner glow and the hairline, and the
+  legibility rule: a tint's opacity in the token file is a minimum, raised
+  in steps of 0.02 until text, secondary and muted text and the accent
+  keep 4.5:1 on the darkest and the brightest parts of the backdrop, also
+  on cards and under the hover and pressed layers. Kinds: the window
+  backdrop, the taskbar, flyout glass (the flyout layer over the backdrop
+  layer), cards and panes. A surface's backdrop is live blur, the blurred
+  wallpaper, nothing (glass off: the opaque tint), or not known yet
+  (opaque until it is). The shell and the compositor draw every glass
+  surface with it.
+- **Where, in the shell:** the window backdrop for Start, quick settings,
+  the notification centre with the calendar, the widgets board, the
+  clipboard and emoji panels, the projection flyout and the security
+  screen; flyout glass for menus (the quick-link menus included),
+  tooltips, notifications, the volume and brightness display, dialogs and
+  window previews; the taskbar its own tint with a top edge only. Cards
+  are glass, and a control under the pointer gets a brighter hairline.
+  The lock screen and the login screen blur the wallpaper into glass
+  behind the sign-in view, darkened from 0.42 in steps of 0.02 until
+  white text keeps 4.5:1 on its brightest part (the picture is kept per
+  size), with the user tile and the fields as glass. The lock screen's
+  weather card keeps the acrylic of ADR-0051.
+- **Live blur, on OpenGL ES only, through `ext-background-effect-v1`**
+  (`crates/boswas-compositor/src/glass/`). The compositor offers the
+  protocol to every client; a client receives no pixels, it only asks for
+  a blur behind its own surface. The blur region is double-buffered
+  surface state in surface coordinates, clipped to the surface; a NULL
+  region, destroying the object or destroying the surface removes it with
+  the next commit; a second effect object for one surface is a protocol
+  error. The `blur` capability is sent when a client binds and again on
+  every change, and is set only while the renderer blurs and glass is on.
+  - **How:** the scene behind a region (its bounding box grown by the
+    blur's reach, about three sigma, clipped to the output) is drawn at
+    half resolution into a texture that is kept with a damage tracker of
+    its own. Dual Kawase passes run only when that tracker reports
+    damage: down to 1/2^n of the capture and back up to a quarter of the
+    output's resolution, chosen to come close to the token's Gaussian
+    (`blur` 80: sigma 40 physical pixels at scale 1). An element right
+    behind the surface draws the result inside the region's rectangles,
+    saturated by 1.3 and with its luminance kept within a band of the
+    scheme (dark 0 to 0.07, light 0.6 to 1), like the luminosity layer of
+    Windows' acrylic, so that translucent glass stays legible over any
+    window. Its damage is what changed under the region, grown by the
+    reach and cut to the region. Pictures of an area not asked for in
+    3 seconds are dropped.
+  - **Shape:** a region is rectangles. The shell describes a rounded panel
+    row by row within its corner radius (a staircase), and its own
+    anti-aliased translucent edge lies over the steps; the compositor's
+    own overlays pass a radius and the shader cuts them round.
+  - **The shell over live blur** draws only the tint and the grain, made
+    legible over the two ends of the band, starts its glass clear (so its
+    own shadow does not show through), and sends a region for each
+    surface. The opacities then come to about 0.76 for panels and 0.9 for
+    the taskbar in the light scheme, 0.62 and 0.72 in the dark one (as
+    measured by the builder; the tests require at most 0.8 and 0.9).
+- **pixman** (no hardware GPU, virtual machines; ADR-0045) does not blur
+  and offers no capability. The shell then draws the blurred, saturated
+  wallpaper under its glass, as the toolkit does.
+- **The compositor's own surfaces.** Alt+Tab, the window menu and the snap
+  layouts are flyout glass, with live blur behind them on OpenGL ES; on
+  pixman their backdrop is the wallpaper, read back small through the
+  renderer from the shell's background surface (480 pixels wide, at most
+  every 750 ms and only when that surface changed; a change too small to
+  see in a blurred picture keeps the old one). The compositor still
+  decodes no picture file. Task View lies on the desktop blurred into
+  glass (half size, with grain, faded in) and its strip is glass.
+  *(Changed by ADR-0064: during the fade the blurred desktop and the
+  darkening over it are one picture, made by pixman on a worker thread
+  and kept for three minutes; at rest the two layers stay.)* The
+  active window's title bar takes the `mica` material: the wallpaper under
+  it, blurred and covered with the `mica` tint, made again when the window comes to rest
+  somewhere else or the wallpaper changed; while it is dragged it keeps
+  its picture.
+- **Off:** `[appearance] transparency = false`, or a high-contrast desktop
+  preset (`Current` in the `[Preset]` group of `$XDG_CONFIG_HOME/boswasrc`
+  is `carbon`), makes every surface its opaque tint: no blur capability,
+  no `mica` title bars. Both are read again on `reload-config`, which `boswas-preset
+  apply` sends after writing that file, and the shell learns them from
+  `transparency` and `high_contrast` in the `config` event.
+- **Tokens:** `material.glass` gained `taskbar-tint` (`@chrome`) and
+  `taskbar` (0.72), shared by both schemes because the token tests pin the
+  keys of each scheme's table; its comment says where the shell's glass
+  goes. The generated KDE colour schemes did not change.
+- **Icons that grow under the pointer, in the shell**
+  (`crates/boswas-shell/src/magnify.rs`), as in the toolkit (ADR-0057): on
+  Start's tiles, the widgets board's cards, the clipboard panel's Pin and
+  Delete and the emoji panel, the icon under the pointer (or with the
+  keyboard focus while the pointer is elsewhere) grows to 1.4 times and
+  its neighbours to 1.15, capped so that it stays in its cell (in Start
+  about 1.28); it grows upwards, so labels never move; it eases over the
+  fast duration (150 ms) with the decelerate curve, and only the cells
+  still moving are drawn again. Reduced motion turns it off.
+
+**Why.**
+
+- One design across the shell, the compositor's own surfaces and the
+  applications, from one token table and one legibility rule.
+- Where a GPU draws, glass can show what really lies behind it, and a
+  blur recomputed only on damage costs nothing on a still screen. pixman
+  machines cannot afford a blur per change, so they keep the wallpaper.
+- Over a white window, translucent glass with white text cannot keep
+  4.5:1 at any tint short of opaque; keeping the blurred brightness
+  within a band lets the tint stay translucent and the rule still hold.
+- A standard protocol rather than an interface of the shell's own: any
+  client can use it, the Qt toolkit later.
+- Reading the wallpaper back from the shell's surface keeps picture
+  decoding out of the compositor (ADR-0036).
+
+**Left out.**
+
+- Live blur for the Qt applications: the toolkit does not use the
+  protocol yet and keeps the backdrop of ADR-0057.
+- Blur with pixman.
+
+**Consequences.**
+
+- `BoswasRenderer` gained `blurs`, `blur_behind`, `draw_blurred` and
+  `read_back` (pixman implements only the last), the output's elements a
+  `Blur` kind.
+- **Costs.** A still scene costs only the tracker's comparison per frame;
+  a window moving under a flyout costs drawing its part again and one set
+  of passes. Memory: a capture texture and its level textures per blurred
+  surface. With pixman, measured on the build machine against the tree
+  before (shell, p95 / p99 / worst in ms, pooled over 1920x1080 at 100 %
+  and 2560x1440 at 200 %, each at 60 and 144 Hz): opening and closing
+  Start 3.0 / 16.6 / 19.3 before, 6.9 / 13.9 / 26.5 after; hovering in
+  Start 2.9 / 11.7 / 12.2 and 6.7 / 9.6 / 18.9 (the magnifier draws 680
+  times where 205 were drawn, with fewer late frames, 112 where 161);
+  quick settings 2.6 / 4.2 / 5.3 and 5.0 / 10.5 / 11.9; the notification
+  centre 3.3 / 9.4 / 12.5 and 5.4 / 8.6 / 9.5; hovering on the taskbar
+  median 1.6 and 1.5, p99 3.5 and 4.1. The compositor's frames did not
+  change (Start opening p99 14.4 and 15.5). At 2560x1440, 200 % and
+  144 Hz the taskbar's partial redraws are slower end to end (median 4.3
+  where 2.8 ms); the cause was not found, and the next performance round
+  takes it up. *(Answered by ADR-0064: with tiny-skia built without
+  overflow checks and kept pictures blended in place, hovering on the
+  taskbar costs the shell less than before glass, pooled over
+  1920x1080 at 100 % and 2560x1440 at 200 %: median 0.7 ms and p95 1.6,
+  where it was 1.7 and 3.3 before glass and 1.5 and 2.8 with it; which
+  of the two changes removed the slowdown was not measured apart. With
+  glass, the shell's 99th-percentile frames in Start, the flyouts, the
+  taskbar, the snipping overlay and toasts are now below those before
+  glass (a change of theme is not), and Task View's opening on pixman is
+  back near its earlier cost.)*
+- **Verified:** the desktop workspace's `cargo test --locked` on the
+  merged tree (612 passed, none failed, 6 ignored), the static checks
+  (82), the Qt toolkit (180) and the token tests (12). The OpenGL ES
+  shaders ran in tests on Mesa's software rasterizer (llvmpipe) through
+  EGL's surfaceless platform: the blur against a reference on the
+  processor (at most 6/255 apart, not mirrored), nothing blurred again
+  for a still scene and a change picked up, drawing inside the region's
+  staircase only, the band darkening white and lifting a dark green to
+  the light band's lower end while keeping it green (where EGL cannot
+  give a renderer these two tests pass without running). Other new tests:
+  the protocol's regions and double buffering, damage, reach and halved
+  capture, legibility, the band and the grain, the high-contrast preset
+  record, the magnifier's targets, caps and easing, the sign-in
+  darkening, translucent glass without its own shadow, a taskbar hover
+  that fills nothing again, a kept picture drawn in parts equal to one
+  drawn whole. Contrast measured on screenshots (the darkest 1 % of the
+  background, grain included), worst muted text: on pixman 6.7 to 7.9 in
+  the dark scheme and 4.38 to 5.48 in the light one (the light taskbar's
+  4.38 and 4.55 are for muted text it does not show; its clock is above
+  13:1), live blur over bands of colour 4.40 to 5.38 light and 6.45 or
+  more dark; body text above 4.6:1 everywhere. Looked at: every glass
+  surface of the shell and the compositor on pixman in both schemes at
+  100 and 200 %, and once each with transparency off and with the Carbon
+  preset; live blur nested on llvmpipe under Xvfb at 1280x800 and 100 %.
+- **Not verified:** a real GPU, the DRM back end, more than one output,
+  rotated outputs; live blur at scales other than 100 %; an icon caught
+  half-way through growing; clippy with Rust 1.85; XWayland windows
+  asking for blur; turning glass off with a preset from Control Center
+  in a running session (the code path is `boswas-preset apply`, which
+  writes the record and then sends `reload-config`; it was not run). The
+  package build with Rust 1.85, lintian and the package stage passed later
+  with ADR-0064 merged (`verification.md`).
+
+**Revisit when** the Qt toolkit asks for live blur, a real GPU shows what
+the blur costs, or the end-to-end regression on the taskbar is found.
+*(The taskbar: see ADR-0064.)*
+
+## ADR-0064 No full-screen redraws for what appears in front, and slow work off the event loop
+
+Follows ADR-0056 and takes on what it left out; answers the cost on
+pixman and the slower taskbar that ADR-0063 left for this round; changes
+ADR-0032 for one crate and ADR-0057 while a window is resized. The second
+round on the report of 2026-11-26 ("Refresh rate is still laggy
+sometimes and the performance of the compositor lags"): no visible hitch
+anywhere a user goes in normal use.
+
+**Context.** Measured as in ADR-0056 (release builds, the headless
+compositor on pixman, the real shell and two `foot` windows, input
+injected through the control socket, at 1920x1080 at 100 and 125 % and
+at 2560x1440 at 200 %, at 60 and 144 Hz, each build run back to back
+with the tree before this round), with new scenarios for the snipping
+overlay, the flyouts opened one after another, a change of theme and the
+lock screen:
+
+- **Something appearing in front redrew the whole screen.** Smithay's
+  damage tracker draws an element again whole when its place in the list
+  of visible elements changes, and it counts that place from the front.
+  A tooltip, a menu, a toast, a flyout or the pointer appearing in front
+  of the windows moved the wallpaper and every window back by one place,
+  and the whole screen was drawn again for one frame (about 13 ms at
+  2560x1440 without a GPU) to show a tooltip. This is what kept the
+  compositor's fades at 144 Hz and 200 % over the budget (ADR-0056). The
+  invisible surface behind a flyout, and the dimming behind a dialog,
+  added to it: one pixel of shared memory stretched over the screen,
+  which pixman drew as a scaled picture and whose coming damaged the
+  whole output.
+- **The snipping overlay** drew the dimmed screenshot scaled over the
+  whole screen at every step of a drag, compared the whole surface and
+  copied the whole buffer (the shell's drawings: median 24.5 ms, p95
+  43 ms).
+- **The lock screen**, a new process, drew the default background and a
+  translucent fill over the whole screen with tiny-skia before its first
+  frame: 140 to 300 ms from the lock request to the screen. Reading the
+  fonts is 10 to 25 ms of it.
+- **Task View** drew its cards again whenever the selection or the
+  pointer changed, so on every closing, and composed every plain card,
+  which is mostly transparent, on every frame. With glass (ADR-0063) its
+  blurred desktop reached pixman in RGBA order, which sends the twofold
+  enlargement down pixman's slow generic path (p95 56 ms a frame), and
+  the blurred desktop and the darkening over it were two translucent
+  layers over the whole output, blended on every frame of the fade.
+- **The preparation** of ADR-0056 ran in one block of 84 to 310 ms on
+  the event loop; with glass, making Start's panel (shadow, fill from the
+  blurred wallpaper, edges) was 30 to 97 ms of it, and every symbolic
+  icon of a flyout was looked up at 1 to 2 ms.
+- **tiny-skia under overflow checks.** The release profile's overflow
+  checks (ADR-0032) keep tiny-skia's sixteen-lane arithmetic from being
+  vectorised or inlined: a translucent fill of a 2560x1440 screen took
+  40 ms.
+- **Memory that freeing did not give back.** After a large block is
+  freed, glibc raises the size from which it maps blocks on their own,
+  so later large canvases come from the heap, which it keeps; letting go
+  of the shell's canvases did not lower its resident size.
+- **The toolkit's glass** (ADR-0057): a window made larger by hand got a
+  new backdrop (3.7 to 8 ms at 200 %) at every 160-pixel step it crossed.
+
+**Decision.**
+
+- **Steady places** (`crates/boswas-compositor/src/steady.rs`). The
+  elements in front of the windows (the pointer, Alt+Tab, the window
+  menu, the snap layouts and the overlay and top layers; with a
+  full-screen window, everything in front of it) are followed by
+  spacers, one transparent pixel each where nothing opaque covers it,
+  until 48 elements (`FRONT`) count as visible. The windows and the
+  wallpaper keep their places, and only the spacers move. None are added
+  when the opaque parts in front cover the whole output. The blur that
+  live blur (ADR-0063) puts behind a translucent surface is inserted once
+  the whole picture is known, after the spacers were counted; so that a
+  blurred menu, tool tip or flyout in front does not move the windows back
+  by one, the spacers are counted again afterwards and the extra ones
+  taken out (`steady::rebalance`; a unit test checks it, no GPU ran it).
+- **Surfaces that show nothing cost nothing.** The shell sends a surface
+  of one colour stretched over the screen (the invisible one behind a
+  flyout, which takes the click that closes it, and the dimming behind a
+  dialog) as a `wp_single_pixel_buffer_v1` buffer, which the compositor
+  already offered, and as a pixel of shared memory where it is not
+  offered (`crates/boswas-shell/src/solid.rs`; at most eight colours are
+  kept as buffers). The compositor leaves out of the picture a layer
+  surface whose buffer is one fully transparent single pixel and that has
+  no subsurface and no popup (`render.rs`, `shows_nothing`): its coming
+  and going damages nothing, and it still takes the pointer.
+- **The snipping overlay draws only what a drag changes**
+  (`crates/boswas-shell/src/capture.rs`). The dimmed screenshot is made
+  once and copied, not scaled, while the surface has the picture's size;
+  a step of a drag draws again only the strips the selection's edges
+  moved across, its size tag and the hint, through the partial redraw of
+  ADR-0056, and the overlay redraws at the refresh rate. The selection
+  shows the very pixels the capture takes, framed in white on whole
+  device pixels (as many as the scale rounded, at a gap of half the
+  scale rounded down). The compositor writes its screenshots as PNG
+  with fast compression: it encodes while every output waits, and Print
+  opens the capture view on that file.
+- **The lock screen starts from the desktop's background**
+  (`crates/boswas-shell/src/wallpaper.rs`). The desktop writes every
+  background it draws to `$XDG_RUNTIME_DIR/boswas-shell-background`: a
+  header (size, scheme, the wallpaper's path) and the drawing as it is,
+  written on a thread beside the file and renamed over it, mode 0600,
+  never through a link, at most 64 MiB of pixels (a 5K screen; a larger
+  drawing is not shared). The lock screen reads it on a thread while it
+  connects, never through a link, only as a regular file whose length is
+  exactly what its header says, and makes every pixel opaque. It shows it
+  while its output has that size and, for the drawn background, that
+  scheme, and does not decode the wallpaper again when its configuration
+  names the same picture. The login screen runs as another user and does
+  not read it. The default background is drawn on up to four threads,
+  the same pixels as before. The compositor's blank cover from the
+  moment of locking until the lock surface arrives is unchanged
+  (ADR-0028).
+- **Faster drawing in `boswas-ui`**: a rectangle on the pixel grid is
+  filled by the canvas itself, only within the clip and with tiny-skia's
+  arithmetic, so a partial redraw of the lock screen (typing the
+  password) no longer fills the whole screen; a picture laid on an empty
+  canvas is copied; a kept picture laid on unscaled is blended in place
+  over only the parts being drawn (`Canvas::blend_picture`); these three
+  are tested pixel for pixel against tiny-skia. Overlapping parts of a
+  clip are blended once, and pixels are converted for the buffers, and
+  checked for opacity by the shell, two at a time.
+- **Task View keeps what it drew**
+  (`crates/boswas-compositor/src/shell/overview.rs`, `glass/mod.rs`). A
+  window's card is kept in up to four looks (`CARD_LOOKS`: plain, under
+  the pointer, selected, both), and a plain card is only its label strip.
+  The blurred desktop goes to pixman in ARGB order, the output's, which
+  pixman enlarges on its fast path; the pixels are the same. During the
+  fade the enlarged blurred desktop and the darkening over it are one
+  picture, drawn at Task View's opacity: pixman makes it on a worker
+  thread (`task-view`) with a renderer of its own, once per wallpaper,
+  output size and theme (30 to 40 ms at 2560x1440), and it is kept for
+  the next opening; until it is there, the two layers are drawn. At rest
+  both renderers draw the two layers as before: pixman's enlargement
+  leaves the outermost pixels translucent, and there one layer rounds a
+  level differently from two. OpenGL ES fades with the same picture. It
+  is let go of three minutes after Task View last faded (`DARKENED_KEPT`)
+  and made again at the next opening; with reduced motion none is made.
+- **The preparation in slices** (`crates/boswas-shell/src/prewarm.rs`).
+  One slice per turn of the event loop, only while nothing is drawn or
+  moving and no flyout is open: for each of Start, quick settings and the
+  notification centre, a corner that plans the panel and the icons not
+  looked up yet, the same corner again once they are kept, then bands of
+  96 logical pixels. A worker thread named `panels` makes the planned
+  panel from a copy of the backdrop (`Backdrop::copy_for_work`) and the
+  icons with the theme's loader; the slices wait for it. A click waits
+  for one slice at most.
+- **tiny-skia is built without overflow checks**
+  (`[profile.release.package.tiny-skia]` in
+  `packages/boswas-desktop/Cargo.toml`), as its own releases are: an
+  exception to ADR-0032 for that crate alone. Its arithmetic wraps where
+  upstream means it to, bounds are still checked, and our own crates and
+  every other dependency keep the checks.
+- **Memory given back.** The compositor starts the programs it trusts as
+  the shell (the shell, the lock screen and the login screen) with
+  `GLIBC_TUNABLES=glibc.malloc.mmap_threshold=262144`, unless its own
+  environment sets `GLIBC_TUNABLES`: blocks of 256 KiB and more are
+  mapped on their own and go back to the system when they are freed. The
+  shell takes exactly that value out of its environment when it starts,
+  so the programs it starts do not inherit it (a value the session set is
+  passed on as before). Shadow pictures over 1 MiB are let go once the
+  panels are made, and spare canvases and buffers (up to 64 MB at 200 %)
+  three minutes after the last flyout, menu, dialog or capture view
+  closed (`KEEP_SPARES`). No `malloc_trim` and no new `unsafe`.
+- **The toolkit's glass waits for a pause in a resize**
+  (`desktop/ui/qt/boswas_fluent/glass.py`): while a window resized by
+  hand outgrows its backdrop, the new one is made once the size has
+  stood still for 150 ms (`RESIZE_PAUSE`); until then the largest kept
+  backdrop shows, centred, with its mean colour beyond it. At rest a
+  window has the backdrop it had before.
+- **Smaller:** the magnifier no longer searches, at every frame of its
+  easing, for an icon that is not installed.
+
+**Why.**
+
+- The full-screen redraws came from the order of the elements and from
+  an invisible stretched pixel, not from anything that changed. Keeping
+  the order steady in the compositor helps every client, other
+  programs' tooltips and menus included.
+- The rest was work done again on every frame, on every lock or in one
+  block: a background the desktop has already drawn, cards and layers
+  that do not change during a fade, a preparation that only has to be
+  finished before the user opens something.
+- tiny-skia is written for builds without the checks, which cost it
+  several times its speed; the bounds checks that guard memory stay.
+- A file in the user's runtime directory needs no new protocol and keeps
+  picture decoding out of the compositor (ADR-0036); the compositor's
+  cover already hides the desktop until the lock surface comes, so the
+  file only shortens that time.
+
+**Left out**, measured and not fixed:
+
+- The lock screen is not within one or two frames: 72 to 94 ms from the
+  lock request to the screen at 1920x1080 and 107 to 117 ms at 2560x1440
+  and 200 %. Loading only the fonts of the interface first was not done.
+- Task View at 2560x1440, 200 % and 144 Hz: p95 12.0 ms against 10.9
+  before this round, about 1 ms over; the fade still blends one
+  translucent layer over the whole output. The first opening after the
+  start or a change of wallpaper is slower than before this round while
+  the darkened picture is made (its first frame 61 ms at 2560x1440 and
+  50 ms at 1920x1080, where it was 48 and 23 to 28 ms).
+- The compositor's memory after Task View: 148 MB at 2560x1440 and 200 %
+  (117 MB with two layers), 134 MB once the picture is let go; the rest
+  is probably glibc keeping freed memory, since the compositor runs
+  without the mmap threshold.
+- A change of theme: the shell's p99 is 30 to 37 ms, against 26 to 28 ms
+  before this round.
+- Not measured: the OpenGL ES path (the spacers, the single-pixel
+  buffers and the darkened picture apply there too) and a real GPU, the
+  DRM back end, more than one output; the time from input to commit
+  during the preparation; resizing and scrolling Control Center and Files
+  on a real compositor (only the toolkit's backdrop store was timed); the
+  three-minute releases end to end; the lock screen's sign-in view.
+
+**Consequences.**
+
+- **The runtime file.** Any program of the user can write
+  `$XDG_RUNTIME_DIR/boswas-shell-background` and so put a picture on the
+  next lock screen. That is no boundary: the same program could set the
+  wallpaper, and the lock is no boundary against a program that runs
+  unsandboxed as the same user (ADR-0028). The file cannot unlock or
+  show the desktop: the lock screen still asks for the password, a file
+  that is not valid is ignored and the background drawn again, and the
+  compositor's cover hides the desktop until the lock surface arrives.
+  The file holds the drawn background and the wallpaper's path, takes the
+  screen's pixels times four bytes of memory (the runtime directory is a
+  tmpfs: 14.7 MB at 2560x1440, 8.3 MB at 1920x1080), and goes with the
+  runtime directory when the user's last session ends.
+- The PNG files the compositor writes (`screenshot` and `thumbnail`, so
+  also the capture view's picture) are larger.
+- The snipping selection lies on whole device pixels, also at fractional
+  scales; its frame is crisp.
+- The shell, the lock screen and the login screen run with
+  `GLIBC_TUNABLES` set; the shell does not pass it on. Frame times with
+  and without it were the same within noise (opening Start, compositor
+  p95 5.6 to 5.7 ms with it, 5.1 to 5.4 ms without).
+- An integer overflow inside tiny-skia wraps in release builds, as
+  tiny-skia intends, instead of stopping the program.
+- New log lines: under `boswas_shell::stats` at debug "flyouts drawn
+  ahead of time in N ms, in M slices of at most X µs" (the line of
+  ADR-0056, now with its slices) and "let go of N MB kept for flyouts",
+  at trace one line per slice ("prepared ... in N µs"); under
+  `boswas_compositor::stats` at trace "task view: a card drawn" and
+  "task view: the strip drawn", at debug "task view: let go of the
+  darkened desktop of OUTPUT".
+- The compositor's tests use `wayland-protocols-wlr` (client side), a
+  crate already in the lock file, as a development dependency.
+- **Verified**, against the tree before this round, pooled over
+  1920x1080 at 100 % and 2560x1440 at 200 %, each at 60 and 144 Hz
+  (`docs/architecture/verification.md` has the table): opening and
+  closing Start, compositor p95 9.6 → 5.7 ms and p99 14.4 → 8.3, frames
+  over 6.9 ms 113 → 9, late frames 68 of 516 → 10 of 580; the flyouts in
+  turn p95 8.6 → 4.7, late 79 of 1,249 → 12 of 1,316; dragging a
+  snipping selection, the shell's median 24.5 → 0.5 ms and p95 43.1 →
+  1.3; Task View p99 29.4 → 19.7 (at 1920x1080 and 144 Hz p95 6.4, within
+  the 6.9 ms budget); a toast, the shell's p95 57.0 → 13.0; hovering on
+  the taskbar, the shell's p95 3.3 → 1.6 (2.8 with glass before this
+  round); the lock screen on screen 142 to 301 → 72 to 117 ms; the
+  preparation in 24 to 31 slices of at most 2 to 4.5 ms instead of one
+  block; the shell's resident size at 2560x1440 and 200 % 101 MB after
+  the start and 119 MB after the flyouts (117.6 and 133.8 without the
+  mmap threshold). Dragging, resizing and snapping windows did not
+  change. Tests: the desktop workspace's `cargo test --locked` on the
+  merged tree, in the package build with Rust 1.85 (release), 635 passed
+  and 6 ignored, and 637 with the spacer and scheme fixes; on the tree
+  before the Task View fold, 632
+  passed, none failed, 6 ignored; the release-only budgets passed; the
+  static checks 82; the Qt toolkit 181. New guards: a drag drawn in parts
+  is exactly the whole drawing at 100, 125 and 200 % and small moves draw
+  only strips, and the selection shows the captured pixels; end to end, a
+  fully transparent layer surface adds no damage and still gets the
+  pointer, a small surface appearing in front and going damages only
+  itself, and Task View opened again draws no card or strip (each fails
+  without its fix); the front's count with spacers; the preparation in
+  slices, with no icon looked up on the event loop, the prepared Start
+  identical to one drawn directly and, in release builds, no slice of
+  Start's at 200 % over 8 ms; the
+  shared background read back only when whole and valid and shown by the
+  lock screen as the desktop drew it; the threaded background equal to
+  the old one; the darkened desktop standing for the two layers with
+  pixman (exact where opaque, within one level at the edges, at 100, 125
+  and 200 %) and with OpenGL ES on Mesa's software renderer, and let go
+  of after three minutes; the blurred desktop in ARGB order the same
+  pixels; the memory setting for the shell's trust only and not passed
+  on; the toolkit's backdrop made only after a pause and identical at
+  rest. Screenshots before and after at 1920x1080 and 125 % and at
+  2560x1440 and 200 % are identical but for the clock and a tooltip
+  caught mid-fade; the snipping selection differs on purpose; Task View
+  at rest is identical to the build before the single fading picture
+  but for the clock, and with reduced motion it opens and closes in one
+  frame and ends as the animated one does.
+- **Not verified:** see Left out. The package build with Rust 1.85 and
+  all its tests, lintian and the package stage passed on the merged tree
+  (`verification.md`); the unit stage and the virtual machine were not
+  run.
+
+**Revisit when** a real GPU shows how the spacers and the fades behave
+there, the lock screen has to come within a frame or two (the fonts of
+the interface first), Task View at 144 Hz and 200 % matters (the
+shell's wallpaper as XRGB, which pixman would copy instead of blending),
+or the compositor's memory after Task View does (the mmap threshold for
+the compositor too).

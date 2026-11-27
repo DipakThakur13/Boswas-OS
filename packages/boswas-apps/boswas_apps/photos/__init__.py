@@ -7,7 +7,7 @@ Modules without widgets (unit-tested without a display server):
   exif        EXIF from JPEG APP1 and TIFF, read with strict bounds checking
   trash       the freedesktop.org Trash specification
   thumbcache  names and directories of the freedesktop.org thumbnail cache
-  desktopcfg  the wallpaper key of the desktop's compositor.toml
+  desktopcfg  the wallpaper key of the desktop's appearance.toml
   library     finding the pictures of the gallery, months, folders, search
   settings    what the user chose
   openwith    other applications that open a file type (desktop entries)

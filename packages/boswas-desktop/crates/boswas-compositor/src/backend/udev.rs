@@ -720,6 +720,19 @@ impl Udev {
         }
     }
 
+    /// Whether some output's CRTC has a gamma ramp night light can load
+    /// (without outputs yet: assumed, so the tile is not greyed at start).
+    pub fn night_light_available(&self) -> bool {
+        let Some(device) = &self.device else {
+            return true;
+        };
+        if device.surfaces.is_empty() {
+            return true;
+        }
+        let drm = device.gpu.drm();
+        device.surfaces.keys().any(|crtc| drm.get_crtc(*crtc).is_ok_and(|info| info.gamma_length() >= 2))
+    }
+
     /// Answers pending screenshot requests with the first output.
     fn take_screenshots(&mut self, state: &mut Boswas) {
         if state.ipc.screenshots.is_empty() && !state.screencopy.has_ready() {
@@ -1712,6 +1725,22 @@ fn arrange_outputs(device: &Device, state: &mut Boswas) {
             }
         }
     }
+}
+
+/// An OpenGL ES renderer on EGL's surfaceless platform (Mesa's software
+/// rasterizer where there is no GPU), for tests of the shaders; `None` where
+/// EGL cannot give one.
+#[cfg(test)]
+pub(crate) fn software_gles_renderer() -> Option<GlesRenderer> {
+    // SAFETY: the surfaceless platform has no native display that would
+    // have to outlive the EGL display.
+    let display = unsafe { EGLDisplay::new(smithay::backend::egl::native::EGLSurfacelessDisplay) }.ok()?;
+    let context = EGLContext::new(&display).ok()?;
+    // SAFETY: the context was just created for this thread and is used by
+    // this renderer only.
+    let mut renderer = unsafe { GlesRenderer::new(context) }.ok()?;
+    crate::effects::init_gles(&mut renderer);
+    Some(renderer)
 }
 
 #[cfg(test)]

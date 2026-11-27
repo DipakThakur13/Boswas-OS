@@ -747,7 +747,9 @@ class ViewerFilesTest(PhotosCase):
 
     def test_set_as_desktop_background(self):
         config = self.tmp / "xdg_config_home" / "boswas" / "compositor.toml"
-        fx.write(config, b'# mine\n[appearance]\nscheme = "light"\n\n[input]\nnatural_scroll = true\n')
+        fx.write(config, b'# mine\n[appearance]\nwallpaper = "/old.png"\n\n[input]\nnatural_scroll = true\n')
+        look = fx.write(self.tmp / "xdg_config_home" / "boswas" / "appearance.toml",
+                        b'# Written by boswas-preset\n[appearance]\nscheme = "light"\nwallpaper = "/usr/share/w.png"\n')
         path = self.add("wall.png", picture(640, 360, (20, 40, 60)))
         window = self.viewer(path)
         window.viewer.commands._fill_menu()
@@ -759,17 +761,19 @@ class ViewerFilesTest(PhotosCase):
         copies = list((self.tmp / "xdg_data_home" / "boswas" / "wallpapers").iterdir())
         self.assertEqual(len(copies), 1)
         self.assertEqual(copies[0].read_bytes(), Path(path).read_bytes())
-        self.assertEqual(config.read_text(), '# mine\n[appearance]\nscheme = "light"\n'
-                                             f'wallpaper = "{copies[0]}"\n\n[input]\nnatural_scroll = true\n')
+        self.assertEqual(look.read_text(), '# Written by boswas-preset\n[appearance]\nscheme = "light"\n'
+                                           f'wallpaper = "{copies[0]}"\n')
+        self.assertEqual(config.read_text(), '# mine\n[appearance]\n\n[input]\nnatural_scroll = true\n',
+                         "the stale copy that appearance.toml would have hidden is gone")
         # a desktop that is not running: said, not hidden
         window.compositor_runner = lambda arguments, **options: (_ for _ in ()).throw(FileNotFoundError(arguments[0]))
         window.viewer.set_as_wallpaper()
         self.wait(lambda: "next time" in self.banner(window))
-        # a configuration that cannot be edited safely: an error, and the file as it was
-        config.write_text('appearance = { scheme = "dark" }\n')
+        # a configuration that cannot be read: an error, and the file as it was
+        look.write_bytes(b"\xff\xfe not text")
         window.viewer.set_as_wallpaper()
         self.wait(lambda: "was not changed" in self.banner(window))
-        self.assertEqual(config.read_text(), 'appearance = { scheme = "dark" }\n')
+        self.assertEqual(look.read_bytes(), b"\xff\xfe not text")
 
     def test_open_with_show_in_files_and_the_context_menu(self):
         program = fx.write(self.tmp / "bin" / "othergimp", b"#!/bin/sh\n")
@@ -1766,6 +1770,7 @@ class InstanceTest(PhotosCase):
             self.assertEqual(main(["boswas-photos", "--slideshow", "relative.png", "/abs.png"]), 0)
         self.assertEqual(calls["app_id"], "com.boswas.Photos")
         self.assertEqual(calls["options"]["argv"], ["boswas-photos", "--slideshow", "/work/relative.png", "/abs.png"])
+        self.assertTrue(calls["options"]["multiple_windows"], "--new-window of a later start: a window of its own")
 
 
 class PackagingTest(unittest.TestCase):

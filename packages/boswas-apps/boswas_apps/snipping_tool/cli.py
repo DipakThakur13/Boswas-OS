@@ -16,6 +16,8 @@ Snip the screen, mark the snip up, save it or copy it.
   --mode=MODE    what a snip takes: region (an area you drag, the default)
                  or screen (the whole screen)
   --delay=N      wait N seconds (0 to 60) before the snip
+  --new-window   accepted, and the same as a start without it: Snipping Tool
+                 has one window, which comes forward
   --version      print the version and exit
   -h, --help     print this text and exit
 """
@@ -94,6 +96,8 @@ def parse(arguments: list[str], base: str | None = None) -> Arguments:
                 only_paths = True
             elif argument == "--new":
                 result.new = True
+            elif argument == "--new-window":
+                pass                                  # one window: a later start brings it forward anyway
             elif argument in ("-h", "--help"):
                 result.help = True
             elif argument == "--version":

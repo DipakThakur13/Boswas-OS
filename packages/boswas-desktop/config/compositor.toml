@@ -71,6 +71,9 @@ screen_off_seconds = 300
 [appearance]
 scheme = "dark"
 accent = "iris"
+# Glass: translucent, blurred surfaces (with OpenGL ES the windows behind a
+# flyout are blurred). false makes every surface its opaque tint; so does a
+# high-contrast desktop preset.
 transparency = true
 
 [accessibility]
@@ -97,6 +100,8 @@ auto_hide = false
 task_view = true
 clock_seconds = false
 badges = true
+# The widgets button at the left end of the taskbar (Super+W opens the board too).
+widgets = true
 
 [start]
 layout = "default"
@@ -112,6 +117,16 @@ snap_layouts_on_drag = true
 taskbar_windows = "desktop"
 alt_tab_windows = "desktop"
 
+[desktop]
+# The files and folders of the desktop folder (XDG_DESKTOP_DIR) as icons.
+icons = true
+# Besides them: "home", "trash" and "computer", in this order.
+system_icons = ["trash"]
+# "small" (32 px), "medium" (48 px) or "large" (96 px).
+icon_size = "medium"
+auto_arrange = false
+align_to_grid = true
+
 [notifications]
 do_not_disturb = false
 do_not_disturb_scheduled = false
@@ -119,6 +134,13 @@ do_not_disturb_from = "22:00"
 do_not_disturb_to = "07:00"
 banners_off = []
 toast_seconds = 5
+
+[clipboard]
+# Super+V shows the last items copied (kept in memory; pinned items are
+# kept in the user's state directory). cleared_at is written by Settings
+# ("Clear clipboard data"): what was copied before then is forgotten.
+history = true
+cleared_at = 0
 
 [policy]
 # Users may shorten the lock timeout but not lengthen or disable it.

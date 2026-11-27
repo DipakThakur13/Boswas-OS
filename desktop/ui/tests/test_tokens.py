@@ -93,6 +93,27 @@ class Tokens(unittest.TestCase):
             self.assertTrue(0 < material["tint-opacity"] <= 1, name)
             self.assertRegex(self.generator.resolve(self.tokens, "dark", material["tint"]), HEX, name)
 
+    def test_glass(self):
+        """Boswas glass (material.glass): its tints resolve, both schemes give every level as an opacity,
+        the blur, saturation and grain stay in their ranges, and glass grows more opaque from the pane over
+        the card to the flyout, which stands over content."""
+        glass = self.tokens["material"]["glass"]
+        for key in ("tint", "pane-tint", "card-tint", "flyout-tint"):
+            for scheme in ("dark", "light"):
+                self.assertRegex(self.generator.resolve(self.tokens, scheme, glass[key]), HEX, key)
+        self.assertTrue(0 < glass["blur"] <= 200)
+        self.assertTrue(1.0 <= glass["saturation"] <= 2.0)
+        self.assertTrue(0 < glass["noise"] <= 0.05)
+        for scheme in ("dark", "light"):
+            levels = glass[scheme]
+            self.assertEqual(set(levels), {"tint-opacity", "pane", "card", "flyout", "highlight", "highlight-hover",
+                                           "glow", "shadow"}, scheme)
+            for key, value in levels.items():
+                self.assertTrue(0 < value <= 1, f"glass.{scheme}.{key}")
+            self.assertLess(levels["pane"], levels["card"])
+            self.assertLess(levels["card"], levels["flyout"])
+            self.assertLessEqual(levels["highlight"], levels["highlight-hover"])
+
     def test_icon_colours_are_lit_from_the_top_and_keep_symbols_readable(self):
         """The icon pack's colour roles: every family runs from light to deep
         (light >= from >= to >= deep), a symbol drawn on it ('glyph') has

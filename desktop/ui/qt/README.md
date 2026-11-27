@@ -3,7 +3,9 @@
 The PySide6 (Qt 6 Widgets) toolkit of Boswas OS applications. It makes a
 Qt application look and behave like the rest of the Boswas desktop: Fluent
 layout, geometry and motion, with the colours, radii, type and durations of
-[`../tokens.json`](../tokens.json), the Boswas Prism icons and Inter.
+[`../tokens.json`](../tokens.json), the Boswas Prism icons and Inter, and
+Boswas glass: windows show the desktop background, blurred and tinted, under
+translucent panes, cards, menus and dialogs ([Glass](#glass-glass)).
 
 ```python
 import boswas_fluent as fluent
@@ -86,10 +88,25 @@ if __name__ == "__main__":
 
 `fluent.run` creates the QApplication with the desktop file name, lets only
 one instance run, applies the theme, handles Ctrl+C and returns the exit
-code. A later start of the program raises the first window and calls its
-`handle_arguments(list[str])`, if it has that method. Connect long-lived
-signals such as `fluent.manager().changed` to methods of your widgets, not
-to lambdas: Qt drops a connection to a method when the widget is destroyed.
+code. A later start of the program raises the window that was active last
+and calls its `handle_arguments(list[str])`, if it has that method. Connect
+long-lived signals such as `fluent.manager().changed` to methods of your
+widgets, not to lambdas: Qt drops a connection to a method when the widget
+is destroyed.
+
+**New window.** `--new-window` (`fluent.NEW_WINDOW`) on the command line asks
+for another window; it is what the desktop entry's `[Desktop Action
+NewWindow]` runs (`Exec=boswas-notes --new-window`) and what the shell runs
+for "New window". An application that can show several windows passes
+`multiple_windows=True` to `run`: a later start with `--new-window` then
+builds one more window with `window_factory(arguments)` in the running
+instance (the window is deleted when it is closed, so keep shared state such
+as a recent-files list outside the window). Without it the option is taken
+out of the arguments and the window comes forward: an application with one
+window (Clock, Task Manager, Media Player) needs no code for it, and gets no
+`NewWindow` action. `window_factory` and `handle_arguments` never see the
+option; `fluent.split_new_window(arguments)` takes it out for programs that
+manage their windows themselves (Files, Text Editor, Terminal).
 
 ## Rules for application authors
 
@@ -157,9 +174,13 @@ class WindowTest(testing.FluentTestCase):          # unittest; offscreen; privat
         testing.grab(window, self.tmp / "window.png")       # look at it
 ```
 
-`testing.app()`, `show`, `grab`, `click`, `key`, `type_text`, `press_tab`,
-`process`, `wait_until`, `set_scheme`. Import `boswas_fluent.testing` before
-anything creates a QApplication (it selects Qt's offscreen platform).
+`testing.app()`, `show`, `grab`, `click`, `hover` (moves the pointer onto
+a widget through its window, so Qt itself sends Enter and hover events and
+sets an item view's hover row), `key`, `type_text`, `press_tab`, `process`,
+`wait_until`, `set_scheme`, `set_glass(True/False/None)`. Tests draw without
+glass, so that colours compare exactly, unless they call `set_glass(True)`
+or run with `BOSWAS_FLUENT_TEST_GLASS=1`. Import `boswas_fluent.testing`
+before anything creates a QApplication (it selects Qt's offscreen platform).
 `ContentDialog.exec()` blocks: in a test answer it with
 `QTimer.singleShot(20, dialog.primary_button.click)`, or route questions
 through an attribute of your window that tests replace.
@@ -170,15 +191,15 @@ through an attribute of your window that tests replace.
 
 | Name | What it does |
 |------|--------------|
-| `Theme(scheme="dark", tokens=None, *, accent=None, text_scale=100)` | The tokens through one scheme, with the desktop's accent colour (a hue of `ACCENTS`: `iris`, the default, `azure`, `sky`, `mint`, `sun`, `coral`, `orchid`, `slate`) and text size (100 to 225 percent of the type ramp). `color(name)` → `#RRGGBB` for a role (`accent`, `text-secondary`, ...), a derived colour (`layer`, `card`, `flyout`, `warning-tint`, `success-text`, `accent-fill-hover`, ...) or a palette reference (`iris.500`); `rgba(name)` → (colour, opacity) for the layers `fill-control[-hover/-pressed]`, `fill-subtle-hover/-pressed`, `fill-disabled`, `stroke-control/-surface/-divider/-window`, `stroke-strong`, `text-disabled`, `accent-disabled`, `smoke`; `over(layer, base)`, `css(name)`, `radius(name)`, `spacing(steps)`, `type(name)` → `TypeStyle(size, line_height, weight)`, `families`, `duration(name)`, `curve(name)`, `elevation(name)`, `is_dark` |
+| `Theme(scheme="dark", tokens=None, *, accent=None, text_scale=100)` | The tokens through one scheme, with the desktop's accent colour (a hue of `ACCENTS`: `iris`, the default, `azure`, `sky`, `mint`, `sun`, `coral`, `orchid`, `slate`) and text size (100 to 225 percent of the type ramp). `color(name)` → `#RRGGBB` for a role (`accent`, `text-secondary`, ...), a derived colour (`layer`, `card`, `flyout`, `warning-tint`, `success-text`, `accent-fill-hover`, ...) or a palette reference (`iris.500`); `rgba(name)` → (colour, opacity) for the layers `fill-control[-hover/-pressed]`, `fill-subtle-hover/-pressed`, `fill-disabled`, `stroke-control/-surface/-divider/-window`, `stroke-strong`, `text-disabled`, `accent-disabled`, `smoke` and the glass layers `glass-backdrop`, `glass-pane`, `glass-card`, `glass-flyout`, `glass-highlight[-hover]`, `glass-glow`, `glass-shadow`; `over(layer, base)`, `css(name)`, `radius(name)`, `spacing(steps)`, `type(name)` → `TypeStyle(size, line_height, weight)`, `families`, `duration(name)`, `curve(name)`, `elevation(name)`, `is_dark`; `has_glass`, `glass(key)` (a value of `material.glass` for the scheme), `glass_floor()` |
 | `fluent.theme()` | The current `Theme` |
 | `fluent.apply(app=None, *, scheme=None, watch=True)` | Style the application: Fusion as base, palette, generated style sheet, Inter at the body size, icon theme `Boswas-Prism` / `Boswas-Prism-Light` (fallback Breeze), focus ring, round popups; then follow the desktop. Returns the manager. `FluentWindow` and `run` call it for you |
-| `fluent.manager()` | The `ThemeManager`: `scheme`, `theme`, `reduced_motion`, `always_show_scrollbars`, `follows_desktop`, `applied`, `font_family()`, `set_scheme("dark"/"light"/None)`, `set_reduced_motion(bool/None)`, `reload()`, signal `changed(Theme)` |
+| `fluent.manager()` | The `ThemeManager`: `scheme`, `theme`, `reduced_motion`, `always_show_scrollbars`, `glass`, `wallpaper`, `high_contrast`, `follows_desktop`, `applied`, `font_family()`, `set_scheme("dark"/"light"/None)`, `set_reduced_motion(bool/None)`, `set_glass(bool/None)`, `reload()`, signal `changed(Theme)` |
 | `fluent.font(style="body")` | QFont of a ramp step: `caption` 12, `body` 14, `body-strong`, `body-large` 16, `subtitle` 20, `title` 28, `title-large` 40 |
 | `fluent.qcolor(name)` | QColor of a colour or layer (with its opacity) |
 | `fluent.duration(name)`, `fluent.easing(name)` | `fast` 150, `normal` 200, `slow` 250 ms (0 with reduced motion); `decelerate`, `accelerate`, `standard` as QEasingCurve |
 | `fluent.repolish(widget)` | After changing a dynamic property that the style sheet looks at |
-| `read_appearance()`, `Appearance` | The desktop's look: `scheme`, `reduced_motion` and `accent` of `[appearance]`; `text_scale` and `always_show_scrollbars` of `[accessibility]` |
+| `read_appearance()`, `Appearance` | The desktop's look: `scheme`, `reduced_motion`, `accent`, `wallpaper` and `transparency` of `[appearance]`; `text_scale` and `always_show_scrollbars` of `[accessibility]`; `high_contrast`, true while the preset recorded in `~/.config/boswasrc` is a high-contrast one (`HIGH_CONTRAST_PRESETS`: Carbon) |
 
 The scheme comes from the `[appearance]` table the compositor reads:
 `/usr/share/boswas/compositor/compositor.toml`, `/etc/boswas/compositor.toml`,
@@ -204,9 +225,64 @@ application (`boswas-compositor(1)`):
 * **Always show scroll bars** (`[accessibility] always_show_scrollbars`,
   Accessibility > Visual effects): scroll bars are drawn at the width they
   take under the pointer instead of as thin lines.
+* **Transparency effects** (`[appearance] transparency`, Personalization >
+  Colours) and the **wallpaper** (`[appearance] wallpaper`): Boswas glass is
+  on while transparency is on and no high-contrast preset is applied, and
+  shows the wallpaper (the default background without one). See
+  [Glass](#glass-glass).
 
 Custom-painted widgets read `fluent.theme()` in `paintEvent`; they need no
 code for a scheme change.
+
+### Glass: `glass`
+
+Boswas glass is the material of the applications (`material.glass` in the
+token file). A `FluentWindow` (and a `QDialog` that is a window of its own)
+shows the desktop background as its **backdrop**, as Windows 11 shows Mica:
+the wallpaper, or without one the default background the shell draws,
+reduced, its colours saturated, blurred, covered with the scheme's tint and a
+fine grain. Panes, cards, rows, menus, combo box lists, tool tips, flyouts
+and dialogs lie on it as **translucent glass**: their tint at the token's
+opacity, an inner glow below the top edge and a hairline whose top is a
+white highlight and whose bottom a soft shadow. Hover and press are the grey
+state layers of the scheme on the glass (lighter in the dark scheme), never
+black. Popups and dialogs show their window's backdrop under a nearly opaque
+tint (acrylic), so they stay readable over any content.
+
+* **Legible on any picture.** The tint opacity of the token file is a
+  minimum: it is raised until body text keeps 4.5:1 on the darkest and the
+  brightest parts of the backdrop and on the glass and state layers there,
+  and muted and coloured text on the glass, as on the opaque surfaces. The
+  coloured text colours (`*-text`) are derived to keep 4.5:1 down to
+  `glass_floor()` as well, so a calm picture keeps the token's tint.
+* **Off** with `[appearance] transparency = false`, with a high-contrast
+  preset, with a token file without `material.glass`, or with
+  `manager().set_glass(False)`: every surface is its opaque tint, as before
+  glass.
+* **Cheap.** Nothing is blurred per frame. The wallpaper is decoded once on
+  a worker thread (a window is opaque until it is ready); the blurred, tinted
+  picture is made once per picture, scheme and accent (about 30 ms); a
+  window's backdrop once, a little larger than the window, so that resizing
+  does not make one per frame; while a window resized by hand outgrows it,
+  the new one is made only once the size has stood still for
+  `RESIZE_PAUSE` (0.15 s), and until then the kept one shows, centred, with
+  its mean colour beyond it (ADR-0064); glass surfaces (and with glass off
+  the opaque surfaces) are drawn once per size and state into a pixmap and
+  copied.
+* **Where a window is.** A Wayland client does not know its position, so a
+  window shows the part of the picture that a window of its size centred on
+  the screen covers. It does not move with the window or zoom when it is
+  resized; windows behind it are not part of the picture.
+
+| Name | What it does |
+|------|--------------|
+| `glass.enabled()` | Whether windows are drawn with glass now (`manager().glass`) |
+| `paint.glass(painter, rect, kind="card", *, state="rest", radius=None, outline=True, fill=True)` | A glass surface: `card` (cards, rows), `pane` (navigation panes, side bars), `flyout` (draw the backdrop first for acrylic); `state` `hover` or `pressed`. With glass off the opaque surface it replaces (`card`: the card colour; `pane`: nothing) |
+| `glass.paint_backdrop(painter, widget, rect=None)` | The part of the window's backdrop under `rect` of `widget` (a popup: of the window it belongs to); False while glass is off or the picture loads |
+| `glass.window_backdrop(window)` | (pixmap, the window's top left corner in it), or None |
+| `glass.tint_opacity(widget=None)` | The tint opacity the backdrop uses now (the token's or more) |
+| `glass.backdrop()` | The cache of the process: `window(theme, wallpaper, size, dpr, screen, owner=0)` (`owner` tells windows apart for the pause in a resize), `soft(...)`, `wait(timeout)`, `clear()`, `renders`, `softs`, `deferred` (backdrops put off during a resize) |
+| `FluentWindow(..., backdrop=True)` | `backdrop=False`: the window keeps the opaque Mica tint (content that covers it anyway) |
 
 ### Motion: `animation`
 
@@ -246,6 +322,20 @@ animation.start()
   for motion: `tests/test_animation.py` fails if a module of the toolkit
   does.
 
+**Icons that grow, as in a dock** (`magnify`): in a list of applications
+the row under the pointer shows its icon at 1.4 times its size and its
+neighbours at 1.15, eased with `fluent.Animation` at the screen's refresh
+rate; the row with the keyboard focus grows the same way when the pointer is
+elsewhere; with reduced motion the icon takes its size at once. Rows reserve
+the room (no text moves), only the rows whose size changes animate, and
+icons are drawn from pixmaps kept per size.
+
+| Name | What it does |
+|------|--------------|
+| `fluent.IconMagnifier(parent, *, grow=1.4, near=1.15)` | For rows of widgets (`SettingsCard`, `ListItem`, `SettingsExpander`): `set_rows(rows)` in their visual order (again when they change), `rows()` |
+| `fluent.ViewMagnifier(view, *, grow=1.4, near=1.15, accept=None)` | For an item view: its delegate draws the icon of a row at `scale(index.row())`; `accept(index)` names the rows that have an icon |
+| `fluent.Magnifier` | Their base: `scale(key)`, `target(key)`, `animating(key=None)`, `hovered()`, `focused()`, `set_hovered(key)`, `set_focused(key)`, `set_keys(keys)`, `reset()`; signal `scale_changed(key, scale, settled)` |
+
 ### Icons: `icons`
 
 | Name | What it does |
@@ -253,6 +343,7 @@ animation.start()
 | `fluent.icon(name, *fallbacks, color=None, symbolic=None)` | A freedesktop icon name from Boswas Prism, then the icon a program installed for itself in `hicolor` (so another program shows its own icon, not Breeze's drawing of it; Qt's own loader would search `hicolor` last), then Qt's icon theme. `*-symbolic` icons are painted in the text colour of the current scheme (disabled: the disabled colour; `color="accent"`: a token colour) and follow a scheme change. `"go-next"` finds `go-next-symbolic` when there is no coloured icon of that name; `symbolic=True` prefers the symbolic one |
 | `fluent.glyph_icon(glyph, color="text-secondary")` | The toolkit's own glyphs: `chevron-down/up/left/right`, `check`, `dash`, `close`, `more`, `restore`, `grip` |
 | `fluent.pixmap(icon_or_name, size, *, color=None, enabled=True, ratio=1.0)` | A rendered pixmap (does not follow a scheme change: prefer `IconWidget`) |
+| `fluent.icons.cached_pixmap(qicon, size, ratio=1.0, enabled=True)` | The same, kept (the last 256 renderings; emptied when the theme is applied again): for icons drawn at many sizes |
 | `fluent.has_icon(name)`, `fluent.icon_path(name)`, `fluent.missing_icons()` | Whether and where; the names asked for and not found |
 
 ### Widgets
@@ -262,11 +353,11 @@ Constructor arguments after `*` are keyword-only. Every widget takes
 
 | Widget | Use |
 |--------|-----|
-| `FluentWindow(app_id="", title="", parent=None, *, navigation=False, icon=None, size=(1100, 720), minimum_size=(480, 360), remember_geometry=True)` | Main window. `navigation=True` or a dict of NavigationView options → `window.navigation`; else `set_content(widget)`. `add_shortcut(keys, slot)`, `ask(title, text, confirm, cancel, *, default="cancel") -> bool`, `tell(title, text)`. Remembers its size in `$XDG_STATE_HOME/<app_id>/window.ini` |
+| `FluentWindow(app_id="", title="", parent=None, *, navigation=False, icon=None, size=(1100, 720), minimum_size=(480, 360), remember_geometry=True, backdrop=True)` | Main window, with the glass backdrop while glass is on. `navigation=True` or a dict of NavigationView options → `window.navigation`; else `set_content(widget)`. `add_shortcut(keys, slot)`, `ask(title, text, confirm, cancel, *, default="cancel") -> bool`, `tell(title, text)`. Remembers its size in `$XDG_STATE_HOME/<app_id>/window.ini` |
 | `NavigationView(parent=None, *, search=False, back_button=False, pane_toggle=False, header=True, pane_width=280, compact_below=720, content_layer=False)` | `add_page(key, title, widget=None, *, icon, factory, footer, tooltip, heading, keywords)`, `add_action(key, title, *, icon, footer=True)`, `add_section(title)`, `add_separator()`, `set_current(key)`, `current()`, `page(key)`, `keys()`, `item(key)`, `set_item_visible/enabled/text/icon/badge`, `set_title(text or None)`, `add_header_widget(w)`, `add_banner(w)`, `set_pane_header(w)`, `focus_search()`, `set_search_filters_items(bool)`, `set_compact(bool or None)`, `go_back()`. Attributes `list`, `footer_list`, `stack`, `search_box`, `back_button`, `title_label`. Signals `current_changed(key)`, `item_invoked(key)`, `back_requested()`, `search_changed(text)`, `search_submitted(text)` |
-| `SettingsCard(title, description="", icon=None, control=None, parent=None, *, clickable=False)` | A settings row. `set_title/description/icon/control`, `add_control(w)`, `set_clickable(bool)`, `click()`, signal `clicked`; `button` is the row's button when clickable |
+| `SettingsCard(title, description="", icon=None, control=None, parent=None, *, clickable=False)` | A settings row, glass while glass is on. `set_title/description/control`, `set_icon(icon, size=None)` (None: the size it has, 20 at first), `add_control(w)`, `set_clickable(bool)`, `click()`, signal `clicked`; `button` is the row's button when clickable. `set_hover_highlight(bool)`: the grey hover and pressed layers for a row that is no button (the rows of a list of applications); `row_state()` → `rest`, `hover`, `pressed`; `set_icon_magnification(m)`: room for the icon to grow to `m` times its size, the text stays (`IconMagnifier`) |
 | `SettingsExpander(title, description="", icon=None, control=None, parent=None, *, expanded=False)` | A row that opens: `add_row(title, description, control, icon, *, clickable) -> SettingsCard`, `add_card(card)`, `cards()`, `set_expanded(bool)`, `is_expanded()`, `toggle()`, signal `expanded_changed(bool)`; `header` is its SettingsCard |
-| `Expander(title, parent=None, *, description, icon, control, expanded)` | Same head, any content: `add_widget(w)`, `set_content(w)`, `content_layout` |
+| `Expander(title, parent=None, *, description, icon, control, expanded)` | Same head, any content: `add_widget(w)`, `set_content(w)`, `content_layout`; `set_icon_magnification(m)` for the head's icon |
 | `Card(parent=None, *, title="", padding=16, spacing=12)` | A surface: `add(widget)`, `add_layout(layout)`, `body` |
 | `InfoBar(severity="info", title="", message="", parent=None, *, closable=True, action_text=None)` | `info`, `success`, `warning`, `error`. `show_message(severity, message, title="")`, `set_severity/title/message`, `set_action(text)`, `add_widget(w)`, `dismiss()`; signals `closed`, `action_triggered` |
 | `ContentDialog(parent, title="", text="", *, primary="OK", secondary=None, close="Cancel", default="primary")` | Modal inside the window. `exec() -> ContentDialog.Result` (`PRIMARY`, `SECONDARY`, `NONE`), `open()` + signal `finished(result)`, `set_content(widget)`, `content_layout`, `set_default(name)`, `primary_button`, `secondary_button`, `close_button`. Shortcuts: `fluent.ask(parent, title, text, confirm, cancel, *, default="cancel") -> bool`, `fluent.message(parent, title, text)` |
@@ -285,23 +376,26 @@ Constructor arguments after `*` are keyword-only. Every widget takes
 | `HyperlinkButton(text="", url=None, parent=None)` | Opens `url` with `open_url` when clicked |
 | `ProgressRing(parent=None, *, size=32, stroke=None, indeterminate=True)` | `set_value(0..100)`, `set_indeterminate(bool)`; spins only while visible |
 | `Label(text="", style="body", parent=None, *, tone=None, wrap=False, selectable=False)` | Plain-text QLabel in a ramp step; tones `secondary`, `muted`, `accent`, `success`, `warning`, `danger`, `info`, `on-accent`; `set_style`, `set_tone` |
-| `IconWidget(icon=None, size=20, parent=None)` | Shows an icon; follows scheme and enabled state; `set_icon`, `set_icon_size` |
+| `IconWidget(icon=None, size=20, parent=None)` | Shows an icon; follows scheme and enabled state; `set_icon`, `set_icon_size`, `icon_size()`; `set_magnification(m)` makes the widget `m` times larger (`cell()`), `set_scale(s, settled=True)` draws the icon at `s` times its size in it |
 | `StatusIcon(kind="info", size=16, parent=None)` | `info`, `success`, `warning`, `danger`, `attention`, `neutral`, `busy`: a shape per state |
 | `Badge(text="", parent=None, *, kind="neutral", icon=None)`, `InfoBadge(value=None, parent=None, *, kind="attention")` | A word in a pill; a dot or a count |
 | `TagChip(text="", parent=None, *, icon=None, closable=False, checkable=False)` | Signals `toggled(bool)`, `removed` |
 | `Avatar(name="", parent=None, *, size=32, picture=None)` | Picture, else initials on an icon hue |
-| `ListItem(title="", subtitle="", icon=None, trailing=None, parent=None, *, clickable=True)` | A row for widget lists: `set_leading(w)`, `set_trailing(w)`, `set_selected(bool)`; signal `clicked` |
+| `ListItem(title="", subtitle="", icon=None, trailing=None, parent=None, *, clickable=True)` | A row for widget lists: `set_leading(w)`, `set_trailing(w)`, `set_selected(bool)`, `set_icon(icon, size=None)`, `set_icon_magnification(m)`; signal `clicked` |
 | `EmptyState(title="", text="", icon=None, action_text=None, parent=None)` | Signal `action_triggered`; `action_button` |
 | `Skeleton(parent=None, *, width=None, height=16, radius=None)`, `Separator(orientation=Qt.Horizontal, parent=None)` | A loading placeholder; a divider |
 
-`fluent.paint`: `rounded_rect`, `card`, `shadow`, `glyph`, `status_badge`,
-`elided` for widgets that draw themselves, all with token colour names.
+`fluent.paint`: `rounded_rect`, `card` (glass while glass is on; `state=`
+`hover`/`pressed`), `glass` (see [Glass](#glass-glass)), `shadow`, `glyph`,
+`status_badge`, `elided` for widgets that draw themselves, all with token
+colour names; `clear_glass_cache()`.
 
 ### Helpers
 
 | Name | What it does |
 |------|--------------|
-| `fluent.run(app_id, window_factory, *, argv=None, display_name=None, version=None, icon=None, single_instance=True, allow_root=False) -> int` | See above. `window_factory(arguments) -> QWidget`. Returns 4 when run as root, 0 when another instance took over |
+| `fluent.run(app_id, window_factory, *, argv=None, display_name=None, version=None, icon=None, single_instance=True, allow_root=False, multiple_windows=False) -> int` | See above. `window_factory(arguments) -> QWidget`. `multiple_windows`: `--new-window` builds another window in the running instance. Returns 4 when run as root, 0 when another instance took over |
+| `fluent.NEW_WINDOW`, `fluent.split_new_window(arguments) -> (bool, list)` | `"--new-window"`; whether the arguments ask for a new window (before a `--`), and the arguments without the option |
 | `fluent.SingleInstance(app_id)` | `start(arguments) -> bool` (False: another instance was told), signal `message_received(list)`, `close()`. Socket: `$XDG_RUNTIME_DIR/boswas-fluent/<app_id>.sock` |
 | `fluent.Worker(parent=None, max_threads=4)` | `submit(fn, *args, on_done=None, on_error=None, key=None, **kwargs)`, `busy(key)`, `pending()`, `wait(timeout)`, `discard(task_id)`, `shutdown()` |
 | `fluent.run_in_thread(fn, on_done=None, on_error=None)` | One call on a shared Worker |
@@ -322,7 +416,11 @@ inner line in the page colour, around the widget (row, tab) that has the
 keyboard focus. As in WinUI the ring follows keyboard navigation only; text
 boxes show focus with their accent underline. A widget can place its ring
 with `fluent_focus_rect() -> (host, QRect)` or turn it off with the dynamic
-property `fluentFocusRing = False`.
+property `fluentFocusRing = False`. While glass is on, the filter also
+paints menus, combo box lists and tool tips as acrylic glass under the
+style sheet (which makes their own background transparent then and draws
+their outline with a white top edge), and the backdrop under a `QDialog`
+that is a window of its own.
 
 ### Contrast
 
@@ -332,14 +430,20 @@ layer of both schemes, and control boundaries, marks and the focus ring to
 3:1. Where a token colour misses 4.5:1 as text (today: `success` in the
 light scheme, white on `accent-hover` in the light scheme), the derived
 colours `*-text`, `*-fill` and `accent-fill-hover/-pressed` move it just far
-enough towards the text colour; widgets use those.
+enough towards the text colour; widgets use those. On glass the same holds
+on every picture: the backdrop's tint is raised where needed
+([Glass](#glass-glass)), and `tests/test_glass.py` checks it for black,
+white and saturated pictures in both schemes.
 
 ## Not implemented
 
-* **Mica and acrylic.** Windows are filled with the Mica tint and popups
-  with the acrylic tint, opaque: blurring the wallpaper is the compositor's
-  job and Qt has no way to ask for it. Window frames and title bars are the
-  compositor's too.
+* **Live blur.** Glass shows the desktop background, not the windows behind
+  a window, and a window shows the part of the picture a window of its size
+  centred on the screen would cover (a Wayland client does not know where
+  it is). The compositor now offers live blur behind a surface
+  (`ext-background-effect-v1`, OpenGL ES only, ADR-0063) and the shell uses
+  it, but this toolkit does not ask for it yet. Window frames and title bars
+  are the compositor's.
 * **Shadows of menus, combo box popups and tool tips.** They have the
   one-pixel outline only (`Flyout`, `TeachingTip` and `ContentDialog` draw
   their own shadow). `TeachingTip` has no tail and closes on a click
@@ -350,9 +454,9 @@ enough towards the text colour; widgets use those.
   at the screen's refresh rate (`fluent.Animation`); Qt's indeterminate
   `QProgressBar` still steps at about 60 Hz, because Fusion animates it on
   Qt's own timer.
-* **Transparency effects** (Personalization > Colours) change nothing in
-  Qt applications: their surfaces are opaque tints already (see Mica and
-  acrylic above).
+* **Cards have no shadow outside their outline** (a widget cannot paint
+  beyond its rectangle): their glass ends in a darker lower hairline.
+  Flyouts and dialogs draw a real shadow.
 * **Tick marks of a styled `QSlider`**, the arrows of scroll bars, and
   whole-row hover in a `QTableView` (a table that selects rows has no hover
   highlight; one that selects cells highlights the cell).

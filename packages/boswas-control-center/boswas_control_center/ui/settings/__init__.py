@@ -46,7 +46,7 @@ log = logging.getLogger("boswas_control_center.settings")
 # Imported in this order; the order on a page comes from each section's ``order``.
 MODULES = ("connectivity", "sound_power", "accounts", "system", "display", "input", "personalize", "maintenance",
            "cleanup", "peripherals", "netadmin", "fonts", "apps", "permissions", "updates", "colors", "taskbar",
-           "multitasking", "notifications", "accessibility")
+           "multitasking", "notifications", "accessibility", "clipboard")
 
 _sections: list[type] | None = None
 _problems: dict[str, str] = {}
@@ -94,6 +94,8 @@ def _import(name: str):
         from . import notifications as module
     elif name == "accessibility":
         from . import accessibility as module
+    elif name == "clipboard":
+        from . import clipboard as module
     else:
         raise ImportError(f"{name} is not a settings module")
     return module

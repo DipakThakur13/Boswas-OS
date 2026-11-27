@@ -10,11 +10,13 @@
             self.assertEqual(window.status.text(), "Saved")
 
 ``FluentTestCase`` gives every test the offscreen QApplication with the
-theme applied (dark, not watching the user's configuration), private
-``XDG_*_HOME`` directories and ``XDG_RUNTIME_DIR`` under a temporary
-directory (``self.tmp``) and no session bus, fails the test when a Qt
-callback raised, and closes the widgets given to ``keep``. Nothing is read from or written to the home directory of whoever
-runs the tests.
+theme applied (dark, without Boswas glass unless ``set_glass(True)`` or the
+environment variable ``BOSWAS_FLUENT_TEST_GLASS=1``, not watching the user's
+configuration), private ``XDG_*_HOME`` directories and ``XDG_RUNTIME_DIR``
+under a temporary directory (``self.tmp``) and no session bus, fails the
+test when a Qt callback raised, and closes the widgets given to ``keep``.
+Nothing is read from or written to the home directory of whoever runs the
+tests.
 
 Import this module before anything creates a QApplication: it selects the
 offscreen platform unless ``QT_QPA_PLATFORM`` is already set.
@@ -34,13 +36,15 @@ from typing import Callable
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QPointF, Qt, qInstallMessageHandler  # noqa: E402
-from PySide6.QtGui import QKeyEvent, QMouseEvent  # noqa: E402
+from PySide6.QtGui import QEnterEvent, QKeyEvent, QMouseEvent  # noqa: E402
 from PySide6.QtWidgets import QApplication, QWidget  # noqa: E402
 
 from . import assets as _assets  # noqa: E402
 from . import theming as _theme  # noqa: E402
 
 _QUIET = ("This plugin does not support", "propagateSizeHints")
+# Tests draw opaque, so that colours compare exactly, unless they ask for glass (or the whole run does).
+GLASS = os.environ.get("BOSWAS_FLUENT_TEST_GLASS") == "1"
 _handler_installed = False
 _image_dir: tempfile.TemporaryDirectory | None = None
 
@@ -66,6 +70,7 @@ def app(scheme: str = "dark") -> QApplication:
         if _image_dir is None:
             _image_dir = tempfile.TemporaryDirectory(prefix="fluent-test-images-")
             _assets.set_cache_root(_image_dir.name)
+        manager.set_glass(GLASS)
         manager.apply(instance, watch=False)
     if manager.scheme != scheme or manager.follows_desktop:
         manager.set_scheme(scheme)
@@ -75,6 +80,13 @@ def app(scheme: str = "dark") -> QApplication:
 def set_scheme(scheme: str) -> None:
     """Switch the running application to ``"dark"`` or ``"light"``."""
     app(scheme)
+    process()
+
+
+def set_glass(on: bool | None) -> None:
+    """Draw with Boswas glass (True), opaque (False: what tests get by default) or as the desktop says (None)."""
+    app(_theme.manager().scheme)
+    _theme.manager().set_glass(on)
     process()
 
 
@@ -138,6 +150,26 @@ def click(widget: QWidget, position: QPoint | None = None, *, button: Qt.MouseBu
     local = target.mapFrom(widget, point) if target is not widget else point
     _mouse(target, QEvent.Type.MouseButtonPress, local, button, button, modifiers)
     _mouse(target, QEvent.Type.MouseButtonRelease, local, button, Qt.MouseButton.NoButton, modifiers)
+    process()
+
+
+def hover(widget: QWidget, position: QPoint | None = None) -> None:
+    """Move the pointer onto ``widget`` (its centre, or ``position`` in its coordinates).
+
+    The move goes to the widget's window, as a real pointer's does, so Qt
+    itself sends Enter, Leave and hover events, sets ``underMouse()`` and
+    gives an item view's row its hover state.
+    """
+    window = widget.window()
+    point = widget.mapTo(window, position if position is not None else widget.rect().center())
+    target = window.windowHandle() or window
+    local, screen = QPointF(point), QPointF(window.mapToGlobal(point))
+    if not window.underMouse():
+        # The pointer enters the window first, as it does on a screen.
+        QApplication.sendEvent(target, QEnterEvent(local, local, screen))
+    event = QMouseEvent(QEvent.Type.MouseMove, local, screen, Qt.MouseButton.NoButton, Qt.MouseButton.NoButton,
+                        Qt.KeyboardModifier.NoModifier)
+    QApplication.sendEvent(target, event)
     process()
 
 
@@ -215,6 +247,8 @@ class FluentTestCase(unittest.TestCase):
                 os.environ[name] = value
         if _theme.manager().scheme != "dark":
             _theme.manager().set_scheme("dark")
+        if _theme.manager()._forced_glass is not GLASS:
+            _theme.manager().set_glass(GLASS)
         self._tmp.cleanup()
         if self.callback_errors:
             self.fail("exceptions in Qt callbacks:\n" + "\n".join(self.callback_errors))

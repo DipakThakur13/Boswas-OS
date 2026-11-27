@@ -21,7 +21,12 @@ Placeholders
 * ``@img-<name>``: ``url(...)`` of a generated image (``assets.sources``);
 * ``@scrollbar-margin-v``, ``@scrollbar-margin-h``, ``@scrollbar-radius``: a scroll bar's handle at
   rest: a thin line that widens under the pointer, or (Accessibility > "Always show scroll bars")
-  as wide as under the pointer.
+  as wide as under the pointer;
+* surfaces that are glass while Boswas glass is on (``glass.py``): ``@card-fill`` (framed lists and group
+  boxes: the card colour, or the glass card layer), ``@flyout-fill`` and ``@tooltip-fill`` (menus, combo box
+  lists, tool tips: their colour, or transparent, because the Polisher paints them as acrylic glass
+  underneath) and ``@edge-top`` (the top hairline of those surfaces: the surface stroke, or the white
+  highlight of glass). Without glass the sheet is the same as before glass existed.
 
 The fixed numbers left in the template are stroke widths (1 px outlines,
 the 2 px accent line of a focused text box, the 3 px selection pill).
@@ -39,7 +44,7 @@ _PLACEHOLDER = re.compile(r"@([a-z][a-z0-9-]*)")
 TEMPLATE = r"""
 /* ---- base ------------------------------------------------------------------------------------------ */
 QToolTip {
-    background: @tooltip;
+    background: @tooltip-fill;
     color: @text;
     border: 1px solid @stroke-surface;
     border-radius: @radius-tooltip;
@@ -275,9 +280,10 @@ QComboBox QLineEdit, QComboBox QLineEdit:hover, QComboBox QLineEdit:focus {
 }
 QComboBoxPrivateContainer { background: transparent; border: none; }
 QComboBox QAbstractItemView {
-    background: @flyout;
+    background: @flyout-fill;
     color: @text;
     border: 1px solid @stroke-surface;
+    border-top-color: @edge-top;
     border-radius: @radius-flyout;
     padding: 3px 0;
     outline: none;
@@ -449,9 +455,10 @@ QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
 
 /* ---- menus ----------------------------------------------------------------------------------------- */
 QMenu {
-    background: @flyout;
+    background: @flyout-fill;
     color: @text;
     border: 1px solid @stroke-surface;
+    border-top-color: @edge-top;
     border-radius: @radius-flyout;
     padding: 3px 0;
     menu-scrollable: 1;
@@ -545,8 +552,9 @@ QListView, QTreeView, QTableView, QColumnView, QUndoView {
     alternate-background-color: @fill-subtle-hover-twice;
 }
 QListView[frameShape="6"], QTreeView[frameShape="6"], QTableView[frameShape="6"] {
-    background: @card;
+    background: @card-fill;
     border: 1px solid @stroke-surface;
+    border-top-color: @edge-top;
     border-radius: @radius-card;
 }
 QListView::item {
@@ -638,9 +646,10 @@ QHeaderView::down-arrow {
 
 /* ---- containers ------------------------------------------------------------------------------------ */
 QGroupBox {
-    background: @card;
+    background: @card-fill;
     color: @text;
     border: 1px solid @stroke-surface;
+    border-top-color: @edge-top;
     border-radius: @radius-card;
     margin-top: 30px;
     padding: @sp-3 @sp-3 @sp-3 @sp-3;
@@ -695,8 +704,9 @@ QMessageBox QLabel { color: @text; }
 QMessageBox QLabel#qt_msgbox_label { font-size: @font-body; }
 QMessageBox QLabel#qt_msgbox_informativelabel { color: @text-secondary; }
 QFileDialog QListView, QFileDialog QTreeView {
-    background: @card;
+    background: @card-fill;
     border: 1px solid @stroke-surface;
+    border-top-color: @edge-top;
     border-radius: @radius-card;
 }
 QFileDialog QListView#sidebar { background: transparent; border: none; }
@@ -734,8 +744,8 @@ QCalendarWidget QTableView::item { padding: 0; }
 """
 
 
-def values(theme: Theme, image_dir: str, always_show_scrollbars: bool = False) -> dict[str, str]:
-    """Every placeholder of the template and its value for ``theme``."""
+def values(theme: Theme, image_dir: str, always_show_scrollbars: bool = False, glass: bool = False) -> dict[str, str]:
+    """Every placeholder of the template and its value for ``theme`` (with Boswas glass when ``glass``)."""
     table: dict[str, str] = {}
     for role in ROLES + DERIVED_COLOURS:
         table[role] = theme.color(role)
@@ -763,6 +773,11 @@ def values(theme: Theme, image_dir: str, always_show_scrollbars: bool = False) -
     else:
         table["scrollbar-margin-v"], table["scrollbar-margin-h"] = "3px 5px 3px 5px", "5px 3px 5px 3px"
         table["scrollbar-radius"] = "1px"
+    glass = glass and theme.has_glass
+    table["card-fill"] = theme.css("glass-card") if glass else table["card"]
+    table["flyout-fill"] = "transparent" if glass else table["flyout"]
+    table["tooltip-fill"] = "transparent" if glass else table["tooltip"]
+    table["edge-top"] = theme.css("glass-highlight") if glass else table["stroke-surface"]
     directory = image_dir.rstrip("/")
     if '"' in directory or "\\" in directory or "\n" in directory:
         raise TokenError(f"the image directory cannot be named in a style sheet: {directory!r}")
@@ -786,7 +801,8 @@ def render(template: str, table: dict[str, str]) -> str:
     return _PLACEHOLDER.sub(substitute, template)
 
 
-def build(theme: Theme, image_dir: str, always_show_scrollbars: bool = False) -> str:
+def build(theme: Theme, image_dir: str, always_show_scrollbars: bool = False, glass: bool = False) -> str:
     """The application style sheet for ``theme``; images are named inside ``image_dir``. With
-    ``always_show_scrollbars`` scroll bars are full width at rest (Accessibility > Visual effects)."""
-    return render(TEMPLATE, values(theme, image_dir, always_show_scrollbars))
+    ``always_show_scrollbars`` scroll bars are full width at rest (Accessibility > Visual effects); with
+    ``glass`` lists, group boxes and popups are Boswas glass (``glass.py``)."""
+    return render(TEMPLATE, values(theme, image_dir, always_show_scrollbars, glass))

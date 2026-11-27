@@ -20,12 +20,15 @@ Rules-Requires-Root: no
 Package: boswas-desktop
 Architecture: amd64
 Depends: dbus-user-session,
+         dconf-gsettings-backend,
          fontconfig-config,
          fonts-inter,
          greetd,
+         gsettings-desktop-schemas,
          libegl1,
          libgl1-mesa-dri,
          libgles2,
+         libglib2.0-bin,
          libpam-runtime,
          libpam-systemd,
          polkitd,
@@ -35,6 +38,7 @@ Depends: dbus-user-session,
          ${shlibs:Depends}
 Recommends: bluez,
             boswas-branding,
+            fonts-noto-color-emoji,
             network-manager,
             pipewire-bin,
             power-profiles-daemon,
@@ -62,7 +66,8 @@ Description: Boswas OS desktop: compositor, shell and session
     applications, the tray and the clock; quick settings (Wi-Fi, Bluetooth,
     sound, brightness, power mode); notifications with a calendar; the
     volume and brightness display; screen capture; the polkit password
-    dialog; the lock screen and the login screen
+    dialog; the clipboard history (Super+V) and the emoji and symbols panel
+    (Super+.); the lock screen and the login screen
   * boswas-services-bridge: the shell's network, Bluetooth, sound and power
     backends for the Settings application
   * boswas-session: the session greetd starts after login

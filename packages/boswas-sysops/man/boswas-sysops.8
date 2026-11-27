@@ -32,9 +32,17 @@ Refresh the package lists (apt-get update).
 Install all available updates without removing packages
 (apt-get \-\-with\-new\-pkgs upgrade).
 .TP
-.BI "apt-install " "PACKAGE ..."
+.B apt-install
+.RB [ \-\-no\-recommends ]
+.IR PACKAGE " ..."
 Install up to 50 packages from the configured, signature-verified
-repositories. Packages excluded by Boswas policy are refused.
+repositories. Packages excluded by Boswas policy are refused, also when
+APT would bring them in for a package named.
+.B \-\-no\-recommends
+(first, once) installs what the packages depend on but not what they only
+recommend (apt-get \-\-no\-install\-recommends): Control Center's "Install
+printing support" uses it, because cups-daemon recommends cups-browsed,
+which Boswas policy excludes.
 .TP
 .BI "apt-remove " "PACKAGE ..."
 Remove up to 50 packages. Refused when the change would remove a protected

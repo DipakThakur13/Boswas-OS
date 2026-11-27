@@ -10,16 +10,24 @@ mod cursor;
 mod effects;
 mod exit;
 mod focus;
+mod glass;
 mod handlers;
 mod input;
 mod ipc;
 mod keyaccess;
+mod paste;
 mod render;
 mod scale;
 mod shell;
 mod state;
 mod stats;
+mod steady;
 mod supervise;
+// Night light turned on or off now, how the monitors are used, and the
+// Windows shortcuts the compositor carries out itself.
+mod nightlight;
+mod projection;
+mod winkeys;
 
 use std::{path::PathBuf, time::Duration};
 
@@ -265,6 +273,9 @@ fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     state.refresh_layouts();
+    // `[keyboard] numlock`: Num Lock as the session starts.
+    let num_lock = state.config.keyboard.numlock;
+    state.set_num_lock(num_lock);
     state.apply_night_light();
     // Before the shell, so that everything it starts knows the X display.
     // (The login screen runs no X server.)

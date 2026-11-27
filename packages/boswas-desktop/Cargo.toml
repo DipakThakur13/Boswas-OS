@@ -46,5 +46,13 @@ panic = "abort"
 strip = "debuginfo"
 overflow-checks = true
 
+# tiny-skia's pixel pipelines are written for builds without overflow
+# checks (its own releases): with them, its sixteen-lane arithmetic is
+# neither vectorised nor inlined and every blend costs several times as
+# much (a translucent fill of a 2560 x 1440 screen: 40 ms). Its arithmetic
+# wraps as upstream intends; bounds are still checked.
+[profile.release.package.tiny-skia]
+overflow-checks = false
+
 [profile.dev]
 opt-level = 1

@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QBoxLayout, QFrame, QHBoxLayou
                                QSizePolicy, QStackedWidget, QStyle, QStyledItemDelegate, QToolTip, QVBoxLayout,
                                QWidget)
 
-from .. import icons, paint
+from .. import glass, icons, paint
 from ..animation import Animation
 from ..theming import current_theme, duration, easing, font, qcolor
 from .basic import IconButton, Label, to_icon
@@ -806,9 +806,20 @@ class NavigationView(QWidget):
         self._sync_compact()
 
     def paintEvent(self, _event) -> None:
-        if not self._content_layer:
+        on_glass = glass.enabled()
+        if not self._content_layer and not on_glass:
             return
         painter = QPainter(self)
+        if on_glass:
+            # The pane is a sheet of glass on the backdrop, with a hairline at its inner edge.
+            pane = QRectF(self.pane.geometry())
+            paint.glass(painter, pane, "pane", outline=False)
+            painter.fillRect(QRectF(pane.right(), pane.top(), 1, pane.height()), qcolor("stroke-surface"))
+        if not self._content_layer:
+            return
         area = QRectF(self.content.geometry()).adjusted(0, 0, 8, 8)       # only the top left corner is round
         painter.setClipRect(self.content.geometry())
-        paint.rounded_rect(painter, area, current_theme().radius("flyout"), "layer", "stroke-surface")
+        if on_glass:
+            paint.glass(painter, area, "card", radius=current_theme().radius("flyout"))
+        else:
+            paint.rounded_rect(painter, area, current_theme().radius("flyout"), "layer", "stroke-surface")

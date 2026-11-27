@@ -127,7 +127,7 @@ class RegistryTest(unittest.TestCase):
         self.assertEqual(settings.MODULES, ("connectivity", "sound_power", "accounts", "system", "display", "input",
                                             "personalize", "maintenance", "cleanup", "peripherals", "netadmin",
                                             "fonts", "apps", "permissions", "updates", "colors", "taskbar",
-                                            "multitasking", "notifications", "accessibility"))
+                                            "multitasking", "notifications", "accessibility", "clipboard"))
         self.assertEqual(settings.problems(), {})
         # Every page of the catalog that is not a category and has no content of its own has a section.
         from boswas_control_center.ui.main_window import PAGE_CLASSES

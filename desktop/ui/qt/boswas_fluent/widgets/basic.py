@@ -54,12 +54,20 @@ class Label(QLabel):
 
 
 class IconWidget(QWidget):
-    """Shows an icon at a fixed size and repaints it in the colours of the current scheme."""
+    """Shows an icon at a fixed size and repaints it in the colours of the current scheme.
+
+    ``set_magnification(m)`` reserves room for the icon to grow to ``m`` times its size (the widget is
+    that much larger, the icon centred in it); ``set_scale(s)`` then draws it at ``s`` times its size
+    without changing the layout (``IconMagnifier``).
+    """
 
     def __init__(self, icon: QIcon | str | None = None, size: int = 20, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._icon = to_icon(icon)
         self._size = size
+        self._reserve = 1.0
+        self._scale = 1.0
+        self._settled = True
         self.setFixedSize(size, size)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 
@@ -70,19 +78,63 @@ class IconWidget(QWidget):
         self._icon = to_icon(icon)
         self.update()
 
+    def icon_size(self) -> int:
+        return self._size
+
     def set_icon_size(self, size: int) -> None:
         self._size = size
-        self.setFixedSize(size, size)
+        self.setFixedSize(self.cell(), self.cell())
+
+    def cell(self) -> int:
+        """The side of the widget: the icon size and the room reserved for it to grow."""
+        return round(self._size * self._reserve)
+
+    def magnification(self) -> float:
+        return self._reserve
+
+    def set_magnification(self, reserve: float) -> None:
+        """Reserve room for the icon to grow to ``reserve`` times its size (1: none)."""
+        self._reserve = max(1.0, float(reserve))
+        self.setFixedSize(self.cell(), self.cell())
+        self.update()
+
+    def scale(self) -> float:
+        return self._scale
+
+    def set_scale(self, scale: float, settled: bool = True) -> None:
+        """Draw the icon at ``scale`` times its size (at most the reserved room). ``settled``: it stays at that
+        size (drawn crisp at a whole pixel size) rather than passing through it in an animation."""
+        scale = max(0.1, min(float(scale), self._reserve))
+        if scale != self._scale or settled != self._settled:
+            self._scale, self._settled = scale, settled
+            self.update()
 
     def sizeHint(self) -> QSize:
-        return QSize(self._size, self._size)
+        return QSize(self.cell(), self.cell())
 
     def paintEvent(self, _event) -> None:
         if self._icon.isNull():
             return
         painter = QPainter(self)
-        mode = QIcon.Mode.Normal if self.isEnabled() else QIcon.Mode.Disabled
-        self._icon.paint(painter, self.rect(), Qt.AlignmentFlag.AlignCenter, mode)
+        if self._reserve == 1.0 and self._scale == 1.0:
+            mode = QIcon.Mode.Normal if self.isEnabled() else QIcon.Mode.Disabled
+            self._icon.paint(painter, self.rect(), Qt.AlignmentFlag.AlignCenter, mode)
+            return
+        ratio = self.devicePixelRatioF()
+        side = self._size * self._scale
+        if self._settled:
+            # At rest: a pixmap of exactly this many pixels, placed on whole device pixels.
+            whole = max(1, round(side))
+            pixmap = icons.cached_pixmap(self._icon, whole, ratio, self.isEnabled())
+            x = round((self.width() - whole) / 2 * ratio) / ratio
+            y = round((self.height() - whole) / 2 * ratio) / ratio
+            painter.drawPixmap(QRectF(x, y, whole, whole), pixmap, QRectF(pixmap.rect()))
+            return
+        # Moving: the largest rendering, scaled smoothly, so the size changes by fractions of a pixel.
+        pixmap = icons.cached_pixmap(self._icon, self.cell(), ratio, self.isEnabled())
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        target = QRectF((self.width() - side) / 2, (self.height() - side) / 2, side, side)
+        painter.drawPixmap(target, pixmap, QRectF(pixmap.rect()))
 
 
 class StatusIcon(QWidget):

@@ -167,6 +167,33 @@ class StartAndTabsTest(WindowCase):
         self.assertEqual(again.store.recent[0]["path"], str(self.report))
         self.assertEqual(again.store.view(str(self.report))["page"], 7)
 
+    def test_windows_share_the_recent_documents(self):
+        first = self.window()
+        second = self.window(self.report)
+        self.assertIs(first.store, second.store, "one list for every window of the program")
+        self.assertTrue(testing.wait_until(lambda: second.store.recent != [], 10))
+        first.changeEvent(QEvent(QEvent.Type.ActivationChange))     # what the window gets when it is activated
+        first._sync()
+        self.assertEqual(first.recent_model.rowCount(), 1)
+        self.assertEqual(first.recent_model.index(0).data(), "Annual report.pdf")
+        second.close()
+        self.assertEqual(first.store.recent[0]["path"], str(self.report))
+
+    def test_new_window_from_the_command_line(self):
+        seen = {}
+
+        def run(app_id, factory, **options):
+            seen.update(options, app_id=app_id)
+            return 0
+
+        with mock.patch("boswas_fluent.run", run):
+            self.assertEqual(cli.main(["boswas-document-viewer", "--new-window", "a.pdf"]), 0)
+        self.assertTrue(seen["multiple_windows"], "a later start with --new-window gets a window of its own")
+        self.assertEqual(seen["argv"], ["boswas-document-viewer", "--new-window", os.path.abspath("a.pdf")])
+        with mock.patch("boswas_fluent.run", run):
+            cli.main(["boswas-document-viewer", "b.pdf"])
+        self.assertEqual(seen["argv"], ["boswas-document-viewer", os.path.abspath("b.pdf")])
+
     def test_drop_opens_documents(self):
         window = self.window()
         data = QMimeData()
@@ -694,6 +721,9 @@ class PackagingTest(unittest.TestCase):
         self.assertEqual((entry["Name"], entry["Icon"], entry["MimeType"], entry["Exec"]),
                          ("Document Viewer", "boswas-document-viewer", "application/pdf;", "boswas-document-viewer %F"))
         self.assertEqual(entry["StartupWMClass"], "com.boswas.DocumentViewer")
+        self.assertEqual(entry["Actions"], "NewWindow;")
+        action = lines[lines.index("[Desktop Action NewWindow]"):]
+        self.assertIn("Exec=boswas-document-viewer --new-window", action)
         icons = PACKAGE.parents[1] / "desktop" / "icons" / "Boswas-Prism" / "scalable" / "apps"
         self.assertTrue((icons / "boswas-document-viewer.svg").is_file())
         manual = (PACKAGE / "man" / "boswas-document-viewer.1").read_text()

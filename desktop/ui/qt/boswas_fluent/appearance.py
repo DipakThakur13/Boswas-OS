@@ -12,16 +12,25 @@ earlier ones key by key:
    only when it holds nothing but the ``[appearance]`` table)
 
 Keys read: ``scheme`` (``"dark"`` or ``"light"``), ``reduced_motion`` (a
-boolean) and ``accent`` (a hue of ``tokens.ACCENTS``) of ``[appearance]``;
-``text_scale`` (percent, 100 to 225) and ``always_show_scrollbars`` (a
-boolean) of ``[accessibility]``, which only the three ``compositor.toml``
-files hold. A file that is missing, too large or not TOML is skipped, and so
-is a value of the wrong type or out of range; the defaults are dark, motion
-on, the iris accent, text at 100 % and thin scroll bars.
+boolean), ``accent`` (a hue of ``tokens.ACCENTS``), ``wallpaper`` (an
+absolute path; the picture behind Boswas glass) and ``transparency`` (a
+boolean: transparency effects) of ``[appearance]``; ``text_scale`` (percent,
+100 to 225) and ``always_show_scrollbars`` (a boolean) of
+``[accessibility]``, which only the three ``compositor.toml`` files hold. A
+file that is missing, too large or not TOML is skipped, and so is a value of
+the wrong type or out of range; the defaults are dark, motion on, the iris
+accent, the default background, transparency on, text at 100 % and thin
+scroll bars.
+
+``high_contrast`` is True while the user's desktop preset is a
+high-contrast one (``HIGH_CONTRAST_PRESETS``): ``boswas-preset`` records the
+preset as ``Current`` in the ``[Preset]`` group of ``$XDG_CONFIG_HOME/boswasrc``.
+Boswas glass is off then, as it is with transparency off.
 """
 
 from __future__ import annotations
 
+import configparser
 import os
 import tomllib
 from dataclasses import dataclass
@@ -31,6 +40,8 @@ from .tokens import ACCENTS, DEFAULT_ACCENT, DEFAULT_SCHEME, SCHEMES, TEXT_SCALE
 
 SYSTEM_FILES = (Path("/usr/share/boswas/compositor/compositor.toml"), Path("/etc/boswas/compositor.toml"))
 _MAX_BYTES = 256 * 1024
+# Desktop presets whose look is high contrast (desktop/presets: Carbon, 7:1 text).
+HIGH_CONTRAST_PRESETS = ("carbon",)
 
 
 @dataclass(frozen=True)
@@ -40,6 +51,9 @@ class Appearance:
     accent: str = DEFAULT_ACCENT
     text_scale: int = 100
     always_show_scrollbars: bool = False
+    wallpaper: str = ""
+    transparency: bool = True
+    high_contrast: bool = False
 
 
 def config_home() -> Path:
@@ -55,6 +69,30 @@ def user_dir() -> Path:
 
 def appearance_path() -> Path:
     return user_dir() / "appearance.toml"
+
+
+def preset_record_path() -> Path:
+    """``$XDG_CONFIG_HOME/boswasrc``, where boswas-preset records the current preset."""
+    return config_home() / "boswasrc"
+
+
+def current_preset(path: Path | None = None) -> str:
+    """The id of the desktop preset the user applied ("" when none is recorded or the file is unreadable)."""
+    source = path if path is not None else preset_record_path()
+    try:
+        with open(source, "rb") as handle:
+            raw = handle.read(_MAX_BYTES + 1)
+    except OSError:
+        return ""
+    if len(raw) > _MAX_BYTES:
+        return ""
+    parser = configparser.ConfigParser(interpolation=None, strict=False)
+    parser.optionxform = str
+    try:
+        parser.read_string(raw.decode("utf-8", errors="replace"))
+    except configparser.Error:
+        return ""
+    return parser.get("Preset", "Current", fallback="").strip()
 
 
 def _document(path: Path, only_appearance: bool = False) -> dict | None:
@@ -79,12 +117,14 @@ def _table(document: dict, name: str) -> dict:
     return table if isinstance(table, dict) else {}
 
 
-def read_appearance(system_files: tuple[Path, ...] | None = None, user: Path | None = None) -> Appearance:
+def read_appearance(system_files: tuple[Path, ...] | None = None, user: Path | None = None,
+                    preset_record: Path | None = None) -> Appearance:
     """The look the desktop is configured for (see the module text)."""
     directory = user if user is not None else user_dir()
     layers = [(path, False) for path in (SYSTEM_FILES if system_files is None else system_files)]
     layers += [(directory / "compositor.toml", False), (directory / "appearance.toml", True)]
     scheme, reduced, accent, text_scale, scrollbars = DEFAULT_SCHEME, False, DEFAULT_ACCENT, 100, False
+    wallpaper, transparency = "", True
     for path, only in layers:
         document = _document(path, only)
         if document is None:
@@ -96,9 +136,18 @@ def read_appearance(system_files: tuple[Path, ...] | None = None, user: Path | N
             reduced = look["reduced_motion"]
         if look.get("accent") in ACCENTS:
             accent = look["accent"]
+        picture = look.get("wallpaper")
+        if isinstance(picture, str) and (picture == "" or (picture.startswith("/") and len(picture) < 4096
+                                                           and "\0" not in picture)):
+            wallpaper = picture
+        if isinstance(look.get("transparency"), bool):
+            transparency = look["transparency"]
         size = access.get("text_scale")
         if isinstance(size, int) and not isinstance(size, bool):
             text_scale = max(TEXT_SCALE_RANGE[0], min(TEXT_SCALE_RANGE[1], size))     # clamped, as the compositor does
         if isinstance(access.get("always_show_scrollbars"), bool):
             scrollbars = access["always_show_scrollbars"]
-    return Appearance(scheme, reduced, accent, text_scale, scrollbars)
+    if preset_record is None and user is not None:
+        preset_record = directory.parent / "boswasrc"
+    high_contrast = current_preset(preset_record) in HIGH_CONTRAST_PRESETS
+    return Appearance(scheme, reduced, accent, text_scale, scrollbars, wallpaper, transparency, high_contrast)

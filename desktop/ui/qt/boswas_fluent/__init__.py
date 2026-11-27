@@ -12,9 +12,11 @@ Modules
   qss, assets the generated style sheet and its generated images
   theming     apply(), theme(), the ThemeManager, fonts, durations
   animation   Animation: values that move at the refresh rate of the screen
-  polish      popups with round corners, the keyboard focus ring
+  polish      popups with round corners, the keyboard focus ring, acrylic popups
+  glass       Boswas glass: the window backdrop from the desktop background
+  magnify     icons that grow under the pointer, as in a dock
   icons       icon(): Boswas Prism icons, symbolic ones in the text colour
-  paint       painting helpers for custom widgets
+  paint       painting helpers for custom widgets, glass surfaces
   widgets.*   the widgets
   app         run(), SingleInstance
   worker      Worker, run_in_thread
@@ -42,6 +44,7 @@ _EXPORTS = {
     "theme": "theming",
     # motion
     "Animation": "animation", "refresh_rate": "animation",
+    "Magnifier": "magnify", "IconMagnifier": "magnify", "ViewMagnifier": "magnify",
     # icons
     "icon": "icons", "glyph_icon": "icons", "icon_path": "icons", "has_icon": "icons", "pixmap": "icons",
     "missing_icons": "icons",
@@ -63,13 +66,14 @@ _EXPORTS = {
     "FluentWindow": "widgets.window",
     # helpers
     "run": "app", "SingleInstance": "app", "activate_window": "app", "install_signal_handlers": "app",
+    "NEW_WINDOW": "app", "split_new_window": "app",
     "Worker": "worker", "run_in_thread": "worker",
     "notify": "desktop", "open_path": "desktop", "open_url": "desktop", "config_dir": "desktop",
     "state_dir": "desktop", "cache_dir": "desktop", "data_dir": "desktop", "runtime_dir": "desktop",
     "add_shortcut": "shortcuts", "add_shortcuts": "shortcuts",
 }
 _MODULES = ("tokens", "appearance", "qss", "assets", "theming", "animation", "polish", "icons", "paint", "app",
-            "worker", "desktop", "shortcuts", "testing", "gallery", "widgets")
+            "worker", "desktop", "shortcuts", "testing", "gallery", "widgets", "glass", "magnify")
 
 __all__ = sorted([*_EXPORTS, "__version__"])
 
@@ -91,10 +95,11 @@ def __dir__() -> list[str]:
 
 if TYPE_CHECKING:                 # for editors and type checkers; nothing is imported at run time
     from .animation import Animation, refresh_rate
-    from .app import SingleInstance, activate_window, install_signal_handlers, run
+    from .app import NEW_WINDOW, SingleInstance, activate_window, install_signal_handlers, run, split_new_window
     from .appearance import Appearance, appearance_path, read_appearance
     from .desktop import cache_dir, config_dir, data_dir, notify, open_path, open_url, runtime_dir, state_dir
     from .icons import glyph_icon, has_icon, icon, icon_path, missing_icons, pixmap
+    from .magnify import IconMagnifier, Magnifier, ViewMagnifier
     from .shortcuts import add_shortcut, add_shortcuts
     from .theming import ThemeManager, apply, duration, easing, ensure_applied, font, manager, qcolor, repolish
     from .tokens import Theme, TokenError, TypeStyle, blend, contrast, load_tokens, tokens_path

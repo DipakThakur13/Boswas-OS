@@ -38,15 +38,21 @@ impl Shell {
         };
         let position = (event.position.0 as f32, event.position.1 as f32);
         let role = self.surfaces[index].role;
+        // The desktop icons take what happens on the wallpaper.
+        if role == Role::Wallpaper && self.desk_pointer(index, event) {
+            return;
+        }
         match event.kind {
             PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => {
                 let surface = &mut self.surfaces[index];
                 let before = surface.hover;
                 let after = ui::hit_at(&surface.hits, position);
-                surface.pointer = Some(position);
+                let from = surface.pointer.replace(position);
                 surface.hover = after;
+                // Only the controls the pointer entered or left are drawn
+                // again.
+                surface.pointer_moved(from, Some(position));
                 if before != after {
-                    surface.touch();
                     self.schedule_tooltip(index);
                     self.track_preview(index);
                 }
@@ -59,10 +65,10 @@ impl Shell {
             }
             PointerEventKind::Leave { .. } => {
                 let surface = &mut self.surfaces[index];
-                surface.pointer = None;
+                let from = surface.pointer.take();
                 surface.hover = None;
                 surface.pressed = false;
-                surface.touch();
+                surface.pointer_moved(from, None);
                 self.hide_tooltip();
                 match role {
                     Role::Toasts => self.st.notes.hover(false, Instant::now()),
@@ -98,7 +104,7 @@ impl Shell {
                             return self.activate(Action::Dismiss, index);
                         }
                         surface.pressed = true;
-                        surface.touch();
+                        surface.press_changed();
                         self.press = Some((index, hit.action.clone()));
                         if hit.drag {
                             if let Some(capture) = self.st.capture.as_mut().filter(|c| !c.whole) {
@@ -121,7 +127,7 @@ impl Shell {
                 }
                 let surface = &mut self.surfaces[index];
                 surface.pressed = false;
-                surface.touch();
+                surface.press_changed();
                 let under = ui::hit_at(&surface.hits, position).map(|h| surface.hits[h].action.clone());
                 let pressed = self.press.take();
                 if role == Role::Capture {
@@ -227,6 +233,9 @@ impl Shell {
                     self.mark(Role::Flyout);
                 }
             }
+            (Role::Flyout, Some(Flyout::Clipboard)) => self.clip_scroll(steps),
+            (Role::Flyout, Some(Flyout::Emoji)) => self.emoji_scroll(steps),
+            (Role::Flyout, Some(Flyout::Widgets)) => self.widgets_scroll(steps),
             (Role::Flyout, Some(Flyout::Notifications)) => {
                 let max = self.st.notes.history.len().saturating_sub(1) as i64;
                 let scroll = (self.st.notes.scroll as i64 + i64::from(steps)).clamp(0, max) as usize;
@@ -315,6 +324,29 @@ impl Shell {
                 let items = self.app_menu(app);
                 self.open_menu(items, at.0, at.1, false, &output);
             }
+            // A search result: the application's menu, or open / run.
+            Action::Start(start::Act::Result(position)) => {
+                if let Some(result) = self.st.start.results.get(position).cloned() {
+                    let items = self.result_menu(&result);
+                    self.open_menu(items, at.0, at.1, false, &output);
+                }
+            }
+            // The taskbar's own buttons (quicklinks.rs): Start's quick
+            // links, the clock, network/volume/battery, Task View, the
+            // keyboard layout.
+            Action::Taskbar(taskbar::Act::Start) => self.open_quick_links(Some(at)),
+            Action::Taskbar(act @ (taskbar::Act::Clock | taskbar::Act::Status | taskbar::Act::TaskView | taskbar::Act::Layout)) => {
+                use crate::quicklinks::{clock_menu, installed, layout_menu, status_menu, taskbar_menu};
+                let items = match act {
+                    taskbar::Act::Clock => clock_menu(&installed),
+                    taskbar::Act::Status => status_menu(&installed, self.st.sys.power.battery.is_some()),
+                    taskbar::Act::Layout => layout_menu(&installed),
+                    _ => taskbar_menu(&installed),
+                };
+                self.close_transients();
+                let top = self.surfaces[index].origin.1 - 4.0;
+                self.open_menu(items, at.0, top, true, &output);
+            }
             Action::Desktop => {
                 self.close_transients();
                 let items = self.desktop_menu();
@@ -331,13 +363,24 @@ impl Shell {
         }
     }
 
-    /// The middle button: a new instance, or a tray item's secondary action.
+    /// The middle button: a new window (or the application, when it does
+    /// not run), or a tray item's secondary action.
     fn secondary(&mut self, action: Action, index: usize, position: (f32, f32)) {
         match action {
             Action::Taskbar(taskbar::Act::Task(task)) => {
                 let list = self.st.tasks();
-                if let Some(app) = list.get(task).and_then(|t| t.app) {
-                    self.launch_app(app);
+                match list.get(task) {
+                    Some(entry) if !entry.windows.is_empty() => {
+                        if let Some(app) = entry.app {
+                            self.launch_new_window(app);
+                        }
+                    }
+                    Some(entry) => {
+                        if let Some(app) = entry.app {
+                            self.launch_app(app);
+                        }
+                    }
+                    None => {}
                 }
             }
             Action::Taskbar(taskbar::Act::Tray(key)) => {
@@ -358,9 +401,11 @@ impl Shell {
                     self.close_menus();
                 }
             }
+            Action::Dismiss if self.st.desk.renaming.is_some() => self.desk_commit_rename(),
             Action::Dismiss => {
                 if self.st.menus.is_empty() {
                     self.close_flyout();
+                    self.leave_bar_focus();
                 } else {
                     self.close_menus();
                 }
@@ -404,6 +449,12 @@ impl Shell {
             },
             Action::Capture(_) => {}
             Action::Lock(act) => self.lock_action(act, index),
+            Action::Clip(act) => self.clip_action(act),
+            Action::Emoji(act) => self.emoji_action(act),
+            Action::Widgets(act) => self.widgets_action(act, Some(index)),
+            Action::Desk(_) => {}
+            Action::Security(act) => self.security_action(act, index),
+            Action::Projection(act) => self.projection_action(act),
         }
     }
 
@@ -414,6 +465,7 @@ impl Shell {
             Act::Status => self.toggle_flyout(Flyout::Quick, output),
             Act::Clock => self.toggle_flyout(Flyout::Notifications, output),
             Act::TrayOverflow => self.toggle_flyout(Flyout::TrayOverflow, output),
+            Act::Widgets => self.toggle_flyout(Flyout::Widgets, output),
             Act::TaskView => {
                 self.close_transients();
                 self.send_control("overview");
@@ -520,9 +572,11 @@ impl Shell {
                 let on = !sys.network.airplane;
                 self.service(Command::AirplaneMode(on));
             }
+            // On or off now: with a schedule, until its next change (the
+            // compositor keeps that).
             Act::NightLight => {
-                let enabled = !self.st.night_light;
-                self.control_with("night-light", serde_json::json!({ "enabled": enabled }));
+                let active = !self.st.night_light;
+                self.control_with("night-light", serde_json::json!({ "active": active }));
             }
             Act::Profile => {
                 if let Some(next) = sys.power.profile.and_then(|p| svc::next_profile(p, &sys.power.profiles)) {
@@ -791,15 +845,28 @@ impl Shell {
             }
             return;
         }
+        if self.st.security.is_some() {
+            return self.security_key(event.keysym, shift);
+        }
         if self.st.dialog.is_some() {
             return self.dialog_key(&event, typed);
+        }
+        if self.st.desk.renaming.is_some() {
+            return self.desk_rename_key(&event, typed);
         }
         if !self.st.menus.is_empty() {
             return self.menu_key(event.keysym);
         }
+        if self.st.bar_focus {
+            return self.bar_key(event.keysym, shift);
+        }
         match self.open_kind() {
+            Some(Flyout::Projection) => self.projection_key(event.keysym),
             Some(Flyout::Start) => self.start_key(&event, typed),
             Some(Flyout::Quick) => self.quick_key(&event, typed),
+            Some(Flyout::Clipboard) => self.clip_key(&event, typed),
+            Some(Flyout::Emoji) => self.emoji_key(&event, typed),
+            Some(Flyout::Widgets) => self.widgets_key(&event),
             Some(Flyout::Notifications | Flyout::TrayOverflow) => match event.keysym {
                 Keysym::Escape => self.close_flyout(),
                 Keysym::Return | Keysym::KP_Enter | Keysym::space => {
@@ -817,7 +884,8 @@ impl Shell {
                     }
                 }
             },
-            None => {}
+            // Nothing of the shell's is open: the desktop has the keyboard.
+            None => self.desk_key(&event, typed),
         }
     }
 
@@ -969,7 +1037,7 @@ impl Shell {
         }
     }
 
-    fn menu_key(&mut self, keysym: Keysym) {
+    pub(crate) fn menu_key(&mut self, keysym: Keysym) {
         let level = self.st.menus.len() - 1;
         match keysym {
             Keysym::Escape => return self.close_menus(),

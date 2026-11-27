@@ -276,25 +276,42 @@ impl Boswas {
                     .map(|l| l.wl_surface().clone())
             })
         });
+        let takes_keyboard = |state: &Self, root: &WlSurface| {
+            state.space.outputs().any(|output| {
+                layer_map_for_output(output).layers().any(|l| {
+                    l.wl_surface() == root && l.cached_state().keyboard_interactivity != KeyboardInteractivity::None
+                })
+            })
+        };
+        let current = self.keyboard.current_focus().filter(|focus| focus.alive());
         if exclusive.is_some() {
+            // What had the keyboard before: a layer surface that takes it
+            // on demand gets it back afterwards (a window is found again
+            // as the top window).
+            if let Some(root) = current.as_ref().map(|focus| root_surface(focus.surface())) {
+                if Some(&root) != exclusive.as_ref() {
+                    let layer = self.window_for_surface(&root).is_none() && takes_keyboard(self, &root);
+                    self.keyboard_before_exclusive = layer.then_some(root);
+                }
+            }
             return self.set_keyboard_focus(exclusive);
         }
 
-        let current = self.keyboard.current_focus().filter(|focus| focus.alive());
         if let Some(surface) = current.as_ref().map(KeyboardFocus::surface) {
             let root = root_surface(surface);
             let on_window = self
                 .focused_window()
                 .is_some_and(|w| self.space.element_location(&w).is_some());
-            let on_layer = self.space.outputs().any(|output| {
-                layer_map_for_output(output).layers().any(|l| {
-                    l.wl_surface() == &root
-                        && l.cached_state().keyboard_interactivity != KeyboardInteractivity::None
-                })
-            });
+            let on_layer = takes_keyboard(self, &root);
             if on_window || on_layer {
+                self.keyboard_before_exclusive = None;
                 return self.set_focus(current);
             }
+        }
+        // An exclusive layer surface went away: the desktop it took the
+        // keyboard from has it again.
+        if let Some(surface) = self.keyboard_before_exclusive.take().filter(|s| s.alive() && takes_keyboard(self, s)) {
+            return self.set_keyboard_focus(Some(surface));
         }
         // The top window that is one (not a menu of an X11 application).
         let top = self.space.elements().rev().find(|w| !w.is_override_redirect()).cloned();
@@ -715,10 +732,11 @@ impl Boswas {
             } else {
                 None
             };
+            let mica = if active { self.titlebar_mica(&window, scale) } else { None };
             let mut decoration = window.data().decoration.borrow_mut();
             decoration.ensure_shadow(&window);
             let text_scale = self.config.accessibility.text_scale;
-            redrawn |= decoration.update(&window, active, scale, rounds, icon, self.text(), theme, text_scale);
+            redrawn |= decoration.update(&window, active, scale, rounds, icon, self.text(), theme, text_scale, mica);
         }
         if redrawn {
             self.schedule_redraw();

@@ -3,8 +3,10 @@
 //! (after any key or a click) the sign-in view.
 
 use boswas_ui::{
+    glass::{self, Glass, Kind as GlassKind},
+    material::Recipe,
     text::TextStyle,
-    tokens::{tokens, Material},
+    tokens::{tokens, TEXT_CONTRAST},
     Rgba,
 };
 
@@ -192,17 +194,24 @@ pub fn draw(f: &mut Frame, st: &State, interactive: bool) {
     let (w, h) = (f.canvas.width(), f.canvas.height());
     let full = Rect::new(0.0, 0.0, w, h);
     let signing_in = interactive && view.stage == Stage::SignIn;
-    // The caller painted the wallpaper; it is blurred and darkened behind
-    // the sign-in view.
+    // The caller painted the wallpaper; behind the sign-in view it blurs
+    // into glass (saturated, grained, darkened as far as white text needs;
+    // the picture is made once per size and kept), or with glass off is
+    // only darkened.
     if signing_in {
-        let material = Material {
-            tint: Rgba::BLACK,
-            tint_opacity: 0.42,
-            blur: 64.0,
-        };
-        match f.res.backdrop.as_mut() {
-            Some(backdrop) => backdrop.fill(f.canvas, 0.0, 0.0, w, h, [0.0; 4], (0.0, 0.0), material),
-            None => f.canvas.fill_rect(0.0, 0.0, w, h, Rgba::BLACK.alpha(0.55)),
+        let glass_look = Glass::of(theme).filter(|_| f.res.transparency);
+        match (f.res.backdrop.as_mut(), glass_look) {
+            (Some(backdrop), Some(g)) => {
+                let extremes = backdrop.extremes(g.blur, g.saturation);
+                let recipe = Recipe {
+                    blur: g.blur,
+                    saturation: g.saturation,
+                    layers: [(Rgba::BLACK, sign_in_dimming(&extremes)), (Rgba::TRANSPARENT, 0.0)],
+                    noise: g.noise,
+                };
+                backdrop.fill_recipe(f.canvas, 0.0, 0.0, w, h, [0.0; 4], (0.0, 0.0), &recipe);
+            }
+            _ => f.canvas.fill_rect(0.0, 0.0, w, h, Rgba::BLACK.alpha(0.55)),
         }
     } else {
         f.canvas.fill_rect(0.0, 0.0, w, h, Rgba::BLACK.alpha(0.22));
@@ -236,17 +245,31 @@ pub fn draw(f: &mut Frame, st: &State, interactive: bool) {
                 crate::weather::draw(f, &shown, room);
             }
         }
-        return;
+        return draw_osd(f, st, interactive);
     }
 
     let radius = tokens().radius_control;
     let centre = w / 2.0;
     let field_w = 296.0_f32.min(w - 48.0);
     let mut y = (h * 0.24).max(24.0);
-    // Avatar and name.
-    f.canvas.fill_circle(centre, y + 60.0, 60.0, Rgba::WHITE.alpha(0.16));
-    f.canvas.stroke_circle(centre, y + 60.0, 59.5, 1.0, Rgba::WHITE.alpha(0.22));
-    f.icon_tinted("avatar-default-symbolic", centre - 28.0, y + 32.0, 56.0, Rgba::WHITE);
+    // Avatar (the account picture, where there is one) and name.
+    let login = if view.greeter { view.login_name() } else { st.user.clone() };
+    if !crate::accounts::draw(f, st.pictures.get(&login), centre, y + 60.0, 60.0) {
+        // The user tile: a disc of glass (in the scheme's card tint, so the
+        // figure on it takes the scheme's text colour).
+        let figure = match f.glass() {
+            Some(g) => {
+                glass::draw_surface(f.canvas, centre - 60.0, y, 120.0, 120.0, 60.0, &g, GlassKind::Card, g.card, None);
+                theme.text
+            }
+            None => {
+                f.canvas.fill_circle(centre, y + 60.0, 60.0, Rgba::WHITE.alpha(0.16));
+                f.canvas.stroke_circle(centre, y + 60.0, 59.5, 1.0, Rgba::WHITE.alpha(0.22));
+                Rgba::WHITE
+            }
+        };
+        f.icon_tinted("avatar-default-symbolic", centre - 28.0, y + 32.0, 56.0, figure);
+    }
     y += 136.0;
     let name = ramp("title", Rgba::WHITE).weight(500);
     f.text_centered(&view.display_name, Rect::new(24.0, y, w - 48.0, name.line_height()), &name);
@@ -256,6 +279,7 @@ pub fn draw(f: &mut Frame, st: &State, interactive: bool) {
     if let Some(user) = &view.user_field {
         let rect = Rect::new(x, y, field_w, 36.0);
         f.area(rect, Action::Lock(Act::FocusUser));
+        glass_field(f, rect);
         f.text_box(rect, user, "User name", view.editing_user, false, 12.0, 12.0);
         y += 44.0;
     }
@@ -264,6 +288,7 @@ pub fn draw(f: &mut Frame, st: &State, interactive: bool) {
     f.area(rect, Action::Lock(Act::FocusPassword));
     let checking = view.state == AuthState::Checking;
     let placeholder = if checking { "Checking…" } else { "Password" };
+    glass_field(f, rect);
     f.text_box(rect, &view.password, placeholder, !view.editing_user && !checking, !view.reveal, 12.0, 76.0);
     if !view.password.is_empty() {
         let eye = if view.reveal { "eye-closed-symbolic" } else { "eye-open-symbolic" };
@@ -319,8 +344,11 @@ pub fn draw(f: &mut Frame, st: &State, interactive: bool) {
             if touch.focused {
                 f.focus_ring(row, radius);
             }
-            f.canvas.fill_circle(row.x + 22.0, row.y + 22.0, 14.0, Rgba::WHITE.alpha(0.18));
-            f.icon_tinted("avatar-default-symbolic", row.x + 14.0, row.y + 14.0, 16.0, Rgba::WHITE);
+            let picture = view.users.get(index).and_then(|(login, _)| st.pictures.get(login));
+            if !crate::accounts::draw(f, picture, row.x + 22.0, row.y + 22.0, 14.0) {
+                f.canvas.fill_circle(row.x + 22.0, row.y + 22.0, 14.0, Rgba::WHITE.alpha(0.18));
+                f.icon_tinted("avatar-default-symbolic", row.x + 14.0, row.y + 14.0, 16.0, Rgba::WHITE);
+            }
             f.text_left(label, Rect::new(row.x + 46.0, row.y, row.w - 54.0, row.h), &name_style);
             uy += 48.0;
         }
@@ -342,11 +370,48 @@ pub fn draw(f: &mut Frame, st: &State, interactive: bool) {
         right = power.x - 16.0;
     }
     status_icons(f, st, right, h - 48.0);
+    draw_osd(f, st, interactive);
+}
+
+/// The glass under a field of the sign-in view (a card of glass: the field
+/// stays legible over any wallpaper); nothing with glass off.
+fn glass_field(f: &mut Frame, rect: Rect) {
+    if let Some(g) = f.glass() {
+        let radius = tokens().radius_control;
+        glass::draw_surface(f.canvas, rect.x, rect.y, rect.w, rect.h, radius, &g, GlassKind::Card, g.card, None);
+    }
+}
+
+/// How dark the sign-in view's glass is: the black of the darkened
+/// wallpaper, from 0.42 up in steps of 0.02 until white text keeps 4.5:1
+/// on the brightest parts of the blurred wallpaper.
+fn sign_in_dimming(extremes: &[Rgba]) -> f32 {
+    let mut alpha: f32 = 0.42;
+    while alpha < 0.9 && extremes.iter().any(|e| Rgba::WHITE.contrast(glass::blend(*e, Rgba::BLACK, alpha)) < TEXT_CONTRAST) {
+        alpha += 0.02;
+    }
+    alpha
+}
+
+/// The level of the volume and brightness keys, in the lock screen's own
+/// surface: while the session is locked the compositor shows nothing else.
+fn draw_osd(f: &mut Frame, st: &State, interactive: bool) {
+    if let (true, Some(osd)) = (interactive, st.osd.as_ref()) {
+        let (w, h) = (f.canvas.width(), f.canvas.height());
+        crate::osd::paint(f, osd, crate::osd::auth_rect(w, h));
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_sign_in_view_is_dark_enough_for_white_text() {
+        assert_eq!(sign_in_dimming(&[Rgba::rgb(20, 20, 30)]), 0.42, "a dark wallpaper keeps the usual dimming");
+        let white = sign_in_dimming(&[Rgba::WHITE, Rgba::rgb(20, 20, 30)]);
+        assert!(white > 0.42 && Rgba::WHITE.contrast(glass::blend(Rgba::WHITE, Rgba::BLACK, white)) >= TEXT_CONTRAST, "{white}");
+    }
 
     #[test]
     fn keys_go_to_the_focused_field() {

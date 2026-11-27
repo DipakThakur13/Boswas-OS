@@ -8,8 +8,9 @@ worker thread.
 
 from __future__ import annotations
 
+import boswas_fluent as fluent
 from PySide6.QtCore import QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QImage, QPainter, QPainterPath, QPalette, QPen, QPixmap
+from PySide6.QtGui import QColor, QImage, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QPushButton, QSizePolicy, QWidget
 
 from .. import viewmodel as vm
@@ -65,10 +66,11 @@ class Preview(QWidget):
         else:
             # No image: a plain sketch in the variant's tone (the palette's accent hue, desaturated) with the
             # preset's accent colour.
-            hue = max(0, palette.color(QPalette.ColorRole.Highlight).hslHue())
+            # The theme's accent, not the palette's: a style sheet may have made a widget's palette transparent.
+            hue = max(0, fluent.qcolor("accent").hslHue())
             tone = QColor.fromHsl(hue, 40, 38 if self.preset.variant == "dark" else 232)
             p.fillPath(path, tone)
-            accent = QColor(self.preset.accent) if self.preset.accent else palette.color(QPalette.ColorRole.Highlight)
+            accent = QColor(self.preset.accent) if self.preset.accent else fluent.qcolor("accent")
             bar = QRectF(rect.left() + 14, rect.bottom() - 24, rect.width() - 28, 10)
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(accent)

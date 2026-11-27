@@ -215,7 +215,9 @@ pub struct WindowMenu {
     pub rect: Rectangle<i32, Logical>,
     items: Vec<Item>,
     hover: Option<usize>,
-    picture: Option<((Option<usize>, i32, bool), MemoryRenderBuffer)>,
+    /// The picture and what it was drawn for: hover, scale, scheme and
+    /// the glass (on, live blur, the wallpaper's generation).
+    picture: Option<((Option<usize>, i32, bool, (bool, bool, u64)), MemoryRenderBuffer)>,
 }
 
 impl Boswas {
@@ -473,19 +475,21 @@ impl Boswas {
             return;
         }
         let pixel_scale = scale.x.ceil().max(1.0) as i32;
-        let key = (menu.hover, pixel_scale, theme.scheme == boswas_ui::Scheme::Light);
+        let key = (menu.hover, pixel_scale, theme.scheme == boswas_ui::Scheme::Light, self.glass_key(&output.name()));
         if menu.picture.as_ref().map(|(cached, _)| cached) != Some(&key) {
             let t = tokens();
             let scheme = theme.scheme;
             let body = t.type_style("body");
             let (w, h) = (menu.rect.size.w as f32, menu.rect.size.h as f32);
+            let rows: Vec<Item> = menu.items.clone();
+            let hover = menu.hover;
+            let origin = ((menu.rect.loc.x - output_geo.loc.x) as f32, (menu.rect.loc.y - output_geo.loc.y) as f32);
             let Some(mut canvas) = Canvas::new(w, h, pixel_scale as f32) else {
                 return;
             };
-            canvas.fill_rounded_rect(0.0, 0.0, w, h, t.radius_flyout, t.material(scheme, "acrylic").tint);
-            canvas.stroke_rounded_rect(0.5, 0.5, w - 1.0, h - 1.0, t.radius_flyout - 0.5, 1.0, t.stroke(scheme, "surface"));
-            let rows: Vec<Item> = menu.items.clone();
-            let hover = menu.hover;
+            // Flyout glass, as the shell's (boswas_ui::glass).
+            let source = self.glass_source(&output.name());
+            boswas_ui::glass::paint(&mut canvas, 0.0, 0.0, w, h, [t.radius_flyout; 4], origin, theme, boswas_ui::glass::Kind::Flyout, source);
             for (index, item) in rows.iter().enumerate() {
                 let (x, y) = (item.rect.loc.x as f32, item.rect.loc.y as f32);
                 let (iw, ih) = (item.rect.size.w as f32, item.rect.size.h as f32);
@@ -531,6 +535,12 @@ impl Boswas {
                 Some(menu.rect.size),
                 Kind::Unspecified,
             ) {
+                // Live blur behind the menu's glass.
+                self.glass.own.push(crate::glass::OwnBlur {
+                    id: smithay::backend::renderer::element::Element::id(&element).clone(),
+                    rect: Rectangle::new(menu.rect.loc - output_geo.loc, menu.rect.size).to_physical_precise_round(scale),
+                    radius: tokens().radius_flyout * scale.x as f32,
+                });
                 elements.push(OutputRenderElement::Memory(element));
             }
         }

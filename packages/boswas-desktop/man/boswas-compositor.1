@@ -110,6 +110,39 @@ overrides the choice. Frames are drawn as fast as the monitor refreshes,
 at whatever rate its mode has. On devices without a vertical blank (most
 virtual graphics adapters, the firmware framebuffer) frames are still shown
 no faster than the display's refresh rate.
+.SH GLASS
+The shell's surfaces and the compositor's own (the window menu, the Alt+Tab
+panel, the snap layouts, Task View) are Boswas glass, the material of the
+Boswas applications: what lies behind a surface, blurred, its colours
+saturated, covered with a tint as opaque as its text needs to stay readable
+and a fine grain, with a white hairline along the top edge and a soft glow
+under it.
+.PP
+On OpenGL ES the compositor blurs what really lies behind a translucent
+surface (the windows under a flyout). Every client may ask for it with the
+\fBext\-background\-effect\-v1\fR protocol: a blur region per surface, in
+surface coordinates, taking effect with the surface's next commit and
+removed with a NULL region, the object or the surface. The scene behind the
+region is drawn at half resolution into a texture that is kept and blurred
+again (dual Kawase passes) only when something under it changed; its
+brightness is kept within a band for the light or dark scheme, so that text
+on translucent glass stays readable over any window. The \fBblur\fR
+capability is offered only while the renderer can blur and glass is on.
+pixman never blurs and does not offer it; the shell then draws the blurred
+wallpaper under its glass itself, as do the compositor's own surfaces (from
+the shell's background surface, read back small whenever it changed; the
+compositor never decodes a picture file).
+.PP
+The active window's title bar is Mica: the wallpaper under it, blurred and
+covered with the scheme's background colour, made again when the window
+comes to rest somewhere else. Task View lies on the desktop blurred into
+glass.
+.PP
+Glass is off, and every surface its opaque tint, with
+\fB[appearance] transparency = false\fR or while the user's desktop preset
+(the \fBCurrent\fR entry of the \fB[Preset]\fR group of
+\fI$XDG_CONFIG_HOME/boswasrc\fR) is a high-contrast one (Carbon); both are
+read again on \fBreload\-config\fR and passed to the shell.
 .SH THE SHELL
 The shell is started again at once when it ends. A shell that keeps ending
 right after its start (within 30 seconds) is started again after a pause
@@ -136,8 +169,17 @@ T}
 Super+N|T{
 notifications and calendar
 T}
+Super+W|T{
+widgets
+T}
 Super+R|T{
 Run
+T}
+Super+V|T{
+the clipboard history
+T}
+Super+., Super+;|T{
+emoji, kaomoji and symbols
 T}
 Super+E|T{
 Files
@@ -159,6 +201,33 @@ start or switch to the taskbar application at that place
 T}
 Super+Shift+1 ... 9|T{
 start another window of it
+T}
+.sp
+Super+S|T{
+Start, typing into its search box
+T}
+Super+X|T{
+the quick-link menu at the Start button
+T}
+Super+Alt+D|T{
+the calendar (with the notifications)
+T}
+Super+T|T{
+the keyboard on the taskbar's applications (again: the next one); the
+arrow keys move, Enter opens, Esc leaves
+T}
+Super+B|T{
+the keyboard on the notification area (the hidden icons' chevron)
+T}
+Super+P|T{
+how the monitors are used: PC screen only, Duplicate, Extend, Second screen
+only (again: the next choice)
+T}
+Super+U|T{
+Settings > Accessibility
+T}
+Ctrl+Alt+Del|T{
+the security options: Lock, Sign out, Change a password, Task Manager
 T}
 .sp
 Alt+Tab, Alt+Shift+Tab|T{
@@ -193,6 +262,15 @@ show the desktop, and bring the windows back
 T}
 Super+M, Super+Shift+M|T{
 minimize every window; restore them
+T}
+Super+Home|T{
+minimize every window but the active one; again, restore them
+T}
+Super+Shift+Up|T{
+stretch the window to the full height of the screen, keeping its width
+T}
+Super+Shift+Down|T{
+put a stretched window back; minimize another
 T}
 .sp
 Super+Ctrl+D|T{
@@ -241,8 +319,8 @@ without it.
 .PP
 Shortcuts use the key's position on the Latin layout, so they work the same
 while another layout is active. A client that inhibits shortcuts (a remote
-desktop or virtual machine window) receives all of them except Super+L and
-the virtual terminal keys.
+desktop or virtual machine window) receives all of them except Super+L,
+Ctrl+Alt+Del and the virtual terminal keys.
 .PP
 In the window picker Tab and the arrow keys move, releasing Alt selects and
 Esc cancels. In Task View the arrow keys move, Enter selects, Delete closes
@@ -287,7 +365,9 @@ running session.
 .B [keyboard]
 \fBlayout\fR, \fBvariant\fR, \fBmodel\fR, \fBoptions\fR (XKB names, for
 example layout "us,in"); \fBrepeat_delay\fR (milliseconds),
-\fBrepeat_rate\fR (per second); \fBnumlock\fR (on when the session starts).
+\fBrepeat_rate\fR (per second); \fBnumlock\fR (Num Lock is on when the
+session starts, and is turned on or off when the setting changes; a reload
+otherwise keeps it as it is).
 Accessibility: \fBsticky_keys\fR (Shift, Ctrl and Alt pressed and released on
 their own stay down for the next key; Super keeps its own behaviour),
 \fBsticky_keys_lock\fR (with sticky keys, a modifier pressed twice stays down
@@ -333,7 +413,9 @@ monitor is never turned off.
 .B [night_light]
 \fBenabled\fR; \fBtemperature\fR (2500 to 6500 kelvin); \fBscheduled\fR with
 \fBfrom\fR and \fBto\fR ("HH:MM", local time) turns it on by the clock.
-Needs a graphics driver with gamma tables.
+Turned on or off in quick settings, it stays so until the schedule's next
+start or end. Needs a graphics driver with gamma tables; where no monitor
+has one, quick settings shows night light as not available.
 .TP
 .B [power]
 \fBscreen_off_seconds\fR: time without input before the screens turn off (0:
@@ -381,8 +463,10 @@ default background), \fBaccent\fR (the accent colour, a hue of the
 palette: "iris", the default, "azure", "sky", "mint", "sun", "coral",
 "orchid" or "slate"; the shell, the compositor's own surfaces and the Qt
 applications take the same shades of it, moved where needed so that text on
-it stays readable) and \fBtransparency\fR (default true; false fills the
-taskbar, the flyouts and the strip of Task View with their tint alone).
+it stays readable) and \fBtransparency\fR (default true; false turns glass
+off: the shell's surfaces and the compositor's own are their opaque tints,
+no blur is offered, and title bars have no Mica; see
+.BR GLASS ).
 .TP
 .B [accessibility]
 \fBtext_scale\fR (text size in percent, 100 to 225: the shell, the title
@@ -414,9 +498,23 @@ show the picture without magnification.
 Read by the shell: \fBalignment\fR ("center", the default, or "left"),
 \fBauto_hide\fR (the taskbar reserves no room and stays out of sight but for
 a sliver at the bottom edge, where the pointer brings it back),
-\fBtask_view\fR (the Task View button; default true), \fBclock_seconds\fR
-and \fBbadges\fR (a taskbar button shows how many notifications of its
-application the notification centre holds; default true).
+\fBtask_view\fR (the Task View button; default true), \fBclock_seconds\fR,
+\fBbadges\fR (a taskbar button shows how many notifications of its
+application the notification centre holds; default true) and
+\fBwidgets\fR (the widgets button at the left end, or beside the tray when
+the group is at the left, with the weather of the lock screen's summary when
+there is one; default true; Super+W opens the widgets board either way).
+.TP
+.B [desktop]
+Read by the shell: \fBicons\fR (the files and folders of the desktop folder,
+XDG_DESKTOP_DIR, as icons on the wallpaper; default true),
+\fBsystem_icons\fR (besides them, from "home", "trash" and "computer", in
+this order; default ["trash"]), \fBicon_size\fR ("small", "medium", the
+default, or "large": 32, 48 or 96 pixels), \fBauto_arrange\fR (the icons
+fill the grid from the top-left, column by column, in the order chosen
+with Sort by; default false) and \fBalign_to_grid\fR (icons placed by hand
+snap to the grid; default true). The desktop's View menu changes the last
+three and \fBicons\fR in the user's file.
 .TP
 .B [start]
 Read by the shell: \fBlayout\fR ("default": three rows of pinned
@@ -448,6 +546,15 @@ applications, as they call themselves, whose notifications do not pop up
 but still reach the notification centre) and \fBtoast_seconds\fR (the
 least time a notification stays on screen: 5, the default, 7, 15, 30, 60 or
 300).
+.TP
+.B [clipboard]
+Read by the shell: \fBhistory\fR (default true: the shell keeps the last 25
+things copied, in memory, and Super+V shows them; false: Super+V offers to
+turn it on, and only pinned items are kept) and \fBcleared_at\fR (a Unix
+time in seconds, written by Settings for "Clear clipboard data": the shell
+forgets what was copied before then, except pinned items, and empties the
+clipboard if it holds such an item; default 0). See
+.BR boswas\-shell (1).
 .TP
 .B [policy]
 Read from the first two files only; ignored in a user's file.
@@ -509,8 +616,20 @@ uses when none is set), position, rotation and
 on) and
 \fBcapture\fR (opens the capture screen; "mode": "screen" or "region").
 The window list, window control, desktops, thumbnails, screenshots, the
-answer to a program that asks to see the screen and \fBquit\fR are
-available to the shell only, on the descriptor the compositor hands it.
+answer to a program that asks to see the screen, \fBpaste\fR and \fBquit\fR
+are available to the shell only, on the descriptor the compositor hands it.
+\fBpaste\fR (the clipboard history and the emoji panel) gives the window
+that has the keyboard the key stroke that pastes there, Ctrl+V or, in a
+terminal (by its application id), Ctrl+Shift+V, once the keys still held
+are let go; it names no keys, and does nothing while the session is locked
+or when no window has the keyboard. \fBnight\-light\fR with "active" turns
+night light on or off now (with a schedule, until its next change); its
+answer and the night-light event say "enabled", "active", "override" (a
+choice against the schedule holds) and "available" (a monitor can be
+tinted). \fBproject\fR with "mode" ("pc\-only", "duplicate", "extend",
+"second\-only") uses the monitors so for the session, over the
+\fB[outputs.\fINAME\fB]\fR settings; \fBprojection\fR says how many are
+connected and how they are used.
 .SH ENVIRONMENT
 .TP
 .B BOSWAS_LOG
@@ -527,6 +646,12 @@ hardware renderer, pixman otherwise), \fBgles\fR or \fBpixman\fR.
 .TP
 .B XCURSOR_THEME
 Cursor theme when \fBpointer.cursor_theme\fR is empty.
+.TP
+.B GLIBC_TUNABLES
+When the session does not set it, the shell, the lock screen and the login
+screen are started with \fBglibc.malloc.mmap_threshold=262144\fR, so that the
+shell gives large buffers back to the system once it lets them go; other
+programs do not get it.
 .SH EXIT STATUS
 .TP
 .B 0

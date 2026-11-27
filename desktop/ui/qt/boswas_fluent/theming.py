@@ -11,6 +11,11 @@ window and ``manager().changed`` is emitted.
 ``manager()`` is the one ``ThemeManager`` of the process; ``theme()`` its
 current ``Theme``. Widgets that paint themselves ask ``theme()`` each time
 they paint, so they need no code for a scheme change.
+
+The manager also decides whether windows are drawn with Boswas glass
+(``glass.py``): on while the desktop's transparency effects are on, unless a
+high-contrast preset is applied, the token file has no glass, or the
+application turned it off with ``set_glass(False)``.
 """
 
 from __future__ import annotations
@@ -83,10 +88,13 @@ class ThemeManager(QObject):
         super().__init__()
         self._forced_scheme: str | None = None
         self._forced_reduced: bool | None = None
+        self._forced_glass: bool | None = None
         self._appearance = appearance.read_appearance()
         self._theme = Theme(self._appearance.scheme, accent=self._appearance.accent,
                             text_scale=self._appearance.text_scale)
         self._scrollbars = self._appearance.always_show_scrollbars
+        self._glass = self._wants_glass()
+        self._wallpaper = self._appearance.wallpaper
         self._app: QApplication | None = None
         self._watcher: QFileSystemWatcher | None = None
         self._debounce: QTimer | None = None
@@ -118,6 +126,27 @@ class ThemeManager(QObject):
         return self._scrollbars
 
     @property
+    def glass(self) -> bool:
+        """Whether windows are drawn with Boswas glass (see the module text)."""
+        return self._glass
+
+    @property
+    def wallpaper(self) -> str:
+        """The desktop's picture (``[appearance] wallpaper``); "" for the default background."""
+        return self._wallpaper
+
+    @property
+    def high_contrast(self) -> bool:
+        """Whether the user's desktop preset is a high-contrast one."""
+        return self._appearance.high_contrast
+
+    def _wants_glass(self) -> bool:
+        if self._forced_glass is not None:
+            return self._forced_glass and self._theme.has_glass
+        look = self._appearance
+        return look.transparency and not look.high_contrast and self._theme.has_glass
+
+    @property
     def applied(self) -> bool:
         """True once ``apply`` has styled the running QApplication."""
         return self._app is not None and self._app is QApplication.instance()
@@ -142,6 +171,12 @@ class ThemeManager(QObject):
         """Turn animations off (True) or on (False) whatever the desktop says; ``None`` follows the desktop."""
         self._forced_reduced = reduced
 
+    def set_glass(self, glass: bool | None) -> None:
+        """Draw windows with Boswas glass (True) or opaque (False) whatever the desktop says; ``None`` follows
+        the desktop. True still needs a token file with glass."""
+        self._forced_glass = glass
+        self._update()
+
     def reload(self) -> None:
         """Read the desktop's appearance again and apply it if it changed."""
         self._appearance = appearance.read_appearance()
@@ -153,11 +188,15 @@ class ThemeManager(QObject):
         tokens = default_tokens()
         accent, text_scale = self._appearance.accent, self._appearance.text_scale
         scrollbars = self._appearance.always_show_scrollbars
-        if (scheme == self._theme.scheme and tokens is self._theme.tokens and accent == self._theme.accent
-                and text_scale == self._theme.text_scale and scrollbars == self._scrollbars):
+        if (scheme != self._theme.scheme or tokens is not self._theme.tokens or accent != self._theme.accent
+                or text_scale != self._theme.text_scale):
+            self._theme = Theme(scheme, tokens, accent=accent, text_scale=text_scale)
+        elif (scrollbars == self._scrollbars and self._wants_glass() == self._glass
+              and self._appearance.wallpaper == self._wallpaper):
             return
-        self._theme = Theme(scheme, tokens, accent=accent, text_scale=text_scale)
         self._scrollbars = scrollbars
+        self._glass = self._wants_glass()
+        self._wallpaper = self._appearance.wallpaper
         if self.applied:
             self._restyle()
         self.changed.emit(self._theme)
@@ -172,6 +211,8 @@ class ThemeManager(QObject):
             from .polish import Polisher
             self._polisher = Polisher(app)
             app.aboutToQuit.connect(self._shutdown)
+            from .glass import backdrop
+            backdrop().notifier.changed.connect(self._repaint)
         self._restyle()
         if watch and self._watcher is None:
             self._watcher = QFileSystemWatcher(self)
@@ -190,7 +231,8 @@ class ThemeManager(QObject):
         app.setPalette(build_palette(theme))
         QToolTip.setPalette(build_palette(theme))
         app.setFont(build_font(theme, "body"))
-        app.setStyleSheet(qss.build(theme, str(assets.ensure(theme)), always_show_scrollbars=self._scrollbars))
+        app.setStyleSheet(qss.build(theme, str(assets.ensure(theme)), always_show_scrollbars=self._scrollbars,
+                                    glass=self._glass))
         QIcon.setThemeName(ICON_THEMES[theme.scheme])
         QIcon.setFallbackThemeName(FALLBACK_ICON_THEMES[theme.scheme])
         from . import icons
@@ -200,11 +242,18 @@ class ThemeManager(QObject):
             # widget.update() to QAbstractItemView.update(QModelIndex).
             QWidget.update(widget)
 
+    def _repaint(self) -> None:
+        """A picture behind the glass is ready: every window paints again."""
+        if self._app is not None:
+            for window in self._app.topLevelWidgets():
+                if window.isVisible():
+                    QWidget.update(window)
+
     def _rewatch(self) -> None:
         if self._watcher is None:
             return
         directory = appearance.user_dir()
-        wanted = [directory / "appearance.toml", directory / "compositor.toml"]
+        wanted = [directory / "appearance.toml", directory / "compositor.toml", appearance.preset_record_path()]
         # Watch the directory to see files being created or replaced; until it exists, its parent.
         wanted.append(directory if os.path.isdir(directory) else appearance.config_home())
         watched = set(self._watcher.files()) | set(self._watcher.directories())

@@ -142,6 +142,7 @@ exactly which versions were used.
 | The look of the Boswas Qt applications | `desktop/ui/qt/boswas_fluent` (the toolkit, installed by `packages/boswas-branding/debian/rules`); `python3 -m boswas_fluent.gallery` shows every widget ([README](../../desktop/ui/qt/README.md)) |
 | Compositor defaults and policy | `packages/boswas-desktop/config/compositor.toml` (shipped defaults); on a device `/etc/boswas/compositor.toml` |
 | Login, session, lock | `packages/boswas-desktop/session/` |
+| The emoji panel's data | `packages/boswas-desktop/tools/build_emoji.py` regenerates `crates/boswas-shell/data/emoji.tsv` from Debian's `unicode-data` and `unicode-cldr-core`; `--check` fails on a stale file (ADR-0058) |
 | Boot screen | `packages/boswas-bootsplash/` (artwork from `desktop/branding/`) |
 | Installer policy | `installer/configuration/preseed.cfg` |
 | Boot menu | `config/live-build/config/bootloaders/grub-pc/` and `desktop/branding/boot-splash.svg` |
@@ -216,6 +217,7 @@ unprivileged user, with the image's own Wine, bubblewrap and boswas-compat:
 | Programs the tests start | `dbus-daemon` for the service backends' integration tests (they fail without it). `grim`, `Xwayland` and `xclock` for three of the compositor's end-to-end tests, which skip themselves without them |
 | Where build products go | Package build: `build/` inside the staged package (cargo home and target directory; removed with the stage). Tests: the test work directory. Development: `target/` in the workspace (git-ignored) |
 | Adding or updating a crate | Change `Cargo.toml`, run `cargo update -p NAME` (or `cargo build`) with network access, check that `cargo +1.85.0 build --locked` still works, and commit `Cargo.lock` with the change |
+| Release profile | Thin LTO, integer overflow checks on, and in `boswas-desktop` an abort on a panic (ADR-0032). One exception: `boswas-desktop` builds tiny-skia without overflow checks (`[profile.release.package.tiny-skia]` in its `Cargo.toml`), as tiny-skia's own releases are; with the checks its pixel pipelines are neither vectorised nor inlined and drawing costs several times as much (ADR-0064). Debug builds keep the checks everywhere |
 | `unsafe` | In shipped code (`src/`) only in the files listed in `tests/static/test_sources.sh`; the static stage fails on any other |
 
 A build host without access to crates.io cannot build these two packages.
@@ -229,12 +231,13 @@ cargo test --locked --workspace \
 cd ../boswas-bootsplash && cargo test --locked
 ```
 
-The desktop workspace has unit tests in every crate and three sets of
+The desktop workspace has unit tests in every crate and four sets of
 tests that start real programs:
 
-- `crates/boswas-compositor/tests/headless.rs`: eleven end-to-end tests
-  that start the real `boswas-compositor` binary on its headless back end
-  and drive it with real clients, injected keys and the control socket.
+- `crates/boswas-compositor/tests/headless.rs`, `invisible.rs` and
+  `taskview.rs`: end-to-end tests that start the real
+  `boswas-compositor` binary on its headless back end and drive it with
+  real clients, injected keys and the control socket.
   They check that an ordinary client is offered no privileged protocol
   and a program the compositor starts is; that the public control socket
   answers `version`, `lock`, `reload-config`, `outputs` and `capture`
@@ -243,14 +246,21 @@ tests that start real programs:
   program (`grim`) gets a picture of the screen only after the answer
   "allow" and never while the session is locked; an X11 program
   (`xclock`) through Xwayland; and that a locked session stays locked
-  when the lock screen dies and unlocks only through a lock client. They
-  need `xkb-data` and a writable `/tmp`, no graphics device and no fonts.
+  when the lock screen dies and unlocks only through a lock client;
+  that a fully transparent single-pixel layer surface and a small
+  surface in front damage no more than themselves, and that Task View
+  opened again draws nothing it drew before (ADR-0064). They need
+  `xkb-data` and a writable `/tmp`, no graphics device and no fonts.
 - `crates/boswas-services/tests/it`: the service backends against two
   private `dbus-daemon` processes per test and scripted stand-ins for the
   system daemons (`crates/boswas-services/README.md`). Sockets go under
   `/tmp`, because socket paths are short.
 - `crates/boswas-services-bridge/tests/bridge.rs`: the bridge program
   itself.
+- `crates/boswas-shell/tests/`: the real compositor with the real shell:
+  opening a screenshot from its notice (`opening.rs`), the clipboard
+  history and the emoji panel (`clipboard.rs`), and the desktop icons and
+  the widgets board (`desktop.rs`).
 
 [verification.md](../architecture/verification.md) has the counts and
 what the tests do not reach.

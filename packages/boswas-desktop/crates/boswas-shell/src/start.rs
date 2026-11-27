@@ -106,6 +106,7 @@ pub const SETTINGS: &[(&str, &str, &str, &[&str])] = &[
     ("hardware", "Hardware & drivers", "boswas-hardware", &["driver", "firmware", "device", "graphics"]),
     ("time-language", "Language, region & time", "preferences-system", &["language", "region", "date", "time", "locale"]),
     ("notifications", "Notifications", "preferences-desktop-notification-bell", &["do not disturb", "dnd", "banners", "quiet hours"]),
+    ("clipboard", "Clipboard", "edit-paste-symbolic", &["clipboard history", "copy", "paste", "emoji", "symbols", "super+v"]),
     ("multitasking", "Multitasking", "preferences-system-windows", &["snap", "split screen", "alt+tab", "desktops"]),
     ("taskbar", "Taskbar settings", "boswas-shell", &["taskbar", "auto hide", "alignment", "task view"]),
     ("start", "Start settings", "boswas-logo", &["start menu", "pinned", "recommended", "folders"]),
@@ -608,6 +609,12 @@ pub fn geometry(panel: Rect, layout: StartLayout) -> Geometry {
     }
 }
 
+/// The window the page scrolls in, for Start in `panel`: all that changes
+/// while the page scrolls.
+pub fn page_window(panel: Rect, st: &State) -> Rect {
+    geometry(panel, st.desktop.start.layout).view
+}
+
 /// What a part of the page shows.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Piece {
@@ -853,8 +860,11 @@ pub fn draw(f: &mut Frame, st: &State, panel: Rect) {
     let user = Rect::new(geo.x - 8.0, geo.footer.y + 12.0, 32.0 + 12.0 + name_w + 20.0, 40.0);
     let touch = f.hit(user, Action::Start(Act::User));
     f.state_layer(user, radius, touch, false);
-    f.canvas.fill_circle(user.x + 24.0, user.y + 20.0, 16.0, theme.surface_hover);
-    f.icon("avatar-default-symbolic", user.x + 16.0, user.y + 12.0, 16.0);
+    // The account picture, where there is one (accounts.rs).
+    if !crate::accounts::draw(f, st.pictures.get(&st.user), user.x + 24.0, user.y + 20.0, 16.0) {
+        f.canvas.fill_circle(user.x + 24.0, user.y + 20.0, 16.0, theme.surface_hover);
+        f.icon("avatar-default-symbolic", user.x + 16.0, user.y + 12.0, 16.0);
+    }
     f.text_left(&st.user_name, Rect::new(user.x + 52.0, user.y, name_w + 4.0, 40.0), &name_style);
     let power = Rect::new(geo.x + geo.w - 32.0, geo.footer.y + 12.0, 40.0, 40.0);
     let touch = f.hit(power, Action::Start(Act::Power));
@@ -975,7 +985,11 @@ fn draw_element(f: &mut Frame, st: &State, geo: &Geometry, element: &Element, re
             let touch = f.hit(button, action.unwrap_or(Action::None));
             f.state_layer(button, radius, touch, false);
             let size = if touch.pressed { m.icon - 4.0 } else { m.icon };
-            f.icon_or_placeholder(&[&app.icon, "application-x-executable"], rect.x + (rect.w - size) / 2.0, rect.y + 12.0 + (m.icon - size) / 2.0, size);
+            // Magnified under the pointer, growing into the room above it.
+            let (x, y) = (rect.x + (rect.w - size) / 2.0, rect.y + 12.0 + (m.icon - size) / 2.0);
+            // Keyed by its place on the page, which scrolling does not change.
+            let place = ((element.rect.y.max(0.0) as usize) << 16) | element.rect.x.max(0.0) as usize;
+            f.magnified_icon(crate::magnify::Key("start", place), &[&app.icon, "application-x-executable"], x, y, size, button, touch.focused, y - button.y);
             let label = Rect::new(rect.x + 4.0, rect.y + 12.0 + m.icon + 6.0, rect.w - 8.0, m.label_h + 2.0);
             f.text_centered(&app.name, label, &ramp("caption", theme.text));
         }

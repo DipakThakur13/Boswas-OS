@@ -12,7 +12,10 @@
                  reports it; if it does not within a few seconds the control
                  snaps back to the real state and the error bar says so
   RowList        rows keyed by a name that are updated in place: a row that
-                 stays keeps its widget (and with it the keyboard focus)
+                 stays keeps its widget (and with it the keyboard focus); a
+                 list of applications (``applications=True``) shows the grey
+                 hover of its rows and magnifies the icon under the pointer
+                 or the focus, as in a dock (fluent.IconMagnifier)
   Busy           a small progress ring with a text beside it
   ElidedLabel    one line of text from outside that may be longer than the
                  row: cut in the middle with an ellipsis, whole in the tool tip
@@ -31,6 +34,7 @@ from ... import servicebridge as sb
 from .. import bridgeclient
 
 PENDING_SECONDS = 6.0          # how long a control shows a value the service has not confirmed yet
+APP_ICON = 24                  # the icon of a row in a list of applications, at rest
 
 
 class Section(QWidget):
@@ -220,13 +224,15 @@ class RowList(QWidget):
     neighbour instead of being lost.
     """
 
-    def __init__(self, parent: QWidget | None = None):
+    def __init__(self, parent: QWidget | None = None, *, applications: bool = False):
         super().__init__(parent)
         self.box = QVBoxLayout(self)
         self.box.setContentsMargins(0, 0, 0, 0)
         self.box.setSpacing(4)
         self.widgets: dict[object, QWidget] = {}
         self.order: list[object] = []
+        self.applications = applications
+        self.magnifier = fluent.IconMagnifier(self) if applications else None
 
     def sync(self, keys: list, create, update) -> None:
         keys = list(dict.fromkeys(keys))
@@ -244,6 +250,8 @@ class RowList(QWidget):
         for key in keys:
             if key not in self.widgets:
                 self.widgets[key] = create(key)
+                if self.applications:
+                    self._application_row(self.widgets[key])
         if keys != [k for k in self.order if k in keys] or len(keys) != self.box.count():
             for index, key in enumerate(keys):
                 if self.box.indexOf(self.widgets[key]) != index:
@@ -251,7 +259,19 @@ class RowList(QWidget):
         self.order = keys
         for key in keys:
             update(key, self.widgets[key])
+        if self.magnifier is not None:
+            self.magnifier.set_rows([self.widgets[key] for key in keys])
         self.setVisible(bool(keys))
+
+    @staticmethod
+    def _application_row(row: QWidget) -> None:
+        """A row of a list of applications: a larger icon, and the hover of a row although it is no button."""
+        head = getattr(row, "header", None) or row          # an expander: its head
+        icon = getattr(head, "icon_widget", None)
+        if icon is not None:
+            icon.set_icon_size(APP_ICON)
+        if hasattr(row, "set_hover_highlight") and not getattr(row, "is_clickable", lambda: False)():
+            row.set_hover_highlight(True)
 
     def row(self, key) -> QWidget | None:
         return self.widgets.get(key)

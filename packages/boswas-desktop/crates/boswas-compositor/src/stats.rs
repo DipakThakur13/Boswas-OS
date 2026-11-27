@@ -11,13 +11,22 @@
 //!
 //! Nothing is logged for a second in which nothing was drawn, and the cost
 //! is a few arithmetic operations per frame.
+//!
+//! At trace level every frame is also logged on a line of its own (its
+//! cost in microseconds, the time since the frame of that output before
+//! it, the share of the output drawn), so that occasional long frames can
+//! be found and counted, not only averages:
+//!
+//! ```text
+//! BOSWAS_LOG=info,boswas_compositor::stats=trace
+//! ```
 use std::{
     collections::HashMap,
     time::{Duration, Instant},
 };
 
 use smithay::utils::{Physical, Rectangle, Size};
-use tracing::{debug, enabled, Level};
+use tracing::{debug, enabled, trace, Level};
 
 /// The figures of one output for the current second.
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -49,8 +58,12 @@ impl Second {
 #[derive(Debug)]
 pub struct FrameStats {
     enabled: bool,
+    /// Every frame is logged (trace level).
+    each: bool,
     since: Instant,
     outputs: HashMap<String, Second>,
+    /// When each output last finished a frame.
+    last: HashMap<String, Instant>,
 }
 
 impl Default for FrameStats {
@@ -63,8 +76,10 @@ impl FrameStats {
     pub fn new() -> Self {
         Self {
             enabled: enabled!(target: "boswas_compositor::stats", Level::DEBUG),
+            each: enabled!(target: "boswas_compositor::stats", Level::TRACE),
             since: Instant::now(),
             outputs: HashMap::new(),
+            last: HashMap::new(),
         }
     }
 
@@ -80,8 +95,18 @@ impl FrameStats {
             return;
         }
         let second = self.outputs.entry(output.to_owned()).or_default();
-        record(second, size, busy, damage);
-        self.flush(Instant::now());
+        let share = record(second, size, busy, damage);
+        let now = Instant::now();
+        if self.each {
+            let previous = self.last.insert(output.to_owned(), now);
+            let interval = previous.map_or(0, |at| now.saturating_duration_since(at).as_micros());
+            trace!(
+                target: "boswas_compositor::stats",
+                "frame {output} busy_us={} interval_us={interval} drawn={share:.4}",
+                busy.as_micros()
+            );
+        }
+        self.flush(now);
     }
 
     /// Logs and starts a new second when one has passed.
@@ -99,7 +124,8 @@ impl FrameStats {
     }
 }
 
-fn record(second: &mut Second, size: Size<i32, Physical>, busy: Duration, damage: Option<&[Rectangle<i32, Physical>]>) {
+/// Adds a frame to its second; returns the share of the output it drew.
+fn record(second: &mut Second, size: Size<i32, Physical>, busy: Duration, damage: Option<&[Rectangle<i32, Physical>]>) -> f64 {
     let area = f64::from(size.w.max(1)) * f64::from(size.h.max(1));
     let share = match damage {
         None => 1.0,
@@ -115,6 +141,7 @@ fn record(second: &mut Second, size: Size<i32, Physical>, busy: Duration, damage
     if share >= 0.999 {
         second.full += 1;
     }
+    share
 }
 
 #[cfg(test)]
@@ -126,10 +153,10 @@ mod tests {
     fn a_second_adds_up_its_frames() {
         let size = Size::from((100, 100));
         let mut second = Second::default();
-        record(&mut second, size, Duration::from_millis(2), None);
+        assert_eq!(record(&mut second, size, Duration::from_millis(2), None), 1.0);
         let corner = [Rectangle::new(Point::from((0, 0)), Size::from((50, 50)))];
-        record(&mut second, size, Duration::from_millis(4), Some(&corner));
-        record(&mut second, size, Duration::from_millis(3), Some(&[]));
+        assert!((record(&mut second, size, Duration::from_millis(4), Some(&corner)) - 0.25).abs() < 1e-9, "a quarter of the output");
+        assert_eq!(record(&mut second, size, Duration::from_millis(3), Some(&[])), 0.0);
         assert_eq!(second.frames, 3);
         assert_eq!(second.full, 1);
         assert_eq!(second.slowest, Duration::from_millis(4));

@@ -60,10 +60,36 @@ pub fn step_brightness(current: f32, up: bool) -> f32 {
     }
 }
 
+/// The keys the lock screen and the login screen act on: the volume and
+/// the brightness (their services obey nothing else).
+pub fn auth_key(key: &str) -> bool {
+    matches!(key, "volume-up" | "volume-down" | "volume-mute" | "brightness-up" | "brightness-down")
+}
+
+/// Where the display goes on the lock screen and the login screen, in a
+/// surface of `w` by `h`: centred, above the hint at the bottom, where the
+/// desktop shows it above the taskbar.
+pub fn auth_rect(w: f32, h: f32) -> Rect {
+    Rect::new(((w - SIZE.0) / 2.0).round(), (h - 112.0 - SIZE.1).max(0.0).round(), SIZE.0, SIZE.1)
+}
+
+/// What a change of the display draws again on the lock screen: its place
+/// and its shadow.
+pub fn auth_damage(w: f32, h: f32) -> Rect {
+    let rect = auth_rect(w, h);
+    Rect::new(rect.x - 32.0, rect.y - 32.0, rect.w + 64.0, rect.h + 64.0)
+}
+
 pub fn draw(f: &mut Frame, osd: &Osd, panel: Rect) {
-    let theme = f.theme();
-    f.panel(panel, "acrylic");
     f.area(panel, Action::None);
+    paint(f, osd, panel);
+}
+
+/// Draws the display without taking clicks (over the lock screen, whose
+/// clicks stay its own).
+pub fn paint(f: &mut Frame, osd: &Osd, panel: Rect) {
+    let theme = f.theme();
+    f.panel(panel, "flyout");
     let icon = match osd.kind {
         Kind::Volume { muted } => volume_icon(osd.value, muted),
         Kind::Brightness => "display-brightness-symbolic",
@@ -100,6 +126,24 @@ mod tests {
         assert_eq!(step_volume(1.0, true), 1.0);
         assert_eq!(step_volume(1.3, true), 1.3, "the key never lowers an amplified volume");
         assert!((step_volume(1.3, false) - 1.25).abs() < 1e-6);
+    }
+
+    #[test]
+    fn the_lock_screen_shows_the_level_of_the_volume_and_brightness_keys_only() {
+        for key in ["volume-up", "volume-down", "volume-mute", "brightness-up", "brightness-down"] {
+            assert!(auth_key(key), "{key}");
+        }
+        for key in ["media-play", "media-next", "mic-mute", ""] {
+            assert!(!auth_key(key), "{key}: nothing the lock screen's services would do");
+        }
+        for (w, h) in [(1920.0, 1080.0), (1024.0, 768.0), (480.0, 360.0)] {
+            let rect = auth_rect(w, h);
+            assert!(rect.x >= 0.0 && rect.right() <= w && rect.y >= 0.0, "inside {w}x{h}");
+            assert!(rect.bottom() <= h - 72.0, "above the hint at the bottom of {w}x{h}");
+            assert!((rect.center().0 - w / 2.0).abs() <= 1.0, "centred");
+            let damage = auth_damage(w, h);
+            assert!(damage.x < rect.x && damage.bottom() > rect.bottom(), "the shadow is drawn again too");
+        }
     }
 
     #[test]

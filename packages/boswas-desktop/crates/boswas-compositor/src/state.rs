@@ -273,6 +273,14 @@ pub struct Boswas {
     pub filter_commit: smithay::backend::renderer::utils::CommitCounter,
     /// Accessibility of the keyboard: sticky and filter keys.
     pub key_access: crate::keyaccess::KeyAccess,
+    /// A paste the shell asked for, waiting for the held keys (paste.rs).
+    pub paste: crate::paste::Paste,
+    /// Glass: live blur, the background effect protocol, Mica (glass/).
+    pub glass: crate::glass::GlassState,
+    /// What the Windows shortcuts the compositor carries out keep for the
+    /// session, night light turned on or off now, and how the monitors are
+    /// used (winkeys.rs).
+    pub winkeys: crate::winkeys::WinKeys,
 
     // Protocol state
     _globals: Globals,
@@ -305,6 +313,10 @@ pub struct Boswas {
     pub cursor_status: CursorImageStatus,
     pub cursor_theme: CursorTheme,
     pub dnd_icon: Option<WlSurface>,
+    /// The layer surface that had the keyboard on demand (the desktop's
+    /// icons) when an exclusive one (a menu, a flyout) took it: it gets the
+    /// keyboard back when that one goes.
+    pub keyboard_before_exclusive: Option<WlSurface>,
     /// Set while Super is held and nothing else has been pressed: releasing
     /// it then opens the launcher.
     pub super_tap: bool,
@@ -412,6 +424,7 @@ impl Boswas {
         let input_method_state = InputMethodManagerState::new::<Self, _>(&dh, types);
         let virtual_keyboard_state = VirtualKeyboardManagerState::new::<Self, _>(&dh, types);
         let alpha_modifier_state = AlphaModifierState::new::<Self>(&dh);
+        let glass = crate::glass::GlassState::new(&dh);
         let content_type_state = ContentTypeState::new::<Self>(&dh);
         let tablet_manager_state = TabletManagerState::new::<Self>(&dh);
         let system_bell_state = XdgSystemBellState::new::<Self>(&dh);
@@ -487,6 +500,9 @@ impl Boswas {
             filter_id: smithay::backend::renderer::element::Id::new(),
             filter_commit: smithay::backend::renderer::utils::CommitCounter::default(),
             key_access: crate::keyaccess::KeyAccess::default(),
+            paste: crate::paste::Paste::default(),
+            glass,
+            winkeys: crate::winkeys::WinKeys::default(),
             _globals: Globals {
                 xdg_decoration_state,
                 output_manager_state,
@@ -533,6 +549,7 @@ impl Boswas {
             cursor_status: CursorImageStatus::default_named(),
             cursor_theme,
             dnd_icon: None,
+            keyboard_before_exclusive: None,
             super_tap: false,
             suppressed_keys: HashSet::new(),
             pressed_button: None,
@@ -871,6 +888,9 @@ impl Boswas {
             .env("WAYLAND_DISPLAY", &self.socket_name)
             .env("XDG_CURRENT_DESKTOP", "Boswas")
             .stdin(std::process::Stdio::null());
+        if let Some(tunables) = shell_malloc_tunables(trust, std::env::var_os("GLIBC_TUNABLES").as_deref()) {
+            cmd.env("GLIBC_TUNABLES", tunables);
+        }
         self.x11_environment(&mut cmd);
         let child = cmd.spawn().map_err(|e| format!("{program}: {e}"))?;
         drop((wl_theirs, ipc_theirs));
@@ -881,7 +901,38 @@ impl Boswas {
         self.children.push(child);
         Ok(connection)
     }
+}
 
+/// The C library's memory settings for the shell, the lock screen and the
+/// login screen (the programs started with the shell's trust), unless the
+/// session sets its own: blocks of 256 KiB and more are mapped on their
+/// own, so the large drawings the shell lets go of (a flyout's canvases and
+/// shadows, tens of megabytes at 200 %) go back to the system at once
+/// instead of staying in its heap (about 16 MB less at 2560 x 1440 200 %,
+/// measured with the same frame times). The shell takes the setting out of
+/// its environment again, so programs it starts do not inherit it.
+pub const SHELL_MALLOC_TUNABLES: &str = "glibc.malloc.mmap_threshold=262144";
+
+/// [`SHELL_MALLOC_TUNABLES`] for a program of `trust`, when the session
+/// sets none (`session`: its `GLIBC_TUNABLES`).
+pub fn shell_malloc_tunables(trust: Trust, session: Option<&std::ffi::OsStr>) -> Option<&'static str> {
+    (trust == Trust::Shell && session.is_none()).then_some(SHELL_MALLOC_TUNABLES)
+}
+
+#[cfg(test)]
+mod malloc_tests {
+    use super::*;
+
+    #[test]
+    fn the_shell_alone_gets_the_memory_setting_unless_the_session_has_one() {
+        assert_eq!(shell_malloc_tunables(Trust::Shell, None), Some(SHELL_MALLOC_TUNABLES));
+        assert_eq!(shell_malloc_tunables(Trust::Shell, Some(std::ffi::OsStr::new("glibc.malloc.arena_max=2"))), None);
+        assert_eq!(shell_malloc_tunables(Trust::InputMethod, None), None);
+        assert_eq!(shell_malloc_tunables(Trust::Normal, None), None);
+    }
+}
+
+impl Boswas {
     /// Points a program at this session's X server, or at none: a stale
     /// `DISPLAY` from the environment the session was started in must not
     /// reach applications.
@@ -1030,9 +1081,16 @@ impl Boswas {
             ..XkbConfig::default()
         };
         let keyboard = self.keyboard.clone();
+        // Num Lock stays as it was, unless `[keyboard] numlock` changed. A
+        // new keymap starts with it released, and the focused window is not
+        // told when the keymap is the same: it is released through its key
+        // first and locked again after.
+        let num_lock = crate::winkeys::num_lock_after_reload(self.config.keyboard.numlock, config.keyboard.numlock, self.num_lock());
+        self.set_num_lock(false);
         if let Err(err) = keyboard.set_xkb_config(self, xkb) {
             warn!("keyboard layout \"{}\" rejected: {err:?}", config.keyboard.layout);
         }
+        self.set_num_lock(num_lock);
         self.theme = Theme::accented(
             if config.appearance.scheme == "light" { Scheme::Light } else { Scheme::Dark },
             &config.appearance.accent,
@@ -1043,6 +1101,8 @@ impl Boswas {
         }
         if config.night_light != self.config.night_light {
             self.night_light = (config.night_light.enabled, config.night_light.temperature);
+            // Settings' change ends a choice made against the schedule.
+            self.winkeys.night_override = None;
         }
         // Settings switches the magnifier and the colour filter; the keys
         // switch them for the session in between, like night light.
@@ -1065,6 +1125,9 @@ impl Boswas {
         if sticky_off {
             self.release_sticky_keys();
         }
+        // How the monitors are used (Super+P) stays over the new settings.
+        self.winkeys.configured_outputs = None;
+        self.projection_outputs();
         let config = self.config.clone();
         self.backend.config_changed(&config);
         self.apply_night_light();
@@ -1072,6 +1135,7 @@ impl Boswas {
         self.ipc_event("night-light", night_light);
         self.refresh_layouts();
         self.schedule_redraw();
+        self.glass_config_changed();
         let appearance = self.appearance_json();
         self.ipc_event("config", appearance);
         warnings
@@ -1119,16 +1183,22 @@ impl Boswas {
     }
 
     /// Whether the screens are tinted right now: night light is switched on
-    /// and, with a schedule, the clock is inside it.
+    /// and, with a schedule, the clock is inside it, unless it was turned on
+    /// or off now against the schedule (nightlight.rs).
     pub fn night_light_active(&self) -> bool {
         use chrono::Timelike;
         let now = chrono::Local::now();
-        let settings = crate::config::NightLight {
+        crate::nightlight::active(&self.night_light_settings(), self.winkeys.night_override, now.hour() * 60 + now.minute())
+    }
+
+    /// The night light settings in use: the session's switch and colour
+    /// temperature with the configured schedule.
+    pub fn night_light_settings(&self) -> crate::config::NightLight {
+        crate::config::NightLight {
             enabled: self.night_light.0,
             temperature: self.night_light.1,
             ..self.config.night_light.clone()
-        };
-        settings.active_at(now.hour() * 60 + now.minute())
+        }
     }
 
     /// Switches night light on or off and sets its colour temperature.
@@ -1143,11 +1213,23 @@ impl Boswas {
     /// Brings the outputs' colour in line with the night light state. Called
     /// on changes and once a second for the schedule.
     pub fn apply_night_light(&mut self) {
+        // A choice against the schedule ends with the schedule's next change.
+        if let Some(choice) = self.winkeys.night_override {
+            use chrono::Timelike;
+            let now = chrono::Local::now();
+            if !crate::nightlight::holds(&self.night_light_settings(), choice, now.hour() * 60 + now.minute()) {
+                self.winkeys.night_override = None;
+            }
+        }
         let wanted = self.night_light_active().then_some(self.night_light.1);
         if wanted != self.night_light_applied {
             self.night_light_applied = wanted;
             self.backend.set_color_temperature(wanted);
             self.schedule_redraw();
+            // The shell's tile shows whether the screens are tinted, also
+            // when the schedule changed it.
+            let state = self.night_light_json();
+            self.ipc_event("night-light", state);
         }
     }
 }

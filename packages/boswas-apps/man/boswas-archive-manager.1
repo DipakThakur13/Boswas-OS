@@ -3,6 +3,7 @@
 boswas-archive-manager \- open, extract and create ZIP and TAR archives
 .SH SYNOPSIS
 .B boswas-archive-manager
+.RB [ \-\-new\-window ]
 .RI [ archive " ...]"
 .br
 .B boswas-archive-manager \-\-extract
@@ -116,6 +117,11 @@ changes are not written back. The folder is removed when the window closes.
 Programs, scripts, installers and desktop entries are not opened from inside
 an archive.
 .SH OPTIONS
+.TP
+.B \-\-new\-window
+Open a new window. Every start of the program has a window of its own, so
+this is what a plain start does too; the desktop entry's \(lqNew Window\(rq
+action uses it.
 .TP
 .B \-\-extract
 Extract each

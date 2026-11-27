@@ -10,7 +10,8 @@ use tiny_skia::{FillRule, FilterQuality, Paint, Pattern, Pixmap, SpreadMode, Tra
 
 use crate::{
     canvas::{rounded_rect_path, Canvas, Corners},
-    tokens::Material,
+    glass,
+    tokens::{Material, Rgba},
 };
 
 /// Width of the reduced wallpaper copy in pixels.
@@ -24,18 +25,27 @@ const MAX_FILLED_BYTES: usize = 48 * 1024 * 1024;
 /// output and the fraction of a pixel it is off the grid (device pixels,
 /// rounded), and the material.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-struct FillKey([i32; 13]);
+struct FillKey([i32; 19]);
 
 /// The blurred wallpaper of one output.
 pub struct Backdrop {
     reduced: Pixmap,
     /// Output logical pixels per pixel of `reduced`.
     step: f32,
-    blurred: Vec<(u32, Pixmap)>,
+    /// Blurred copies by (blur radius in reduced pixels, saturation in
+    /// hundredths).
+    blurred: Vec<((u32, u32), Pixmap)>,
+    /// The darkest and brightest colours of each blurred copy (glass makes
+    /// its tint legible over them).
+    extremes: Vec<((u32, u32), Vec<Rgba>)>,
+    /// The grain tile of each noise opacity (in ten-thousandths).
+    grains: Vec<(u32, Pixmap)>,
     /// Surfaces filled before, most recently used last: a panel is drawn
     /// again on every hover change, and magnifying the blurred wallpaper
     /// costs more than everything else on it.
     filled: Vec<(FillKey, Pixmap)>,
+    /// Fills drawn (not taken from `filled`), for tests.
+    renders: usize,
 }
 
 impl Backdrop {
@@ -51,24 +61,102 @@ impl Backdrop {
             reduced: reduce(wallpaper, rw, rh)?,
             step: width / rw as f32,
             blurred: Vec::new(),
+            extremes: Vec::new(),
+            grains: Vec::new(),
             filled: Vec::new(),
+            renders: 0,
         })
     }
 
-    fn blurred(&mut self, blur: f32) -> &Pixmap {
-        // A Gaussian of sigma blur/2, approximated by three box blurs.
-        let sigma = (blur / 2.0 / self.step).max(0.0);
-        let radius = (sigma * 0.92).round() as u32;
-        if let Some(index) = self.blurred.iter().position(|(r, _)| *r == radius) {
+    /// A copy of this backdrop without the surfaces it filled: what a
+    /// surface is drawn from on another thread.
+    pub fn copy_for_work(&self) -> Backdrop {
+        Backdrop {
+            reduced: self.reduced.clone(),
+            step: self.step,
+            blurred: self.blurred.clone(),
+            extremes: self.extremes.clone(),
+            grains: self.grains.clone(),
+            filled: Vec::new(),
+            renders: 0,
+        }
+    }
+
+    fn blurred(&mut self, blur: f32, saturation: f32) -> &Pixmap {
+        let key = self.blur_key(blur, saturation);
+        if let Some(index) = self.blurred.iter().position(|(k, _)| *k == key) {
             return &self.blurred[index].1;
         }
         if self.blurred.len() >= MAX_BLURS {
             self.blurred.remove(0);
         }
         let mut copy = self.reduced.clone();
-        box_blur(&mut copy, radius);
-        self.blurred.push((radius, copy));
+        saturate(&mut copy, key.1 as f32 / 100.0);
+        box_blur(&mut copy, key.0);
+        self.blurred.push((key, copy));
         &self.blurred[self.blurred.len() - 1].1
+    }
+
+    /// A Gaussian of sigma blur/2, approximated by three box blurs of this
+    /// radius in reduced pixels; and the saturation in hundredths.
+    fn blur_key(&self, blur: f32, saturation: f32) -> (u32, u32) {
+        let sigma = (blur / 2.0 / self.step).max(0.0);
+        ((sigma * 0.92).round() as u32, (saturation.clamp(0.0, 4.0) * 100.0).round() as u32)
+    }
+
+    /// The darkest and the brightest colours of the wallpaper blurred by
+    /// `blur` and saturated by `saturation` (six of each, searched on a
+    /// 64 x 36 grid as the toolkit does): what glass makes its tint legible
+    /// over.
+    /// The whole wallpaper, reduced, saturated and blurred (premultiplied
+    /// RGBA), as the fills sample it: a full-screen backdrop is this picture
+    /// enlarged.
+    pub fn picture(&mut self, blur: f32, saturation: f32) -> &Pixmap {
+        self.blurred(blur, saturation)
+    }
+
+    /// How many fills were drawn rather than taken from those kept.
+    pub fn renders(&self) -> usize {
+        self.renders
+    }
+
+    pub fn extremes(&mut self, blur: f32, saturation: f32) -> Vec<Rgba> {
+        let key = self.blur_key(blur, saturation);
+        if let Some((_, found)) = self.extremes.iter().find(|(k, _)| *k == key) {
+            return found.clone();
+        }
+        let source = self.blurred(blur, saturation);
+        let (w, h) = (source.width() as usize, source.height() as usize);
+        let data = source.data();
+        let mut colours: Vec<Rgba> = Vec::with_capacity(64 * 36);
+        for gy in 0..36usize {
+            for gx in 0..64usize {
+                let (x, y) = ((gx * w + w / 2) / 64, (gy * h + h / 2) / 36);
+                let i = (y.min(h - 1) * w + x.min(w - 1)) * 4;
+                colours.push(Rgba::rgb(data[i], data[i + 1], data[i + 2]));
+            }
+        }
+        colours.sort_by(|a, b| a.luminance().total_cmp(&b.luminance()));
+        colours.dedup();
+        let mut found: Vec<Rgba> = colours.iter().take(6).copied().collect();
+        found.extend(colours.iter().rev().take(6).copied());
+        found.dedup();
+        if self.extremes.len() >= MAX_BLURS {
+            self.extremes.remove(0);
+        }
+        self.extremes.push((key, found.clone()));
+        found
+    }
+
+    fn grain(&mut self, noise: f32) -> Option<&Pixmap> {
+        let key = (noise.clamp(0.0, 1.0) * 10000.0).round() as u32;
+        if key == 0 {
+            return None;
+        }
+        if !self.grains.iter().any(|(k, _)| *k == key) {
+            self.grains.push((key, glass::grain_tile(noise)?));
+        }
+        self.grains.iter().find(|(k, _)| *k == key).map(|(_, tile)| tile)
     }
 
     /// Fills a rounded rectangle of `canvas` with `material`. `origin` is
@@ -76,7 +164,21 @@ impl Backdrop {
     /// logical pixels; the rectangle is in canvas coordinates.
     #[allow(clippy::too_many_arguments)]
     pub fn fill(&mut self, canvas: &mut Canvas, x: f32, y: f32, w: f32, h: f32, radii: Corners, origin: (f32, f32), material: Material) {
-        if !(w > 0.0 && h > 0.0) {
+        let recipe = Recipe {
+            blur: material.blur,
+            saturation: 1.0,
+            layers: [(material.tint, material.tint_opacity), (Rgba::TRANSPARENT, 0.0)],
+            noise: 0.0,
+        };
+        self.fill_recipe(canvas, x, y, w, h, radii, origin, &recipe);
+    }
+
+    /// Fills a rounded rectangle of `canvas` with the wallpaper blurred,
+    /// saturated and covered as `recipe` says (glass: see
+    /// [`crate::glass`]); as [`Backdrop::fill`] otherwise.
+    #[allow(clippy::too_many_arguments)]
+    pub fn fill_recipe(&mut self, canvas: &mut Canvas, x: f32, y: f32, w: f32, h: f32, radii: Corners, origin: (f32, f32), recipe: &Recipe) {
+        if !(w > 0.0 && h > 0.0) || !canvas.visible(x, y, w, h) {
             return;
         }
         // The filled shape is drawn once into a picture of its own and kept;
@@ -86,7 +188,8 @@ impl Backdrop {
         let (left, top) = (x * scale, y * scale);
         let (px, py) = (left.floor(), top.floor());
         let (fx, fy) = (left - px, top - py);
-        let tint = material.tint;
+        let colour = |c: Rgba| f32::from(c.r) * 65536.0 + f32::from(c.g) * 256.0 + f32::from(c.b) + f32::from(c.a) / 256.0;
+        let [(tint, opacity), (second, second_opacity)] = recipe.layers;
         let key = FillKey(
             [
                 w * scale,
@@ -99,9 +202,15 @@ impl Backdrop {
                 (origin.1 + y) * scale,
                 fx,
                 fy,
-                material.blur,
-                material.tint_opacity,
-                f32::from(tint.r) * 65536.0 + f32::from(tint.g) * 256.0 + f32::from(tint.b) + f32::from(tint.a) / 256.0,
+                recipe.blur,
+                opacity,
+                colour(tint),
+                recipe.saturation,
+                second_opacity,
+                colour(second),
+                recipe.noise * 100.0,
+                0.0,
+                0.0,
             ]
             .map(|v| (v * 64.0).round() as i32),
         );
@@ -115,13 +224,14 @@ impl Backdrop {
                 // Picture logical pixels = canvas logical pixels - the
                 // picture's place on the canvas.
                 let shift = (px / scale, py / scale);
+                self.renders += 1;
                 let Some(picture) = self.render_fill(
                     w + (fx + 1.0) / scale,
                     h + (fy + 1.0) / scale,
                     scale,
                     (x - shift.0, y - shift.1, w, h, radii),
                     (origin.0 + shift.0, origin.1 + shift.1),
-                    material,
+                    recipe,
                 ) else {
                     return;
                 };
@@ -138,9 +248,7 @@ impl Backdrop {
             ..tiny_skia::PixmapPaint::default()
         };
         let picture = self.filled[index].1.as_ref();
-        canvas
-            .pixmap_mut()
-            .draw_pixmap(px as i32, py as i32, picture, &paint, Transform::identity(), None);
+        canvas.draw_device_pixmap(px as i32, py as i32, picture, &paint);
     }
 
     /// Draws a material-filled rounded rectangle (`shape`: x, y, w, h,
@@ -153,13 +261,13 @@ impl Backdrop {
         scale: f32,
         shape: (f32, f32, f32, f32, Corners),
         origin: (f32, f32),
-        material: Material,
+        recipe: &Recipe,
     ) -> Option<Pixmap> {
         let (x, y, w, h, radii) = shape;
         let path = rounded_rect_path(x, y, w, h, radii)?;
         let mut canvas = Canvas::new(width, height, scale)?;
         let step = self.step;
-        let source = self.blurred(material.blur);
+        let source = self.blurred(recipe.blur, recipe.saturation);
         // Reduced pixels -> output logical pixels -> picture logical pixels.
         let local = Transform::from_scale(step, step).post_translate(-origin.0, -origin.1);
         let paint = Paint {
@@ -170,8 +278,43 @@ impl Backdrop {
         canvas
             .pixmap_mut()
             .fill_path(&path, &paint, FillRule::Winding, Transform::from_scale(scale, scale), None);
-        canvas.fill_path(&path, material.tint.alpha(material.tint_opacity));
+        for (tint, opacity) in recipe.layers {
+            if opacity > 0.0 {
+                canvas.fill_path(&path, tint.alpha(opacity));
+            }
+        }
+        if let Some(tile) = self.grain(recipe.noise) {
+            glass::draw_grain(&mut canvas, x, y, w, h, radii, tile);
+        }
         Some(canvas.into_pixmap())
+    }
+}
+
+/// What a surface filled from the wallpaper is made of: the wallpaper
+/// blurred by `blur` logical pixels with its colours saturated by
+/// `saturation`, covered with up to two tints at their opacities (an opacity
+/// of 0 is no layer) and a grain of `noise` opacity.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Recipe {
+    pub blur: f32,
+    pub saturation: f32,
+    pub layers: [(Rgba, f32); 2],
+    pub noise: f32,
+}
+
+/// Moves the colours of an opaque picture away from grey by `amount` (1.0:
+/// unchanged), as the toolkit saturates its backdrop.
+fn saturate(pixmap: &mut Pixmap, amount: f32) {
+    if (amount - 1.0).abs() < 1e-3 {
+        return;
+    }
+    for pixel in pixmap.data_mut().chunks_exact_mut(4) {
+        let (r, g, b) = (f32::from(pixel[0]), f32::from(pixel[1]), f32::from(pixel[2]));
+        let grey = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        let alpha = f32::from(pixel[3]);
+        for (channel, value) in pixel[..3].iter_mut().zip([r, g, b]) {
+            *channel = (grey + (value - grey) * amount).round().clamp(0.0, alpha) as u8;
+        }
     }
 }
 
@@ -280,7 +423,7 @@ mod tests {
         let path = rounded_rect_path(x, y, w, h, radii).unwrap();
         let scale = canvas.scale();
         let step = backdrop.step;
-        let source = backdrop.blurred(material.blur).clone();
+        let source = backdrop.blurred(material.blur, 1.0).clone();
         let local = Transform::from_scale(step, step).post_translate(-origin.0, -origin.1);
         let paint = Paint {
             shader: Pattern::new(source.as_ref(), SpreadMode::Pad, FilterQuality::Bilinear, 1.0, local),
@@ -352,6 +495,44 @@ mod tests {
         // The same radius is blurred once.
         backdrop.fill(&mut canvas, 0.0, 0.0, 10.0, 10.0, [0.0; 4], (0.0, 0.0), material);
         assert_eq!(backdrop.blurred.len(), 1);
+    }
+
+    #[test]
+    fn a_glass_recipe_saturates_layers_and_grains_the_backdrop() {
+        // A muted wallpaper: dull red left, dull blue right.
+        let mut wallpaper = Pixmap::new(400, 200).unwrap();
+        for (i, px) in wallpaper.data_mut().chunks_exact_mut(4).enumerate() {
+            px.copy_from_slice(if i % 400 < 200 { &[160, 110, 110, 255] } else { &[110, 110, 160, 255] });
+        }
+        let mut backdrop = Backdrop::new(&wallpaper, 400.0, 200.0).unwrap();
+        let plain = Recipe { blur: 8.0, saturation: 1.0, layers: [(Rgba::BLACK, 0.0), (Rgba::BLACK, 0.0)], noise: 0.0 };
+        let vivid = Recipe { saturation: 1.6, ..plain };
+        let sample = |backdrop: &mut Backdrop, recipe: &Recipe| {
+            let mut canvas = Canvas::new(40.0, 40.0, 1.0).unwrap();
+            backdrop.fill_recipe(&mut canvas, 0.0, 0.0, 40.0, 40.0, [0.0; 4], (20.0, 80.0), recipe);
+            canvas
+        };
+        let a = sample(&mut backdrop, &plain).pixmap().pixel(20, 20).unwrap();
+        let b = sample(&mut backdrop, &vivid).pixmap().pixel(20, 20).unwrap();
+        assert!(i32::from(b.red()) - i32::from(b.green()) > i32::from(a.red()) - i32::from(a.green()), "saturated: {a:?} {b:?}");
+        // Two layers: the second covers the first.
+        let layered = Recipe { layers: [(Rgba::BLACK, 0.5), (Rgba::WHITE, 0.5)], ..plain };
+        let c = sample(&mut backdrop, &layered).pixmap().pixel(20, 20).unwrap();
+        assert!(c.red() > 150 && c.red() < 180 && c.green() > 145, "black then white: {c:?}");
+        // The grain varies the flat area a little, the same way every time.
+        let grained = Recipe { noise: 0.02, ..plain };
+        let one = sample(&mut backdrop, &grained);
+        let two = sample(&mut backdrop, &grained);
+        assert_eq!(one.data(), two.data());
+        let flat = sample(&mut backdrop, &plain);
+        let differ = one.data().chunks_exact(4).zip(flat.data().chunks_exact(4)).filter(|(x, y)| x != y).count();
+        assert!(differ > 200, "the grain shows ({differ} pixels)");
+        let worst = one.data().iter().zip(flat.data()).map(|(x, y)| x.abs_diff(*y)).max().unwrap();
+        assert!(worst <= 12, "and stays fine ({worst})");
+        // The extremes are the darkest and brightest parts.
+        let extremes = backdrop.extremes(8.0, 1.0);
+        assert!(extremes.len() >= 2);
+        assert!(extremes.first().unwrap().luminance() <= extremes.last().unwrap().luminance());
     }
 
     #[test]

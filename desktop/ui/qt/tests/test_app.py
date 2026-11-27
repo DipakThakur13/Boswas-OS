@@ -17,7 +17,7 @@ from pathlib import Path
 import support
 
 if support.PYSIDE:
-    from PySide6.QtCore import QThread, QTimer
+    from PySide6.QtCore import Qt, QThread, QTimer
     from PySide6.QtGui import QGuiApplication, QKeySequence
     from PySide6.QtWidgets import QApplication, QLabel, QLineEdit, QPushButton, QWidget
 
@@ -203,6 +203,113 @@ class RunTest(Base):
         self.assertEqual(fluent.run(APP, factory, argv=["example"]), 0)
         self.assertEqual(shown, [False], "the second start found the first")
         self.assertEqual(handled, [["--page", "updates"]])
+
+    @staticmethod
+    def _start_again(arguments: list[str]) -> list:
+        """Start the program again with ``arguments`` (a thread plays the second process) and wait for it.
+
+        Called inside ``run``'s event loop: the first instance answers while this waits. Returns
+        [False] when the second start found the first."""
+        result = []
+        thread = threading.Thread(target=lambda: result.append(fluent.SingleInstance(APP).start(list(arguments))))
+        thread.start()
+        testing.wait_until(lambda: not thread.is_alive(), 5)
+        thread.join(1)
+        testing.process(50)
+        return result
+
+    @staticmethod
+    def _script(steps) -> None:
+        """Run ``steps()`` once ``run``'s event loop has started, then quit it, whatever happens."""
+        def go() -> None:
+            try:
+                steps()
+            finally:
+                QApplication.instance().quit()
+        QTimer.singleShot(30, go)
+
+    def test_split_new_window(self):
+        self.assertEqual(fluent.split_new_window([]), (False, []))
+        self.assertEqual(fluent.split_new_window(["--new-window", "a.pdf"]), (True, ["a.pdf"]))
+        self.assertEqual(fluent.split_new_window(["a", "--new-window", "--page", "x", "--new-window"]),
+                         (True, ["a", "--page", "x"]))
+        self.assertEqual(fluent.split_new_window(["--", "--new-window"]), (False, ["--", "--new-window"]),
+                         "after -- it is a file name")
+        self.assertEqual(fluent.split_new_window(["--new-window=1"]), (False, ["--new-window=1"]))
+        self.assertEqual(fluent.NEW_WINDOW, "--new-window")
+
+    def test_new_window_makes_another_window_when_the_application_has_several(self):
+        built, handled, seen = [], [], {}
+
+        class Window(QLabel):
+            def handle_arguments(self, arguments):
+                handled.append(arguments)
+
+        def factory(arguments):
+            built.append((arguments, Window(f"window {len(built) + 1}")))
+            if len(built) == 1:
+                def steps() -> None:
+                    seen["result"] = self._start_again(["--new-window", "/tmp/b.pdf"])
+                    extra = [window for _arguments, window in built[1:]]
+                    seen["visible"] = [window.isVisible() for window in extra]
+                    seen["delete_on_close"] = [window.testAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+                                               for window in extra]
+                    for window in extra:
+                        window.close()
+                self._script(steps)
+            return built[-1][1]
+
+        code = fluent.run(APP, factory, argv=["example", "--new-window", "a.pdf"], multiple_windows=True)
+        self.assertEqual(code, 0)
+        self.assertEqual(seen["result"], [False], "the second start found the first")
+        self.assertEqual([arguments for arguments, _window in built], [["a.pdf"], ["/tmp/b.pdf"]],
+                         "--new-window is taken out; the new window gets the other arguments")
+        self.assertEqual(seen["visible"], [True])
+        self.assertEqual(seen["delete_on_close"], [True], "a window made for --new-window goes when it closes")
+        self.assertEqual(handled, [], "the first window is left alone")
+        built[0][1].deleteLater()
+
+    def test_new_window_brings_the_only_window_forward(self):
+        built, handled = [], []
+
+        class Window(QLabel):
+            def handle_arguments(self, arguments):
+                handled.append(arguments)
+
+        def factory(arguments):
+            built.append(arguments)
+            self._script(lambda: self._start_again(["--new-window", "--page", "timers"]))
+            return self.keep(Window("only"))
+
+        self.assertEqual(fluent.run(APP, factory, argv=["example"]), 0)
+        self.assertEqual(built, [[]], "no second window")
+        self.assertEqual(handled, [["--page", "timers"]], "the window gets the start without --new-window")
+
+    def test_a_later_start_goes_to_the_window_that_is_still_open(self):
+        handled, windows = [], []
+
+        class Window(QLabel):
+            def handle_arguments(self, arguments):
+                handled.append((self.text(), arguments))
+
+        def factory(_arguments):
+            windows.append(Window(f"window {len(windows) + 1}"))
+            if len(windows) == 1:
+                def steps() -> None:
+                    self._start_again(["--new-window"])
+                    windows[0].close()
+                    self._start_again(["c.pdf"])
+                    windows[1].close()
+                self._script(steps)
+            return windows[-1]
+
+        app = QApplication.instance()
+        app.setQuitOnLastWindowClosed(False)
+        self.addCleanup(app.setQuitOnLastWindowClosed, True)
+        self.assertEqual(fluent.run(APP, factory, argv=["example"], multiple_windows=True), 0)
+        self.assertEqual(len(windows), 2)
+        self.assertEqual(handled, [("window 2", ["c.pdf"])], "not the closed first window")
+        windows[0].deleteLater()
 
     def test_ctrl_c_quits(self):
         guard = QTimer()                               # ends the test if the signal is lost

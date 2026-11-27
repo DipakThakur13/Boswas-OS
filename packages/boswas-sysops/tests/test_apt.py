@@ -160,6 +160,47 @@ class InstallTest(unittest.TestCase):
                                                           "to": "128.11-1"})
         h.close()
 
+    def test_install_without_recommends(self):
+        """cups-daemon recommends cups-browsed, which policy excludes: with --no-recommends cups still installs."""
+        h = Harness()
+        h.runner.on(lambda command: "-s" in command and "--no-install-recommends" not in command,
+                    Completed(0, "Inst cups-browsed (2.1.1-1 Debian:13 [amd64])\nInst cups (2.4.10-3 Debian:13 [amd64])\n",
+                              ""))
+        h.runner.on(("-s", "--no-install-recommends", "install"),
+                    Completed(0, "Inst cups-daemon (2.4.10-3 Debian:13 [amd64])\nInst cups (2.4.10-3 Debian:13 [amd64])\n",
+                              ""))
+        h.runner.script([("status", "pmstatus:cups:90:Configuring cups (amd64)")])
+        self.assertEqual(run(h, "apt-install", "cups"), 2, "with what it recommends: refused")
+        self.assertEqual(h.events()[-1]["data"]["packages"], ["cups-browsed"])
+        self.assertEqual(h.runner.commands("stream"), [])
+        h.close()
+        h = Harness()
+        h.runner.on(lambda command: "-s" in command and "--no-install-recommends" not in command,
+                    Completed(0, "Inst cups-browsed (2.1.1-1 Debian:13 [amd64])\n", ""))
+        h.runner.on(("-s", "--no-install-recommends", "install"),
+                    Completed(0, "Inst cups-daemon (2.4.10-3 Debian:13 [amd64])\nInst cups (2.4.10-3 Debian:13 [amd64])\n",
+                              ""))
+        h.runner.script([("status", "pmstatus:cups:90:Configuring cups (amd64)")])
+        self.assertEqual(run(h, "apt-install", "--no-recommends", "cups"), 0)
+        simulated, = [c for c in h.runner.commands() if "-s" in c]
+        self.assertEqual(simulated[-3:], ["--no-install-recommends", "install", "cups"])
+        installed, = h.runner.commands("stream")
+        self.assertEqual(installed[-4:], ["-y", "--no-install-recommends", "install", "cups"])
+        self.assertEqual([i["package"] for i in h.events()[-1]["data"]["installed"]], ["cups-daemon", "cups"])
+        h.close()
+
+    def test_the_option_comes_first_and_once(self):
+        for args in (["cups", "--no-recommends"], ["--no-recommends"], ["--no-recommends", "--no-recommends", "cups"],
+                     ["--install-recommends", "cups"], ["--no-install-recommends", "cups"]):
+            h = Harness()
+            self.assertEqual(run(h, "apt-install", *args), 2, args)
+            self.assertEqual(h.events()[-1]["code"], "INVALID_ARGUMENT", args)
+            self.assertEqual(h.runner.calls, [], args)
+            h.close()
+        h = Harness()
+        self.assertEqual(run(h, "apt-remove", "--no-recommends", "cups"), 2, "apt-remove has no such option")
+        h.close()
+
     def test_excluded_package_is_refused_before_anything_runs(self):
         h = Harness()
         self.assertEqual(run(h, "apt-install", "openssh-server"), 2)

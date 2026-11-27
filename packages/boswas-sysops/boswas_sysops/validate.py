@@ -33,6 +33,15 @@ def packages(args: list[str]) -> list[str]:
     return seen
 
 
+NO_RECOMMENDS = "--no-recommends"
+
+
+def install_arguments(args: list[str]) -> tuple[bool, list[str]]:
+    """apt-install's arguments: whether --no-recommends (allowed once, before the packages) and the packages."""
+    without = bool(args) and args[0] == NO_RECOMMENDS
+    return without, packages(list(args[1:] if without else args))
+
+
 def bare_name(package: str) -> str:
     """The package name without an architecture qualifier."""
     return package.split(":", 1)[0]

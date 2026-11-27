@@ -35,7 +35,7 @@ class AppPermissionsSection(ToolSection):
         self.runner = runner or context.runner()
         self.native = self.add(fluent.SettingsCard("Applications that are not sandboxed", permissions.NOT_SANDBOXED,
                                                    fluent.icon("dialog-information-symbolic"), None, self))
-        self.list = self.add(RowList(self))
+        self.list = self.add(RowList(self, applications=True))
         self.empty = self.add(fluent.SettingsCard(
             "No sandboxed application asked for a permission", "When a Flatpak application asks for the camera, your "
             "location or a screenshot, your answer is listed here and can be taken back.",

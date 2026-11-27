@@ -1,7 +1,7 @@
 //! What a control does when it is activated. Every surface registers its
 //! controls with one of these; the shell dispatches them in one place.
 
-use crate::{capture, dialogs, lock, notify, quick, start, taskbar};
+use crate::{capture, desktop_icons, dialogs, lock, notify, quick, start, taskbar, widgets};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Action {
@@ -22,4 +22,16 @@ pub enum Action {
     Lock(lock::Act),
     /// The desktop background (for its context menu).
     Desktop,
+    /// The clipboard history's flyout.
+    Clip(crate::clipview::Act),
+    /// The emoji panel.
+    Emoji(crate::emoji::Act),
+    /// A control of the widgets board.
+    Widgets(widgets::Act),
+    /// A desktop icon.
+    Desk(desktop_icons::Act),
+    /// The security options screen (Ctrl+Alt+Del).
+    Security(crate::security::Act),
+    /// The display projection flyout (Super+P).
+    Projection(crate::projection::Act),
 }

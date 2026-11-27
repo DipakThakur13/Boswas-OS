@@ -14,8 +14,9 @@ use std::{
 };
 
 use boswas_ui::{
+    glass::{self as glass, Glass, Kind as GlassKind, Source as GlassSource},
     icons::IconLoader,
-    material::{fill_fallback, Backdrop},
+    material::Backdrop,
     text::{TextEngine, TextStyle},
     tokens::{cubic_bezier, tokens},
     Canvas, Rgba, Scheme, Theme,
@@ -83,7 +84,117 @@ pub struct Resources {
     /// while nothing they depend on changed: a flyout that is drawn frame
     /// by frame (Start's page scrolling) does not blur its shadow and its
     /// material again each time.
-    panels: Vec<(PanelKey, Rc<Pixmap>)>,
+    panels: Vec<(PanelKey, Kept)>,
+    /// The compositor blurs what lies behind the shell's glass (glass.rs):
+    /// glass is then only its tint, grain, glow and hairline.
+    pub live_blur: bool,
+    /// What the glass of the surface being drawn covers (its blur region
+    /// with live blur): rectangles and their corner radius.
+    pub glass_regions: Vec<(Rect, f32)>,
+    /// Cells whose magnified icon is still moving (magnify.rs): drawn
+    /// again on the next frame.
+    pub magnifying: Vec<Rect>,
+    /// While a drawing is planned (prewarm.rs): the panels and icons it
+    /// needed and did not find kept, to make on another thread.
+    pub planned: Option<Plan>,
+}
+
+/// What a planned drawing needed and did not find kept: made on another
+/// thread instead of on the event loop.
+#[derive(Default)]
+pub struct Plan {
+    pub panels: Vec<PanelJob>,
+    /// Icons not looked up yet (name, size in device pixels): rendering a
+    /// symbolic icon of the theme takes one to two milliseconds.
+    pub icons: Vec<(String, u32)>,
+}
+
+/// The icon theme of a colour scheme.
+pub fn icon_theme(scheme: Scheme) -> &'static str {
+    match scheme {
+        Scheme::Dark => "Boswas-Prism",
+        Scheme::Light => "Boswas-Prism-Light",
+    }
+}
+
+/// A panel to make on another thread (see [`Resources::keep_panel`]):
+/// everything it is made from. Making Start's panel at 200 % (its shadow,
+/// its fill from the blurred wallpaper and its edges, millions of pixels)
+/// takes tens of milliseconds.
+pub struct PanelJob {
+    key: PanelKey,
+    rect: Rect,
+    material: String,
+    canvas: (f32, f32, f32),
+    origin: (f32, f32),
+    theme: &'static Theme,
+    transparency: bool,
+    live_blur: bool,
+    backdrop: Option<Backdrop>,
+}
+
+/// A panel made on another thread, to keep.
+pub struct MadePanel {
+    key: PanelKey,
+    whole: Pixmap,
+    part: Option<(i32, i32, Pixmap)>,
+}
+
+impl PanelJob {
+    /// Makes the panel, as [`Frame::panel`] makes it.
+    pub fn make(mut self) -> Option<MadePanel> {
+        let (w, h, scale) = self.canvas;
+        let mut chrome = Canvas::new(w, h, scale)?;
+        paint_panel_on(&mut chrome, self.rect, &self.material, self.theme, self.transparency, self.live_blur, self.backdrop.as_mut(), self.origin);
+        let (whole, part) = panel_parts(chrome, self.rect);
+        Some(MadePanel { key: self.key, whole, part })
+    }
+}
+
+/// The picture of a panel drawn on a canvas, and the part of it that the
+/// panel and its shadow cover (with its place, device pixels).
+fn panel_parts(chrome: Canvas, rect: Rect) -> (Pixmap, Option<(i32, i32, Pixmap)>) {
+    let e = tokens().elevation("flyout");
+    let reach = e.blur + e.y.abs() + 2.0;
+    let area = device_rect(&Rect::new(rect.x - reach, rect.y - reach, rect.w + 2.0 * reach, rect.h + 2.0 * reach), chrome.scale());
+    let whole = chrome.into_pixmap();
+    let part = tiny_skia::IntRect::from_xywh(area.0 as i32, area.1 as i32, area.2, area.3).and_then(|r| whole.clone_rect(r).map(|p| (r.x(), r.y(), p)));
+    (whole, part)
+}
+
+/// An overlay panel's shadow, glass fill and edges (or, with glass off, its
+/// tint and outline) on `canvas`, whose top-left corner is at `origin` on
+/// the output.
+#[allow(clippy::too_many_arguments)]
+fn paint_panel_on(canvas: &mut Canvas, rect: Rect, material: &str, theme: &'static Theme, transparency: bool, live_blur: bool, backdrop: Option<&mut Backdrop>, origin: (f32, f32)) {
+    let t = tokens();
+    let e = t.elevation("flyout");
+    let radius = t.radius_flyout;
+    canvas.shadow(rect.x, rect.y, rect.w, rect.h, radius, e.blur, e.y, e.alpha);
+    let source = if !transparency {
+        GlassSource::Off
+    } else if live_blur {
+        GlassSource::Live
+    } else {
+        match backdrop {
+            Some(backdrop) => GlassSource::Wallpaper(backdrop),
+            None => GlassSource::Unknown,
+        }
+    };
+    let kind = glass_kind(material);
+    glass::fill(canvas, rect.x, rect.y, rect.w, rect.h, [radius; 4], origin, theme, kind, source);
+    match Glass::of(theme).filter(|_| transparency) {
+        Some(g) => glass::draw_edges(canvas, rect.x, rect.y, rect.w, rect.h, radius, &g, kind, false),
+        None => canvas.stroke_rounded_rect(rect.x, rect.y, rect.w, rect.h, radius, 1.0, tokens().stroke(theme.scheme, "surface")),
+    }
+}
+
+/// A panel as kept: drawn on the whole canvas, and the part of that
+/// picture it covers (with its place on the canvas, in device pixels).
+#[derive(Clone)]
+struct Kept {
+    whole: Rc<Pixmap>,
+    part: Option<(i32, i32, Rc<Pixmap>)>,
 }
 
 /// What an overlay panel's look depends on.
@@ -97,10 +208,12 @@ struct PanelKey {
     theme: usize,
     transparency: bool,
     backdrop: Option<u64>,
+    live: bool,
 }
 
-/// Panels kept by [`Resources`].
-const MAX_PANELS: usize = 3;
+/// Panels kept by [`Resources`]: Start, quick settings, the two of the
+/// notification centre, and two more (menus, previews).
+const MAX_PANELS: usize = 6;
 
 impl Resources {
     pub fn new(theme: &'static Theme) -> Self {
@@ -110,13 +223,9 @@ impl Resources {
     /// The resources with a given text engine instead of the system's
     /// fonts.
     pub fn with_text(theme: &'static Theme, text: TextEngine) -> Self {
-        let icon_theme = match theme.scheme {
-            Scheme::Dark => "Boswas-Prism",
-            Scheme::Light => "Boswas-Prism-Light",
-        };
         Self {
             text,
-            icons: IconLoader::new(icon_theme),
+            icons: IconLoader::new(icon_theme(theme.scheme)),
             theme,
             backdrop: None,
             backdrop_key: (0, 0),
@@ -124,7 +233,34 @@ impl Resources {
             transparency: true,
             backdrop_generation: 0,
             panels: Vec::new(),
+            live_blur: false,
+            glass_regions: Vec::new(),
+            magnifying: Vec::new(),
+            planned: None,
         }
+    }
+
+    /// Keeps a panel made on another thread, unless the backdrop it was made
+    /// from has changed since or it is kept already.
+    pub fn keep_panel(&mut self, made: MadePanel) {
+        let current = made.key.backdrop.is_none() || made.key.backdrop == self.backdrop.as_ref().map(|_| self.backdrop_generation);
+        if !current || self.panels.iter().any(|(k, _)| *k == made.key) {
+            return;
+        }
+        if self.panels.len() >= MAX_PANELS {
+            self.panels.remove(0);
+        }
+        let kept = Kept {
+            whole: Rc::new(made.whole),
+            part: made.part.map(|(x, y, p)| (x, y, Rc::new(p))),
+        };
+        self.panels.push((made.key, kept));
+    }
+
+    /// How many panels are kept (for tests of what is drawn ahead of time).
+    #[cfg(test)]
+    pub fn panel_count(&self) -> usize {
+        self.panels.len()
     }
 
     /// A one-pixel outline colour (`control`, `surface`, `divider`, `window`).
@@ -239,6 +375,30 @@ pub enum ButtonKind {
     Subtle,
 }
 
+/// Where the shell's glass gets its backdrop now.
+pub fn glass_source(res: &mut Resources) -> GlassSource<'_> {
+    if !res.transparency {
+        GlassSource::Off
+    } else if res.live_blur {
+        GlassSource::Live
+    } else {
+        match res.backdrop.as_mut() {
+            Some(backdrop) => GlassSource::Wallpaper(backdrop),
+            None => GlassSource::Unknown,
+        }
+    }
+}
+
+/// The glass a material name of the shell stands for.
+pub fn glass_kind(name: &str) -> GlassKind {
+    match name {
+        "chrome" => GlassKind::Taskbar,
+        "flyout" => GlassKind::Flyout,
+        "card" => GlassKind::Card,
+        _ => GlassKind::Backdrop,
+    }
+}
+
 /// One drawing pass over a surface.
 pub struct Frame<'a> {
     pub canvas: &'a mut Canvas,
@@ -335,11 +495,27 @@ impl Frame<'_> {
         lines.len() as f32 * line
     }
 
+    /// The icon `name` at `pixels` device pixels; while the drawing is
+    /// planned, an icon not looked up yet is noted to be looked up on
+    /// another thread instead (and not drawn).
+    pub fn icon_pixmap(&mut self, name: &str, pixels: u32) -> Option<Rc<Pixmap>> {
+        if let Some(plan) = self.res.planned.as_mut() {
+            if !self.res.icons.has(name, pixels) {
+                let wanted = (name.to_owned(), pixels);
+                if !name.is_empty() && !plan.icons.contains(&wanted) {
+                    plan.icons.push(wanted);
+                }
+                return None;
+            }
+        }
+        self.res.icons.load(name, pixels)
+    }
+
     /// Draws a themed icon in a square of `size` logical pixels. Returns
     /// whether the icon was found.
     pub fn icon(&mut self, name: &str, x: f32, y: f32, size: f32) -> bool {
         let pixels = (size * self.canvas.scale()).round().max(1.0) as u32;
-        match self.res.icons.load(name, pixels) {
+        match self.icon_pixmap(name, pixels) {
             Some(pixmap) => {
                 self.canvas.draw_pixmap(&pixmap, x, y, size, size, 1.0);
                 true
@@ -353,7 +529,7 @@ impl Frame<'_> {
     pub fn icon_tinted(&mut self, name: &str, x: f32, y: f32, size: f32, color: Rgba) -> bool {
         let scale = self.canvas.scale();
         let pixels = (size * scale).round().max(1.0) as u32;
-        let Some(pixmap) = self.res.icons.load(name, pixels) else {
+        let Some(pixmap) = self.icon_pixmap(name, pixels) else {
             return false;
         };
         let (ox, oy) = ((x * scale).round() as i32, (y * scale).round() as i32);
@@ -371,6 +547,11 @@ impl Frame<'_> {
         if names.iter().any(|name| !name.is_empty() && self.icon(name, x, y, size)) {
             return;
         }
+        self.placeholder(x, y, size);
+    }
+
+    /// The stand-in of an icon that is not installed.
+    pub fn placeholder(&mut self, x: f32, y: f32, size: f32) {
         let theme = self.theme();
         self.canvas.fill_rounded_rect(x, y, size, size, size * 0.24, theme.surface_hover);
         let stroke = self.res.stroke("control");
@@ -385,13 +566,38 @@ impl Frame<'_> {
         crate::glyph::draw(self.canvas, glyph, rect, color);
     }
 
-    /// Fills a rounded rectangle with a material (`mica`, `acrylic`,
-    /// `chrome`): the blurred wallpaper behind this surface under a tint.
+    /// Fills a rounded rectangle with Boswas glass (`boswas_ui::glass`):
+    /// `acrylic` and `mica` are the window backdrop (the shell's panels),
+    /// `chrome` the taskbar, `flyout` the glass of menus, tooltips, toasts
+    /// and dialogs. Over the blurred wallpaper behind this surface, or,
+    /// where the compositor blurs what really lies behind it, its tint
+    /// alone; opaque with glass off.
     pub fn material(&mut self, rect: Rect, radii: [f32; 4], name: &str) {
-        let material = tokens().material(self.res.theme.scheme, name);
-        match self.res.backdrop.as_mut().filter(|_| self.res.transparency) {
-            Some(backdrop) => backdrop.fill(self.canvas, rect.x, rect.y, rect.w, rect.h, radii, self.origin, material),
-            None => fill_fallback(self.canvas, rect.x, rect.y, rect.w, rect.h, radii, material),
+        let kind = glass_kind(name);
+        let theme = self.res.theme;
+        let radius = radii.iter().copied().fold(0.0f32, f32::max);
+        if self.res.live_blur && self.res.transparency {
+            self.res.glass_regions.push((rect, radius));
+        }
+        let origin = self.origin;
+        let source = glass_source(self.res);
+        glass::fill(self.canvas, rect.x, rect.y, rect.w, rect.h, radii, origin, theme, kind, source);
+    }
+
+    /// The glass of this scheme while glass is on.
+    pub fn glass(&self) -> Option<Glass> {
+        Glass::of(self.res.theme).filter(|_| self.res.transparency)
+    }
+
+    /// The edges of a glass surface (inner glow and hairline), or the plain
+    /// surface outline with glass off.
+    pub fn glass_edges(&mut self, rect: Rect, radius: f32, name: &str) {
+        match self.glass() {
+            Some(g) => glass::draw_edges(self.canvas, rect.x, rect.y, rect.w, rect.h, radius, &g, glass_kind(name), false),
+            None => {
+                let stroke = self.res.stroke("surface");
+                self.canvas.stroke_rounded_rect(rect.x, rect.y, rect.w, rect.h, radius, 1.0, stroke);
+            }
         }
     }
 
@@ -409,41 +615,68 @@ impl Frame<'_> {
             theme: std::ptr::from_ref(self.res.theme) as usize,
             transparency: self.res.transparency,
             backdrop: self.res.backdrop.as_ref().map(|_| self.res.backdrop_generation),
+            live: self.res.live_blur,
         };
-        let cached = self.res.panels.iter().find(|(k, _)| *k == key).map(|(_, p)| p.clone());
-        let pixmap = match cached {
-            Some(pixmap) => pixmap,
+        // The region is collected on every drawing, kept panel or not.
+        if self.res.live_blur && self.res.transparency {
+            self.res.glass_regions.push((rect, tokens().radius_flyout));
+        }
+        // Most recently used last.
+        let kept = match self.res.panels.iter().position(|(k, _)| *k == key) {
+            Some(index) => {
+                let entry = self.res.panels.remove(index);
+                let kept = entry.1.clone();
+                self.res.panels.push(entry);
+                kept
+            }
+            None if self.res.planned.is_some() => {
+                // Planned (prewarm.rs): made on another thread, not now.
+                let job = PanelJob {
+                    key,
+                    rect,
+                    material: material.to_owned(),
+                    canvas: (self.canvas.width(), self.canvas.height(), self.canvas.scale()),
+                    origin: self.origin,
+                    theme: self.res.theme,
+                    transparency: self.res.transparency,
+                    live_blur: self.res.live_blur,
+                    backdrop: self.res.backdrop.as_ref().map(Backdrop::copy_for_work),
+                };
+                if let Some(plan) = self.res.planned.as_mut() {
+                    plan.panels.push(job);
+                }
+                return None;
+            }
             None => {
                 let mut chrome = Canvas::new(self.canvas.width(), self.canvas.height(), self.canvas.scale())?;
-                {
-                    let mut frame = Frame {
-                        canvas: &mut chrome,
-                        res: &mut *self.res,
-                        pointer: None,
-                        pressed: false,
-                        hits: &mut Vec::new(),
-                        focus: None,
-                        origin: self.origin,
-                    };
-                    frame.paint_panel(rect, material);
-                }
-                let pixmap = Rc::new(chrome.into_pixmap());
+                let (theme, transparency, live_blur) = (self.res.theme, self.res.transparency, self.res.live_blur);
+                paint_panel_on(&mut chrome, rect, material, theme, transparency, live_blur, self.res.backdrop.as_mut(), self.origin);
+                let (whole, part) = panel_parts(chrome, rect);
+                let kept = Kept {
+                    whole: Rc::new(whole),
+                    part: part.map(|(x, y, p)| (x, y, Rc::new(p))),
+                };
                 if self.res.panels.len() >= MAX_PANELS {
                     self.res.panels.remove(0);
                 }
-                self.res.panels.push((key, pixmap.clone()));
-                pixmap
+                self.res.panels.push((key, kept.clone()));
+                kept
             }
         };
-        // Usually the first thing drawn: then a copy does. (The check works
-        // on blocks: a byte-wise test of a large canvas costs more than the
-        // copy.)
-        if self.canvas.data().chunks(4096).all(|block| block.iter().fold(0, |a, b| a | b) == 0) {
-            self.canvas.pixmap_mut().data_mut().copy_from_slice(pixmap.data());
+        // Usually the first thing drawn: then a copy does (of the part
+        // being drawn again, when only a part is). Over something drawn
+        // already, only the part of the picture the panel covers is laid
+        // on (the rest of it is transparent).
+        if self.canvas.is_blank() {
+            self.canvas.copy_from_full(&kept.whole);
+        } else if let Some((x, y, part)) = &kept.part {
+            let paint = tiny_skia::PixmapPaint { quality: tiny_skia::FilterQuality::Nearest, ..tiny_skia::PixmapPaint::default() };
+            self.canvas.draw_device_pixmap(*x, *y, part.as_ref().as_ref(), &paint);
         } else {
             let (w, h) = (self.canvas.width(), self.canvas.height());
-            self.canvas.draw_pixmap(&pixmap, 0.0, 0.0, w, h, 1.0);
+            self.canvas.draw_pixmap(&kept.whole, 0.0, 0.0, w, h, 1.0);
         }
+        let pixmap = kept.whole;
         Some(pixmap)
     }
 
@@ -457,23 +690,12 @@ impl Frame<'_> {
         if (panel.width(), panel.height()) != (w, h) {
             return;
         }
-        let first = ((top * scale).floor().max(0.0) as usize).min(h as usize);
-        let last = ((bottom * scale).ceil().max(0.0) as usize).min(h as usize);
+        let first = ((top * scale).floor().max(0.0) as u32).min(h);
+        let last = ((bottom * scale).ceil().max(0.0) as u32).min(h);
         if first >= last {
             return;
         }
-        let stride = w as usize * 4;
-        let range = first * stride..last * stride;
-        self.canvas.pixmap_mut().data_mut()[range.clone()].copy_from_slice(&panel.data()[range]);
-    }
-
-    fn paint_panel(&mut self, rect: Rect, material: &str) {
-        let t = tokens();
-        let e = t.elevation("flyout");
-        self.canvas.shadow(rect.x, rect.y, rect.w, rect.h, t.radius_flyout, e.blur, e.y, e.alpha);
-        self.material(rect, [t.radius_flyout; 4], material);
-        let stroke = self.res.stroke("surface");
-        self.canvas.stroke_rounded_rect(rect.x, rect.y, rect.w, rect.h, t.radius_flyout, 1.0, stroke);
+        self.canvas.copy_rows_from_full(panel, first, last);
     }
 
     /// The hover and pressed layer of a control without a fill of its own.
@@ -489,6 +711,13 @@ impl Frame<'_> {
             let color = self.res.fill(kind);
             self.canvas.fill_rounded_rect(rect.x, rect.y, rect.w, rect.h, radius, color);
         }
+        // On glass a control under the pointer is lighter glass with a
+        // brighter hairline.
+        if touch.hovered || touch.pressed {
+            if let Some(g) = self.glass() {
+                glass::draw_hairline(self.canvas, rect.x, rect.y, rect.w, rect.h, radius, &g, true);
+            }
+        }
         if touch.focused {
             self.focus_ring(rect, radius);
         }
@@ -501,8 +730,13 @@ impl Frame<'_> {
             .stroke_rounded_rect(rect.x - 2.0, rect.y - 2.0, rect.w + 4.0, rect.h + 4.0, radius + 2.0, 2.0, color);
     }
 
-    /// A card: the fill and outline of a control that holds content.
+    /// A card: the fill and outline of a control that holds content; on
+    /// glass a card of glass (its tint, glow and hairline).
     pub fn card(&mut self, rect: Rect, radius: f32) {
+        if let Some(g) = self.glass() {
+            glass::draw_surface(self.canvas, rect.x, rect.y, rect.w, rect.h, radius, &g, GlassKind::Card, g.card, None);
+            return;
+        }
         let fill = self.res.fill("control");
         let stroke = self.res.stroke("control");
         self.canvas.fill_rounded_rect(rect.x, rect.y, rect.w, rect.h, radius, fill);
@@ -734,6 +968,62 @@ pub fn slider_value(rect: Rect, x: f32) -> f32 {
 /// The hit under a point, the topmost (last drawn) first.
 pub fn hit_at(hits: &[Hit], point: (f32, f32)) -> Option<usize> {
     hits.iter().rposition(|hit| hit.rect.contains(point))
+}
+
+/// How far (logical pixels) the hover or pressed look of a control may
+/// reach beyond the rectangle that takes the pointer.
+pub const HOVER_REACH: f32 = 3.0;
+
+/// What is drawn differently when the pointer moves from `from` to `to`
+/// (`None`: off the surface) over a surface of `size` (logical pixels)
+/// whose controls are `hits`: the controls it entered or left, whose hover
+/// look changes. Backgrounds have no hover look (see [`has_look`]).
+pub fn hover_changes(hits: &[Hit], size: (f32, f32), from: Option<(f32, f32)>, to: Option<(f32, f32)>) -> Vec<Rect> {
+    let inside = |p: Option<(f32, f32)>, r: &Rect| p.is_some_and(|p| r.contains(p));
+    hits.iter()
+        .filter(|hit| inside(from, &hit.rect) != inside(to, &hit.rect) && has_look(hit, size))
+        .map(|hit| hit.rect.inset(-HOVER_REACH))
+        .collect()
+}
+
+/// What is drawn differently when the primary button goes down or up with
+/// the pointer at `pointer`: the controls under it, whose pressed look
+/// changes.
+pub fn press_changes(hits: &[Hit], size: (f32, f32), pointer: Option<(f32, f32)>) -> Vec<Rect> {
+    hits.iter()
+        .filter(|hit| pointer.is_some_and(|p| hit.rect.contains(p)) && has_look(hit, size))
+        .map(|hit| hit.rect.inset(-HOVER_REACH))
+        .collect()
+}
+
+/// Whether a control can look different under the pointer: not a
+/// background that only takes clicks (a panel's area that does nothing,
+/// the desktop, the invisible surface behind a menu, anything covering
+/// the whole surface).
+fn has_look(hit: &Hit, size: (f32, f32)) -> bool {
+    let r = &hit.rect;
+    let covers = r.x <= 0.0 && r.y <= 0.0 && r.right() >= size.0 && r.bottom() >= size.1;
+    let background = !hit.focusable && matches!(hit.action, Action::None | Action::Dismiss | Action::Desktop);
+    !covers && !background
+}
+
+/// Whether two rectangles overlap or touch.
+pub fn overlap(a: &Rect, b: &Rect) -> bool {
+    a.x <= b.right() && b.x <= a.right() && a.y <= b.bottom() && b.y <= a.bottom()
+}
+
+/// The smallest rectangle holding both.
+pub fn bounds(a: &Rect, b: &Rect) -> Rect {
+    let (x, y) = (a.x.min(b.x), a.y.min(b.y));
+    Rect::new(x, y, a.right().max(b.right()) - x, a.bottom().max(b.bottom()) - y)
+}
+
+/// A rectangle in logical pixels as whole device pixels at `scale`
+/// (grown outwards).
+pub fn device_rect(rect: &Rect, scale: f32) -> (u32, u32, u32, u32) {
+    let (x0, y0) = ((rect.x * scale).floor().max(0.0), (rect.y * scale).floor().max(0.0));
+    let (x1, y1) = ((rect.right() * scale).ceil().max(0.0), (rect.bottom() * scale).ceil().max(0.0));
+    (x0 as u32, y0 as u32, (x1 - x0).max(0.0) as u32, (y1 - y0).max(0.0) as u32)
 }
 
 /// A direction of keyboard navigation.

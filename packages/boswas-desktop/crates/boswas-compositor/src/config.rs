@@ -54,6 +54,12 @@ pub struct Config {
     pub start: Start,
     pub notifications: Notifications,
     pub multitasking: Multitasking,
+    /// The shell's clipboard history (Super+V): read here and passed on to
+    /// the shell with the appearance.
+    pub clipboard: Clipboard,
+    /// The desktop's icons: the user's desktop folder and the system icons
+    /// on the wallpaper, passed on to the shell like the taskbar.
+    pub desktop: Desktop,
     pub policy: Policy,
 }
 
@@ -298,6 +304,30 @@ pub struct Taskbar {
     /// Taskbar buttons show how many unread notifications their
     /// application has.
     pub badges: bool,
+    /// The widgets button at the left end (the weather), which opens the
+    /// widgets board.
+    pub widgets: bool,
+}
+
+/// The system icons the desktop can show besides the desktop folder.
+pub const DESKTOP_SYSTEM_ICONS: [&str; 3] = ["home", "trash", "computer"];
+/// The sizes of the desktop's icons.
+pub const DESKTOP_ICON_SIZES: [&str; 3] = ["small", "medium", "large"];
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Desktop {
+    /// The contents of the desktop folder (XDG_DESKTOP_DIR) as icons.
+    pub icons: bool,
+    /// System icons from [`DESKTOP_SYSTEM_ICONS`], in this order.
+    pub system_icons: Vec<String>,
+    /// `small`, `medium` or `large` (32, 48 or 96 pixels).
+    pub icon_size: String,
+    /// The icons fill the grid from the top-left, column by column, in the
+    /// chosen order; nobody places them by hand.
+    pub auto_arrange: bool,
+    /// Icons placed by hand snap to the grid.
+    pub align_to_grid: bool,
 }
 
 /// The folders Start can show next to the power button.
@@ -355,6 +385,24 @@ pub struct Multitasking {
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+pub struct Clipboard {
+    /// The shell keeps the last items copied, in memory, and Super+V shows
+    /// them. Off: only what is on the clipboard now (and pinned items).
+    pub history: bool,
+    /// When Settings last cleared the clipboard data (Unix time, seconds;
+    /// 0 never): the shell forgets what was copied before then, except
+    /// pinned items, and empties the clipboard if it held such an item.
+    pub cleared_at: i64,
+}
+
+impl Default for Clipboard {
+    fn default() -> Self {
+        Self { history: true, cleared_at: 0 }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct Policy {
     /// The longest automatic lock timeout a user may choose, in seconds;
     /// 0 lets the user decide (including never).
@@ -388,7 +436,21 @@ impl Default for Config {
             start: Start::default(),
             notifications: Notifications::default(),
             multitasking: Multitasking::default(),
+            clipboard: Clipboard::default(),
+            desktop: Desktop::default(),
             policy: Policy::default(),
+        }
+    }
+}
+
+impl Default for Desktop {
+    fn default() -> Self {
+        Self {
+            icons: true,
+            system_icons: vec!["trash".into()],
+            icon_size: "medium".into(),
+            auto_arrange: false,
+            align_to_grid: true,
         }
     }
 }
@@ -430,6 +492,7 @@ impl Default for Taskbar {
             task_view: true,
             clock_seconds: false,
             badges: true,
+            widgets: true,
         }
     }
 }
@@ -672,6 +735,7 @@ impl Config {
 
     /// Clamps every value to its supported range and applies `[policy]`.
     fn sanitize(&mut self, warnings: &mut Vec<String>) {
+        self.clipboard.cleared_at = self.clipboard.cleared_at.max(0);
         self.keyboard.repeat_delay = self.keyboard.repeat_delay.clamp(100, 2000);
         self.keyboard.repeat_rate = self.keyboard.repeat_rate.clamp(1, 100);
         self.pointer.accel_speed = if self.pointer.accel_speed.is_finite() {
@@ -748,6 +812,8 @@ impl Config {
         choice("color_filter", "filter", &mut self.color_filter.filter, &COLOR_FILTERS);
         choice("taskbar", "alignment", &mut self.taskbar.alignment, &["center", "left"]);
         choice("start", "layout", &mut self.start.layout, &["default", "more_pins", "more_recommendations"]);
+        // The first is what an unknown size becomes: medium.
+        choice("desktop", "icon_size", &mut self.desktop.icon_size, &[DESKTOP_ICON_SIZES[1], DESKTOP_ICON_SIZES[0], DESKTOP_ICON_SIZES[2]]);
         choice("multitasking", "taskbar_windows", &mut self.multitasking.taskbar_windows, &["desktop", "all"]);
         choice("multitasking", "alt_tab_windows", &mut self.multitasking.alt_tab_windows, &["desktop", "all"]);
         self.accessibility.text_scale = self.accessibility.text_scale.clamp(100, 225);
@@ -770,6 +836,15 @@ impl Config {
             }
         }
         self.start.folders = folders;
+        let mut icons: Vec<String> = Vec::new();
+        for icon in std::mem::take(&mut self.desktop.system_icons) {
+            if !DESKTOP_SYSTEM_ICONS.contains(&icon.as_str()) {
+                warnings.push(format!("desktop.system_icons: \"{icon}\" is not a system icon the desktop can show; ignored"));
+            } else if !icons.contains(&icon) {
+                icons.push(icon);
+            }
+        }
+        self.desktop.system_icons = icons;
         for (key, value, default) in [
             ("do_not_disturb_from", &mut self.notifications.do_not_disturb_from, "22:00"),
             ("do_not_disturb_to", &mut self.notifications.do_not_disturb_to, "07:00"),
@@ -1199,6 +1274,20 @@ mod tests {
     }
 
     #[test]
+    fn the_clipboard_history_is_the_user_s_to_turn_off_and_to_clear() {
+        let dir = tempfile::tempdir().unwrap();
+        let shipped = Config::from_toml(include_str!("../../../config/compositor.toml")).unwrap();
+        assert_eq!(shipped.clipboard, Clipboard::default());
+        assert!(shipped.clipboard.history, "on unless turned off, as on Windows");
+        let user = file(dir.path(), "user.toml", "[clipboard]\nhistory = false\ncleared_at = 1764180000\n");
+        let (c, warnings) = Config::load_from(&[Path::new("/nonexistent")], Some(&user));
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(c.clipboard, Clipboard { history: false, cleared_at: 1_764_180_000 });
+        // A time before 1970 means never.
+        assert_eq!(Config::from_toml("[clipboard]\ncleared_at = -5\n").unwrap().clipboard.cleared_at, 0);
+    }
+
+    #[test]
     fn a_damaged_file_is_ignored_alone() {
         let dir = tempfile::tempdir().unwrap();
         let defaults = file(dir.path(), "defaults.toml", "[keyboard]\nlayout = \"in\"\n[lock]\nidle_seconds = 600\n");
@@ -1332,6 +1421,7 @@ mod tests {
         assert_eq!(shipped.start, c.start);
         assert_eq!(shipped.multitasking, c.multitasking);
         assert_eq!(shipped.notifications, c.notifications);
+        assert_eq!(shipped.desktop, c.desktop);
         assert_eq!(shipped.accessibility, c.accessibility);
         assert_eq!(shipped.color_filter, c.color_filter);
         assert_eq!(shipped.magnifier, c.magnifier);
@@ -1365,6 +1455,36 @@ mod tests {
         // An unknown key in one of the new tables rejects the file, as anywhere.
         assert!(Config::from_toml("[taskbar]\nposition = \"top\"\n").is_err());
         assert!(Config::from_toml("[accessibility]\ntext_scale = \"big\"\n").is_err());
+    }
+
+    #[test]
+    fn the_desktop_icons_and_the_widgets_button_have_their_defaults_and_are_checked() {
+        let c = Config::default();
+        assert!(c.taskbar.widgets, "the widgets button is there unless someone turns it off");
+        assert!(c.desktop.icons && !c.desktop.auto_arrange && c.desktop.align_to_grid);
+        assert_eq!((c.desktop.icon_size.as_str(), c.desktop.system_icons.as_slice()), ("medium", ["trash".to_owned()].as_slice()));
+        let mut warnings = Vec::new();
+        let mut c: Config = toml::from_str(
+            "[taskbar]\nwidgets = false\n[desktop]\nicons = false\nicon_size = \"huge\"\nauto_arrange = true\nalign_to_grid = false\n\
+             system_icons = [\"computer\", \"/etc\", \"home\", \"computer\", \"trash\"]\n",
+        )
+        .unwrap();
+        c.sanitize(&mut warnings);
+        assert!(!c.taskbar.widgets && !c.desktop.icons && c.desktop.auto_arrange && !c.desktop.align_to_grid);
+        assert_eq!(c.desktop.icon_size, "medium", "an unknown size is the medium one");
+        assert_eq!(c.desktop.system_icons, ["computer", "home", "trash"], "known names, each once, in their order");
+        assert_eq!(warnings.len(), 2, "{warnings:?}");
+        for size in DESKTOP_ICON_SIZES {
+            assert_eq!(Config::from_toml(&format!("[desktop]\nicon_size = \"{size}\"\n")).unwrap().desktop.icon_size, size);
+        }
+        // The keys belong to the user; an unknown one rejects the file, as anywhere.
+        let dir = tempfile::tempdir().unwrap();
+        let user = file(dir.path(), "user.toml", "[desktop]\nsystem_icons = [\"home\"]\nicon_size = \"large\"\n[taskbar]\nwidgets = false\n");
+        let (c, warnings) = Config::load_from(&[], Some(&user));
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!((c.desktop.system_icons.as_slice(), c.desktop.icon_size.as_str(), c.taskbar.widgets), (["home".to_owned()].as_slice(), "large", false));
+        assert!(Config::from_toml("[desktop]\nwallpaper_icons = true\n").is_err());
+        assert!(Config::from_toml("[desktop]\nicons = \"yes\"\n").is_err());
     }
 
     #[test]

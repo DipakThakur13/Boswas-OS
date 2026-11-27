@@ -75,9 +75,65 @@ where
         let _ = filter;
         frame.render_texture_from_to(texture, src, dst, damage, opaque_regions, Transform::Normal, 1.0)
     }
+
+    /// Whether this renderer blurs what lies behind translucent surfaces
+    /// (live blur, `crate::glass::blur`).
+    fn blurs(&self) -> bool {
+        false
+    }
+
+    /// Brings the blurred picture of the scene behind a region up to date:
+    /// `elements` are what lies behind it (front to back, output physical
+    /// coordinates) and `area` the part of the output to blur. `None`: the
+    /// renderer does not blur.
+    fn blur_behind<E: RenderElement<Self>>(
+        &mut self,
+        key: &(String, Id),
+        area: Rectangle<i32, Physical>,
+        scale: Scale<f64>,
+        elements: &[E],
+        params: &crate::glass::blur::BlurParams,
+    ) -> Option<crate::glass::blur::Blurred<Self::TextureId>> {
+        let _ = (key, area, scale, elements, params);
+        None
+    }
+
+    /// Draws a picture of [`BoswasRenderer::blur_behind`] over a region.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_blurred(
+        frame: &mut Self::Frame<'_, '_>,
+        texture: &Self::TextureId,
+        look: &crate::glass::blur::BlurLook,
+        src: Rectangle<f64, BufferCoords>,
+        dst: Rectangle<i32, Physical>,
+        damage: &[Rectangle<i32, Physical>],
+        alpha: f32,
+    ) -> Result<(), Self::Error> {
+        let _ = look;
+        frame.render_texture_from_to(texture, src, dst, damage, &[], Transform::Normal, alpha)
+    }
+
+    /// The pixels of `elements` drawn into a picture of `size` (RGBA,
+    /// premultiplied): the wallpaper the compositor's Mica is made from.
+    fn read_back<E: RenderElement<Self>>(&mut self, size: Size<i32, Physical>, scale: Scale<f64>, elements: &[E]) -> Option<Vec<u8>> {
+        let _ = (size, scale, elements);
+        None
+    }
 }
 
-impl BoswasRenderer for PixmanRenderer {}
+impl BoswasRenderer for PixmanRenderer {
+    fn read_back<E: RenderElement<Self>>(&mut self, size: Size<i32, Physical>, scale: Scale<f64>, elements: &[E]) -> Option<Vec<u8>> {
+        crate::backend::render_offscreen::<_, smithay::reexports::pixman::Image<'static, 'static>, _>(
+            self,
+            smithay::backend::allocator::Fourcc::Argb8888,
+            size,
+            scale.x,
+            elements,
+            Color32F::TRANSPARENT,
+        )
+        .ok()
+    }
+}
 
 /// A colour filter as an affine map of (gamma-encoded) RGB: `matrix` (row
 /// by row) times the colour, plus `offset`, clamped to 0..1.
@@ -624,11 +680,43 @@ void main() {
             .ok();
         renderer.egl_context().user_data().insert_if_missing(|| FilterProgram(filter));
         renderer.egl_context().user_data().insert_if_missing(|| FilterTexture(RefCell::new(None)));
+        crate::glass::blur::gles::init(renderer);
     }
 
     impl BoswasRenderer for GlesRenderer {
         const ROUNDS_CORNERS: bool = true;
         const FILTERS_COLOR: bool = true;
+
+        fn blurs(&self) -> bool {
+            crate::glass::blur::gles::blurs(self)
+        }
+
+        fn blur_behind<E: RenderElement<Self>>(
+            &mut self,
+            key: &(String, Id),
+            area: Rectangle<i32, Physical>,
+            scale: Scale<f64>,
+            elements: &[E],
+            params: &crate::glass::blur::BlurParams,
+        ) -> Option<crate::glass::blur::Blurred<GlesTexture>> {
+            crate::glass::blur::gles::blur_behind(self, key, area, scale, elements, params)
+        }
+
+        fn draw_blurred(
+            frame: &mut Self::Frame<'_, '_>,
+            texture: &GlesTexture,
+            look: &crate::glass::blur::BlurLook,
+            src: Rectangle<f64, BufferCoords>,
+            dst: Rectangle<i32, Physical>,
+            damage: &[Rectangle<i32, Physical>],
+            alpha: f32,
+        ) -> Result<(), Self::Error> {
+            crate::glass::blur::gles::draw_blurred(frame, texture, look, src, dst, damage, alpha)
+        }
+
+        fn read_back<E: RenderElement<Self>>(&mut self, size: Size<i32, Physical>, scale: Scale<f64>, elements: &[E]) -> Option<Vec<u8>> {
+            crate::backend::render_offscreen::<_, GlesTexture, _>(self, Fourcc::Abgr8888, size, scale.x, elements, Color32F::TRANSPARENT).ok()
+        }
 
         fn color_filter_frame<E: RenderElement<Self>>(
             &mut self,

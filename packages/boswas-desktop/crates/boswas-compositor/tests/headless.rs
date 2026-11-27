@@ -17,6 +17,8 @@
 //!   desktop session stays and tries its shell again with a growing pause
 //! * a seat that cannot be opened ends the compositor with the start-up
 //!   status and a message that names the causes
+//! * the shell's `paste` gives the focused window Ctrl+V (Ctrl+Shift+V in a
+//!   terminal) and the window reads the clipboard; not while locked
 
 use std::{
     io::{BufRead, BufReader, Write},
@@ -30,7 +32,10 @@ use serde_json::{json, Value};
 use wayland_client::{
     delegate_noop,
     globals::{registry_queue_init, GlobalListContents},
-    protocol::{wl_buffer, wl_callback, wl_compositor, wl_registry, wl_shm, wl_shm_pool, wl_surface},
+    protocol::{
+        wl_buffer, wl_callback, wl_compositor, wl_data_device, wl_data_device_manager, wl_data_offer, wl_data_source,
+        wl_keyboard, wl_registry, wl_seat, wl_shm, wl_shm_pool, wl_surface,
+    },
     Connection, Dispatch, QueueHandle,
 };
 use wayland_protocols::{
@@ -95,26 +100,36 @@ impl Compositor {
 
     /// The same, with more options for the compositor.
     fn start_with(config: &str, role: &str, options: &[&str]) -> Self {
+        Self::start_logged(config, role, options, None)
+    }
+
+    /// The same, logging what `log` (a `BOSWAS_LOG` filter) asks for.
+    fn start_logged(config: &str, role: &str, options: &[&str], log: Option<&str>) -> Self {
         // Unix socket paths are short; keep the directory name short too.
         let runtime = tempfile::Builder::new().prefix("bw").tempdir_in("/tmp").unwrap();
         let config_path = runtime.path().join("compositor.toml");
         std::fs::write(&config_path, config.replace("@HELPER@", &helper_command())).unwrap();
-        let log = std::fs::File::create(runtime.path().join("compositor.log")).unwrap();
-        let mut child = Command::new(env!("CARGO_BIN_EXE_boswas-compositor"))
+        let log_file = std::fs::File::create(runtime.path().join("compositor.log")).unwrap();
+        let mut command = Command::new(env!("CARGO_BIN_EXE_boswas-compositor"));
+        command
             .args(["--backend", "headless", "--headless-size", "800x600", "--test-input", "--print-env"])
             .args(options)
             .arg("--config")
             .arg(&config_path)
             .env("XDG_RUNTIME_DIR", runtime.path())
+            // A reload reads the user's file from here (`user_config`).
+            .env("XDG_CONFIG_HOME", runtime.path().join("config"))
             .env("BOSWAS_TEST_ROLE", role)
             .env("BOSWAS_TEST_OUT", runtime.path().join("helper.out"))
             .env_remove("WAYLAND_DISPLAY")
             .env_remove("WAYLAND_SOCKET")
             .env_remove("BOSWAS_LOG")
             .stdout(Stdio::piped())
-            .stderr(Stdio::from(log))
-            .spawn()
-            .expect("the compositor starts");
+            .stderr(Stdio::from(log_file));
+        if let Some(filter) = log {
+            command.env("BOSWAS_LOG", filter);
+        }
+        let mut child = command.spawn().expect("the compositor starts");
         let mut stdout = BufReader::new(child.stdout.take().unwrap());
         let mut display = String::new();
         let mut control = PathBuf::new();
@@ -368,7 +383,7 @@ fn the_public_control_socket_is_limited() {
     for cmd in [
         "windows", "subscribe", "workspaces", "quit", "screenshot", "thumbnail", "activate", "close", "tile",
         "overview", "show-desktop", "night-light", "next-layout", "new-workspace", "close-workspace",
-        "move-to-workspace", "pointer", "key", "button",
+        "move-to-workspace", "pointer", "key", "button", "paste",
     ] {
         let reply = control.call(json!({"cmd": cmd, "id": 7, "path": "/tmp/boswas-test-shot.png", "window": 1}));
         assert_eq!(reply["ok"], false, "{cmd} must be refused on a public connection: {reply}");
@@ -482,6 +497,40 @@ fn frames_per_second(compositor: &Compositor) -> f64 {
         frames += 1;
     }
     f64::from(frames) / started.elapsed().as_secs_f64()
+}
+
+#[test]
+fn an_output_with_nothing_new_is_not_drawn_and_clients_still_get_frames() {
+    // A client that asks for a frame callback on every commit but changes
+    // nothing (a shell surface waiting out a transition, say): the output
+    // is not drawn again, and the callbacks still come at its pace, not at
+    // once and not never.
+    let compositor = Compositor::start_logged(LOCKED_DOWN, "none", &[], Some("warn,boswas_compositor::stats=trace"));
+    let conn = compositor.wayland();
+    let (mut queue, mut client, _toplevel, surface, _buffer) = open_drawn_window(&conn, "Still", 0xFF20_4060);
+    let qh = queue.handle();
+    let mut idle_frame = |client: &mut Client| {
+        let before = client.frames;
+        surface.frame(&qh, ());
+        surface.commit();
+        while client.frames == before {
+            queue.blocking_dispatch(client).unwrap();
+        }
+    };
+    // The window has appeared and been drawn.
+    for _ in 0..10 {
+        idle_frame(&mut client);
+    }
+    let drawn = |log: &str| log.lines().filter(|line| line.contains("stats: frame ")).count();
+    let before = drawn(&compositor.log());
+    assert!(before > 0, "the window was drawn (and the frames are logged)");
+    let started = Instant::now();
+    for _ in 0..60 {
+        idle_frame(&mut client);
+    }
+    let took = started.elapsed();
+    assert_eq!(drawn(&compositor.log()), before, "frames were drawn with nothing new on the output");
+    assert!(took > Duration::from_millis(700) && took < Duration::from_millis(3000), "60 frame callbacks took {took:?} at 60 Hz");
 }
 
 #[test]
@@ -1153,6 +1202,388 @@ fn without_a_seat_the_compositor_ends_with_the_start_up_status_and_says_why() {
     assert!(errors[0].contains("libseat reported: "), "{}", errors[0]);
 }
 
+/// A window that records the keys it gets and can read the clipboard (for
+/// the paste test).
+#[derive(Default)]
+struct Typist {
+    configured: bool,
+    /// The serial of the keyboard's arrival, needed to set the clipboard.
+    entered: Option<u32>,
+    /// Key strokes as (evdev key code, pressed).
+    keys: Vec<(u32, bool)>,
+    /// The clipboard as offered to this client.
+    selection: Option<wl_data_offer::WlDataOffer>,
+    /// What this client itself put on the clipboard.
+    text: String,
+    /// The locked modifiers the compositor last sent (Num Lock, Caps Lock).
+    locked: Option<u32>,
+}
+
+impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for Typist {
+    fn event(_: &mut Self, _: &wl_registry::WlRegistry, _: wl_registry::Event, _: &GlobalListContents, _: &Connection, _: &QueueHandle<Self>) {}
+}
+
+impl Dispatch<xdg_wm_base::XdgWmBase, ()> for Typist {
+    fn event(_: &mut Self, base: &xdg_wm_base::XdgWmBase, event: xdg_wm_base::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        if let xdg_wm_base::Event::Ping { serial } = event {
+            base.pong(serial);
+        }
+    }
+}
+
+impl Dispatch<xdg_surface::XdgSurface, ()> for Typist {
+    fn event(state: &mut Self, surface: &xdg_surface::XdgSurface, event: xdg_surface::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        if let xdg_surface::Event::Configure { serial } = event {
+            surface.ack_configure(serial);
+            state.configured = true;
+        }
+    }
+}
+
+impl Dispatch<wl_seat::WlSeat, ()> for Typist {
+    fn event(_: &mut Self, seat: &wl_seat::WlSeat, event: wl_seat::Event, _: &(), _: &Connection, qh: &QueueHandle<Self>) {
+        if let wl_seat::Event::Capabilities { capabilities: wayland_client::WEnum::Value(caps) } = event {
+            if caps.contains(wl_seat::Capability::Keyboard) {
+                seat.get_keyboard(qh, ());
+            }
+        }
+    }
+}
+
+impl Dispatch<wl_keyboard::WlKeyboard, ()> for Typist {
+    fn event(state: &mut Self, _: &wl_keyboard::WlKeyboard, event: wl_keyboard::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        match event {
+            wl_keyboard::Event::Enter { serial, .. } => state.entered = Some(serial),
+            wl_keyboard::Event::Leave { .. } => state.entered = None,
+            wl_keyboard::Event::Key { key, state: wayland_client::WEnum::Value(pressed), .. } => {
+                state.keys.push((key, pressed == wl_keyboard::KeyState::Pressed));
+            }
+            wl_keyboard::Event::Modifiers { mods_locked, .. } => state.locked = Some(mods_locked),
+            _ => {}
+        }
+    }
+}
+
+impl Dispatch<wl_data_device::WlDataDevice, ()> for Typist {
+    fn event(state: &mut Self, _: &wl_data_device::WlDataDevice, event: wl_data_device::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        if let wl_data_device::Event::Selection { id } = event {
+            state.selection = id;
+        }
+    }
+
+    wayland_client::event_created_child!(Typist, wl_data_device::WlDataDevice, [
+        wl_data_device::EVT_DATA_OFFER_OPCODE => (wl_data_offer::WlDataOffer, ()),
+    ]);
+}
+
+impl Dispatch<wl_data_source::WlDataSource, ()> for Typist {
+    fn event(state: &mut Self, _: &wl_data_source::WlDataSource, event: wl_data_source::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        if let wl_data_source::Event::Send { fd, .. } = event {
+            let mut pipe = std::fs::File::from(fd);
+            let _ = pipe.write_all(state.text.as_bytes());
+        }
+    }
+}
+
+delegate_noop!(Typist: ignore wl_compositor::WlCompositor);
+delegate_noop!(Typist: ignore wl_surface::WlSurface);
+delegate_noop!(Typist: ignore wl_shm::WlShm);
+delegate_noop!(Typist: ignore wl_shm_pool::WlShmPool);
+delegate_noop!(Typist: ignore wl_buffer::WlBuffer);
+delegate_noop!(Typist: ignore xdg_toplevel::XdgToplevel);
+delegate_noop!(Typist: ignore wl_data_device_manager::WlDataDeviceManager);
+delegate_noop!(Typist: ignore wl_data_offer::WlDataOffer);
+
+/// A window of an application with the keyboard, which copies `text`.
+struct Window {
+    queue: wayland_client::EventQueue<Typist>,
+    state: Typist,
+}
+
+impl Window {
+    fn open(conn: &Connection, app_id: &str, text: &str) -> Self {
+        let (globals, mut queue) = registry_queue_init::<Typist>(conn).unwrap();
+        let qh = queue.handle();
+        let compositor: wl_compositor::WlCompositor = globals.bind(&qh, 1..=4, ()).unwrap();
+        let shm: wl_shm::WlShm = globals.bind(&qh, 1..=1, ()).unwrap();
+        let wm: xdg_wm_base::XdgWmBase = globals.bind(&qh, 1..=3, ()).unwrap();
+        let seat: wl_seat::WlSeat = globals.bind(&qh, 1..=7, ()).unwrap();
+        let manager: wl_data_device_manager::WlDataDeviceManager = globals.bind(&qh, 1..=3, ()).unwrap();
+        let device = manager.get_data_device(&seat, &qh, ());
+        let surface = compositor.create_surface(&qh, ());
+        let xdg = wm.get_xdg_surface(&surface, &qh, ());
+        let toplevel = xdg.get_toplevel(&qh, ());
+        toplevel.set_app_id(app_id.into());
+        surface.commit();
+        let mut state = Typist { text: text.into(), ..Typist::default() };
+        while !state.configured {
+            queue.blocking_dispatch(&mut state).unwrap();
+        }
+        let (w, h) = (200i32, 120i32);
+        let file = tempfile::tempfile().unwrap();
+        file.set_len((w * h * 4) as u64).unwrap();
+        use std::os::fd::AsFd;
+        let pool = shm.create_pool(file.as_fd(), w * h * 4, &qh, ());
+        let buffer = pool.create_buffer(0, w, h, w * 4, wl_shm::Format::Argb8888, &qh, ());
+        surface.attach(Some(&buffer), 0, 0);
+        surface.commit();
+        let mut window = Self { queue, state };
+        window.until("the keyboard", |s| s.entered.is_some());
+        // Copy: this window's text goes on the clipboard.
+        let source = manager.create_data_source(&qh, ());
+        source.offer("text/plain;charset=utf-8".into());
+        device.set_selection(Some(&source), window.state.entered.unwrap());
+        window.until("the clipboard", |s| s.selection.is_some());
+        // The objects live as long as the connection.
+        std::mem::forget((toplevel, xdg, surface, source, buffer, pool, device));
+        window
+    }
+
+    fn until(&mut self, what: &str, done: impl Fn(&Typist) -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while !done(&self.state) {
+            assert!(Instant::now() < deadline, "timed out waiting for {what}");
+            self.queue.roundtrip(&mut self.state).unwrap();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    /// What a paste here would insert: the clipboard's text.
+    fn read_clipboard(&mut self) -> String {
+        let offer = self.state.selection.clone().expect("something is on the clipboard");
+        let (mut reader, writer) = UnixStream::pair().unwrap();
+        use std::os::fd::AsFd;
+        offer.receive("text/plain;charset=utf-8".into(), writer.as_fd());
+        self.queue.roundtrip(&mut self.state).unwrap();
+        drop(writer);
+        reader.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let mut text = String::new();
+        use std::io::Read;
+        reader.read_to_string(&mut text).unwrap();
+        text
+    }
+}
+
+#[test]
+fn the_shell_pastes_into_the_focused_window_with_the_key_that_pastes_there() {
+    const CTRL: u32 = 29;
+    const SHIFT: u32 = 42;
+    const V: u32 = 47;
+    let config = "[shell]\ncommand = @HELPER@\n[lock]\nidle_seconds = 0\ncommand = []\n[policy]\nlock_idle_max_seconds = 0\n";
+    let compositor = Compositor::start(config, "paster");
+    wait_for("the helper", || compositor.helper_output().contains("ready").then_some(()));
+    let go = |n: u32| std::fs::write(compositor.runtime.path().join(format!("go-{n}")), "").unwrap();
+    let reply = |n: u32| {
+        wait_for("the paste's reply", || {
+            compositor.helper_output().lines().find(|l| l.starts_with(&format!("paste {n} "))).map(str::to_owned)
+        })
+    };
+
+    // An editor: Ctrl+V, and what it reads is what was copied.
+    let conn = compositor.wayland();
+    let mut editor = Window::open(&conn, "com.boswas.TextEditor", "copied in the editor");
+    editor.state.keys.clear();
+    go(1);
+    assert_eq!(reply(1), "paste 1 ok=true keys=\"ctrl+v\" error=null");
+    editor.until("the paste keys", |s| s.keys.len() >= 4);
+    assert_eq!(editor.state.keys, [(CTRL, true), (V, true), (V, false), (CTRL, false)]);
+    assert_eq!(editor.read_clipboard(), "copied in the editor");
+
+    // A terminal: Ctrl+Shift+V.
+    let conn2 = compositor.wayland();
+    let mut terminal = Window::open(&conn2, "foot", "copied in the terminal");
+    terminal.state.keys.clear();
+    go(2);
+    assert_eq!(reply(2), "paste 2 ok=true keys=\"ctrl+shift+v\" error=null");
+    terminal.until("the paste keys", |s| s.keys.len() >= 6);
+    assert_eq!(terminal.state.keys, [(CTRL, true), (SHIFT, true), (V, true), (V, false), (SHIFT, false), (CTRL, false)]);
+    assert_eq!(terminal.read_clipboard(), "copied in the terminal");
+    editor.queue.roundtrip(&mut editor.state).unwrap();
+    assert_eq!(editor.state.keys.len(), 4, "the editor, without the keyboard, got nothing more: {:?}", editor.state.keys);
+
+    // Locked: nothing is pasted anywhere.
+    compositor.control().ok(json!({"cmd": "lock"}));
+    terminal.state.keys.clear();
+    go(3);
+    assert_eq!(reply(3), "paste 3 ok=false keys=null error=\"the session is locked\"");
+    std::thread::sleep(Duration::from_millis(300));
+    terminal.queue.roundtrip(&mut terminal.state).unwrap();
+    assert!(terminal.state.keys.is_empty(), "{:?}", terminal.state.keys);
+}
+
+// ---------------------------------------------------------------------------
+// The shell round: Num Lock, night light now, Windows shortcuts, projection
+// ---------------------------------------------------------------------------
+
+/// A configuration where the test's control connection is trusted and no
+/// shell or lock screen runs.
+const TRUSTED: &str = "[shell]\ncommand = []\n[lock]\nidle_seconds = 0\ncommand = []\n[appearance]\nreduced_motion = true\n[policy]\nlock_idle_max_seconds = 0\nprivileged_protocols = \"all\"\n";
+
+impl Compositor {
+    /// Writes the user's configuration file a reload reads.
+    fn user_config(&self, text: &str) {
+        let dir = self.runtime.path().join("config/boswas");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("compositor.toml"), text).unwrap();
+    }
+}
+
+const KEY_NUMLOCK: u32 = 69;
+
+#[test]
+fn num_lock_is_on_as_the_setting_says_at_start_and_after_a_change_in_settings() {
+    let compositor = Compositor::start(&format!("{TRUSTED}[keyboard]\nnumlock = true\n"), "none");
+    let mut control = compositor.control();
+    let conn = compositor.wayland();
+    let mut window = Window::open(&conn, "com.boswas.test", "x");
+    window.until("the modifiers", |s| s.locked.is_some());
+    assert_ne!(window.state.locked, Some(0), "Num Lock is locked as the session starts");
+    // Settings turns it off: the reload applies it.
+    compositor.user_config("[keyboard]\nnumlock = false\n");
+    control.ok(json!({"cmd": "reload-config"}));
+    window.until("Num Lock off", |s| s.locked == Some(0));
+    // Turned on by hand, it stays on over a reload that leaves the setting
+    // as it was (a new keymap would start with it off).
+    tap(&mut control, KEY_NUMLOCK);
+    window.until("Num Lock on by hand", |s| s.locked.is_some_and(|m| m != 0));
+    control.ok(json!({"cmd": "reload-config"}));
+    window.queue.roundtrip(&mut window.state).unwrap();
+    window.until("the reload's modifiers", |s| s.locked.is_some());
+    assert_ne!(window.state.locked, Some(0), "kept over the reload");
+}
+
+/// Local time `minutes` after midnight, as `HH:MM`.
+fn clock(minutes: u32) -> String {
+    format!("{:02}:{:02}", (minutes / 60) % 24, minutes % 60)
+}
+
+#[test]
+fn night_light_turned_on_now_holds_against_the_schedule_until_settings_change_it() {
+    use chrono::Timelike;
+    let now = chrono::Local::now();
+    let minutes = now.hour() * 60 + now.minute();
+    // A schedule that begins in two hours: night light is switched on but
+    // the screens are neutral now.
+    let later = format!("[night_light]\nenabled = true\nscheduled = true\nfrom = \"{}\"\nto = \"{}\"\n", clock(minutes + 120), clock(minutes + 240));
+    let compositor = Compositor::start(&format!("{TRUSTED}{later}"), "none");
+    let mut control = compositor.control();
+    let state = control.ok(json!({"cmd": "night-light", "active": true}));
+    assert_eq!((state["active"].clone(), state["override"].clone(), state["enabled"].clone()), (json!(true), json!(true), json!(true)), "{state}");
+    assert_eq!(state["available"], false, "the headless backend cannot tint");
+    let state = control.ok(json!({"cmd": "night-light", "active": false}));
+    assert_eq!((state["active"].clone(), state["override"].clone()), (json!(false), json!(false)), "the schedule agrees: no override");
+
+    // Inside the schedule (Settings changed it): on; turned off now, it
+    // stays off over a reload that keeps the settings.
+    let inside = format!("[night_light]\nenabled = true\nscheduled = true\nfrom = \"{}\"\nto = \"{}\"\n", clock(minutes + 1440 - 60), clock(minutes + 60));
+    compositor.user_config(&inside);
+    control.ok(json!({"cmd": "reload-config"}));
+    let state = control.ok(json!({"cmd": "night-light", "active": false}));
+    assert_eq!((state["active"].clone(), state["override"].clone()), (json!(false), json!(true)), "{state}");
+    control.ok(json!({"cmd": "reload-config"}));
+    let state = control.ok(json!({"cmd": "night-light", "temperature": 4500, "enabled": true}));
+    assert_eq!(state["active"], false, "a reload with the same settings keeps the choice: {state}");
+    // A change in Settings ends it.
+    compositor.user_config(&format!("{inside}temperature = 3500\n"));
+    control.ok(json!({"cmd": "reload-config"}));
+    let state = control.ok(json!({"cmd": "night-light", "temperature": 3500, "enabled": true}));
+    assert_eq!((state["active"].clone(), state["override"].clone()), (json!(true), json!(false)), "{state}");
+}
+
+/// Reads a subscribed connection until the event `name` arrives.
+fn next_event(control: &mut Control, name: &str) -> Value {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        assert!(Instant::now() < deadline, "no \"{name}\" event");
+        let mut line = String::new();
+        control.reader.read_line(&mut line).expect("an event");
+        let message: Value = serde_json::from_str(&line).unwrap_or_default();
+        if message["event"] == name {
+            return message["data"].clone();
+        }
+    }
+}
+
+#[test]
+fn the_windows_shortcuts_reach_the_shell_and_manage_the_windows() {
+    const KEY_S: u32 = 31;
+    const KEY_X: u32 = 45;
+    const KEY_T: u32 = 20;
+    const KEY_B: u32 = 48;
+    const KEY_P: u32 = 25;
+    const KEY_D: u32 = 32;
+    const KEY_HOME: u32 = 102;
+    const KEY_DELETE: u32 = 111;
+    const KEY_LEFTSHIFT: u32 = 42;
+    let compositor = Compositor::start(TRUSTED, "none");
+    let mut control = compositor.control();
+    let mut shell = compositor.control();
+    shell.ok(json!({"cmd": "subscribe"}));
+    let chord = |control: &mut Control, keys: &[u32]| {
+        for code in keys {
+            key(control, *code, true);
+        }
+        for code in keys.iter().rev() {
+            key(control, *code, false);
+        }
+    };
+    // What the shell shows.
+    chord(&mut control, &[KEY_LEFTMETA, KEY_S]);
+    next_event(&mut shell, "search");
+    chord(&mut control, &[KEY_LEFTMETA, KEY_X]);
+    next_event(&mut shell, "quick-links");
+    chord(&mut control, &[KEY_LEFTMETA, KEY_LEFTALT, KEY_D]);
+    next_event(&mut shell, "calendar");
+    chord(&mut control, &[KEY_LEFTMETA, KEY_T]);
+    assert_eq!(next_event(&mut shell, "focus-taskbar")["area"], "apps");
+    chord(&mut control, &[KEY_LEFTMETA, KEY_B]);
+    assert_eq!(next_event(&mut shell, "focus-taskbar")["area"], "tray");
+    chord(&mut control, &[KEY_LEFTCTRL, KEY_LEFTALT, KEY_DELETE]);
+    next_event(&mut shell, "security");
+    chord(&mut control, &[KEY_LEFTMETA, KEY_P]);
+    assert_eq!(next_event(&mut shell, "projection"), json!({"outputs": 1, "mode": "extend"}));
+
+    // Projection with one monitor: only "PC screen only" and "Extend".
+    let reply = control.call(json!({"cmd": "project", "mode": "second-only"}));
+    assert_eq!(reply["ok"], false, "{reply}");
+    assert_eq!(control.ok(json!({"cmd": "project", "mode": "pc-only"}))["mode"], "pc-only");
+    assert_eq!(control.ok(json!({"cmd": "projection"})), json!({"outputs": 1, "mode": "pc-only"}));
+
+    // Super+Home: every window but the active one goes; again, they come back.
+    let conn = compositor.wayland();
+    let (mut first_queue, mut first_client, _first) = open_window(&conn, "First", 0xFF40_4040);
+    let second_conn = compositor.wayland();
+    let (mut second_queue, mut second_client, _second) = open_window(&second_conn, "Second", 0xFF80_8080);
+    let mut pump = |control: &mut Control| {
+        first_queue.roundtrip(&mut first_client).unwrap();
+        second_queue.roundtrip(&mut second_client).unwrap();
+        control.ok(json!({"cmd": "windows"}))
+    };
+    let window = |windows: &Value, title: &str| windows.as_array().unwrap().iter().find(|w| w["title"] == title).cloned().unwrap();
+    wait_for("both windows", || (pump(&mut control).as_array().unwrap().len() == 2).then_some(()));
+    chord(&mut control, &[KEY_LEFTMETA, KEY_HOME]);
+    let windows = pump(&mut control);
+    assert_eq!(window(&windows, "First")["minimized"], true);
+    assert_eq!((window(&windows, "Second")["minimized"].clone(), window(&windows, "Second")["active"].clone()), (json!(false), json!(true)));
+    chord(&mut control, &[KEY_LEFTMETA, KEY_HOME]);
+    let windows = pump(&mut control);
+    assert_eq!(window(&windows, "First")["minimized"], false, "Super+Home again brings it back");
+    assert_eq!(window(&windows, "Second")["active"], true, "the active window stays in front");
+
+    // Super+Shift+Up: the whole height, at its place; Super+Shift+Down: back,
+    // then minimised.
+    let before = window(&pump(&mut control), "Second");
+    assert!(before["y"].as_i64().unwrap() > 0, "{before}");
+    chord(&mut control, &[KEY_LEFTMETA, KEY_LEFTSHIFT, KEY_UP]);
+    let stretched = window(&pump(&mut control), "Second");
+    assert_eq!((stretched["x"].clone(), stretched["y"].clone(), stretched["tile"].clone()), (before["x"].clone(), json!(0), json!("floating")));
+    chord(&mut control, &[KEY_LEFTMETA, KEY_LEFTSHIFT, KEY_DOWN]);
+    let back = window(&pump(&mut control), "Second");
+    assert_eq!((back["x"].clone(), back["y"].clone()), (before["x"].clone(), before["y"].clone()));
+    chord(&mut control, &[KEY_LEFTMETA, KEY_LEFTSHIFT, KEY_DOWN]);
+    assert_eq!(window(&pump(&mut control), "Second")["minimized"], true);
+}
+
 /// Not a test of its own: the body of the helper program the compositor
 /// starts in the tests above (this binary with `--ignored --exact`).
 #[test]
@@ -1220,6 +1651,30 @@ fn trusted_helper() {
             while matches!(control.reader.read_line(&mut line), Ok(n) if n > 0) {
                 line.clear();
             }
+        }
+        "paster" => {
+            use std::os::fd::FromRawFd;
+            let fd: i32 = std::env::var("BOSWAS_COMPOSITOR_FD").unwrap().parse().unwrap();
+            // SAFETY: the descriptor was passed to this process by the
+            // compositor for exactly this use.
+            let stream = unsafe { UnixStream::from_raw_fd(fd) };
+            stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+            let mut control = Control {
+                reader: BufReader::new(stream),
+            };
+            report("ready");
+            // Each "go-N" file the test writes asks for one paste.
+            let dir = out.parent().unwrap().to_owned();
+            for n in 1..=3 {
+                let go = dir.join(format!("go-{n}"));
+                let deadline = Instant::now() + Duration::from_secs(30);
+                while !go.exists() && Instant::now() < deadline {
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                let reply = control.call(json!({"cmd": "paste"}));
+                report(&format!("paste {n} ok={} keys={} error={}", reply["ok"], reply["data"]["keys"], reply["error"]));
+            }
+            std::thread::sleep(Duration::from_secs(30));
         }
         "lock-and-die" | "lock-and-unlock" => {
             let (globals, mut queue) = registry_queue_init::<Client>(&conn).unwrap();

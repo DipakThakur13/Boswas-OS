@@ -1,5 +1,5 @@
 //! The desktop's settings as the compositor passes them on: the look, and
-//! the taskbar, Start, notification and lock screen settings of
+//! the taskbar, Start, notification, desktop icon and lock screen settings of
 //! `compositor.toml` (boswas-compositor(1), CONFIGURATION). They arrive with the `config`
 //! event at start and after every `reload-config`. What arrives comes from
 //! files of the user and is read leniently: anything missing or of the
@@ -18,6 +18,9 @@ pub struct Desktop {
     pub accent: String,
     /// Materials show the blurred wallpaper through their tint.
     pub transparency: bool,
+    /// The user's desktop preset is a high-contrast one: glass is off as
+    /// with transparency off (the compositor reads the preset record).
+    pub high_contrast: bool,
     /// Text size in percent, 100 to 225.
     pub text_scale: u32,
     pub taskbar: Taskbar,
@@ -25,6 +28,104 @@ pub struct Desktop {
     pub notifications: Notifications,
     /// The lock screen shows the weather (`[lock] show_weather`).
     pub lock_weather: bool,
+    /// The clipboard history is kept (`[clipboard] history`).
+    pub clipboard_history: bool,
+    /// When Settings last cleared the clipboard data (`[clipboard]
+    /// cleared_at`, Unix seconds; 0 never).
+    pub clipboard_cleared_at: i64,
+    /// The icons on the wallpaper (`[desktop]`).
+    pub icons: DesktopIcons,
+    /// The pointer size (`[pointer] cursor_size`, 16 to 96; 0 when the
+    /// compositor did not say), for the programs the shell starts.
+    pub cursor_size: u32,
+}
+
+/// A system icon the desktop can show besides the desktop folder's files.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SystemIcon {
+    Home,
+    Trash,
+    /// This device: the whole file system in Files.
+    Computer,
+}
+
+impl SystemIcon {
+    pub const ALL: [SystemIcon; 3] = [SystemIcon::Home, SystemIcon::Trash, SystemIcon::Computer];
+
+    pub fn key(self) -> &'static str {
+        match self {
+            SystemIcon::Home => "home",
+            SystemIcon::Trash => "trash",
+            SystemIcon::Computer => "computer",
+        }
+    }
+
+    fn from_key(key: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|i| i.key() == key)
+    }
+}
+
+/// The size of the desktop's icons (View > Small, Medium, Large icons).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IconSize {
+    Small,
+    Medium,
+    Large,
+}
+
+impl IconSize {
+    pub const ALL: [IconSize; 3] = [IconSize::Large, IconSize::Medium, IconSize::Small];
+
+    pub fn key(self) -> &'static str {
+        match self {
+            IconSize::Small => "small",
+            IconSize::Medium => "medium",
+            IconSize::Large => "large",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            IconSize::Small => "Small icons",
+            IconSize::Medium => "Medium icons",
+            IconSize::Large => "Large icons",
+        }
+    }
+
+    /// The icon's side in logical pixels.
+    pub fn pixels(self) -> f32 {
+        match self {
+            IconSize::Small => 32.0,
+            IconSize::Medium => 48.0,
+            IconSize::Large => 96.0,
+        }
+    }
+
+    fn from_key(key: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|s| s.key() == key)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DesktopIcons {
+    /// The desktop folder's files and folders are shown.
+    pub icons: bool,
+    pub system_icons: Vec<SystemIcon>,
+    pub size: IconSize,
+    pub auto_arrange: bool,
+    pub align_to_grid: bool,
+}
+
+impl Default for DesktopIcons {
+    fn default() -> Self {
+        Self {
+            icons: true,
+            system_icons: vec![SystemIcon::Trash],
+            size: IconSize::Medium,
+            auto_arrange: false,
+            align_to_grid: true,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -37,6 +138,8 @@ pub struct Taskbar {
     pub badges: bool,
     /// The windows of every desktop, not only of the current one.
     pub all_desktops: bool,
+    /// The widgets button (the weather) at the left end.
+    pub widgets: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -141,11 +244,16 @@ impl Default for Desktop {
             reduced_motion: false,
             accent: ACCENTS[0].into(),
             transparency: true,
+            high_contrast: false,
             text_scale: 100,
             taskbar: Taskbar::default(),
             start: Start::default(),
             notifications: Notifications::default(),
             lock_weather: true,
+            clipboard_history: true,
+            clipboard_cleared_at: 0,
+            icons: DesktopIcons::default(),
+            cursor_size: 0,
         }
     }
 }
@@ -159,6 +267,7 @@ impl Default for Taskbar {
             clock_seconds: false,
             badges: true,
             all_desktops: false,
+            widgets: true,
         }
     }
 }
@@ -216,6 +325,19 @@ impl Desktop {
         let taskbar = &value["taskbar"];
         let start = &value["start"];
         let notes = &value["notifications"];
+        let desk = &value["desktop"];
+        let system_icons = match desk["system_icons"].as_array() {
+            Some(list) => {
+                let mut out: Vec<SystemIcon> = Vec::new();
+                for icon in list.iter().filter_map(Value::as_str).filter_map(SystemIcon::from_key) {
+                    if !out.contains(&icon) {
+                        out.push(icon);
+                    }
+                }
+                out
+            }
+            None => d.icons.system_icons.clone(),
+        };
         let accent = text(&value["accent"], 16).filter(|a| ACCENTS.contains(&a.as_str())).unwrap_or(d.accent);
         let layout = match start["layout"].as_str() {
             Some("more_pins") => StartLayout::MorePins,
@@ -245,6 +367,7 @@ impl Desktop {
             reduced_motion: flag(&value["reduced_motion"], false),
             accent,
             transparency: flag(&value["transparency"], true),
+            high_contrast: flag(&value["high_contrast"], false),
             text_scale: value["text_scale"].as_u64().map_or(100, |s| s.clamp(100, 225) as u32),
             taskbar: Taskbar {
                 left: taskbar["alignment"].as_str() == Some("left"),
@@ -253,6 +376,7 @@ impl Desktop {
                 clock_seconds: flag(&taskbar["clock_seconds"], d.taskbar.clock_seconds),
                 badges: flag(&taskbar["badges"], d.taskbar.badges),
                 all_desktops: taskbar["windows"].as_str() == Some("all"),
+                widgets: flag(&taskbar["widgets"], d.taskbar.widgets),
             },
             start: Start {
                 layout,
@@ -269,6 +393,16 @@ impl Desktop {
                 toast_seconds: notes["toast_seconds"].as_u64().map_or(5, |s| s.clamp(1, 300) as u32),
             },
             lock_weather: flag(&value["lock"]["show_weather"], d.lock_weather),
+            clipboard_history: flag(&value["clipboard"]["history"], d.clipboard_history),
+            clipboard_cleared_at: value["clipboard"]["cleared_at"].as_i64().filter(|t| *t >= 0).unwrap_or(d.clipboard_cleared_at),
+            icons: DesktopIcons {
+                icons: flag(&desk["icons"], d.icons.icons),
+                system_icons,
+                size: desk["icon_size"].as_str().and_then(IconSize::from_key).unwrap_or(d.icons.size),
+                auto_arrange: flag(&desk["auto_arrange"], d.icons.auto_arrange),
+                align_to_grid: flag(&desk["align_to_grid"], d.icons.align_to_grid),
+            },
+            cursor_size: value["cursor_size"].as_u64().filter(|s| (16..=96).contains(s)).map_or(0, |s| s as u32),
         })
     }
 }
@@ -309,12 +443,16 @@ mod tests {
             "taskbar": {"alignment": "left", "auto_hide": true, "task_view": false, "clock_seconds": true, "badges": false, "windows": "all"},
             "start": {"layout": "more_pins", "recently_added": false, "most_used": false, "folders": ["music", "settings", "music", "nope"]},
             "notifications": {"do_not_disturb": true, "scheduled": true, "from": "21:30", "to": "06:00", "banners_off": ["Mail"], "toast_seconds": 30},
-            "lock": {"show_weather": false}
+            "lock": {"show_weather": false},
+            "desktop": {"icons": false, "system_icons": ["computer", "home", "computer", "nope"], "icon_size": "large", "auto_arrange": true, "align_to_grid": false}
         });
         let d = Desktop::parse(&value).unwrap();
-        assert!(d.light && d.reduced_motion && !d.transparency);
+        assert!(d.light && d.reduced_motion && !d.transparency && !d.high_contrast);
         assert_eq!((d.wallpaper.as_str(), d.accent.as_str(), d.text_scale), ("/usr/share/w.png", "coral", 150));
-        assert_eq!(d.taskbar, Taskbar { left: true, auto_hide: true, task_view: false, clock_seconds: true, badges: false, all_desktops: true });
+        assert_eq!(d.taskbar, Taskbar { left: true, auto_hide: true, task_view: false, clock_seconds: true, badges: false, all_desktops: true, widgets: true });
+        assert_eq!(d.icons, DesktopIcons { icons: false, system_icons: vec![SystemIcon::Computer, SystemIcon::Home], size: IconSize::Large, auto_arrange: true, align_to_grid: false });
+        let off = Desktop::parse(&json!({"scheme": "dark", "taskbar": {"widgets": false}})).unwrap();
+        assert!(!off.taskbar.widgets);
         assert_eq!(d.start.layout, StartLayout::MorePins);
         assert!(!d.start.recently_added && !d.start.most_used);
         assert_eq!(d.start.folders, [Folder::Music, Folder::Settings]);
@@ -322,6 +460,11 @@ mod tests {
         assert_eq!((d.notifications.from.as_str(), d.notifications.to.as_str(), d.notifications.toast_seconds), ("21:30", "06:00", 30));
         assert!(!d.notifications.banners_for("Mail") && d.notifications.banners_for("Chat"));
         assert!(!d.lock_weather);
+        assert_eq!(d.cursor_size, 0, "no pointer size sent");
+        for (sent, kept) in [(json!(48), 48), (json!(9), 0), (json!(500), 0), (json!("48"), 0)] {
+            let d = Desktop::parse(&json!({"scheme": "dark", "cursor_size": sent})).unwrap();
+            assert_eq!(d.cursor_size, kept, "{sent}");
+        }
     }
 
     #[test]
@@ -338,6 +481,9 @@ mod tests {
         assert_eq!(d.notifications.from, "22:00");
         assert_eq!(d.notifications.banners_off, ["ok"]);
         assert!(d.lock_weather, "the weather is shown unless the setting says otherwise");
+        assert_eq!(d.icons, DesktopIcons::default());
+        let odd = Desktop::parse(&json!({"scheme": "dark", "desktop": {"icons": 1, "system_icons": "trash", "icon_size": "huge"}})).unwrap();
+        assert_eq!(odd.icons, DesktopIcons::default(), "values of the wrong kind keep their defaults");
         for lock in [json!({"show_weather": "no"}), json!(false), json!({"show_weather": null})] {
             assert!(Desktop::parse(&json!({"scheme": "dark", "lock": lock})).unwrap().lock_weather, "{lock}");
         }

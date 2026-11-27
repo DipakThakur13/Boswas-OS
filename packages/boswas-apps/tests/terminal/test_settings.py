@@ -262,8 +262,8 @@ class Packaging(unittest.TestCase):
     def test_desktop_entry(self):
         text = (self.ROOT / "data" / "terminal" / "com.boswas.Terminal.desktop").read_text(encoding="utf-8")
         for line in ("Name=Terminal", "Icon=boswas-terminal", "Categories=System;TerminalEmulator;",
-                     "Exec=boswas-terminal", "StartupWMClass=com.boswas.Terminal", "Actions=new-window;",
-                     "[Desktop Action new-window]", "Name=New Window", "Exec=boswas-terminal --new-window"):
+                     "Exec=boswas-terminal", "StartupWMClass=com.boswas.Terminal", "Actions=NewWindow;",
+                     "[Desktop Action NewWindow]", "Name=New Window", "Exec=boswas-terminal --new-window"):
             self.assertIn(line + "\n", text)
         icon = REPOSITORY / "desktop" / "icons" / "Boswas-Prism" / "scalable" / "apps" / "boswas-terminal.svg"
         if icon.parent.is_dir():

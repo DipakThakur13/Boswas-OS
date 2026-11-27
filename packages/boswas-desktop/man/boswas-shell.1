@@ -17,17 +17,65 @@ compositor starts it again and open windows are not affected.
 The desktop:
 .RS
 .IP \(bu 2
-the background;
+the background, with the desktop icons on the primary output: the files and
+folders of the desktop folder (\fBXDG_DESKTOP_DIR\fR of
+\fIuser\-dirs.dirs\fR, else \fI~/Desktop\fR) and the system icons chosen
+in Settings (Home, Trash, This device), on a grid from the top-left, column
+by column. A click selects, Ctrl and Shift add, a drag on the background
+selects with a band, a double-click or Enter opens (folders in Files, files
+with their default application), a drag moves icons (onto a folder: into
+it; onto the Trash: to the Trash), F2 renames, Delete moves to the Trash,
+Ctrl+C, Ctrl+X and Ctrl+V copy, cut and paste in the format Files uses,
+Ctrl+A selects everything, the arrow keys move and typing goes to an icon
+by its name. The background's menu has View (icon size, auto arrange,
+align to grid, show desktop icons; written to the user's
+\fIcompositor.toml\fR), Sort by (name, size, type, date modified),
+Refresh, Paste, New (folder, text document), Open in Terminal and the
+settings; an icon's menu has Open, Open with, Cut, Copy, Rename, Delete and
+Properties (Files, with the item selected). Files dragged from another
+program are copied into the folder (moved when that program asks for a
+move). A launcher (\fI.desktop\fR file) on the desktop is started only
+when it is a regular file of the user with the execute bit set ("Allow
+running this file as a program" in Files); any other launcher opens as text
+in the default text editor, and a notice says why. The folder is watched
+and read, and files are changed, on worker threads; nothing is done
+through a symbolic link;
+.IP \(bu 2
+the widgets board (Super+W, or the widgets button at the left end of the
+taskbar, beside the tray when the taskbar's group is at the left; the
+button shows the weather of the lock screen's summary while there is one):
+cards for the weather, the next events of Calendar (its own file, with
+recurring events expanded), Clock's world clocks and next alarm, the system
+(processor and memory, sampled from \fI/proc\fR about once a second only
+while the board is open; space on the home file system; the battery), what
+is playing (with play, pause and the next track) and the newest picture in
+Pictures. A card opens its application; its menu changes its size (small
+or medium), moves it or removes it, and "Add widgets" brings a card back.
+Nothing is fetched from the network;
 .IP \(bu 2
 the taskbar along the bottom edge: Start, Task View and the pinned and
 running applications in the centre (or at the left edge); tray icons, the
 keyboard layout, the network, volume and battery icons, and the clock at the
 right. A click on an application shows its window, starts it, or goes
 through its windows; the secondary button opens its menu (new window, pin or
-unpin, the application's own actions, close); the middle button starts
-another instance. Resting the pointer on a running application shows its
-windows. A button can show how many notifications its application has in
-the notification centre. The taskbar can hide itself: it then leaves the
+unpin, the application's own actions, close); the middle button opens
+another window. A new window is the desktop entry's "new window" action
+(\fBNewWindow\fR, \fBnew\-window\fR), or else its command (an application
+with one window brings it forward). Resting the pointer on a running
+application shows its windows. A button can show how many notifications its
+application has in the notification centre. The secondary button on
+Start opens the quick-link menu (Installed apps, Power options, System,
+Network connections, Disks where GNOME Disks is installed, Terminal, Task
+Manager, Settings, Files, Search, Run, "Shut down or sign out", Desktop;
+also Super+X); on the clock, Adjust date and time and Notification
+settings; on the network, volume and battery button, Network and internet
+settings, Sound settings, Open volume mixer and Power settings; on Task
+View and the taskbar's background, Task Manager and Taskbar settings; on
+the keyboard layout, Language and region and Keyboard settings. Super+T
+puts the keyboard on the applications' buttons and Super+B on the
+notification area: the arrow keys move, Enter presses, Escape leaves. The
+programs the shell starts get the pointer size of Settings now
+(\fBXCURSOR_SIZE\fR). The taskbar can hide itself: it then leaves the
 whole screen to the windows and comes back when the pointer touches the
 bottom edge, and while Start, a flyout, a menu or a preview is open;
 .IP \(bu 2
@@ -37,15 +85,37 @@ rows; "Show all" shows every pin), recommendations (applications installed
 in the last two weeks and the applications used most) and all applications
 by category, in a grid or in a list under letter headings (a letter opens
 an index of letters); the user and power menus, and the folders chosen
-in Settings next to the power button. Start grows with the screen: eight
+in Settings next to the power button (Files opens a new window). An
+application's menu, and a search result's, has Open, pinning to Start and
+the taskbar, Open file location (Files, at its desktop entry), Uninstall
+(Settings > Apps > Installed apps) and the application's actions. The user
+button shows the account picture chosen in Settings (the newer of
+AccountsService's copy and \fI~/.face\fR; see FILES). Start grows with the screen: eight
 columns of pins where the screen is at least 1600x900 logical pixels, else
 six, and up to 85 % of the screen's height. Search is local and ranks
 applications by how often they were started. Signing out, restarting and
 shutting down ask first when windows are open;
 .IP \(bu 2
 quick settings: Wi-Fi with the list of networks, Bluetooth with the list of
-devices, airplane mode, night light, the power mode, do not disturb, media
-controls, brightness, and volume with the choice of the sound output;
+devices, airplane mode, night light (lit while the screens are tinted; a
+click turns it on or off now, with a schedule until its next change; not
+available where no monitor can be tinted), the power mode, do not disturb,
+media controls, brightness, and volume with the choice of the sound output;
+the battery's percentage opens Settings > Power & battery;
+.IP \(bu 2
+the projection flyout (Super+P): PC screen only, Duplicate, Extend, Second
+screen only; with one monitor only the first and the third can be chosen;
+.IP \(bu 2
+the security options (Ctrl+Alt+Del), over the whole screen: Lock, Sign out,
+Change a password (Settings > Accounts), Task Manager, Cancel, and the power
+button; Escape cancels;
+.IP \(bu 2
+dark mode and the accent colour for GTK applications and Firefox: at start
+and whenever they change, \fBcolor\-scheme\fR (prefer-dark or default) and,
+where the schemas have it, \fBaccent\-color\fR (the nearest of GNOME's
+accents) of \fBorg.gnome.desktop.interface\fR are set with
+.BR gsettings (1),
+only when they differ;
 .IP \(bu 2
 notifications: up to three at a time above the taskbar, and the
 notification centre with a calendar. While do not disturb is on only
@@ -60,6 +130,27 @@ notification opens the picture, its button the folder), and the dialog that
 asks for a password when polkit needs one (with a choice of administrator
 when several may authorise the action);
 .IP \(bu 2
+the clipboard history (Super+V): the last 25 things copied (text, rich
+text as its text, pictures up to 8 MB, lists of files), newest first, each
+with Pin and Delete, Clear all (pinned items stay) and a search. Enter or a
+click pastes an item into the window that had the keyboard: the item goes
+on the clipboard and the compositor gives the window Ctrl+V (Ctrl+Shift+V
+in a terminal). The arrow keys choose, Delete removes, Ctrl+P pins, typing
+searches. The history is kept in memory only and is gone when the session
+ends, except pinned items (see FILES). It never keeps what a program marks
+as secret (password managers set \fBx\-kde\-passwordManagerHint\fR, and the
+concealed and transient markers of other systems), nothing copied while the
+session is locked, and nothing at all when \fB[clipboard] history\fR is
+false; the lock screen and the login screen do not watch the clipboard;
+.IP \(bu 2
+the emoji and symbols panel (Super+. or Super+;): emoji by category with a
+choice of skin tone, kaomoji and symbols, a search by name and keyword, and
+the recently used ones. Enter or a click inserts the item into the window
+that had the keyboard in the same way as a paste, and then the clipboard
+holds again what it held before (what was on it is copied into memory for
+that moment only). Emoji are drawn by the colour emoji font (Noto Color
+Emoji); without it the text fonts draw what they can;
+.IP \(bu 2
 the question "Allow \fIprogram\fR to see your screen?" when a screenshot
 tool, a recorder or screen sharing asks the compositor for pictures of the
 screen. Neither answer is the default, and Enter alone allows nothing.
@@ -72,7 +163,9 @@ The lock screen. It shows the clock and, after a key or a click, asks for
 the password of the user who owns the session, checked through PAM (service
 \fBboswas\-lock\fR). The session is unlocked only after PAM accepts the
 password. It shows no notifications and offers no way to restart or shut
-down. Under the clock it shows the weather of the Weather application's
+down. The volume and brightness keys change the level there and show it on
+the lock screen itself; so do they on the login screen. Both show the
+account picture. Under the clock it shows the weather of the Weather application's
 home place, read from a summary file (see FILES), unless
 \fB[lock] show_weather\fR in
 .BR boswas-compositor (1)'s
@@ -91,15 +184,41 @@ Show a summary of the options.
 .TP
 .BR \-V ", " \-\-version
 Show the version.
+.SH GLASS
+Every surface is Boswas glass, as the Boswas applications are: Start, quick
+settings, the notification centre, the calendar, the widgets board and the
+clipboard, emoji and projection panels as the window backdrop; menus,
+tooltips, notifications, the volume and brightness indicator and dialogs as
+the more opaque flyout glass; the taskbar in its own darker tint (the
+\fBmaterial.glass\fR tokens). Each is its tint over a blurred, saturated
+backdrop with a fine grain, a white hairline along the top edge and a soft
+glow under it; cards are glass, and a control under the pointer gets a
+brighter hairline. A tint is made more opaque where the backdrop would leave
+text under 4.5:1. Where
+.BR boswas-compositor (1)
+offers to blur what lies behind (OpenGL ES), the shell draws only the tint
+and gives each surface a blur region (\fBext\-background\-effect\-v1\fR; a
+rounded panel row by row near its corners); otherwise it draws the
+wallpaper, blurred, under the tint. The lock screen and the login screen blur
+the wallpaper into glass behind the sign-in view, darkened as far as white
+text needs, with the user picture and the fields as glass. In Start, the
+widgets board and the clipboard and emoji panels the icon under the pointer
+grows like a dock's (its neighbours a little), within its cell, unless
+motion is reduced. With \fB[appearance] transparency = false\fR or a
+high-contrast preset every surface is its opaque tint.
 .SH KEYBOARD
 Every flyout and dialog can be used without a pointer: Tab and Shift+Tab go
 through the controls, the arrow keys move to the nearest control in that
 direction, Enter or Space activates it, Escape closes. In Start, typing
 always searches, the arrow keys go through the whole page (it scrolls along),
 Page Up, Page Down, Home and End scroll it; in menus the arrow keys move and
-open submenus. The
-shortcuts that open things (Super, Super+A, Super+N, Super+R, Print and so
-on) belong to the compositor and are listed in
+open submenus. On the taskbar (Super+T, Super+B) the arrow keys and Tab
+move, Enter or Space press, Escape or any other key leaves; a click
+elsewhere leaves too. On the security options screen the arrow keys and
+Tab go through the choices and Escape cancels; in the projection flyout the
+arrow keys or Super+P again move and Enter takes the choice. The
+shortcuts that open things (Super, Super+A, Super+N, Super+W, Super+R,
+Super+V, Super+., Print and so on) belong to the compositor and are listed in
 .BR boswas-compositor (1).
 .SH FILES
 .TP
@@ -107,14 +226,18 @@ on) belong to the compositor and are listed in
 The applications pinned to the taskbar (\fB[taskbar] pinned\fR) and to
 Start (\fB[start] pinned\fR), as lists of desktop file ids, and how Start
 lists all applications (\fB[start] view\fR: "category", "grid" or
-"list"). Written by the shell when something is pinned or unpinned or the
-view is chosen; it may be edited by hand. Without a list the defaults
-apply: Files, Firefox ESR and the Software Center on the taskbar.
+"list"), and the cards of the widgets board (\fB[widgets] cards\fR, in
+order, from "weather", "calendar", "clock", "system", "media" and
+"photos"; \fB[widgets] small\fR, the cards shown small). Written by the
+shell when something is pinned or unpinned, the view is chosen or the board
+is arranged; it may be edited by hand. Without a list the defaults apply:
+Files, Firefox ESR and the Software Center on the taskbar, every card on
+the board.
 .PP
 The look and the settings of the taskbar, Start and notifications are part
 of the compositor's configuration (\fB[appearance]\fR, \fB[accessibility]\fR,
-\fB[taskbar]\fR, \fB[start]\fR, \fB[multitasking]\fR and
-\fB[notifications]\fR in
+\fB[taskbar]\fR, \fB[start]\fR, \fB[multitasking]\fR, \fB[desktop]\fR,
+\fB[notifications]\fR and \fB[clipboard]\fR in
 .BR boswas-compositor (1)),
 which passes them on when it starts the shell and when its files are
 read again.
@@ -144,12 +267,66 @@ turn their banners off.
 When each installed application was first seen, for "Recently added". The
 applications installed when the shell first ran do not count as new.
 .TP
+.I ~/.local/state/boswas/clipboard\-pinned.json
+The pinned items of the clipboard history (or under \fB$XDG_STATE_HOME\fR):
+text, lists of files and pictures of at most 256 KB, at most 25 items and
+4 MB. Readable by the user only (mode 0600, in a directory of mode 0700),
+replaced as a whole when an item is pinned, unpinned or deleted, and read
+only when it is a regular file within those limits; entries that are not
+as written are skipped.
+.TP
+.I ~/.local/state/boswas/emoji.json
+The emoji, kaomoji and symbols used recently (at most 40) and the chosen
+skin tone (mode 0600). Only items of the panel's own list are read back.
+.PP
+When the history is off and Turn on is chosen in its flyout, the shell
+sets \fB[clipboard] history = true\fR in
+.I ~/.config/boswas/compositor.toml
+(the one line, or the table added; the file is left alone when the result
+could not be read back for certain, and Settings opens instead) and asks
+the compositor to read its files again.
+.TP
 .I ~/.local/state/boswas/weather.json
 The weather summary the lock screen shows (or under
 \fB$XDG_STATE_HOME\fR), written by
 .BR boswas-weather (1)
 and its background update; it is read only if it is a regular file owned by
 the user, at most 16 KB, and not older than three hours.
+.TP
+.I ~/.local/state/boswas/desktop\-layout.json
+Where desktop icons were put by hand (in grid cells) and the order chosen
+with Sort by, while auto arrange is off. Anything in it that is not
+understood is left out.
+.TP
+.I ~/.local/share/com.boswas.Calendar/calendar.json
+.TQ
+.I ~/.local/share/com.boswas.Clock/clock.json
+Read (never written) for the widgets board, when they are regular files of
+the user of a sensible size (8 MB and 4 MB at most); time zones come from
+\fI/usr/share/zoneinfo\fR.
+.TP
+.I ~/.local/share/Trash
+Where Delete on the desktop moves items (the freedesktop Trash
+specification); an item on another drive is not moved.
+.TP
+.I /var/lib/AccountsService/icons/LOGIN
+.TQ
+.I ~/.face
+.TQ
+.I ~/.face.icon
+The account picture Settings saves (it gives it to AccountsService, which
+keeps the copy the login screen reads). The newest of these is shown; a
+file is read only when it is a regular file of at most 8 MB, decoded within
+8192 pixels on a side, cropped to its centred square and drawn round. It is
+looked at again (its time and size only) when Start opens.
+.TP
+.I $XDG_RUNTIME_DIR/boswas\-shell\-background
+The background the desktop drew, shared with the lock screen so that it
+appears without drawing or decoding it again. The desktop writes it (mode
+0600, aside and then renamed, at most 64 MB of pixels) whenever it draws its
+background; the lock screen reads it only when it is a regular file of
+exactly the size its header gives, never through a link, and draws its own
+background otherwise.
 .TP
 .I /etc/pam.d/boswas\-lock
 PAM service of the lock screen.
@@ -160,6 +337,13 @@ Log filter (for example \fBdebug\fR). Messages go to standard error.
 .TP
 .B GREETD_SOCK
 Set by greetd for the login screen.
+.TP
+.B GLIBC_TUNABLES
+\fBboswas\-compositor\fR(1) starts the shell, the lock screen and the login
+screen with \fBglibc.malloc.mmap_threshold=262144\fR (unless the session
+sets its own), so that large buffers the shell lets go are given back to the
+system. The shell takes that setting out of the environment of programs it
+starts.
 .SH EXIT STATUS
 0 when the shell was asked to end. 2 for a wrong option. 1 on an error,
 with one line on standard error that says what was wrong: the compositor could not be reached, or no
@@ -180,7 +364,11 @@ its trusted Wayland connection nor its control connection to the
 compositor. Run starts a program with its arguments; there is no shell and
 nothing is expanded. Passwords and Wi-Fi passphrases are wiped from memory
 after use. Wallpapers, icons, window previews and what tray items send are
-decoded in the shell with size limits.
+decoded in the shell with size limits. The clipboard is read through
+clipboard control, which the compositor offers to the programs it starts
+itself and to no application; each transfer has a size and a time limit,
+and what the shell puts on the clipboard is marked so that it does not
+take it in again.
 .SH SEE ALSO
 .BR boswas-compositor (1),
 .BR boswas-session (1),

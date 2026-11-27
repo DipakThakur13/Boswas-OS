@@ -25,7 +25,14 @@ pub enum Face {
     Ui,
     /// The brand display face (Orbitron); short labels only.
     Display,
+    /// Colour emoji: the system's emoji font (Noto Color Emoji) where one
+    /// is installed, else the UI face with its fallbacks, which draw what
+    /// they can (outline emoji, or the text itself).
+    Emoji,
 }
+
+/// Colour emoji fonts, in the order they are preferred.
+pub const EMOJI_FAMILIES: [&str; 4] = ["Noto Color Emoji", "Twemoji", "Twitter Color Emoji", "OpenMoji Color"];
 
 /// How a run of text is drawn.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -73,14 +80,25 @@ pub struct TextEngine {
     cache: SwashCache,
     ui_family: Option<String>,
     display_family: Option<String>,
+    /// The colour emoji font, when one is installed.
+    emoji_family: Option<String>,
     /// At least one installed font can be used for shaping.
     has_fonts: bool,
     /// Widths already measured, by text and style.
     widths: std::collections::HashMap<(String, u32, u16, Face), f32>,
+    /// Lines already shaped for drawing, by text, style and scale: a
+    /// surface drawn again (a hover change, a scrolling page) does not
+    /// shape its labels again.
+    shaped: std::collections::HashMap<ShapedKey, Buffer>,
 }
+
+/// What a shaped line depends on: the text, size, weight, face and scale.
+type ShapedKey = (String, u32, u16, Face, u32);
 
 /// Measured widths kept before the cache is emptied.
 const MAX_WIDTHS: usize = 4096;
+/// Shaped lines kept before that cache is emptied.
+const MAX_SHAPED: usize = 1024;
 
 impl Default for TextEngine {
     fn default() -> Self {
@@ -151,13 +169,16 @@ impl TextEngine {
         let t = tokens();
         let ui_family = t.font_families.iter().find(|name| installed(name)).cloned();
         let display_family = Some(t.display_family.clone()).filter(|name| installed(name));
+        let emoji_family = EMOJI_FAMILIES.iter().find(|name| installed(name)).map(|name| (*name).to_owned());
         Self {
             fonts,
             cache: SwashCache::new(),
             ui_family,
             display_family,
+            emoji_family,
             has_fonts,
             widths: std::collections::HashMap::new(),
+            shaped: std::collections::HashMap::new(),
         }
     }
 
@@ -165,6 +186,17 @@ impl TextEngine {
     /// measures as empty and nothing is drawn.
     pub fn has_fonts(&self) -> bool {
         self.has_fonts
+    }
+
+    /// The colour emoji family in use, when one is installed.
+    pub fn emoji_family(&self) -> Option<&str> {
+        self.emoji_family.as_deref()
+    }
+
+    /// How many shaped lines are kept (a line drawn again is not shaped
+    /// again).
+    pub fn shaped_count(&self) -> usize {
+        self.shaped.len()
     }
 
     /// The UI family in use, when one of the preferred families is installed.
@@ -182,6 +214,7 @@ impl TextEngine {
         let family = match style.face {
             Face::Ui => self.ui_family.as_deref(),
             Face::Display => self.display_family.as_deref().or(self.ui_family.as_deref()),
+            Face::Emoji => self.emoji_family.as_deref().or(self.ui_family.as_deref()),
         };
         let attrs = Attrs::new()
             .family(family.map_or(Family::SansSerif, Family::Name))
@@ -320,10 +353,24 @@ impl TextEngine {
             return 0.0;
         }
         let scale = canvas.scale();
-        let Some(buffer) = self.shape(text, style, scale) else {
-            return 0.0;
-        };
-        let width = Self::buffer_width(&buffer) / scale;
+        let key: ShapedKey = (text.to_owned(), style.size.to_bits(), style.weight, style.face, scale.to_bits());
+        if !self.shaped.contains_key(&key) {
+            let Some(buffer) = self.shape(text, style, scale) else {
+                return 0.0;
+            };
+            if self.shaped.len() >= MAX_SHAPED {
+                self.shaped.clear();
+            }
+            self.shaped.insert(key.clone(), buffer);
+        }
+        let buffer = &self.shaped[&key];
+        let width = Self::buffer_width(buffer) / scale;
+        // Text outside the part of the canvas being drawn again is not
+        // drawn (glyphs may reach a little beyond the line box).
+        let reach = style.size;
+        if !canvas.visible(x - reach, y - reach, width + 2.0 * reach, style.line_height() + 2.0 * reach) {
+            return width.ceil();
+        }
         let (ox, oy) = ((x * scale).round() as i32, (y * scale).round() as i32);
         let c = style.color;
         buffer.draw(
@@ -427,12 +474,36 @@ mod tests {
     }
 
     #[test]
+    fn emoji_are_drawn_in_colour_from_the_emoji_font_and_without_it_as_well_as_can_be() {
+        // Without an emoji font: the UI face's fallbacks, and no panic.
+        let mut plain = TextEngine::from_font_dirs(&[repository_fonts()]);
+        assert_eq!(plain.emoji_family(), None);
+        let style = TextStyle::new(24.0, Rgba::WHITE).face(Face::Emoji);
+        let mut canvas = Canvas::new(64.0, 40.0, 1.0).unwrap();
+        plain.draw(&mut canvas, "\u{1F600}", 2.0, 2.0, None, &style);
+        // With Debian's emoji font (fonts-noto-color-emoji), where installed.
+        let dir = PathBuf::from("/usr/share/fonts/truetype/noto");
+        if !dir.join("NotoColorEmoji.ttf").exists() {
+            eprintln!("fonts-noto-color-emoji is not installed; colour emoji not checked");
+            return;
+        }
+        let mut engine = TextEngine::from_font_dirs(&[dir, repository_fonts()]);
+        assert_eq!(engine.emoji_family(), Some("Noto Color Emoji"));
+        let mut canvas = Canvas::new(64.0, 40.0, 2.0).unwrap();
+        let drawn = engine.draw(&mut canvas, "\u{1F600}", 2.0, 2.0, None, &style);
+        assert!(drawn > 16.0, "{drawn}");
+        // The grinning face is yellow: colour, not one ink.
+        let coloured = canvas.data().chunks_exact(4).filter(|p| p[3] > 200 && p[0] > 150 && p[2] < 90).count();
+        assert!(coloured > 100, "{coloured} yellow pixels");
+    }
+
+    #[test]
     fn without_any_font_text_is_empty_instead_of_a_panic() {
         let missing = PathBuf::from("/nonexistent/boswas/fonts");
         for mut engine in [TextEngine::from_font_dirs(&[]), TextEngine::from_font_dirs(&[missing])] {
             assert!(!engine.has_fonts());
             assert_eq!(engine.ui_family(), None);
-            for face in [Face::Ui, Face::Display] {
+            for face in [Face::Ui, Face::Display, Face::Emoji] {
                 let style = TextStyle::new(14.0, Rgba::WHITE).weight(600).face(face);
                 assert_eq!(engine.measure("Boswas OS", &style), (0.0, style.line_height()));
                 assert_eq!(engine.elide("Boswas OS", &style, 10.0), "Boswas OS");

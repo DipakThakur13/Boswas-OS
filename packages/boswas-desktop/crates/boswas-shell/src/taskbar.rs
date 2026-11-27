@@ -1,5 +1,7 @@
 //! The taskbar: Start, Task View and the applications centred as one group;
-//! the tray, the status cluster and the clock at the right edge.
+//! the tray, the status cluster and the clock at the right edge; the
+//! widgets button at the left end (beside the tray when the group sits at
+//! the left).
 
 use boswas_services::{TrayItem, TrayStatus};
 use boswas_ui::tokens::tokens;
@@ -34,6 +36,8 @@ pub enum Act {
     Status,
     Clock,
     ShowDesktop,
+    /// The widgets button: opens the widgets board.
+    Widgets,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -140,6 +144,30 @@ pub struct Layout {
     pub status: Rect,
     pub clock: Rect,
     pub show_desktop: Rect,
+    /// The widgets button, when there is one.
+    pub widgets: Option<Rect>,
+}
+
+/// What the widgets button shows (Personalization > Taskbar > Widgets).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum WidgetsButton {
+    #[default]
+    None,
+    /// A plain widgets mark: there is no weather summary.
+    Plain,
+    /// The weather icon and the temperature.
+    Weather,
+}
+
+/// Width of the widgets button with the weather: the temperature and the
+/// condition where the taskbar is wide enough, else the temperature.
+fn widgets_width(kind: WidgetsButton, width: f32, button: f32) -> f32 {
+    match kind {
+        WidgetsButton::None => 0.0,
+        WidgetsButton::Plain => button,
+        WidgetsButton::Weather if width >= 900.0 => 136.0,
+        WidgetsButton::Weather => 84.0,
+    }
 }
 
 /// How the application group is arranged (Personalization > Taskbar).
@@ -148,6 +176,7 @@ pub struct Arrangement {
     /// At the left edge instead of centred.
     pub left: bool,
     pub task_view: bool,
+    pub widgets: WidgetsButton,
 }
 
 impl Arrangement {
@@ -155,6 +184,7 @@ impl Arrangement {
         Self {
             left: st.desktop.taskbar.left,
             task_view: st.desktop.taskbar.task_view,
+            widgets: crate::widgets::button_kind(st),
         }
     }
 }
@@ -199,15 +229,31 @@ pub fn layout(
         x = rect.x;
         rect
     });
+    // The widgets button: at the left end, or before the tray when the
+    // group is at the left (as Windows moves it).
+    let widgets_w = widgets_width(arrangement.widgets, width, button);
+    let widgets = (widgets_w > 0.0).then(|| {
+        if arrangement.left {
+            let rect = Rect::new(x - GAP - widgets_w, y, widgets_w, button);
+            x = rect.x;
+            rect
+        } else {
+            Rect::new(12.0, y, widgets_w, button)
+        }
+    });
+    let left_limit = match widgets {
+        Some(rect) if !arrangement.left => rect.right() + 8.0,
+        _ => 8.0,
+    };
     let right_edge = x - 8.0;
     // The group: Start, Task View, then the applications that fit; centred,
     // or at the left edge.
     let slot = button + GAP;
     let fixed = if arrangement.task_view { 2 } else { 1 };
-    let available = (right_edge - 8.0).max(0.0);
+    let available = (right_edge - left_limit).max(0.0);
     let fit = ((available / slot).floor() as usize).saturating_sub(fixed).min(task_count);
     let group = (fit + fixed) as f32 * slot - GAP;
-    let mut gx = if arrangement.left { 12.0 } else { ((width - group) / 2.0).min(right_edge - group).max(8.0).round() };
+    let mut gx = if arrangement.left { 12.0 } else { ((width - group) / 2.0).min(right_edge - group).max(left_limit).round() };
     let start = Rect::new(gx, y, button, button);
     gx += slot;
     let task_view = arrangement.task_view.then(|| {
@@ -226,6 +272,7 @@ pub fn layout(
         status,
         clock,
         show_desktop,
+        widgets,
     }
 }
 
@@ -312,7 +359,11 @@ pub fn draw(f: &mut Frame, st: &State) {
     let (w, h) = (f.canvas.width(), f.canvas.height());
     let radius = t.radius_control;
     f.material(Rect::new(0.0, 0.0, w, h), [0.0; 4], "chrome");
-    f.divider(0.0, 0.0, w);
+    match f.glass() {
+        // Glass: the white highlight along the top edge and the glow under it.
+        Some(g) => boswas_ui::glass::draw_top_edge(f.canvas, 0.0, 0.0, w, h, &g),
+        None => f.divider(0.0, 0.0, w),
+    }
     f.area(Rect::new(0.0, 0.0, w, h), Action::None);
 
     let list = st.tasks();
@@ -332,6 +383,10 @@ pub fn draw(f: &mut Frame, st: &State) {
     let (cx, cy) = lay.start.center();
     if !f.icon("boswas-logo", cx - size / 2.0, cy - size / 2.0, size) {
         f.canvas.fill_rounded_rect(cx - 10.0, cy - 10.0, 20.0, 20.0, 4.0, theme.accent);
+    }
+
+    if let Some(rect) = lay.widgets {
+        crate::widgets::draw_button(f, st, rect);
     }
 
     // Task View.
@@ -483,7 +538,7 @@ pub fn overflow_size(st: &State) -> (f32, f32) {
 }
 
 pub fn draw_overflow(f: &mut Frame, st: &State, panel: Rect) {
-    f.panel(panel, "acrylic");
+    f.panel(panel, "flyout");
     f.area(panel, Action::None);
     let radius = tokens().radius_control;
     let (_, hidden) = split_tray(&st.sys.tray);
@@ -522,7 +577,7 @@ impl Preview {
 pub fn draw_preview(f: &mut Frame, st: &State, preview: &Preview, panel: Rect) {
     let theme = f.theme();
     let radius = tokens().radius_control;
-    f.panel(panel, "acrylic");
+    f.panel(panel, "flyout");
     f.area(panel, Action::None);
     for (index, id) in preview.windows.iter().take(6).enumerate() {
         let Some(window) = st.windows.iter().find(|w| w.id == *id) else {
@@ -568,6 +623,38 @@ pub fn draw_preview(f: &mut Frame, st: &State, preview: &Preview, panel: Rect) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A hover on the glass taskbar draws its button again, not the glass:
+    /// the filled backdrop is kept and the glow is shaded only near it.
+    #[test]
+    fn a_hover_on_the_glass_taskbar_keeps_its_glass() {
+        let st = State::for_tests();
+        let theme = boswas_ui::Theme::of(boswas_ui::Scheme::Dark);
+        let mut res = crate::ui::Resources::new(theme);
+        let mut wallpaper = tiny_skia::Pixmap::new(320, 180).unwrap();
+        wallpaper.fill(tiny_skia::Color::from_rgba8(90, 60, 150, 255));
+        res.backdrop = boswas_ui::material::Backdrop::new(&wallpaper, 2560.0, 1440.0);
+        let (w, h, scale) = (2560.0, 48.0, 2.0);
+        let mut canvas = boswas_ui::Canvas::new(w, h, scale).unwrap();
+        let draw = |res: &mut crate::ui::Resources, canvas: &mut boswas_ui::Canvas, pointer: Option<(f32, f32)>| {
+            let mut hits = Vec::new();
+            draw(&mut Frame { canvas, res, pointer, pressed: false, hits: &mut hits, focus: None, origin: (0.0, 1392.0) }, &st);
+        };
+        draw(&mut res, &mut canvas, None);
+        let filled = res.backdrop.as_ref().unwrap().renders();
+        assert!(filled >= 1, "the glass is filled once");
+        let started = std::time::Instant::now();
+        for i in 0..20 {
+            let x = 1240.0 + (i % 4) as f32 * 44.0;
+            canvas.begin_clip(&[((x * scale) as u32, 0, (44.0 * scale) as u32, (48.0 * scale) as u32)]);
+            draw(&mut res, &mut canvas, Some((x + 20.0, 24.0)));
+            canvas.end_clip();
+        }
+        let each = started.elapsed() / 20;
+        assert_eq!(res.backdrop.as_ref().unwrap().renders(), filled, "a hover fills nothing again");
+        eprintln!("a hover on the taskbar at 200 %: {each:?}");
+        assert!(each < std::time::Duration::from_millis(60), "{each:?}");
+    }
 
     fn app(id: &str, name: &str) -> App {
         App {
@@ -649,7 +736,7 @@ mod tests {
 
     #[test]
     fn the_layout_centres_the_group_and_never_overlaps_the_tray() {
-        let centred = Arrangement { left: false, task_view: true };
+        let centred = Arrangement { left: false, task_view: true, ..Default::default() };
         let lay = layout(1920.0, 6, 2, true, false, 3, 80.0, centred);
         let left = lay.start.x;
         let right = lay.tasks.last().unwrap().right();
@@ -675,17 +762,40 @@ mod tests {
 
     #[test]
     fn the_group_can_sit_at_the_left_without_task_view() {
-        let left = layout(1920.0, 6, 2, true, false, 3, 80.0, Arrangement { left: true, task_view: true });
+        let left = layout(1920.0, 6, 2, true, false, 3, 80.0, Arrangement { left: true, task_view: true, ..Default::default() });
         assert_eq!(left.start.x, 12.0, "Start at the left edge");
         assert_eq!(left.task_view.unwrap().x, left.start.right() + GAP);
         assert_eq!(left.tasks[0].x, left.task_view.unwrap().right() + GAP);
-        let without = layout(1920.0, 6, 2, true, false, 3, 80.0, Arrangement { left: false, task_view: false });
+        let without = layout(1920.0, 6, 2, true, false, 3, 80.0, Arrangement { left: false, task_view: false, ..Default::default() });
         assert!(without.task_view.is_none());
         assert_eq!(without.tasks[0].x, without.start.right() + GAP, "the applications follow Start");
         let right = without.tasks.last().unwrap().right();
         assert!(((without.start.x + right) / 2.0 - 960.0).abs() <= 1.0, "still centred");
-        let narrow = layout(640.0, 30, 3, true, true, 3, 80.0, Arrangement { left: true, task_view: false });
+        let narrow = layout(640.0, 30, 3, true, true, 3, 80.0, Arrangement { left: true, task_view: false, ..Default::default() });
         assert!(narrow.tasks.last().unwrap().right() <= narrow.overflow.unwrap().x - 7.9);
+    }
+
+    #[test]
+    fn the_widgets_button_sits_at_the_left_end_or_beside_the_tray() {
+        for kind in [WidgetsButton::Plain, WidgetsButton::Weather] {
+            let centred = layout(1920.0, 6, 2, true, false, 3, 80.0, Arrangement { left: false, task_view: true, widgets: kind });
+            let widgets = centred.widgets.unwrap();
+            assert_eq!(widgets.x, 12.0, "at the left end");
+            assert!(widgets.right() < centred.start.x, "before the group");
+            let right = centred.tasks.last().unwrap().right();
+            assert!(((centred.start.x + right) / 2.0 - 960.0).abs() <= 1.0, "the group stays centred");
+            let left = layout(1920.0, 6, 2, true, false, 3, 80.0, Arrangement { left: true, task_view: true, widgets: kind });
+            let widgets = left.widgets.unwrap();
+            assert_eq!(left.start.x, 12.0);
+            assert!(widgets.right() <= left.overflow.unwrap().x + 0.1 && widgets.x > left.tasks.last().unwrap().right(), "beside the tray: {widgets:?}");
+            // A narrow taskbar never lets the group run into the button.
+            let narrow = layout(640.0, 30, 3, true, true, 3, 80.0, Arrangement { left: false, task_view: true, widgets: kind });
+            assert!(narrow.start.x >= narrow.widgets.unwrap().right() + 7.9);
+            assert!(narrow.tasks.last().unwrap().right() <= narrow.overflow.unwrap().x - 7.9);
+        }
+        assert_eq!(layout(1920.0, 6, 2, true, false, 3, 80.0, Arrangement::default()).widgets, None);
+        assert_eq!(widgets_width(WidgetsButton::Weather, 1920.0, 40.0), 136.0);
+        assert_eq!(widgets_width(WidgetsButton::Weather, 800.0, 40.0), 84.0, "only the temperature where the taskbar is narrow");
     }
 
     #[test]

@@ -278,10 +278,19 @@ class PowerTest(Case if PYSIDE else unittest.TestCase):
     def test_registration(self):
         self.assertEqual([cls.__name__ for cls in settings.sections_for("sound")], ["OutputSection", "InputSection"])
         mine = [cls.__name__ for cls in settings.sections_for("power") if cls.__module__.endswith("sound_power")]
-        self.assertEqual(mine, ["BatterySection", "PowerModeSection", "BrightnessSection"])
+        self.assertEqual(mine, ["BatterySection", "BrightnessSection", "PowerModeSection"])
+        display = [cls.__name__ for cls in settings.sections_for("display")]
+        self.assertEqual(display, ["MonitorsSection", "BrightnessSection", "NightLightSection"],
+                         "Display has the brightness, as Windows' Display page has it")
+        self.assertEqual(sound_power.BrightnessSection.page, "display", "search and the catalog lead to Display")
         self.assertEqual(settings.find("volume")[0], sound_power.OutputSection)
         self.assertEqual(settings.find("microphone")[0], sound_power.InputSection)
         self.assertEqual(settings.find("brightness")[0], sound_power.BrightnessSection)
+        from boswas_control_center import catalog
+        found = catalog.search("brightness", catalog.entries(settings.search_entries()))
+        self.assertEqual([(entry.title, entry.page, entry.section) for entry in found[:2]],
+                         [("Brightness", "display", "brightness"), ("Brightness", "power", "brightness")])
+        self.assertIn(("Screen brightness", "display"), [(entry.title, entry.page) for entry in found])
 
 
 if __name__ == "__main__":

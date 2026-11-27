@@ -15,33 +15,58 @@
 //! the keyboard reach it.
 
 mod action;
+mod agenda;
 mod apps;
 mod calendar;
 mod capture;
+mod clipboard;
+mod clipview;
 mod config;
 mod control;
 mod damage;
+mod datacontrol;
 mod desk;
+mod desktop_files;
+mod desktop_icons;
 mod dialogs;
+mod emoji;
+mod glass;
 mod glyph;
 mod greetd;
 mod input;
 mod lock;
+mod magnify;
 mod menu;
 mod notify;
 mod open;
 mod osd;
 mod pam;
+mod present;
+mod prewarm;
 mod quick;
 mod settings;
+mod solid;
 mod start;
 mod state;
+mod stats;
 mod status;
 mod svc;
 mod taskbar;
 mod ui;
 mod wallpaper;
+mod tzif;
 mod weather;
+mod widget_sources;
+mod widgets;
+// The shell round of controls that did nothing and Windows shortcuts.
+mod accounts;
+mod barfocus;
+mod gsettings;
+mod projection;
+mod quicklinks;
+#[cfg(test)]
+mod round_pictures;
+mod security;
 
 use std::{
     collections::HashMap,
@@ -51,7 +76,7 @@ use std::{
 };
 
 use boswas_services::{Command, Event, Services};
-use boswas_ui::{material::Backdrop, tokens::tokens, Canvas, Scheme, Theme};
+use boswas_ui::{canvas::PixelRect, material::Backdrop, tokens::tokens, Canvas, Scheme, Theme};
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState, Region},
     data_device_manager::{
@@ -88,20 +113,23 @@ use smithay_client_toolkit::{
         },
         WaylandSurface,
     },
-    shm::{slot::SlotPool, Shm, ShmHandler},
+    shm::{Shm, ShmHandler},
 };
-use tiny_skia::Pixmap;
 use tracing::{error, info, warn};
 use wayland_client::{
     delegate_noop,
     globals::registry_queue_init,
     protocol::{
         wl_data_device::WlDataDevice, wl_data_device_manager::DndAction, wl_data_source::WlDataSource, wl_keyboard,
-        wl_output, wl_pointer, wl_seat, wl_shm, wl_surface,
+        wl_output, wl_pointer, wl_seat, wl_surface,
     },
     Connection, Dispatch, QueueHandle,
 };
+use wayland_protocols::ext::background_effect::v1::client::{
+    ext_background_effect_manager_v1::ExtBackgroundEffectManagerV1, ext_background_effect_surface_v1::ExtBackgroundEffectSurfaceV1,
+};
 use wayland_protocols::wp::{
+    alpha_modifier::v1::client::{wp_alpha_modifier_surface_v1::WpAlphaModifierSurfaceV1, wp_alpha_modifier_v1::WpAlphaModifierV1},
     fractional_scale::v1::client::{
         wp_fractional_scale_manager_v1::WpFractionalScaleManagerV1,
         wp_fractional_scale_v1::{self, WpFractionalScaleV1},
@@ -166,6 +194,10 @@ pub(crate) enum Role {
     Capture,
     /// Lock screen or greeter.
     Auth,
+    /// The field over a desktop icon's label while it is renamed.
+    Rename,
+    /// The security options screen (Ctrl+Alt+Del), over everything.
+    Security,
 }
 
 /// The Wayland object behind a shell surface.
@@ -186,9 +218,12 @@ pub(crate) struct Surface {
     pub scale: f32,
     viewport: Option<WpViewport>,
     fractional: Option<WpFractionalScaleV1>,
-    pool: Option<SlotPool>,
     pub configured: bool,
+    /// The surface is to be drawn (or presented) again; `change` says
+    /// whether its content changed.
     pub dirty: bool,
+    /// What changed in the content since it was last drawn.
+    pub change: Change,
     frame_pending: bool,
     pub pointer: Option<(f32, f32)>,
     /// The primary button is held on this surface.
@@ -200,14 +235,79 @@ pub(crate) struct Surface {
     pub origin: (f32, f32),
     /// Opening or closing transition.
     pub anim: Option<Anim>,
-    /// The surface's content at full presence, reused while it animates.
-    snapshot: Option<Pixmap>,
-    /// The drawing last sent (premultiplied RGBA) and its size and buffer
-    /// scale, to send only what changed.
-    sent: Vec<u8>,
-    sent_key: (u32, u32, i32),
+    /// The drawing last sent, as drawn, and a spare canvas of the same
+    /// size to draw the next one on (see `present`).
+    front: Option<Canvas>,
+    spare: Option<Canvas>,
+    /// The shared-memory buffers the drawing is handed over in.
+    buffers: present::Buffers,
+    /// The buffer attached last shows a frame of a transition composed
+    /// here, not the drawing.
+    composed: bool,
     /// The surface is declared opaque to the compositor.
     opaque: bool,
+    /// Where the surface is anchored and its margins at rest (layer
+    /// surfaces), for sliding it into place.
+    anchor: Anchor,
+    margin: (i32, i32, i32, i32),
+    /// The compositor's control of the surface's opacity, for transitions.
+    fade: Option<WpAlphaModifierSurfaceV1>,
+    /// The opacity or the place last sent are not those at rest.
+    faded: bool,
+    /// When the surface was first marked as changed since it was last
+    /// drawn (kept only for the statistics, `stats`).
+    changed_at: Option<Instant>,
+    /// The compositor's blur behind the surface's glass (glass.rs), and
+    /// the region last sent.
+    pub blur: Option<ExtBackgroundEffectSurfaceV1>,
+    pub blur_region: Vec<(i32, i32, i32, i32)>,
+}
+
+impl Drop for Surface {
+    fn drop(&mut self) {
+        // The next surface of the same size (the next time a flyout
+        // opens) takes over the memory.
+        for canvas in [self.front.take(), self.spare.take()].into_iter().flatten() {
+            present::recycle_canvas(canvas);
+        }
+        present::recycle_buffers(std::mem::take(&mut self.buffers));
+        if let Some(effect) = self.blur.take() {
+            effect.destroy();
+        }
+    }
+}
+
+/// What changed in a surface's content since it was last drawn.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum Change {
+    None,
+    /// Only what lies in these rectangles (logical pixels).
+    Parts(Vec<Rect>),
+    All,
+}
+
+/// Separate rectangles a change is kept as at most; more are joined.
+const MAX_PARTS: usize = 4;
+
+impl Change {
+    /// The change with `rect` added: joined with a rectangle it overlaps.
+    fn with(self, rect: Rect) -> Change {
+        let mut rects = match self {
+            Change::All => return Change::All,
+            Change::None => Vec::new(),
+            Change::Parts(rects) => rects,
+        };
+        let mut rect = rect;
+        while let Some(index) = rects.iter().position(|r| ui::overlap(r, &rect)) {
+            rect = ui::bounds(&rects.swap_remove(index), &rect);
+        }
+        rects.push(rect);
+        if rects.len() > MAX_PARTS {
+            let all = rects.iter().fold(rects[0], |a, r| ui::bounds(&a, r));
+            rects = vec![all];
+        }
+        Change::Parts(rects)
+    }
 }
 
 impl Surface {
@@ -221,7 +321,33 @@ impl Surface {
     /// Marks the content as changed.
     pub fn touch(&mut self) {
         self.dirty = true;
-        self.snapshot = None;
+        self.change = Change::All;
+        stats::changed(&mut self.changed_at);
+    }
+
+    /// Marks the content as changed within `rect` (logical pixels) only.
+    pub fn touch_rect(&mut self, rect: Rect) {
+        self.dirty = true;
+        self.change = std::mem::replace(&mut self.change, Change::None).with(rect);
+        stats::changed(&mut self.changed_at);
+    }
+
+    /// The pointer moved from `from` to `to` (`None`: off the surface):
+    /// what is drawn differently is the controls it entered or left (their
+    /// hover look). A control covering the whole surface (the desktop, the
+    /// invisible surface behind a menu) has no hover look.
+    pub fn pointer_moved(&mut self, from: Option<(f32, f32)>, to: Option<(f32, f32)>) {
+        for rect in ui::hover_changes(&self.hits, (self.width as f32, self.height as f32), from, to) {
+            self.touch_rect(rect);
+        }
+    }
+
+    /// The primary button went down or up: the controls under the pointer
+    /// change their pressed look.
+    pub fn press_changed(&mut self) {
+        for rect in ui::press_changes(&self.hits, (self.width as f32, self.height as f32), self.pointer) {
+            self.touch_rect(rect);
+        }
     }
 }
 
@@ -268,8 +394,17 @@ pub(crate) struct Shell {
     data_device: Option<DataDevice>,
     /// What the shell put on the clipboard (a captured picture).
     clipboard: Option<(CopyPasteSource, Arc<Vec<u8>>)>,
+    /// Clipboard control: the clipboard history and the emoji panel's
+    /// insertion (desktop only; datacontrol.rs).
+    pub clip: Option<datacontrol::Watch>,
     viewporter: Option<WpViewporter>,
     fractional_scale: Option<WpFractionalScaleManagerV1>,
+    /// The compositor fades surfaces for the shell (transitions).
+    alpha_modifier: Option<WpAlphaModifierV1>,
+    /// The compositor blurs behind the shell's glass (glass.rs), and
+    /// whether it offers to now.
+    background_effect: Option<ExtBackgroundEffectManagerV1>,
+    pub blur_offered: bool,
     conn: Connection,
     qh: QueueHandle<Shell>,
     loop_handle: LoopHandle<'static, Shell>,
@@ -319,9 +454,29 @@ pub(crate) struct Shell {
     /// When the auto-hiding taskbar goes, unless something keeps it.
     pub taskbar_hide_at: Option<Instant>,
     pub exit: Option<i32>,
+    /// Icons, text and panels made ready before they are first shown.
+    pub prewarm: prewarm::Prewarm,
+    /// Single-pixel buffers for the surfaces of one colour.
+    solid: solid::Solid,
+}
+
+/// The C library's memory settings the compositor starts the shell with
+/// (boswas-compositor's `SHELL_MALLOC_TUNABLES`): the shell's own, taken out
+/// of the environment programs it starts inherit.
+const MALLOC_TUNABLES: &str = "glibc.malloc.mmap_threshold=262144";
+
+/// Whether the environment's `GLIBC_TUNABLES` is the one the compositor
+/// gave the shell (and not one of the session's own).
+fn ours(tunables: Option<&std::ffi::OsStr>) -> bool {
+    tunables.is_some_and(|value| value == MALLOC_TUNABLES)
 }
 
 fn main() {
+    // Read by the C library when the program started; programs the shell
+    // starts get the session's environment without it.
+    if ours(std::env::var_os("GLIBC_TUNABLES").as_deref()) {
+        std::env::remove_var("GLIBC_TUNABLES");
+    }
     let mut mode = Mode::Desktop;
     for arg in std::env::args().skip(1) {
         match arg.as_str() {
@@ -433,6 +588,20 @@ fn run(mode: Mode) -> Result<i32, Box<dyn std::error::Error>> {
         }
         Mode::Desktop => {}
     }
+    // The account pictures: the user's own (desktop and lock screen), or
+    // those of the people who can sign in (login screen; the service's
+    // copies only).
+    let mut pictures = accounts::Pictures::default();
+    match mode {
+        Mode::Greeter => {
+            for (login, _) in &auth.users {
+                pictures.refresh(login, None);
+            }
+        }
+        _ => {
+            pictures.refresh(&user, accounts::own_home().as_deref());
+        }
+    }
 
     let st = State {
         mode,
@@ -450,6 +619,8 @@ fn run(mode: Mode) -> Result<i32, Box<dyn std::error::Error>> {
         locale,
         flyout: None,
         start: Start::default(),
+        board: if mode == Mode::Desktop { widgets::Board::new() } else { widgets::Board::default() },
+        desk: desktop_icons::Desk::default(),
         quick: Quick::default(),
         notes: Notes::default(),
         menus: Vec::new(),
@@ -471,6 +642,15 @@ fn run(mode: Mode) -> Result<i32, Box<dyn std::error::Error>> {
         senders: if mode == Mode::Desktop { config::Senders::load() } else { config::Senders::default() },
         seen: if mode == Mode::Desktop { config::SeenApps::load() } else { config::SeenApps::default() },
         weather,
+        clips: if mode == Mode::Desktop { clipboard::History::load() } else { clipboard::History::default() },
+        clipview: clipview::View::default(),
+        emoji: if mode == Mode::Desktop { emoji::Panel::new() } else { emoji::Panel::default() },
+        night_light_available: true,
+        pictures,
+        security: None,
+        projection: projection::Projection::default(),
+        bar_focus: false,
+        gsettings: gsettings::Mirror::default(),
     };
 
     let mut shell = Shell {
@@ -485,8 +665,12 @@ fn run(mode: Mode) -> Result<i32, Box<dyn std::error::Error>> {
         data_devices: DataDeviceManagerState::bind(&globals, &qh).ok(),
         data_device: None,
         clipboard: None,
+        clip: None,
         viewporter: globals.bind(&qh, 1..=1, ()).ok(),
         fractional_scale: globals.bind(&qh, 1..=1, ()).ok(),
+        alpha_modifier: globals.bind(&qh, 1..=1, ()).ok(),
+        background_effect: globals.bind(&qh, 1..=1, ()).ok(),
+        blur_offered: false,
         conn: conn.clone(),
         qh: qh.clone(),
         loop_handle: event_loop.handle(),
@@ -519,7 +703,19 @@ fn run(mode: Mode) -> Result<i32, Box<dyn std::error::Error>> {
         taskbar_hidden: false,
         taskbar_hide_at: None,
         exit: None,
+        prewarm: prewarm::Prewarm::default(),
+        solid: solid::Solid::bind(&globals, &qh),
     };
+
+    // The desktop shares the background it draws; the lock screen starts
+    // from it (wallpaper.rs).
+    if let Some(file) = wallpaper::shared_file() {
+        match mode {
+            Mode::Desktop => shell.background.share_in(file),
+            Mode::Lock => shell.background.adopt_shared(&file),
+            Mode::Greeter => {}
+        }
+    }
 
     match mode {
         Mode::Lock => {
@@ -537,6 +733,11 @@ fn run(mode: Mode) -> Result<i32, Box<dyn std::error::Error>> {
                 return Err("the compositor does not offer the layer shell to this program".into());
             }
         }
+    }
+
+    // The clipboard history and the emoji panel: the desktop only.
+    if mode == Mode::Desktop {
+        shell.clip = datacontrol::Watch::bind(&globals, &qh, &event_loop.handle());
     }
 
     WaylandSource::new(conn, event_queue).insert(event_loop.handle())?;
@@ -625,6 +826,7 @@ fn run(mode: Mode) -> Result<i32, Box<dyn std::error::Error>> {
         event_loop.dispatch(timeout, &mut shell)?;
         shell.housekeeping(Instant::now());
         shell.redraw_dirty();
+        shell.prewarm_tick();
     }
     Ok(shell.exit.unwrap_or(0))
 }
@@ -660,6 +862,10 @@ impl Shell {
             (Some(manager), Some(_)) => Some(manager.get_fractional_scale(&wl, &self.qh, wl.clone())),
             _ => None,
         };
+        // Surfaces that open and close with a transition let the compositor
+        // fade them.
+        let fade = self.alpha_modifier.as_ref().filter(|_| animate).map(|m| m.get_surface(&wl, &self.qh, ()));
+        let blur = self.background_effect.as_ref().filter(|_| glass::may_blur(role)).map(|m| m.get_background_effect(&wl, &self.qh, ()));
         self.surfaces.push(Surface {
             role,
             handle,
@@ -669,9 +875,9 @@ impl Shell {
             scale: 1.0,
             viewport,
             fractional,
-            pool: None,
             configured: false,
             dirty: true,
+            change: Change::All,
             frame_pending: false,
             pointer: None,
             pressed: false,
@@ -679,10 +885,18 @@ impl Shell {
             hover: None,
             origin,
             anim: animate.then(|| Anim::opening(Instant::now(), self.res.reduced_motion)),
-            snapshot: None,
-            sent: Vec::new(),
-            sent_key: (0, 0, 0),
+            front: None,
+            spare: None,
+            buffers: present::Buffers::default(),
+            composed: false,
             opaque: false,
+            anchor: Anchor::empty(),
+            margin: (0, 0, 0, 0),
+            fade,
+            faded: false,
+            changed_at: None,
+            blur,
+            blur_region: Vec::new(),
         });
     }
 
@@ -705,6 +919,10 @@ impl Shell {
         layer.set_keyboard_interactivity(spec.keyboard);
         layer.commit();
         self.new_surface(role, Handle::Layer(layer), output, spec.origin, spec.animate);
+        if let Some(surface) = self.surfaces.last_mut() {
+            surface.anchor = spec.anchor;
+            surface.margin = spec.margin;
+        }
     }
 
     /// Moves or resizes an existing layer surface.
@@ -716,6 +934,7 @@ impl Shell {
                     layer.set_margin(margin.0, margin.1, margin.2, margin.3);
                     layer.commit();
                     surface.origin = origin;
+                    surface.margin = margin;
                 }
             }
             surface.touch();
@@ -744,7 +963,9 @@ impl Shell {
     fn output_added(&mut self, output: &wl_output::WlOutput) {
         match self.st.mode {
             Mode::Desktop => {
-                self.create_layer(Role::Wallpaper, output, Self::full_screen(Layer::Background, "boswas-wallpaper", KeyboardInteractivity::None, -1));
+                // The wallpaper takes the keyboard on a click while it shows desktop icons.
+                let keyboard = self.desk_keyboard();
+                self.create_layer(Role::Wallpaper, output, Self::full_screen(Layer::Background, "boswas-wallpaper", keyboard, -1));
                 self.create_taskbar(output);
             }
             Mode::Greeter => {
@@ -808,6 +1029,7 @@ impl Shell {
     /// Makes the blurred wallpaper for an output available to the drawing
     /// code.
     fn prepare_backdrop(&mut self, size: (f32, f32)) {
+        self.background.settle();
         let key = (size.0 as u32, size.1 as u32);
         if self.res.backdrop.is_some() && self.res.backdrop_key == key {
             return;
@@ -824,6 +1046,7 @@ impl Shell {
         if !surface.configured || surface.width == 0 || surface.height == 0 {
             return;
         }
+        let started = Instant::now();
         let role = surface.role;
         let size = self.output_size(&surface.output);
         if !matches!(role, Role::Wallpaper | Role::Dismiss | Role::Smoke | Role::Capture) {
@@ -831,6 +1054,8 @@ impl Shell {
         }
         let now = Instant::now();
         let first_auth = self.surfaces.iter().position(|s| s.role == Role::Auth) == Some(index);
+        // The desktop icons are on the primary output's wallpaper.
+        let icons_here = role == Role::Wallpaper && self.primary_output().as_ref() == Some(&self.surfaces[index].output);
         let Shell {
             surfaces,
             res,
@@ -839,26 +1064,72 @@ impl Shell {
             qh,
             st,
             compositor_state,
+            solid,
             ..
         } = self;
         let surface = &mut surfaces[index];
         let (w, h) = (surface.width as f32, surface.height as f32);
+        let wl = surface.wl_surface().clone();
 
         // Invisible and dimming surfaces are one pixel, stretched.
         let stretched = matches!(role, Role::Dismiss | Role::Smoke) && surface.viewport.is_some();
         let (cw, ch, scale) = if stretched { (1.0, 1.0, 1.0) } else { (w, h, surface.scale) };
-        let Some(mut canvas) = Canvas::new(cw, ch, scale) else {
-            return;
-        };
         let transition = surface.anim.as_ref().and_then(|anim| anim.frame(now));
         let presence = transition.unwrap_or(1.0);
         let animating = transition.is_some();
         // Start's page scrolling smoothly: drawn again at the display's pace
         // until it stands.
         let scrolling = role == Role::Flyout && st.flyout == Some(state::Flyout::Start) && st.start.animating(now);
-        let reuse = animating && surface.snapshot.as_ref().is_some_and(|s| (s.width(), s.height()) == canvas.pixel_size());
-        if !reuse {
+        // While it opens or closes, a layer surface anchored to its top or
+        // bottom edge is faded and slid by the compositor; others are
+        // composed here, frame by frame.
+        let slide = present::slide_direction(surface.anchor).filter(|_| surface.fade.is_some() && matches!(surface.handle, Handle::Layer(_)));
+        let compose = animating && slide.is_none();
+
+        // The content, drawn again where it changed: a part (a hover
+        // change) on the spare canvas and copied over, or all of it on the
+        // spare canvas, which then becomes the drawing.
+        let fits = |c: &Canvas| c.width() == cw && c.height() == ch && c.scale() == scale;
+        let front_fits = surface.front.as_ref().is_some_and(fits);
+        let change = std::mem::replace(&mut surface.change, Change::None);
+        // While Start's page scrolls, only its window changes.
+        let page_window = start::page_window(Rect::new(PAD, PAD, w - 2.0 * PAD, h - 2.0 * PAD), st);
+        let change = match change {
+            _ if !front_fits => Change::All,
+            change if scrolling => change.with(page_window),
+            change => change,
+        };
+        // The capture view knows itself where it changed (a selection
+        // being dragged): the picture under it is not drawn again.
+        let change = match (change, st.capture.as_ref(), surface.front.as_ref()) {
+            (Change::All, Some(capture), Some(front)) if role == Role::Capture && front_fits => {
+                match capture.changes(&mut res.text, (w, h), scale, front.pixel_size()) {
+                    Some(rects) if rects.is_empty() => Change::None,
+                    Some(rects) => Change::Parts(rects),
+                    None => Change::All,
+                }
+            }
+            (change, _, _) => change,
+        };
+        let mut damage: Vec<PixelRect> = Vec::new();
+        let mut glass_region: Option<Vec<(i32, i32, i32, i32)>> = None;
+        if change != Change::None {
+            let Some(mut canvas) = surface.spare.take().filter(fits).or_else(|| present::reuse_canvas(cw, ch, scale)).or_else(|| Canvas::new(cw, ch, scale)) else {
+                return;
+            };
+            let parts = match &change {
+                Change::Parts(rects) if front_fits && !matches!(role, Role::Dismiss | Role::Smoke) => {
+                    let rects: Vec<PixelRect> = rects.iter().map(|r| ui::device_rect(r, scale)).collect();
+                    canvas.begin_clip(&rects)
+                }
+                _ => Vec::new(),
+            };
+            if parts.is_empty() {
+                canvas.reset();
+            }
             let mut hits = Vec::new();
+            res.glass_regions.clear();
+            res.magnifying.clear();
             let panel = Rect::new(PAD, PAD, w - 2.0 * PAD, h - 2.0 * PAD);
             {
                 let mut frame = Frame {
@@ -874,6 +1145,9 @@ impl Shell {
                     Role::Wallpaper => {
                         background.paint(frame.canvas, frame.res.theme);
                         frame.area(Rect::new(0.0, 0.0, w, h), Action::Desktop);
+                        if icons_here {
+                            desktop_icons::draw(&mut frame, st, (w, h));
+                        }
                     }
                     Role::Taskbar => taskbar::draw(&mut frame, st),
                     Role::Dismiss => {
@@ -889,6 +1163,10 @@ impl Shell {
                         Some(state::Flyout::Quick) => quick::draw(&mut frame, st, panel),
                         Some(state::Flyout::Notifications) => notify::draw_centre(&mut frame, st, panel),
                         Some(state::Flyout::TrayOverflow) => taskbar::draw_overflow(&mut frame, st, panel),
+                        Some(state::Flyout::Clipboard) => clipview::draw(&mut frame, st, panel),
+                        Some(state::Flyout::Emoji) => emoji::draw(&mut frame, st, panel),
+                        Some(state::Flyout::Widgets) => widgets::draw(&mut frame, st, panel),
+                        Some(state::Flyout::Projection) => projection::draw(&mut frame, st, panel),
                         None => {}
                     },
                     Role::Menu(level) => {
@@ -926,8 +1204,16 @@ impl Shell {
                         background.paint(frame.canvas, frame.res.theme);
                         lock::draw(&mut frame, st, first_auth);
                     }
+                    Role::Rename => desktop_icons::draw_rename(&mut frame, st),
+                    Role::Security => {
+                        if let Some(security) = &st.security {
+                            security::draw(&mut frame, security);
+                        }
+                    }
                 }
             }
+            canvas.end_clip();
+            glass_region = Some(if res.live_blur && glass::may_blur(role) { glass::region_of(&res.glass_regions) } else { Vec::new() });
             // A stretched surface reacts over its whole area.
             if stretched {
                 for hit in &mut hits {
@@ -936,101 +1222,164 @@ impl Shell {
             }
             surface.hover = surface.pointer.and_then(|p| ui::hit_at(&hits, p));
             surface.hits = hits;
+            let (pw, ph) = canvas.pixel_size();
+            match surface.front.as_mut() {
+                Some(front) if !parts.is_empty() => {
+                    // The parts drawn again are compared with what was sent
+                    // and copied over where they differ.
+                    for clip in parts {
+                        let Some(rect) = damage::changed_in(front.data(), canvas.data(), pw, clip) else {
+                            continue;
+                        };
+                        damage::copy_rect(canvas.data(), front.pixmap_mut().data_mut(), pw, rect);
+                        if surface.opaque && !damage::is_opaque_in(front.data(), pw, rect) {
+                            surface.opaque = false;
+                            wl.set_opaque_region(None);
+                        }
+                        damage.push(rect);
+                    }
+                    surface.spare = Some(canvas);
+                }
+                _ => {
+                    // Only what changed since the last drawing is sent; a
+                    // drawing that changed nothing (the pointer moved onto a
+                    // part without a hover look) is not sent at all.
+                    let changed = match surface.front.as_ref().filter(|_| front_fits) {
+                        Some(front) => damage::changed_rect(front.data(), canvas.data(), pw, ph),
+                        None => Some((0, 0, pw, ph)),
+                    };
+                    damage.extend(changed);
+                    // A drawing without transparent pixels (the wallpaper,
+                    // the taskbar) is opaque: the compositor need not blend
+                    // it or draw behind it.
+                    let opaque = damage::is_opaque(canvas.data());
+                    if opaque != surface.opaque {
+                        if !opaque {
+                            wl.set_opaque_region(None);
+                            surface.opaque = false;
+                        } else if let Ok(region) = Region::new(&*compositor_state) {
+                            region.add(0, 0, surface.width as i32, surface.height as i32);
+                            wl.set_opaque_region(Some(region.wl_region()));
+                            surface.opaque = true;
+                        }
+                    }
+                    surface.spare = surface.front.replace(canvas);
+                }
+            }
         }
-        if animating {
-            // Slide and fade: the finished content is kept and composed.
-            if !reuse {
-                surface.snapshot = Some(canvas.pixmap().clone());
-            }
-            if let (Some(snapshot), Some(mut composed)) = (&surface.snapshot, Canvas::new(cw, ch, scale)) {
-                let offset = (1.0 - presence) * 10.0;
-                composed.draw_pixmap(snapshot, 0.0, offset, cw, ch, presence);
-                canvas = composed;
-            }
-        } else {
-            surface.snapshot = None;
+        let painted = started.elapsed();
+        let Some(front) = surface.front.as_ref() else {
+            return;
+        };
+        let (pw, ph) = front.pixel_size();
+        for rect in &damage {
+            surface.buffers.changed(*rect);
         }
 
-        let (pw, ph) = canvas.pixel_size();
-        let buffer_scale = if surface.viewport.is_some() { 1 } else { scale.ceil().max(1.0) as i32 };
-        let key = (pw, ph, buffer_scale);
-        // Only what changed since the last drawing is sent; a drawing that
-        // changed nothing (the pointer moved onto a part without a hover
-        // look) is not sent at all.
-        let changed = if surface.sent_key == key && !surface.sent.is_empty() {
-            damage::changed_rect(&surface.sent, canvas.data(), pw, ph)
-        } else {
-            Some((0, 0, pw, ph))
-        };
-        let wl = surface.wl_surface().clone();
-        let Some((dx, dy, dw, dh)) = changed else {
-            if animating || scrolling {
-                // Still asked for a frame, so the transition goes on at the
-                // display's pace.
-                wl.frame(qh, wl.clone());
-                wl.commit();
-                surface.frame_pending = true;
+        // The opacity and the place, where the compositor fades and slides.
+        let mut moved = false;
+        if let (Some(direction), Some(fade)) = (slide, &surface.fade) {
+            if animating || surface.faded {
+                fade.set_multiplier(present::alpha_multiplier(presence));
+                if let Handle::Layer(layer) = &surface.handle {
+                    let (top, right, bottom, left) = present::slid_margin(surface.margin, direction, present::slide_offset(presence));
+                    layer.set_margin(top, right, bottom, left);
+                }
+                surface.faded = animating;
+                moved = true;
             }
-            surface.dirty = animating || scrolling;
-            return;
-        };
-        let bytes = pw as usize * ph as usize * 4;
-        if surface.pool.is_none() {
-            surface.pool = SlotPool::new(bytes, shm).ok();
         }
-        let Some(pool) = surface.pool.as_mut() else {
-            warn!("no shared memory for a surface; not drawn");
-            return;
+
+        // What the compositor shows: the drawing, or a frame of a transition
+        // composed from it.
+        let shown = if compose {
+            surface.spare.take().filter(fits).or_else(|| present::reuse_canvas(cw, ch, scale)).or_else(|| Canvas::new(cw, ch, scale)).map(|mut composed| {
+                composed.reset();
+                composed.draw_pixmap(front.pixmap(), 0.0, (1.0 - presence) * present::SLIDE, cw, ch, presence);
+                composed
+            })
+        } else {
+            None
         };
-        let (buffer, data) = match pool.create_buffer(pw as i32, ph as i32, pw as i32 * 4, wl_shm::Format::Argb8888) {
-            Ok(created) => created,
-            Err(err) => {
-                warn!("could not allocate a surface buffer: {err}");
+        let whole = vec![(0, 0, pw, ph)];
+        // A surface of one colour (stretched) goes as a single-pixel buffer
+        // where the compositor offers them (`solid.rs`).
+        let single = match front.data().get(..4) {
+            Some(p) if stretched && shown.is_none() && !damage.is_empty() => solid.buffer([p[0], p[1], p[2], p[3]], qh),
+            _ => None,
+        };
+        let sent = match &shown {
+            Some(composed) => Some((surface.buffers.fill_other(shm, composed), whole)),
+            None if single.is_some() => None,
+            None if !damage.is_empty() || surface.composed => {
+                let rects = if surface.composed { whole } else { damage };
+                Some((surface.buffers.fill(shm, front), rects))
+            }
+            None => None,
+        };
+        let mut attached = None;
+        if let Some((buffer, rects)) = sent {
+            let Some(buffer) = buffer else {
+                warn!("no shared memory for a surface; not drawn");
+                return;
+            };
+            match &surface.viewport {
+                Some(viewport) => {
+                    wl.set_buffer_scale(1);
+                    viewport.set_destination(surface.width as i32, surface.height as i32);
+                }
+                None => wl.set_buffer_scale(scale.ceil().max(1.0) as i32),
+            }
+            if matches!(role, Role::Toasts | Role::Preview) {
+                // Only what is drawn takes the pointer: clicks in the gaps
+                // between toasts and around a preview reach the windows below.
+                if let Ok(region) = Region::new(&*compositor_state) {
+                    for (x, y, w, h) in ui::input_rects(&surface.hits) {
+                        region.add(x, y, w, h);
+                    }
+                    wl.set_input_region(Some(region.wl_region()));
+                }
+            }
+            for &(dx, dy, dw, dh) in &rects {
+                wl.damage_buffer(dx as i32, dy as i32, dw as i32, dh as i32);
+            }
+            if buffer.attach_to(&wl).is_err() {
                 return;
             }
-        };
-        canvas.write_argb8888(data);
-        match &surface.viewport {
-            Some(viewport) => {
-                wl.set_buffer_scale(1);
-                viewport.set_destination(surface.width as i32, surface.height as i32);
-            }
-            None => wl.set_buffer_scale(buffer_scale),
+            attached = rects.into_iter().reduce(present::union);
         }
-        // A drawing without transparent pixels (the wallpaper, the taskbar)
-        // is opaque: the compositor need not blend it or draw behind it.
-        let opaque = damage::is_opaque(canvas.data());
-        if opaque != surface.opaque {
-            if !opaque {
-                wl.set_opaque_region(None);
-                surface.opaque = false;
-            } else if let Ok(region) = Region::new(&*compositor_state) {
-                region.add(0, 0, surface.width as i32, surface.height as i32);
-                wl.set_opaque_region(Some(region.wl_region()));
-                surface.opaque = true;
-            }
+        if let (Some(buffer), Some(viewport)) = (&single, &surface.viewport) {
+            wl.set_buffer_scale(1);
+            viewport.set_destination(surface.width as i32, surface.height as i32);
+            wl.attach(Some(buffer), 0, 0);
+            wl.damage_buffer(0, 0, 1, 1);
+            attached = Some((0, 0, 1, 1));
         }
-        if matches!(role, Role::Toasts | Role::Preview) {
-            // Only what is drawn takes the pointer: clicks in the gaps
-            // between toasts and around a preview reach the windows below.
-            if let Ok(region) = Region::new(&*compositor_state) {
-                for (x, y, w, h) in ui::input_rects(&surface.hits) {
-                    region.add(x, y, w, h);
-                }
-                wl.set_input_region(Some(region.wl_region()));
-            }
+        if let Some(composed) = shown {
+            surface.spare = Some(composed);
         }
-        wl.damage_buffer(dx as i32, dy as i32, dw as i32, dh as i32);
-        wl.frame(qh, wl.clone());
-        if buffer.attach_to(&wl).is_err() {
-            return;
+        if attached.is_some() {
+            surface.composed = compose;
         }
-        wl.commit();
-        surface.frame_pending = true;
+        let blur_changed = glass_region.is_some_and(|rects| glass::send_region(surface, compositor_state, rects));
+        if attached.is_some() || moved || animating || scrolling || blur_changed {
+            // Asked for a frame, so a transition goes on at the display's
+            // pace.
+            wl.frame(qh, wl.clone());
+            wl.commit();
+            surface.frame_pending = true;
+        }
         surface.dirty = animating || scrolling;
-        surface.sent.clear();
-        surface.sent.extend_from_slice(canvas.data());
-        surface.sent_key = key;
+        // Magnified icons on their way: their cells again on the next frame.
+        for cell in std::mem::take(&mut res.magnifying) {
+            surface.touch_rect(cell);
+        }
+        if scrolling {
+            // The page moves on: the next frame (the one where it comes to
+            // rest included) draws it again.
+            surface.change = std::mem::replace(&mut surface.change, Change::None).with(page_window);
+        }
+        stats::drawn(&role, (pw, ph), painted, started.elapsed(), attached, &mut surface.changed_at);
     }
 
     pub fn surface_index(&self, wl: &wl_surface::WlSurface) -> Option<usize> {
@@ -1110,6 +1459,7 @@ impl Shell {
         consider(self.st.preview.as_ref().and_then(|p| p.left_at).map(|at| at + desk::PREVIEW_GRACE));
         consider(self.slider_pending.as_ref().map(|_| self.slider_sent + desk::SLIDER_INTERVAL));
         consider(self.taskbar_hide_at);
+        consider(self.prewarm_deadline(now));
         // Finished transitions are cleaned up promptly.
         if self.surfaces.iter().any(|s| s.anim.is_some()) {
             consider(Some(now + Duration::from_millis(16)));
@@ -1229,6 +1579,8 @@ impl Dispatch<WpFractionalScaleV1, wl_surface::WlSurface> for Shell {
 delegate_noop!(Shell: WpViewporter);
 delegate_noop!(Shell: WpViewport);
 delegate_noop!(Shell: WpFractionalScaleManagerV1);
+delegate_noop!(Shell: WpAlphaModifierV1);
+delegate_noop!(Shell: WpAlphaModifierSurfaceV1);
 
 impl OutputHandler for Shell {
     fn output_state(&mut self) -> &mut OutputState {
@@ -1318,6 +1670,9 @@ impl SeatHandler for Shell {
         if self.data_device.is_none() && self.st.mode == Mode::Desktop {
             self.data_device = self.data_devices.as_ref().map(|manager| manager.get_data_device(qh, &seat));
         }
+        if self.st.mode == Mode::Desktop {
+            self.clip_seat(qh, &seat);
+        }
     }
 
     fn remove_capability(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_seat::WlSeat, capability: Capability) {
@@ -1366,11 +1721,20 @@ impl PointerHandler for Shell {
 }
 
 impl DataDeviceHandler for Shell {
-    fn enter(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice, _: f64, _: f64, _: &wl_surface::WlSurface) {}
-    fn leave(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice) {}
-    fn motion(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice, _: f64, _: f64) {}
+    // A drag from another program: the desktop icons take files.
+    fn enter(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice, x: f64, y: f64, surface: &wl_surface::WlSurface) {
+        self.desk_drag_enter(surface, x, y);
+    }
+    fn leave(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice) {
+        self.desk_drag_leave();
+    }
+    fn motion(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice, x: f64, y: f64) {
+        self.desk_drag_motion(x, y);
+    }
     fn selection(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice) {}
-    fn drop_performed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice) {}
+    fn drop_performed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice) {
+        self.desk_drop();
+    }
 }
 
 impl DataOfferHandler for Shell {
@@ -1381,7 +1745,11 @@ impl DataOfferHandler for Shell {
 impl DataSourceHandler for Shell {
     fn accept_mime(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource, _: Option<String>) {}
 
-    fn send_request(&mut self, _: &Connection, _: &QueueHandle<Self>, source: &WlDataSource, mime: String, mut pipe: WritePipe) {
+    fn send_request(&mut self, _: &Connection, _: &QueueHandle<Self>, source: &WlDataSource, mime: String, pipe: WritePipe) {
+        // Files the desktop icons copied.
+        let Some(mut pipe) = self.desk_clipboard_send(source, &mime, pipe) else {
+            return;
+        };
         let Some((own, bytes)) = &self.clipboard else {
             return;
         };
@@ -1397,6 +1765,7 @@ impl DataSourceHandler for Shell {
     }
 
     fn cancelled(&mut self, _: &Connection, _: &QueueHandle<Self>, source: &WlDataSource) {
+        self.desk_clipboard_cancelled(source);
         // Another program took the clipboard: the picture can be freed.
         if self.clipboard.as_ref().is_some_and(|(own, _)| own.inner() == source) {
             self.clipboard = None;
@@ -1447,6 +1816,13 @@ delegate_registry!(Shell);
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_compositors_memory_setting_is_not_passed_on() {
+        assert!(ours(Some(std::ffi::OsStr::new("glibc.malloc.mmap_threshold=262144"))));
+        assert!(!ours(Some(std::ffi::OsStr::new("glibc.malloc.arena_max=2"))), "the session's own stays");
+        assert!(!ours(None));
+    }
 
     #[test]
     fn missing_fonts_are_reported_once_and_say_what_follows() {

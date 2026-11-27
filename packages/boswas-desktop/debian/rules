@@ -34,6 +34,9 @@ override_dh_auto_build:
 override_dh_auto_test:
 ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
 	$(CARGO) test $(FLAGS) --workspace --features boswas-ui/text,boswas-ui/icons,boswas-ui/images
+	# The emoji data's generator (its comparison with the Unicode sources is
+	# skipped where they are not installed).
+	python3 -B -m unittest discover -s tools/tests
 endif
 
 override_dh_auto_install:

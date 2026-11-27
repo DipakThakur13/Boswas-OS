@@ -53,7 +53,7 @@ class CatalogTest(unittest.TestCase):
             self.assertIn(key, catalog.PAGE_KEYS)
         self.assertEqual([p.key for p in catalog.children("system")],
                          ["display", "sound", "notifications", "power", "storage", "multitasking", "troubleshoot",
-                          "recovery", "about", "install"])
+                          "recovery", "clipboard", "about", "install"])
         self.assertEqual([p.key for p in catalog.children("personalization")],
                          ["background", "colours", "themes", "start", "taskbar", "fonts"])
         self.assertEqual([p.key for p in catalog.children("accessibility")],
@@ -358,6 +358,45 @@ class PeripheralsTest(unittest.TestCase):
             self.assertEqual([d.name for d in peripherals.usb(root)], ["USB Keyboard"])
             self.assertTrue(peripherals.cups_installed(root))
 
+    def test_drives_on_usb_and_how_they_are_ejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = fx.make_root(Path(tmp))
+            fx.add_usb_stick(base)
+            root = probes.Root(str(base))
+            self.assertEqual([d.name for d in peripherals.usb(root)], ["USB Keyboard", "Ultra Fit"])
+            drives = peripherals.usb_drives(root)
+            self.assertEqual(drives, [peripherals.Drive("/dev/sdb", "1-4", "SanDisk Ultra Fit", 61341696 * 512,
+                                                        (("/dev/sdb1", "/media/alice/USB STICK"),))])
+            self.assertFalse(drives[0].in_use_by_system)
+            self.assertEqual(drives[0].folder, "/media/alice/USB STICK")
+            self.assertEqual(peripherals.eject_steps(drives[0]), [("unmount", "/dev/sdb1"), ("power-off", "/dev/sdb")])
+        with tempfile.TemporaryDirectory() as tmp:
+            base = fx.make_root(Path(tmp))
+            fx.add_usb_stick(base, encrypted=True)
+            drive = peripherals.usb_drives(probes.Root(str(base)))[0]
+            self.assertEqual((drive.mounts, drive.unlocked), ((("/dev/dm-0", "/media/alice/USB STICK"),), ("/dev/sdb1",)))
+            self.assertEqual(peripherals.eject_steps(drive),
+                             [("unmount", "/dev/dm-0"), ("lock", "/dev/sdb1"), ("power-off", "/dev/sdb")])
+        with tempfile.TemporaryDirectory() as tmp:
+            base = fx.make_root(Path(tmp))
+            fx.add_usb_stick(base, mounted=None)
+            drive = peripherals.usb_drives(probes.Root(str(base)))[0]
+            self.assertEqual((drive.mounts, drive.folder), ((), "computer:///"))
+            self.assertEqual(peripherals.eject_steps(drive), [("power-off", "/dev/sdb")])
+        with tempfile.TemporaryDirectory() as tmp:
+            base = fx.make_root(Path(tmp))
+            fx.add_usb_stick(base, mounted="/run/live/medium")                # the boot medium of a live session
+            drive = peripherals.usb_drives(probes.Root(str(base)))[0]
+            self.assertTrue(drive.in_use_by_system)
+            with self.assertRaises(ValueError):
+                peripherals.eject_steps(drive)
+            self.assertEqual(peripherals.usb_drives(probes.Root(str(Path(tmp) / "nothing"))), [])
+
+    def test_mountinfo(self):
+        found = peripherals.parse_mountinfo("36 35 98:0 /mnt1 /media/a/My\\040Disk rw - ext3 /dev/x rw\n"
+                                            "bad line\n37 35 x:y / /z rw - tmpfs t rw\n38 35 8:17 / relative rw - a b\n")
+        self.assertEqual(found, {"98:0": ["/media/a/My Disk"]})
+
     def test_printers(self):
         names = peripherals.parse_destinations(fx.LPSTAT_E + "-bad\nbad name\n")
         self.assertEqual(names, ["Office_Laser", "Home_Inkjet"])
@@ -397,6 +436,67 @@ class NetconfigTest(unittest.TestCase):
             link = Path(tmp, "link.ovpn")
             os.symlink(ovpn, link)
             self.assertEqual(netconfig.import_kind(str(link))[0], "")            # not through a link
+
+    def test_wired_connections_and_their_settings(self):
+        connections = netconfig.parse_wired_connections(fx.NMCLI_WIRED_CONNECTIONS)
+        self.assertEqual([(c.name, c.device, c.active) for c in connections],
+                         [("Wired connection 1", "enp3s0", True), ("Spare", "", False)], "VPNs are not wired")
+        self.assertEqual(netconfig.profile_for("enp3s0", connections).uuid, fx.WIRED_UUID)
+        self.assertEqual(netconfig.profile_for("enp9s0", connections).name, "Spare", "one not active elsewhere")
+        self.assertIsNone(netconfig.profile_for("x", connections[:1]))
+        auto = netconfig.parse_wired_settings(fx.NMCLI_WIRED_SETTINGS)
+        self.assertEqual((auto.uuid, auto.name, auto.method, auto.addresses, auto.gateway, auto.dns, auto.metered),
+                         (fx.WIRED_UUID, "Wired connection 1", "auto", (), "", (), "unknown"))
+        self.assertEqual((netconfig.ip_assignment_text(auto), netconfig.dns_assignment_text(auto)),
+                         ("Automatic (DHCP)", "Automatic (DHCP)"))
+        manual = netconfig.parse_wired_settings(
+            "connection.metered:yes (guessed)\nipv4.method:manual\nipv4.addresses:192.168.1.20/24,10.0.0.5/8\n"
+            "ipv4.gateway:192.168.1.1\nipv4.dns:1.1.1.1,9.9.9.9\nipv4.ignore-auto-dns:yes\n"
+            "ipv6.dns:2606\\:4700\\:4700\\:\\:1111\nnot a field\nipv4.addresses:junk\n", fx.WIRED_UUID, "Desk")
+        self.assertEqual((manual.uuid, manual.name, manual.addresses, manual.dns, manual.metered),
+                         (fx.WIRED_UUID, "Desk", ("192.168.1.20/24", "10.0.0.5/8"),
+                          ("1.1.1.1", "9.9.9.9", "2606:4700:4700::1111"), "yes"))
+        self.assertEqual(netconfig.ip_assignment_text(manual),
+                         "Manual: 192.168.1.20/24, 10.0.0.5/8 · gateway 192.168.1.1")
+        self.assertEqual(netconfig.dns_assignment_text(manual), "Manual: 1.1.1.1, 9.9.9.9, 2606:4700:4700::1111")
+        extra = netconfig.parse_wired_settings("ipv4.method:auto\nipv4.dns:8.8.8.8\nipv4.ignore-auto-dns:no\n")
+        self.assertEqual(netconfig.dns_assignment_text(extra), "Manual: 8.8.8.8 (and the network's)")
+        details = netconfig.parse_device_details(fx.NMCLI_WIRED_DEVICE, 1000)
+        self.assertEqual(netconfig.detail_rows(details),
+                         [("Link speed", "1 Gb/s"), ("IPv4 address", "192.168.1.23/24"), ("IPv4 gateway", "192.168.1.1"),
+                          ("IPv6 address", "fe80::5054:ff:fe12:3456/64"), ("DNS servers", "192.168.1.1"),
+                          ("Physical address (MAC)", "52:54:00:12:34:56")])
+        self.assertEqual(netconfig.detail_rows(netconfig.parse_device_details("")), [])
+        with tempfile.TemporaryDirectory() as tmp:
+            root = probes.Root(str(fx.make_root(Path(tmp))))
+            self.assertEqual((netconfig.link_speed(root, "enp3s0"), netconfig.link_speed(root, "../x")), (1000, None))
+
+    def test_wired_changes_are_validated_before_nmcli(self):
+        self.assertEqual(netconfig.ip_words(False), ("ipv4.method", "auto", "ipv4.addresses", "", "ipv4.gateway", ""))
+        self.assertEqual(netconfig.ip_words(True, " 192.168.1.20 ", "24", "192.168.1.1", ["1.1.1.1", "2606:4700::1111"]),
+                         ("ipv4.method", "manual", "ipv4.addresses", "192.168.1.20/24", "ipv4.gateway", "192.168.1.1",
+                          "ipv4.dns", "1.1.1.1", "ipv4.ignore-auto-dns", "yes", "ipv6.dns", "2606:4700::1111",
+                          "ipv6.ignore-auto-dns", "yes"))
+        self.assertEqual(netconfig.ip_words(True, "10.0.0.2", "8", "")[:6],
+                         ("ipv4.method", "manual", "ipv4.addresses", "10.0.0.2/8", "ipv4.gateway", ""))
+        for address, prefix, gateway, words in (("192.168.1", "24", "", "IPv4 address"), ("192.168.1.20", "33", "", "1 to 32"),
+                                                ("192.168.1.0", "24", "", "network's own"),
+                                                ("192.168.1.20", "24", "10.0.0.1", "same network"),
+                                                ("192.168.1.20", "24", "192.168.1.20", "own address"),
+                                                ("192.168.1.20", "24", "router", "IPv4 address")):
+            self.assertIn(words, netconfig.ipv4_problem(address, prefix, gateway), (address, prefix, gateway))
+            with self.assertRaises(ValueError):
+                netconfig.ip_words(True, address, prefix, gateway)
+        self.assertEqual(netconfig.dns_words(None)[1::2], ("", "no", "", "no"))
+        self.assertEqual(netconfig.dns_words(["9.9.9.9", "2001:DB8::53"]),
+                         ("ipv4.dns", "9.9.9.9", "ipv4.ignore-auto-dns", "yes", "ipv6.dns", "2001:db8::53",
+                          "ipv6.ignore-auto-dns", "yes"))
+        for servers, words in ((["dns.example"], "not an IPv4 or IPv6"), (["1.1.1.1", "1.1.1.1"], "twice"),
+                               (["1.1.1.1", "1.0.0.1", "8.8.8.8", "8.8.4.4"], "At most 3"), ([" "], "at least one")):
+            self.assertIn(words, netconfig.dns_problem(servers), servers)
+        self.assertEqual(netconfig.metered_words(True), ("connection.metered", "yes"))
+        for words in (netconfig.ip_words(False), netconfig.dns_words(["1.1.1.1"]), netconfig.metered_words(False)):
+            commands._check(commands.nmcli_change_argv("connection", "modify", "uuid", fx.WIRED_UUID, *words))
 
     def test_counters_and_hardware_address(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -461,6 +561,13 @@ class FeaturesTest(unittest.TestCase):
         policy = (fx.PACKAGE.parent / "boswas-sysops" / "boswas_sysops" / "policy.py").read_text()
         for name in names:
             self.assertNotIn(f'"{name}"', policy, f"{name} is excluded or protected by sysops")
+        by_key = {feature.key: feature for feature in features.FEATURES}
+        for key in ("printing", "pdf-printer"):                 # they bring cups-daemon, which recommends cups-browsed
+            self.assertEqual(by_key[key].install_words(("cups",))[:2], ("apt-install", "--no-recommends"), key)
+            commands.sysops_argv(*by_key[key].install_words(by_key[key].packages))
+        self.assertEqual(by_key["7zip"].install_words(("7zip",)), ("apt-install", "7zip"))
+        self.assertIn('"cups-browsed"', policy, "the reason for --no-recommends")
+        self.assertEqual(peripherals.PRINTING_INSTALL, ("apt-install", "--no-recommends", "cups"))
         languages = features.language_features(["C.utf8", "de_DE.utf8", "de_AT.utf8", "pt_BR.utf8", "en_US.utf8",
                                                 "xx_YY.utf8"])
         self.assertEqual([(f.title, f.packages) for f in languages],

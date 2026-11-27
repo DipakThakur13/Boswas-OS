@@ -55,4 +55,5 @@ features = ["desktop", "wayland_frontend", "renderer_pixman", "xwayland"]
 [dev-dependencies]
 wayland-client = "0.31"
 wayland-protocols = { version = "0.32", features = ["client", "staging", "unstable"] }
+wayland-protocols-wlr = { version = "0.3", features = ["client"] }
 tempfile = "3"

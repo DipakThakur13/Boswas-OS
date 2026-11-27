@@ -23,6 +23,11 @@ last track loaded and paused where it was left.
 Only one instance runs per session.
 A later start hands its arguments to the running instance, which adds them
 to the end of its play queue and comes to the front.
+It has one window, as the media player of Windows has: there is one play
+queue, and one player answers the media keys and the shell's media controls.
+A start with
+.B \-\-new\-window
+is handled like any later start.
 .PP
 What can be played depends on the multimedia backend of Qt that is
 installed (FFmpeg on Boswas OS); see

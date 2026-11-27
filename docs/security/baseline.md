@@ -75,14 +75,27 @@ Android window) is an ordinary client. It cannot:
   window list is offered to the shell only.
 - **receive keys or pointer events meant for another window.** A focused
   client may ask to receive the window-management shortcuts itself (a
-  remote desktop or a virtual machine); Super+L and virtual-terminal
-  switching always stay with the compositor.
+  remote desktop or a virtual machine); Super+L, Ctrl+Alt+Del (ADR-0062)
+  and virtual-terminal switching always stay with the compositor.
+- **see what lies behind its window** through the background blur
+  protocol (`ext-background-effect-v1`, ADR-0063), which every client is
+  offered, sandboxed ones included: it asks the compositor to blur what
+  lies behind the client's own surface, the compositor draws that, and
+  the client receives no pixels.
 - **inject input**: there is no virtual pointer protocol, and the
   virtual-keyboard and input-method protocols are offered only to the
-  input method the administrator configured (none is shipped).
+  input method the administrator configured (none is shipped). The
+  compositor itself sends a key stroke in one case: when the shell asks
+  with the trusted `paste` command after the user chose an item of the
+  clipboard history or the emoji panel, the window that has the keyboard
+  gets Ctrl+V (Ctrl+Shift+V in a terminal). The command names no keys,
+  is refused while the session is locked and on the public socket, and
+  is dropped if the focus moved (ADR-0058).
 - **read or replace the clipboard in the background**: it gets the
   selection only while it has keyboard focus. Clipboard control is offered
-  to the shell only.
+  to the shell only, which keeps the clipboard history with it: in memory,
+  never what a password manager marks as secret, never while the session
+  is locked (ADR-0058, `docs/security/privacy.md`).
 - **draw panels or overlays**, or become the lock screen: layer shell and
   session lock are offered to the shell only.
 - **take focus without the user**: an activation request is honoured only
@@ -175,7 +188,14 @@ to NetworkManager, BlueZ, UPower, logind and the sound server.
   last 60 seconds.
 - **The lock screen and the login screen** run a restricted set: they
   show the state of the network and the battery, change nothing but the
-  volume and the brightness, own no bus name, and register no agent.
+  volume and the brightness (with the keys, since ADR-0062; the desktop
+  shell ignores those keys while the session is locked), own no bus name,
+  and register no agent. They show account pictures read only as regular
+  files of at most 8 MB, decoded within 8192 pixels on a side; the login
+  screen reads only AccountsService's copies.
+- **GSettings** (ADR-0062): the desktop shell sets two keys of the user's
+  settings (`color-scheme`, `accent-color`) by running `gsettings` with
+  fixed arguments, never through a shell, and only when a value differs.
 - **Settings** gets the same backends through
   `boswas-services-bridge`, which runs as the user and offers no power
   actions, notifications or authentication.
@@ -263,6 +283,12 @@ desktop yet, and none has had a security review.
   compositor never sees it.
 - Any program of the user may lock (`boswas-compositor --send lock`); the
   suspend hook uses that. Nothing but the lock screen unlocks.
+- Ctrl+Alt+Del (ADR-0062) opens the shell's security options on the
+  desktop: Lock, Sign out, Change a password (which opens Settings),
+  Task Manager. The compositor takes the keys before any application,
+  also one that has taken the other shortcuts; the screen asks for no
+  password and is not a secure attention sequence for signing in, and it
+  is not offered on the lock or login screen.
 - The lock screen's weather card (ADR-0051) comes from one file, the
   summary Weather writes to `~/.local/state/boswas/weather.json`. The lock
   screen opens it without following a link and without blocking, reads it
@@ -272,6 +298,18 @@ desktop yet, and none has had a security review.
   network connection. The card shows the place and its weather to anyone
   at the device; `[lock] show_weather` (Settings > Privacy & security >
   Lock screen) turns it off, and it is a user setting, not lock policy.
+- The lock screen's background (ADR-0064) comes from a file the desktop
+  shell writes in the user's runtime directory,
+  `$XDG_RUNTIME_DIR/boswas-shell-background`: written beside it with
+  mode 0600 and renamed over it, never through a link. The lock screen
+  opens it without following a link, reads it only if it is a regular
+  file whose length is exactly what its header gives (at most 64 MiB of
+  pixels, 16384 pixels a side), and makes every pixel opaque; anything
+  else is ignored and the background drawn as before. A program of the
+  same user can choose the picture behind the lock screen this way, as
+  it could set the wallpaper; that is no boundary (ADR-0028). The file
+  cannot unlock or show the desktop: the outputs stay blank until the
+  lock surfaces arrive, and only the password unlocks.
 
 ### Login
 

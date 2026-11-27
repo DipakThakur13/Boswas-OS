@@ -87,12 +87,40 @@ dark accent with white text.
 |-------|------------|
 | `stroke` | One-pixel outlines, as an opacity of white (dark theme) or black (light theme) over whatever lies beneath: `control`, `surface`, `divider`, `window` |
 | `fill` | The state layers of controls, in the same way: `control`, `control-hover`, `control-pressed`, `subtle-hover`, `subtle-pressed`, `disabled`. "Subtle" controls have no fill at rest |
-| `material` | `mica`, `acrylic`, `chrome` and `smoke`: a `tint`, a `tint-opacity` and a `blur` radius each. Mica is for window chrome and long-lived surfaces, acrylic for flyouts and menus, chrome for the taskbar; smoke dims what lies behind a dialog |
+| `material` | `mica`, `acrylic`, `chrome` and `smoke`: a `tint`, a `tint-opacity` and a `blur` radius each. Mica is for window chrome and long-lived surfaces, acrylic for flyouts and menus, chrome for the taskbar; smoke dims what lies behind a dialog. `glass`: Boswas glass, the material of the Qt applications, the shell and the compositor's own surfaces (below) |
 
 Mica, acrylic and chrome are drawn from the desktop wallpaper: blurred by
-`blur` logical pixels and covered with the tint. Windows that lie between
-the wallpaper and the surface are not part of the picture: there is no
-live blur (ADR-0036). The Qt toolkit fills with the tints, opaque.
+`blur` logical pixels and covered with the tint (ADR-0036). Since
+ADR-0063 the shell's and the compositor's surfaces are Boswas glass
+instead; what is left of the others: the active window's title bar is
+`mica` over the wallpaper, the lock screen's weather card `acrylic`, the
+snap layouts' fallback without glass the `acrylic` tint, and `smoke`
+still dims what lies behind a dialog.
+
+`material.glass` is what the Qt toolkit ([qt/README.md](qt/README.md#glass-glass)),
+the shell and the compositor's own surfaces (`boswas-ui`'s `glass.rs`)
+draw with:
+
+| Key | What it is |
+|-----|------------|
+| `tint`, `tint-opacity` | The window backdrop: the desktop background covered with this tint. Each scheme (`dark`, `light`) gives its own `tint-opacity` (0.62 and 0.54), a minimum that the toolkit raises where a picture would leave text under 4.5:1 |
+| `blur`, `saturation`, `noise` | The backdrop's blur (80 logical pixels, a Gaussian of sigma blur/2 as the shell's materials), how much its colours are saturated (1.3) and the opacity of its grain (0.012), so that wide soft areas do not band |
+| `pane-tint`, `card-tint`, `flyout-tint` | The tints of the glass that lies on the backdrop: navigation panes (`@background`), cards and rows (`@surface`), flyouts, menus and dialogs (`@surface`) |
+| `taskbar-tint`, `taskbar` | The shell's taskbar (ADR-0063): `@chrome` at 0.72, one value for both schemes (the tests pin the keys of each scheme's table), raised for legibility like the backdrop. It is neither a window backdrop nor a flyout and keeps the chrome colour below Start |
+| `dark` / `light`: `pane`, `card`, `flyout` | Their opacities (dark 0.34, 0.56, 0.84; light 0.4, 0.7, 0.86): the more a surface stands over content, the more opaque |
+| `dark` / `light`: `highlight`, `highlight-hover`, `glow`, `shadow` | The white top hairline of glass (stronger under the pointer), the white inner glow below the top edge and the black of the lower hairline |
+
+With `[appearance] transparency = false` or a high-contrast preset the
+toolkit, the shell and the compositor draw every surface opaque. The
+Rust programs compile the token file in (ADR-0063): the shell's panels
+are the window backdrop, its menus, tooltips, notifications and dialogs
+and the compositor's Alt+Tab, window menu and snap layouts the flyout
+glass, the taskbar `taskbar-tint` at `taskbar`. Where the compositor
+draws with OpenGL ES the backdrop is the live blur of what lies behind
+(its brightness kept within a band of the scheme, dark 0 to 0.07 and
+light 0.6 to 1 in relative luminance, so that a tint can stay
+translucent); with pixman it is the blurred wallpaper, as in the
+toolkit.
 
 ### Icon hues (`icon.hues`)
 
@@ -213,6 +241,9 @@ They check that:
   control radius, the taskbar is 48 high, the title bar 32 and a caption
   button 46 by 32, every stroke and fill opacity lies between 0 and 0.25,
   and every material's tint resolves;
+- glass holds: its tints resolve, both schemes give every level as an
+  opacity, blur, saturation and grain stay in range, and the pane, the card
+  and the flyout grow more opaque in that order;
 - icon glyphs stay readable on their tiles;
 - the committed colour schemes are what the generator produces now, and
   it writes nothing else;

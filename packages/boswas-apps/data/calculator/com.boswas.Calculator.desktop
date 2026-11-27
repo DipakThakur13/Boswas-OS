@@ -11,7 +11,11 @@ Categories=Utility;Calculator;Qt;
 Keywords=calculator;calculation;arithmetic;scientific;programmer;hex;binary;convert;units;date;percent;
 StartupNotify=true
 StartupWMClass=com.boswas.Calculator
-Actions=Scientific;Programmer;
+Actions=NewWindow;Scientific;Programmer;
+
+[Desktop Action NewWindow]
+Name=New Window
+Exec=boswas-calculator --new-window
 
 [Desktop Action Scientific]
 Name=Scientific
