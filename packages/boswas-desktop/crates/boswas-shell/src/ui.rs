@@ -94,6 +94,99 @@ pub struct Resources {
     /// Cells whose magnified icon is still moving (magnify.rs): drawn
     /// again on the next frame.
     pub magnifying: Vec<Rect>,
+    /// While a drawing is planned (prewarm.rs): the panels and icons it
+    /// needed and did not find kept, to make on another thread.
+    pub planned: Option<Plan>,
+}
+
+/// What a planned drawing needed and did not find kept: made on another
+/// thread instead of on the event loop.
+#[derive(Default)]
+pub struct Plan {
+    pub panels: Vec<PanelJob>,
+    /// Icons not looked up yet (name, size in device pixels): rendering a
+    /// symbolic icon of the theme takes one to two milliseconds.
+    pub icons: Vec<(String, u32)>,
+}
+
+/// The icon theme of a colour scheme.
+pub fn icon_theme(scheme: Scheme) -> &'static str {
+    match scheme {
+        Scheme::Dark => "Boswas-Prism",
+        Scheme::Light => "Boswas-Prism-Light",
+    }
+}
+
+/// A panel to make on another thread (see [`Resources::keep_panel`]):
+/// everything it is made from. Making Start's panel at 200 % (its shadow,
+/// its fill from the blurred wallpaper and its edges, millions of pixels)
+/// takes tens of milliseconds.
+pub struct PanelJob {
+    key: PanelKey,
+    rect: Rect,
+    material: String,
+    canvas: (f32, f32, f32),
+    origin: (f32, f32),
+    theme: &'static Theme,
+    transparency: bool,
+    live_blur: bool,
+    backdrop: Option<Backdrop>,
+}
+
+/// A panel made on another thread, to keep.
+pub struct MadePanel {
+    key: PanelKey,
+    whole: Pixmap,
+    part: Option<(i32, i32, Pixmap)>,
+}
+
+impl PanelJob {
+    /// Makes the panel, as [`Frame::panel`] makes it.
+    pub fn make(mut self) -> Option<MadePanel> {
+        let (w, h, scale) = self.canvas;
+        let mut chrome = Canvas::new(w, h, scale)?;
+        paint_panel_on(&mut chrome, self.rect, &self.material, self.theme, self.transparency, self.live_blur, self.backdrop.as_mut(), self.origin);
+        let (whole, part) = panel_parts(chrome, self.rect);
+        Some(MadePanel { key: self.key, whole, part })
+    }
+}
+
+/// The picture of a panel drawn on a canvas, and the part of it that the
+/// panel and its shadow cover (with its place, device pixels).
+fn panel_parts(chrome: Canvas, rect: Rect) -> (Pixmap, Option<(i32, i32, Pixmap)>) {
+    let e = tokens().elevation("flyout");
+    let reach = e.blur + e.y.abs() + 2.0;
+    let area = device_rect(&Rect::new(rect.x - reach, rect.y - reach, rect.w + 2.0 * reach, rect.h + 2.0 * reach), chrome.scale());
+    let whole = chrome.into_pixmap();
+    let part = tiny_skia::IntRect::from_xywh(area.0 as i32, area.1 as i32, area.2, area.3).and_then(|r| whole.clone_rect(r).map(|p| (r.x(), r.y(), p)));
+    (whole, part)
+}
+
+/// An overlay panel's shadow, glass fill and edges (or, with glass off, its
+/// tint and outline) on `canvas`, whose top-left corner is at `origin` on
+/// the output.
+#[allow(clippy::too_many_arguments)]
+fn paint_panel_on(canvas: &mut Canvas, rect: Rect, material: &str, theme: &'static Theme, transparency: bool, live_blur: bool, backdrop: Option<&mut Backdrop>, origin: (f32, f32)) {
+    let t = tokens();
+    let e = t.elevation("flyout");
+    let radius = t.radius_flyout;
+    canvas.shadow(rect.x, rect.y, rect.w, rect.h, radius, e.blur, e.y, e.alpha);
+    let source = if !transparency {
+        GlassSource::Off
+    } else if live_blur {
+        GlassSource::Live
+    } else {
+        match backdrop {
+            Some(backdrop) => GlassSource::Wallpaper(backdrop),
+            None => GlassSource::Unknown,
+        }
+    };
+    let kind = glass_kind(material);
+    glass::fill(canvas, rect.x, rect.y, rect.w, rect.h, [radius; 4], origin, theme, kind, source);
+    match Glass::of(theme).filter(|_| transparency) {
+        Some(g) => glass::draw_edges(canvas, rect.x, rect.y, rect.w, rect.h, radius, &g, kind, false),
+        None => canvas.stroke_rounded_rect(rect.x, rect.y, rect.w, rect.h, radius, 1.0, tokens().stroke(theme.scheme, "surface")),
+    }
 }
 
 /// A panel as kept: drawn on the whole canvas, and the part of that
@@ -130,13 +223,9 @@ impl Resources {
     /// The resources with a given text engine instead of the system's
     /// fonts.
     pub fn with_text(theme: &'static Theme, text: TextEngine) -> Self {
-        let icon_theme = match theme.scheme {
-            Scheme::Dark => "Boswas-Prism",
-            Scheme::Light => "Boswas-Prism-Light",
-        };
         Self {
             text,
-            icons: IconLoader::new(icon_theme),
+            icons: IconLoader::new(icon_theme(theme.scheme)),
             theme,
             backdrop: None,
             backdrop_key: (0, 0),
@@ -147,7 +236,31 @@ impl Resources {
             live_blur: false,
             glass_regions: Vec::new(),
             magnifying: Vec::new(),
+            planned: None,
         }
+    }
+
+    /// Keeps a panel made on another thread, unless the backdrop it was made
+    /// from has changed since or it is kept already.
+    pub fn keep_panel(&mut self, made: MadePanel) {
+        let current = made.key.backdrop.is_none() || made.key.backdrop == self.backdrop.as_ref().map(|_| self.backdrop_generation);
+        if !current || self.panels.iter().any(|(k, _)| *k == made.key) {
+            return;
+        }
+        if self.panels.len() >= MAX_PANELS {
+            self.panels.remove(0);
+        }
+        let kept = Kept {
+            whole: Rc::new(made.whole),
+            part: made.part.map(|(x, y, p)| (x, y, Rc::new(p))),
+        };
+        self.panels.push((made.key, kept));
+    }
+
+    /// How many panels are kept (for tests of what is drawn ahead of time).
+    #[cfg(test)]
+    pub fn panel_count(&self) -> usize {
+        self.panels.len()
     }
 
     /// A one-pixel outline colour (`control`, `surface`, `divider`, `window`).
@@ -382,11 +495,27 @@ impl Frame<'_> {
         lines.len() as f32 * line
     }
 
+    /// The icon `name` at `pixels` device pixels; while the drawing is
+    /// planned, an icon not looked up yet is noted to be looked up on
+    /// another thread instead (and not drawn).
+    pub fn icon_pixmap(&mut self, name: &str, pixels: u32) -> Option<Rc<Pixmap>> {
+        if let Some(plan) = self.res.planned.as_mut() {
+            if !self.res.icons.has(name, pixels) {
+                let wanted = (name.to_owned(), pixels);
+                if !name.is_empty() && !plan.icons.contains(&wanted) {
+                    plan.icons.push(wanted);
+                }
+                return None;
+            }
+        }
+        self.res.icons.load(name, pixels)
+    }
+
     /// Draws a themed icon in a square of `size` logical pixels. Returns
     /// whether the icon was found.
     pub fn icon(&mut self, name: &str, x: f32, y: f32, size: f32) -> bool {
         let pixels = (size * self.canvas.scale()).round().max(1.0) as u32;
-        match self.res.icons.load(name, pixels) {
+        match self.icon_pixmap(name, pixels) {
             Some(pixmap) => {
                 self.canvas.draw_pixmap(&pixmap, x, y, size, size, 1.0);
                 true
@@ -400,7 +529,7 @@ impl Frame<'_> {
     pub fn icon_tinted(&mut self, name: &str, x: f32, y: f32, size: f32, color: Rgba) -> bool {
         let scale = self.canvas.scale();
         let pixels = (size * scale).round().max(1.0) as u32;
-        let Some(pixmap) = self.res.icons.load(name, pixels) else {
+        let Some(pixmap) = self.icon_pixmap(name, pixels) else {
             return false;
         };
         let (ox, oy) = ((x * scale).round() as i32, (y * scale).round() as i32);
@@ -418,6 +547,11 @@ impl Frame<'_> {
         if names.iter().any(|name| !name.is_empty() && self.icon(name, x, y, size)) {
             return;
         }
+        self.placeholder(x, y, size);
+    }
+
+    /// The stand-in of an icon that is not installed.
+    pub fn placeholder(&mut self, x: f32, y: f32, size: f32) {
         let theme = self.theme();
         self.canvas.fill_rounded_rect(x, y, size, size, size * 0.24, theme.surface_hover);
         let stroke = self.res.stroke("control");
@@ -495,30 +629,33 @@ impl Frame<'_> {
                 self.res.panels.push(entry);
                 kept
             }
+            None if self.res.planned.is_some() => {
+                // Planned (prewarm.rs): made on another thread, not now.
+                let job = PanelJob {
+                    key,
+                    rect,
+                    material: material.to_owned(),
+                    canvas: (self.canvas.width(), self.canvas.height(), self.canvas.scale()),
+                    origin: self.origin,
+                    theme: self.res.theme,
+                    transparency: self.res.transparency,
+                    live_blur: self.res.live_blur,
+                    backdrop: self.res.backdrop.as_ref().map(Backdrop::copy_for_work),
+                };
+                if let Some(plan) = self.res.planned.as_mut() {
+                    plan.panels.push(job);
+                }
+                return None;
+            }
             None => {
                 let mut chrome = Canvas::new(self.canvas.width(), self.canvas.height(), self.canvas.scale())?;
-                {
-                    let regions = self.res.glass_regions.len();
-                    let mut frame = Frame {
-                        canvas: &mut chrome,
-                        res: &mut *self.res,
-                        pointer: None,
-                        pressed: false,
-                        hits: &mut Vec::new(),
-                        focus: None,
-                        origin: self.origin,
-                    };
-                    frame.paint_panel(rect, material);
-                    frame.res.glass_regions.truncate(regions);
-                }
-                // The part of the picture the panel and its shadow cover.
-                let e = tokens().elevation("flyout");
-                let reach = e.blur + e.y.abs() + 2.0;
-                let area = device_rect(&Rect::new(rect.x - reach, rect.y - reach, rect.w + 2.0 * reach, rect.h + 2.0 * reach), chrome.scale());
-                let whole = chrome.into_pixmap();
-                let part = tiny_skia::IntRect::from_xywh(area.0 as i32, area.1 as i32, area.2, area.3)
-                    .and_then(|r| whole.clone_rect(r).map(|p| (r.x(), r.y(), Rc::new(p))));
-                let kept = Kept { whole: Rc::new(whole), part };
+                let (theme, transparency, live_blur) = (self.res.theme, self.res.transparency, self.res.live_blur);
+                paint_panel_on(&mut chrome, rect, material, theme, transparency, live_blur, self.res.backdrop.as_mut(), self.origin);
+                let (whole, part) = panel_parts(chrome, rect);
+                let kept = Kept {
+                    whole: Rc::new(whole),
+                    part: part.map(|(x, y, p)| (x, y, Rc::new(p))),
+                };
                 if self.res.panels.len() >= MAX_PANELS {
                     self.res.panels.remove(0);
                 }
@@ -559,14 +696,6 @@ impl Frame<'_> {
             return;
         }
         self.canvas.copy_rows_from_full(panel, first, last);
-    }
-
-    fn paint_panel(&mut self, rect: Rect, material: &str) {
-        let t = tokens();
-        let e = t.elevation("flyout");
-        self.canvas.shadow(rect.x, rect.y, rect.w, rect.h, t.radius_flyout, e.blur, e.y, e.alpha);
-        self.material(rect, [t.radius_flyout; 4], material);
-        self.glass_edges(rect, t.radius_flyout, material);
     }
 
     /// The hover and pressed layer of a control without a fill of its own.

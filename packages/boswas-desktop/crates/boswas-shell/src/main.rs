@@ -45,6 +45,7 @@ mod present;
 mod prewarm;
 mod quick;
 mod settings;
+mod solid;
 mod start;
 mod state;
 mod stats;
@@ -455,9 +456,27 @@ pub(crate) struct Shell {
     pub exit: Option<i32>,
     /// Icons, text and panels made ready before they are first shown.
     pub prewarm: prewarm::Prewarm,
+    /// Single-pixel buffers for the surfaces of one colour.
+    solid: solid::Solid,
+}
+
+/// The C library's memory settings the compositor starts the shell with
+/// (boswas-compositor's `SHELL_MALLOC_TUNABLES`): the shell's own, taken out
+/// of the environment programs it starts inherit.
+const MALLOC_TUNABLES: &str = "glibc.malloc.mmap_threshold=262144";
+
+/// Whether the environment's `GLIBC_TUNABLES` is the one the compositor
+/// gave the shell (and not one of the session's own).
+fn ours(tunables: Option<&std::ffi::OsStr>) -> bool {
+    tunables.is_some_and(|value| value == MALLOC_TUNABLES)
 }
 
 fn main() {
+    // Read by the C library when the program started; programs the shell
+    // starts get the session's environment without it.
+    if ours(std::env::var_os("GLIBC_TUNABLES").as_deref()) {
+        std::env::remove_var("GLIBC_TUNABLES");
+    }
     let mut mode = Mode::Desktop;
     for arg in std::env::args().skip(1) {
         match arg.as_str() {
@@ -685,7 +704,18 @@ fn run(mode: Mode) -> Result<i32, Box<dyn std::error::Error>> {
         taskbar_hide_at: None,
         exit: None,
         prewarm: prewarm::Prewarm::default(),
+        solid: solid::Solid::bind(&globals, &qh),
     };
+
+    // The desktop shares the background it draws; the lock screen starts
+    // from it (wallpaper.rs).
+    if let Some(file) = wallpaper::shared_file() {
+        match mode {
+            Mode::Desktop => shell.background.share_in(file),
+            Mode::Lock => shell.background.adopt_shared(&file),
+            Mode::Greeter => {}
+        }
+    }
 
     match mode {
         Mode::Lock => {
@@ -999,6 +1029,7 @@ impl Shell {
     /// Makes the blurred wallpaper for an output available to the drawing
     /// code.
     fn prepare_backdrop(&mut self, size: (f32, f32)) {
+        self.background.settle();
         let key = (size.0 as u32, size.1 as u32);
         if self.res.backdrop.is_some() && self.res.backdrop_key == key {
             return;
@@ -1033,6 +1064,7 @@ impl Shell {
             qh,
             st,
             compositor_state,
+            solid,
             ..
         } = self;
         let surface = &mut surfaces[index];
@@ -1067,6 +1099,18 @@ impl Shell {
             change if scrolling => change.with(page_window),
             change => change,
         };
+        // The capture view knows itself where it changed (a selection
+        // being dragged): the picture under it is not drawn again.
+        let change = match (change, st.capture.as_ref(), surface.front.as_ref()) {
+            (Change::All, Some(capture), Some(front)) if role == Role::Capture && front_fits => {
+                match capture.changes(&mut res.text, (w, h), scale, front.pixel_size()) {
+                    Some(rects) if rects.is_empty() => Change::None,
+                    Some(rects) => Change::Parts(rects),
+                    None => Change::All,
+                }
+            }
+            (change, _, _) => change,
+        };
         let mut damage: Vec<PixelRect> = Vec::new();
         let mut glass_region: Option<Vec<(i32, i32, i32, i32)>> = None;
         if change != Change::None {
@@ -1074,7 +1118,7 @@ impl Shell {
                 return;
             };
             let parts = match &change {
-                Change::Parts(rects) if front_fits && !matches!(role, Role::Capture | Role::Dismiss | Role::Smoke) => {
+                Change::Parts(rects) if front_fits && !matches!(role, Role::Dismiss | Role::Smoke) => {
                     let rects: Vec<PixelRect> = rects.iter().map(|r| ui::device_rect(r, scale)).collect();
                     canvas.begin_clip(&rects)
                 }
@@ -1258,8 +1302,15 @@ impl Shell {
             None
         };
         let whole = vec![(0, 0, pw, ph)];
+        // A surface of one colour (stretched) goes as a single-pixel buffer
+        // where the compositor offers them (`solid.rs`).
+        let single = match front.data().get(..4) {
+            Some(p) if stretched && shown.is_none() && !damage.is_empty() => solid.buffer([p[0], p[1], p[2], p[3]], qh),
+            _ => None,
+        };
         let sent = match &shown {
             Some(composed) => Some((surface.buffers.fill_other(shm, composed), whole)),
+            None if single.is_some() => None,
             None if !damage.is_empty() || surface.composed => {
                 let rects = if surface.composed { whole } else { damage };
                 Some((surface.buffers.fill(shm, front), rects))
@@ -1296,6 +1347,13 @@ impl Shell {
                 return;
             }
             attached = rects.into_iter().reduce(present::union);
+        }
+        if let (Some(buffer), Some(viewport)) = (&single, &surface.viewport) {
+            wl.set_buffer_scale(1);
+            viewport.set_destination(surface.width as i32, surface.height as i32);
+            wl.attach(Some(buffer), 0, 0);
+            wl.damage_buffer(0, 0, 1, 1);
+            attached = Some((0, 0, 1, 1));
         }
         if let Some(composed) = shown {
             surface.spare = Some(composed);
@@ -1401,6 +1459,7 @@ impl Shell {
         consider(self.st.preview.as_ref().and_then(|p| p.left_at).map(|at| at + desk::PREVIEW_GRACE));
         consider(self.slider_pending.as_ref().map(|_| self.slider_sent + desk::SLIDER_INTERVAL));
         consider(self.taskbar_hide_at);
+        consider(self.prewarm_deadline(now));
         // Finished transitions are cleaned up promptly.
         if self.surfaces.iter().any(|s| s.anim.is_some()) {
             consider(Some(now + Duration::from_millis(16)));
@@ -1757,6 +1816,13 @@ delegate_registry!(Shell);
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_compositors_memory_setting_is_not_passed_on() {
+        assert!(ours(Some(std::ffi::OsStr::new("glibc.malloc.mmap_threshold=262144"))));
+        assert!(!ours(Some(std::ffi::OsStr::new("glibc.malloc.arena_max=2"))), "the session's own stays");
+        assert!(!ours(None));
+    }
 
     #[test]
     fn missing_fonts_are_reported_once_and_say_what_follows() {

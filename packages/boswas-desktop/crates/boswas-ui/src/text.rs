@@ -193,6 +193,12 @@ impl TextEngine {
         self.emoji_family.as_deref()
     }
 
+    /// How many shaped lines are kept (a line drawn again is not shaped
+    /// again).
+    pub fn shaped_count(&self) -> usize {
+        self.shaped.len()
+    }
+
     /// The UI family in use, when one of the preferred families is installed.
     pub fn ui_family(&self) -> Option<&str> {
         self.ui_family.as_deref()

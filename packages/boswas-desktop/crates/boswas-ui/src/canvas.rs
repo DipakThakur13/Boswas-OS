@@ -193,13 +193,20 @@ impl Canvas {
             return;
         }
         let data = self.pixmap.data();
+        // R, G, B, A to B, G, R, A: red and blue trade places; two pixels at
+        // a time (the first drawing of a screen is millions of them).
+        let swap = |p: u64| (p & 0xff00_ff00_ff00_ff00) | ((p >> 16) & 0x0000_00ff_0000_00ff) | ((p & 0x0000_00ff_0000_00ff) << 16);
         for y in y0..y1 {
             let range = (y * w + x0) * 4..(y * w + x1) * 4;
-            for (dst, src) in out[range.clone()].chunks_exact_mut(4).zip(data[range].chunks_exact(4)) {
-                // R, G, B, A to B, G, R, A: red and blue trade places.
-                let p = u32::from_le_bytes([src[0], src[1], src[2], src[3]]);
-                let q = (p & 0xff00_ff00) | ((p >> 16) & 0xff) | ((p & 0xff) << 16);
-                dst.copy_from_slice(&q.to_le_bytes());
+            let (dst, src) = (&mut out[range.clone()], &data[range]);
+            let mut pairs = dst.chunks_exact_mut(8);
+            for (d, s) in (&mut pairs).zip(src.chunks_exact(8)) {
+                let p = u64::from_le_bytes([s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7]]);
+                d.copy_from_slice(&swap(p).to_le_bytes());
+            }
+            if let (Some(d), Some(s)) = (pairs.into_remainder().get_mut(..4), src.len().checked_sub(4).map(|at| &src[at..])) {
+                let p = u64::from(u32::from_le_bytes([s[0], s[1], s[2], s[3]]));
+                d.copy_from_slice(&(swap(p) as u32).to_le_bytes());
             }
         }
     }
@@ -270,7 +277,52 @@ impl Canvas {
         if !self.visible_device(x, y, picture.width() as i32, picture.height() as i32) {
             return;
         }
+        // Onto a canvas with nothing drawn on it yet, a picture laid on
+        // unchanged is copied (the same pixels as blending it over
+        // transparency; a panel's shadow at 200 % is millions of them).
+        let plain = paint.opacity >= 1.0 && paint.blend_mode == tiny_skia::BlendMode::SourceOver && paint.quality == FilterQuality::Nearest;
+        let onto_nothing = self.blank && self.clip.is_empty();
         self.touch();
+        if plain && onto_nothing && picture.width() > 0 && picture.height() > 0 {
+            let (w, h) = (self.pixmap.width() as i64, self.pixmap.height() as i64);
+            let (pw, ph) = (picture.width() as i64, picture.height() as i64);
+            let (x, y) = (i64::from(x), i64::from(y));
+            // tiny-skia rounds a negative place up and keeps the size: a
+            // picture placed left of (above) the canvas covers one more
+            // column (row) on the far side, which repeats its last one.
+            let (x1, y1) = ((x + pw + i64::from(x < 0)).min(w), (y + ph + i64::from(y < 0)).min(h));
+            let (x0, y0) = (x.max(0), y.max(0));
+            let source = picture.data();
+            let target = self.pixmap.data_mut();
+            for row in y0..y1 {
+                let from_row = (row - y).min(ph - 1);
+                let to = ((row * w + x0) * 4) as usize;
+                let inside = (x1.min(x + pw) - x0).max(0);
+                if inside > 0 {
+                    let from = ((from_row * pw + (x0 - x)) * 4) as usize;
+                    let len = (inside * 4) as usize;
+                    target[to..to + len].copy_from_slice(&source[from..from + len]);
+                }
+                if x1 > x + pw && x + pw >= 0 {
+                    let last = ((from_row * pw + pw - 1) * 4) as usize;
+                    let at = ((row * w + x + pw) * 4) as usize;
+                    let pixel: [u8; 4] = source[last..last + 4].try_into().unwrap_or([0; 4]);
+                    target[at..at + 4].copy_from_slice(&pixel);
+                }
+            }
+            return;
+        }
+        // A picture laid on unchanged at a place on the canvas: blended here,
+        // exactly as tiny-skia's pipeline blends it, only over the parts
+        // being drawn, without copying pieces of it.
+        if plain && x >= 0 && y >= 0 {
+            let whole = [(0, 0, self.pixmap.width(), self.pixmap.height())];
+            let parts = if self.clip.is_empty() { whole.to_vec() } else { disjoint(&self.clip) };
+            for part in parts {
+                self.blend_picture(picture, x, y, part);
+            }
+            return;
+        }
         if self.clip.is_empty() {
             self.pixmap.draw_pixmap(x, y, picture, paint, Transform::identity(), None);
             return;
@@ -288,6 +340,47 @@ impl Canvas {
             let piece = tiny_skia::IntRect::from_xywh(x0 - x, y0 - y, (x1 - x0) as u32, (y1 - y0) as u32).and_then(|r| picture.clone_rect(r));
             if let Some(piece) = piece {
                 self.pixmap.draw_pixmap(x0, y0, piece.as_ref(), paint, Transform::identity(), None);
+            }
+        }
+    }
+
+    /// Blends `picture`, placed at (`x`, `y`) (device pixels, not negative),
+    /// over the canvas within `part`: tiny-skia's source-over of a picture
+    /// drawn unscaled (its high-precision pipeline: channels as fractions,
+    /// `d * (1 - sa) + s`, rounded to even), pixel for pixel. An opaque
+    /// source pixel is copied and a clear one leaves the canvas as it is,
+    /// which is what that arithmetic gives.
+    fn blend_picture(&mut self, picture: PixmapRef, x: i32, y: i32, part: PixelRect) {
+        let (x, y) = (x.max(0) as u32, y.max(0) as u32);
+        let (x0, y0) = (part.0.max(x), part.1.max(y));
+        let x1 = (part.0 + part.2).min(x + picture.width()).min(self.pixmap.width());
+        let y1 = (part.1 + part.3).min(y + picture.height()).min(self.pixmap.height());
+        if x1 <= x0 || y1 <= y0 {
+            return;
+        }
+        const FACTOR: f32 = 1.0 / 255.0;
+        // Round to nearest, ties to even, for 0 <= v < 2^23 (as the SSE
+        // conversion tiny-skia uses).
+        let even = |v: f32| ((v + 8_388_608.0) - 8_388_608.0) as u8;
+        let unnorm = |v: f32| even(v.clamp(0.0, 1.0) * 255.0);
+        let (w, pw) = (self.pixmap.width() as usize, picture.width() as usize);
+        let source = picture.data();
+        let target = self.pixmap.data_mut();
+        for row in y0..y1 {
+            let from = ((row - y) as usize * pw + (x0 - x) as usize) * 4;
+            let to = (row as usize * w + x0 as usize) * 4;
+            let len = (x1 - x0) as usize * 4;
+            for (d, s) in target[to..to + len].chunks_exact_mut(4).zip(source[from..from + len].chunks_exact(4)) {
+                match s[3] {
+                    255 => d.copy_from_slice(s),
+                    0 if s[..3] == [0, 0, 0] => {}
+                    sa => {
+                        let inv = 1.0 - f32::from(sa) * FACTOR;
+                        for i in 0..4 {
+                            d[i] = unnorm(f32::from(d[i]) * FACTOR * inv + f32::from(s[i]) * FACTOR);
+                        }
+                    }
+                }
             }
         }
     }
@@ -333,8 +426,79 @@ impl Canvas {
             let mut paint = Self::paint(color);
             // Axis-aligned rectangles on the pixel grid need no anti-aliasing.
             paint.anti_alias = self.scale.fract() != 0.0 || [x, y, w, h].iter().any(|v| v.fract() != 0.0);
+            // (tiny-skia rounds a negative edge its own way: left to it.)
+            if !paint.anti_alias && x >= 0.0 && y >= 0.0 {
+                return self.fill_pixel_rect(x, y, w, h, color);
+            }
             let transform = self.transform();
             self.pixmap.fill_rect(rect, &paint, transform, None);
+        }
+    }
+
+    /// [`Canvas::fill_rect`] of a rectangle on the pixel grid, done here and
+    /// only where the canvas is being drawn (within the clip): a dimmed
+    /// screen behind the lock screen is drawn again in the part that changed,
+    /// not over the whole screen. The pixels are exactly tiny-skia's (its
+    /// source-over of a solid colour, or its copy of an opaque one).
+    fn fill_pixel_rect(&mut self, x: f32, y: f32, w: f32, h: f32, color: Rgba) {
+        let c = tiny_skia::Color::from(color).premultiply();
+        let [r, g, b, a] = [c.red(), c.green(), c.blue(), c.alpha()].map(|v| (v * 255.0 + 0.5) as u16);
+        let (pw, ph) = (self.pixmap.width() as i64, self.pixmap.height() as i64);
+        let s = self.scale;
+        let edge = |v: f32, limit: i64| ((v * s) as i64).clamp(0, limit);
+        let (x0, y0, x1, y1) = (edge(x, pw), edge(y, ph), edge(x + w, pw), edge(y + h, ph));
+        if x1 <= x0 || y1 <= y0 {
+            return;
+        }
+        let whole = [(x0 as u32, y0 as u32, (x1 - x0) as u32, (y1 - y0) as u32)];
+        let parts: Vec<PixelRect> = if self.clip.is_empty() {
+            whole.to_vec()
+        } else {
+            self.clip
+                .iter()
+                .filter_map(|&(cx, cy, cw, ch)| {
+                    let (lx, ly) = (i64::from(cx).max(x0), i64::from(cy).max(y0));
+                    let (rx, ry) = ((i64::from(cx) + i64::from(cw)).min(x1), (i64::from(cy) + i64::from(ch)).min(y1));
+                    (rx > lx && ry > ly).then(|| (lx as u32, ly as u32, (rx - lx) as u32, (ry - ly) as u32))
+                })
+                .collect()
+        };
+        let stride = pw as usize * 4;
+        let inv = 255 - a;
+        let data = self.pixmap.data_mut();
+        // Parts of the clip may overlap: each row's spans are joined first,
+        // so that no pixel is blended twice.
+        let (top, bottom) = parts.iter().fold((u32::MAX, 0), |(t, b), p| (t.min(p.1), b.max(p.1 + p.3)));
+        let mut spans: Vec<(u32, u32)> = Vec::with_capacity(parts.len());
+        for row in top..bottom {
+            spans.clear();
+            spans.extend(parts.iter().filter(|p| row >= p.1 && row < p.1 + p.3).map(|p| (p.0, p.0 + p.2)));
+            spans.sort_unstable();
+            let mut joined: Vec<(u32, u32)> = Vec::with_capacity(spans.len());
+            for &(from, to) in &spans {
+                match joined.last_mut() {
+                    Some(last) if from <= last.1 => last.1 = last.1.max(to),
+                    _ => joined.push((from, to)),
+                }
+            }
+            let row = row as usize;
+            for (from, to) in joined {
+                let line = &mut data[row * stride + from as usize * 4..row * stride + to as usize * 4];
+                if a == 255 {
+                    for pixel in line.chunks_exact_mut(4) {
+                        pixel.copy_from_slice(&[r as u8, g as u8, b as u8, 255]);
+                    }
+                    continue;
+                }
+                for pixel in line.chunks_exact_mut(4) {
+                    // tiny-skia's low-precision source-over: d * (255 - a),
+                    // divided by 255 as (v + 255) >> 8.
+                    pixel[0] = (r + ((u16::from(pixel[0]) * inv + 255) >> 8)) as u8;
+                    pixel[1] = (g + ((u16::from(pixel[1]) * inv + 255) >> 8)) as u8;
+                    pixel[2] = (b + ((u16::from(pixel[2]) * inv + 255) >> 8)) as u8;
+                    pixel[3] = (a + ((u16::from(pixel[3]) * inv + 255) >> 8)) as u8;
+                }
+            }
         }
     }
 
@@ -718,6 +882,19 @@ thread_local! {
 }
 
 /// The shadow picture for `key`, drawn with `render` when there is none yet.
+/// Lets go of the kept shadow pictures larger than `bytes` (of this
+/// thread), returning the bytes freed. A large shadow (a flyout's at 200 %
+/// is over ten megabytes) is needed only to make its panel, which the
+/// shell keeps; drawn again, it takes a few milliseconds.
+pub fn trim_shadows(bytes: usize) -> usize {
+    SHADOWS.with(|cell| {
+        let mut cache = cell.borrow_mut();
+        let before: usize = cache.iter().map(|(_, p)| p.data().len()).sum();
+        cache.retain(|(_, picture)| picture.data().len() <= bytes);
+        before - cache.iter().map(|(_, p)| p.data().len()).sum::<usize>()
+    })
+}
+
 fn shadow_picture(key: ShadowKey, render: impl FnOnce() -> Option<Pixmap>) -> Option<std::rc::Rc<Pixmap>> {
     SHADOWS.with(|cell| {
         let mut cache = cell.borrow_mut();
@@ -858,6 +1035,142 @@ mod tests {
     fn pixel(c: &Canvas, x: u32, y: u32) -> [u8; 4] {
         let p = c.pixmap().pixel(x, y).unwrap();
         [p.red(), p.green(), p.blue(), p.alpha()]
+    }
+
+    /// A canvas whose pixels are all different (premultiplied).
+    fn busy(w: f32, h: f32, scale: f32) -> Canvas {
+        let mut c = Canvas::new(w, h, scale).unwrap();
+        for (i, p) in c.pixmap_mut().data_mut().chunks_exact_mut(4).enumerate() {
+            let a = (i * 37 % 256) as u8;
+            let v = |k: usize| ((i * k % 256) as u16 * u16::from(a) / 255) as u8;
+            p.copy_from_slice(&[v(7), v(13), v(29), a]);
+        }
+        c
+    }
+
+    #[test]
+    fn rectangles_on_the_pixel_grid_are_filled_as_tiny_skia_fills_them() {
+        for scale in [1.0, 2.0, 3.0] {
+            for color in [Rgba::BLACK.alpha(0.22), Rgba::WHITE.alpha(0.72), Rgba::rgba(200, 30, 90, 255), Rgba::rgba(12, 240, 77, 1), Rgba::rgba(0, 0, 0, 0)] {
+                for (x, y, w, h) in [(0.0, 0.0, 64.0, 48.0), (3.0, 5.0, 20.0, 11.0), (-4.0, 40.0, 30.0, 30.0), (60.0, -2.0, 9.0, 9.0)] {
+                    let mut ours = busy(64.0, 48.0, scale);
+                    ours.fill_rect(x, y, w, h, color);
+                    let mut theirs = busy(64.0, 48.0, scale);
+                    let mut paint = Canvas::paint(color);
+                    paint.anti_alias = false;
+                    let transform = theirs.transform();
+                    theirs.pixmap.fill_rect(Rect::from_xywh(x, y, w, h).unwrap(), &paint, transform, None);
+                    if let Some(i) = ours.data().chunks_exact(4).zip(theirs.data().chunks_exact(4)).position(|(a, b)| a != b) {
+                        let wpx = ours.pixel_size().0 as usize;
+                        panic!("{color:?} at {scale}: ({x}, {y}, {w}, {h}): pixel ({}, {}) {:?} vs {:?}", i % wpx, i / wpx, &ours.data()[i * 4..i * 4 + 4], &theirs.data()[i * 4..i * 4 + 4]);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_picture_onto_an_empty_canvas_is_the_picture_blended_over_nothing() {
+        let picture = busy(9.0, 7.0, 1.0).into_pixmap();
+        let paint = PixmapPaint { quality: FilterQuality::Nearest, ..PixmapPaint::default() };
+        for (x, y) in [(0, 0), (3, 2), (-4, -3), (10, 8), (-20, 0), (-9, 2), (-8, -6), (5, -7), (4, 4), (11, 9), (0, -1), (-1, 0)] {
+            let mut ours = Canvas::new(12.0, 10.0, 1.0).unwrap();
+            ours.clear(Rgba::WHITE);
+            ours.reset();
+            ours.draw_device_pixmap(x, y, picture.as_ref(), &paint);
+            let mut theirs = Pixmap::new(12, 10).unwrap();
+            theirs.draw_pixmap(x, y, picture.as_ref(), &paint, Transform::identity(), None);
+            assert_eq!(ours.data(), theirs.data(), "at ({x}, {y})");
+        }
+    }
+
+    #[test]
+    fn large_shadows_can_be_let_go_and_are_drawn_again_the_same() {
+        let mut first = Canvas::new(400.0, 300.0, 2.0).unwrap();
+        first.shadow(40.0, 40.0, 300.0, 200.0, 8.0, 24.0, 4.0, 0.4);
+        let mut small = Canvas::new(60.0, 60.0, 1.0).unwrap();
+        small.shadow(10.0, 10.0, 20.0, 20.0, 4.0, 6.0, 1.0, 0.4);
+        assert!(trim_shadows(64 * 1024) > 1_000_000, "the large shadow was let go");
+        assert_eq!(trim_shadows(64 * 1024), 0, "the small one is kept");
+        let mut again = Canvas::new(400.0, 300.0, 2.0).unwrap();
+        again.shadow(40.0, 40.0, 300.0, 200.0, 8.0, 24.0, 4.0, 0.4);
+        assert_eq!(first.data(), again.data());
+    }
+
+    #[test]
+    fn a_picture_is_blended_as_tiny_skia_blends_it_in_the_parts_drawn() {
+        let paint = PixmapPaint { quality: FilterQuality::Nearest, ..PixmapPaint::default() };
+        let picture = busy(13.0, 9.0, 1.0).into_pixmap();
+        let mut glassy = busy(13.0, 9.0, 1.0).into_pixmap();
+        // Opaque and clear pixels too.
+        for (i, p) in glassy.data_mut().chunks_exact_mut(4).enumerate() {
+            match i % 5 {
+                0 => p.copy_from_slice(&[10, 200, 30, 255]),
+                1 => p.copy_from_slice(&[0, 0, 0, 0]),
+                _ => {}
+            }
+        }
+        for source in [&picture, &glassy] {
+            for (x, y) in [(0, 0), (3, 2), (10, 8), (15, 1)] {
+                for clip in [vec![], vec![(2, 1, 6, 4), (5, 3, 9, 6)], vec![(0, 0, 1, 1)]] {
+                    let mut ours = busy(20.0, 12.0, 1.0);
+                    if !clip.is_empty() {
+                        ours.begin_clip(&clip);
+                    } else {
+                        ours.touch();
+                    }
+                    let before = ours.data().to_vec();
+                    ours.draw_device_pixmap(x, y, source.as_ref(), &paint);
+                    let mut theirs = Pixmap::from_vec(before.clone(), tiny_skia::IntSize::from_wh(20, 12).unwrap()).unwrap();
+                    theirs.draw_pixmap(x, y, source.as_ref(), &paint, Transform::identity(), None);
+                    for (i, ((got, want), was)) in ours.data().chunks_exact(4).zip(theirs.data().chunks_exact(4)).zip(before.chunks_exact(4)).enumerate() {
+                        let (px, py) = ((i % 20) as u32, (i / 20) as u32);
+                        let inside = clip.is_empty() || clip.iter().any(|&(cx, cy, cw, ch)| px >= cx && py >= cy && px < cx + cw && py < cy + ch);
+                        assert_eq!(got, if inside { want } else { was }, "({px}, {py}) for a picture at ({x}, {y}), clip {clip:?}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn every_pixel_converts_to_argb_in_any_rectangle() {
+        let c = busy(13.0, 7.0, 1.0);
+        for rect in [(0, 0, 13, 7), (1, 2, 5, 3), (4, 0, 2, 7), (12, 6, 1, 1), (3, 3, 0, 2)] {
+            let mut out = vec![9u8; 13 * 7 * 4];
+            c.write_argb8888_rect(&mut out, rect);
+            for (i, (dst, src)) in out.chunks_exact(4).zip(c.data().chunks_exact(4)).enumerate() {
+                let (x, y) = (i as u32 % 13, i as u32 / 13);
+                let inside = x >= rect.0 && y >= rect.1 && x < rect.0 + rect.2 && y < rect.1 + rect.3;
+                let want = if inside { [src[2], src[1], src[0], src[3]] } else { [9; 4] };
+                assert_eq!(dst, want, "{rect:?} at ({x}, {y})");
+            }
+        }
+    }
+
+    #[test]
+    fn a_rectangle_drawn_in_parts_is_the_whole_rectangle_there() {
+        let color = Rgba::BLACK.alpha(0.22);
+        let mut part = busy(100.0, 80.0, 2.0);
+        let parts = [(10, 12, 30, 7), (150, 100, 50, 60), (30, 15, 20, 10)];
+        let before = part.data().to_vec();
+        part.begin_clip(&parts);
+        part.fill_rect(0.0, 0.0, 100.0, 80.0, color);
+        part.end_clip();
+        let width = 200usize;
+        for (i, (got, was)) in part.data().chunks_exact(4).zip(before.chunks_exact(4)).enumerate() {
+            let (x, y) = ((i % width) as u32, (i / width) as u32);
+            let inside = parts.iter().any(|&(px, py, pw, ph)| x >= px && y >= py && x < px + pw && y < py + ph);
+            if inside {
+                // Within a part: the fill over a cleared pixel, as begin_clip
+                // clears the parts.
+                let mut cleared = Canvas::new(1.0, 1.0, 1.0).unwrap();
+                cleared.fill_rect(0.0, 0.0, 1.0, 1.0, color);
+                assert_eq!(got, cleared.data(), "({x}, {y})");
+            } else {
+                assert_eq!(got, was, "({x}, {y}) outside the parts is left alone");
+            }
+        }
     }
 
     #[test]

@@ -234,6 +234,7 @@ impl Boswas {
 
         let fullscreen = self.fullscreen_window(output).filter(|_| self.overview.is_none());
         if let Some(window) = fullscreen {
+            push_spacers(output, scale, &mut elements);
             if let Some(origin) = self.window_origin(&window) {
                 let location = (origin - output_geo.loc).to_physical_precise_round(scale);
                 elements.extend(
@@ -248,6 +249,7 @@ impl Boswas {
         }
 
         layer_elements(renderer, output, Layer::Top, scale, &mut elements);
+        push_spacers(output, scale, &mut elements);
         if self.overview.is_some() {
             self.overview_elements(renderer, output, scale, &mut elements);
         } else {
@@ -601,6 +603,9 @@ pub(crate) fn layer_elements<R>(
         let Some(geo) = layers.layer_geometry(surface) else {
             continue;
         };
+        if shows_nothing(surface.wl_surface()) {
+            continue;
+        }
         elements.extend(
             AsRenderElements::<R>::render_elements::<WaylandSurfaceRenderElement<R>>(
                 surface,
@@ -613,6 +618,37 @@ pub(crate) fn layer_elements<R>(
             .map(OutputRenderElement::Surface),
         );
     }
+}
+
+/// Follows the elements in front of the windows with spacers, so that what
+/// appears there does not make everything behind it be drawn again
+/// (`steady.rs`).
+fn push_spacers<R>(output: &Output, scale: Scale<f64>, elements: &mut Vec<OutputRenderElement<R>>)
+where
+    R: BoswasRenderer,
+    R::TextureId: Clone + Send + Texture + 'static,
+{
+    let size = output.current_mode().map(|mode| output.current_transform().transform_size(mode.size)).unwrap_or_default();
+    let spacers = crate::steady::spacers(elements, Rectangle::from_size(size), scale);
+    elements.extend(spacers.into_iter().map(OutputRenderElement::Solid));
+}
+
+/// Whether a layer surface shows nothing at all: its content is one fully
+/// transparent pixel of `wp_single_pixel_buffer_v1` (the shell's invisible
+/// surface behind a flyout, there only to take the click that closes it),
+/// with no subsurface or popup. It is left out of the picture, so its
+/// coming and going damages nothing and it costs nothing to draw; it still
+/// takes the pointer, which does not depend on drawing.
+pub fn shows_nothing(surface: &WlSurface) -> bool {
+    let transparent = smithay::backend::renderer::utils::with_renderer_surface_state(surface, |state| {
+        state
+            .buffer()
+            .and_then(|buffer| smithay::wayland::single_pixel_buffer::get_single_pixel_buffer(buffer).ok())
+            .is_some_and(|pixel| pixel.a == 0)
+    });
+    transparent == Some(true)
+        && smithay::wayland::compositor::get_children(surface).is_empty()
+        && smithay::desktop::PopupManager::popups_for_surface(surface).next().is_none()
 }
 
 /// A window drawn so that its frame fills `target` (output-local logical

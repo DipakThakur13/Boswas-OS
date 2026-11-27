@@ -21,6 +21,7 @@ mod scale;
 mod shell;
 mod state;
 mod stats;
+mod steady;
 mod supervise;
 // Night light turned on or off now, how the monitors are used, and the
 // Windows shortcuts the compositor carries out itself.

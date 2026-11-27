@@ -37,7 +37,11 @@ blurred and tinted picture is made once per picture, scheme and accent
 (a few milliseconds); the backdrop of a window a little larger than the
 window (``BUCKET``), so that resizing does not make one per frame, and the
 last ``KEPT_BACKDROPS`` are kept. Painting it is one copy of the part that
-is repainted.
+is repainted. While a window is resized by hand and outgrows its backdrop,
+the new one is made only once the size has stood still for ``RESIZE_PAUSE``
+seconds (making it costs 4 to 8 ms at 200 %, at every bucket crossed): until
+then the kept backdrop shows, and the edge beyond it is the backdrop's mean
+colour. At rest a window looks exactly as before.
 """
 
 from __future__ import annotations
@@ -45,9 +49,10 @@ from __future__ import annotations
 import math
 import os
 import random
+import time
 from collections import OrderedDict
 
-from PySide6.QtCore import QObject, QPoint, QPointF, QRect, QRectF, QSize, Qt, Signal
+from PySide6.QtCore import QObject, QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QGuiApplication, QImage, QImageReader, QPainter, QPixmap
 from PySide6.QtWidgets import QApplication, QGraphicsBlurEffect, QGraphicsPixmapItem, QGraphicsScene, QWidget
 
@@ -60,6 +65,7 @@ KEPT_BACKDROPS = 3         # window backdrops kept
 BUCKET = 160               # a backdrop's sides are the window's rounded up to this (logical pixels)
 GRAIN_TILE = 64            # device pixels of the grain pattern, tiled
 LEGIBILITY_STEP = 0.02
+RESIZE_PAUSE = 0.15        # seconds a size stands still before a window's new backdrop is made
 MAX_PICTURE_BYTES = 64 << 20
 DEFAULT_SCREEN = QSize(1920, 1080)
 # The text colours that stand on glass, held to what the opaque surfaces guarantee (tests/test_contrast.py):
@@ -292,6 +298,10 @@ class Backdrop:
         self._grains: dict[float, QPixmap] = {}
         self.renders = 0          # window backdrops made (tests: once per size)
         self.softs = 0            # blurred pictures made (tests: once per picture, scheme and accent)
+        self.deferred = 0         # backdrops put off while a window was being resized (tests)
+        self.clock = time.monotonic
+        self._last_size: tuple[float, tuple, QSize] | None = None     # (when, base, size) of the last request
+        self._pause: QTimer | None = None
 
     def clear(self) -> None:
         self._pictures.clear()
@@ -373,7 +383,7 @@ class Backdrop:
 
     # --- the backdrop of a window ---
     def window(self, theme: Theme, wallpaper: str, size: QSize, dpr: float,
-               screen: QSize) -> tuple[QPixmap, QPointF] | None:
+               screen: QSize, owner: int = 0) -> tuple[QPixmap, QPointF] | None:
         """The backdrop of a window of ``size`` (logical pixels) at ``dpr``: a pixmap and where the window's top
         left corner lies in it; None while the picture loads.
 
@@ -401,7 +411,11 @@ class Backdrop:
             if best is not None:
                 key, pixmap = best
                 self._windows.move_to_end(key)
+                self._last_size = (self.clock(), (owner, base), QSize(size))
                 return pixmap, QPointF((key[-2] - width) // 2, (key[-1] - height) // 2)
+            stand_in = self._while_resizing(owner, base, size)
+            if stand_in is not None:
+                return stand_in
             made_w = min(sw, -(-width // BUCKET) * BUCKET)
             made_h = min(sh, -(-height // BUCKET) * BUCKET)
             scale = image.width() / sw
@@ -431,11 +445,41 @@ class Backdrop:
             painter.drawTiledPixmap(QRectF(0, 0, made_w, made_h), grain)
         painter.end()
         self.renders += 1
+        self._last_size = (self.clock(), (owner, base), QSize(size))
         key = base + ((made_w, made_h) if fits else (width + sw + 1, height))
         self._windows[key] = pixmap
         while len(self._windows) > KEPT_BACKDROPS:
             self._windows.popitem(last=False)
         return pixmap, QPointF((made_w - width) // 2, (made_h - height) // 2) if fits else QPointF(0, 0)
+
+
+    def _while_resizing(self, owner: int, base: tuple, size: QSize) -> tuple[QPixmap, QPointF] | None:
+        """While a window (``owner``) is being resized (its size changed less than RESIZE_PAUSE ago) and has
+        outgrown its backdrop: the largest kept one, centred (paint_backdrop fills what lies beyond it with the
+        mean colour), and a repaint once the size stands still, when the right one is made. None otherwise."""
+        now = self.clock()
+        last, self._last_size = self._last_size, (now, (owner, base), QSize(size))
+        if last is None or last[1] != (owner, base) or last[2] == size or now - last[0] >= RESIZE_PAUSE:
+            return None
+        kept = [(key, pixmap) for key, pixmap in self._windows.items() if key[:-2] == base and key[-2] <= base[6]]
+        if not kept:
+            return None
+        key, pixmap = max(kept, key=lambda item: item[0][-2] * item[0][-1])
+        self.deferred += 1
+        if QApplication.instance() is not None:
+            if self._pause is None:
+                self._pause = QTimer()
+                self._pause.setSingleShot(True)
+                self._pause.timeout.connect(self._paused)
+            self._pause.start(round(RESIZE_PAUSE * 1000) + 10)
+        return pixmap, QPointF((key[-2] - size.width()) // 2, (key[-1] - size.height()) // 2)
+
+    def _paused(self) -> None:
+        """The size stood still: windows paint again, and the one being resized gets its backdrop."""
+        if self._last_size is not None and self.clock() - self._last_size[0] < RESIZE_PAUSE and self._pause is not None:
+            self._pause.start(round(RESIZE_PAUSE * 1000) + 10)
+            return
+        self.notifier.changed.emit()
 
 
 _backdrop: Backdrop | None = None
@@ -478,7 +522,7 @@ def window_backdrop(window: QWidget) -> tuple[QPixmap, QPointF] | None:
     from .theming import manager
     themes = manager()
     return backdrop().window(themes.theme, themes.wallpaper, window.size(), window.devicePixelRatioF(),
-                             _screen_size(window))
+                             _screen_size(window), id(window))
 
 
 def paint_backdrop(painter: QPainter, widget: QWidget, rect: QRect | QRectF | None = None) -> bool:

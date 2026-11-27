@@ -187,6 +187,16 @@ class BackdropTest(Base):
         store = glass.backdrop()
         theme = fluent.theme()
         screen = QSize(1920, 1080)
+        # Each size stands still long enough to get its backdrop (for the wait while a window is being resized,
+        # see the test below).
+        now = [0.0]
+
+        def clock() -> float:
+            now[0] += glass.RESIZE_PAUSE + 0.01
+            return now[0]
+
+        store.clock = clock
+        self.addCleanup(setattr, store, "clock", __import__("time").monotonic)
         renders, softs = store.renders, store.softs
         first, origin = store.window(theme, "", QSize(800, 600), 1.0, screen)
         self.assertEqual((store.renders, store.softs), (renders + 1, softs + 1))
@@ -207,6 +217,40 @@ class BackdropTest(Base):
         whole, origin = store.window(theme, "", QSize(2400, 1400), 1.0, screen)
         self.assertEqual((whole.width(), whole.height(), origin.x()), (2400, 1400, 0),
                          "a window larger than the screen shows all of the picture")
+
+    def test_while_a_window_is_resized_its_new_backdrop_waits_for_a_pause(self):
+        store = glass.backdrop()
+        theme = fluent.theme()
+        screen = QSize(1280, 720)
+        now = [100.0]
+        store.clock = lambda: now[0]
+        try:
+            renders, deferred = store.renders, store.deferred
+            first, _origin = store.window(theme, "", QSize(600, 400), 2.0, screen, owner=1)
+            self.assertEqual(store.renders, renders + 1)
+            # Dragged larger, a few pixels a step: the kept backdrop shows, centred (its edge is the mean
+            # colour), and nothing is made while the size keeps changing.
+            for step, size in enumerate(((650, 430), (700, 460), (800, 500), (900, 560))):
+                now[0] += 0.02
+                pixmap, origin = store.window(theme, "", QSize(*size), 2.0, screen, owner=1)
+                self.assertIs(pixmap, first, f"step {step}")
+                self.assertEqual((origin.x(), origin.y()), ((640 - size[0]) // 2, (480 - size[1]) // 2))
+            self.assertEqual(store.renders, renders + 1)
+            self.assertGreaterEqual(store.deferred, deferred + 3)
+            # Another window meanwhile is not held up.
+            store.window(theme, "", QSize(300, 900), 2.0, screen, owner=2)
+            self.assertEqual(store.renders, renders + 2)
+            # The size stood still: the backdrop the window gets is exactly the one it would have got without
+            # being resized.
+            now[0] += glass.RESIZE_PAUSE + 0.01
+            settled, origin = store.window(theme, "", QSize(900, 560), 2.0, screen, owner=1)
+            self.assertEqual(store.renders, renders + 3)
+            fresh = glass.Backdrop()
+            direct, direct_origin = fresh.window(theme, "", QSize(900, 560), 2.0, screen)
+            self.assertEqual(origin, direct_origin)
+            self.assertEqual(settled.toImage(), direct.toImage(), "the same pixels at rest")
+        finally:
+            store.clock = __import__("time").monotonic
 
     def test_a_window_shows_a_steady_part_of_the_picture(self):
         """Resizing reveals more of the picture around the same centre; it neither zooms nor moves."""

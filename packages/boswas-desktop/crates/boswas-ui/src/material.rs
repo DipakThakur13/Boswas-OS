@@ -68,6 +68,20 @@ impl Backdrop {
         })
     }
 
+    /// A copy of this backdrop without the surfaces it filled: what a
+    /// surface is drawn from on another thread.
+    pub fn copy_for_work(&self) -> Backdrop {
+        Backdrop {
+            reduced: self.reduced.clone(),
+            step: self.step,
+            blurred: self.blurred.clone(),
+            extremes: self.extremes.clone(),
+            grains: self.grains.clone(),
+            filled: Vec::new(),
+            renders: 0,
+        }
+    }
+
     fn blurred(&mut self, blur: f32, saturation: f32) -> &Pixmap {
         let key = self.blur_key(blur, saturation);
         if let Some(index) = self.blurred.iter().position(|(k, _)| *k == key) {
