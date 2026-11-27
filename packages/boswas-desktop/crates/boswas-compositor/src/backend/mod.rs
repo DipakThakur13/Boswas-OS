@@ -307,6 +307,29 @@ where
     R::Error: std::fmt::Display,
     E: RenderElement<R>,
 {
+    render_offscreen_with(renderer, format, size, scale, transform, elements, clear, Fourcc::Abgr8888, <[u8]>::to_vec)
+}
+
+/// [`render_offscreen_as`] with the pixels read back in `copy` order and
+/// handed to `read` as they lie in the renderer's copy.
+#[allow(clippy::too_many_arguments)]
+pub fn render_offscreen_with<R, T, E, O>(
+    renderer: &mut R,
+    format: Fourcc,
+    size: Size<i32, Physical>,
+    scale: f64,
+    transform: Transform,
+    elements: &[E],
+    clear: Color32F,
+    copy: Fourcc,
+    read: impl FnOnce(&[u8]) -> O,
+) -> Result<O, String>
+where
+    R: Renderer + Offscreen<T> + Bind<T> + ExportMem,
+    R::TextureId: Texture + 'static,
+    R::Error: std::fmt::Display,
+    E: RenderElement<R>,
+{
     let mut target: T = renderer
         .create_buffer(format, Size::from((size.w, size.h)))
         .map_err(|e| e.to_string())?;
@@ -316,9 +339,9 @@ where
         .render_output(renderer, &mut framebuffer, 0, elements, clear)
         .map_err(|e| e.to_string())?;
     let mapping = renderer
-        .copy_framebuffer(&framebuffer, Rectangle::from_size(Size::from((size.w, size.h))), Fourcc::Abgr8888)
+        .copy_framebuffer(&framebuffer, Rectangle::from_size(Size::from((size.w, size.h))), copy)
         .map_err(|e| e.to_string())?;
-    Ok(renderer.map_texture(&mapping).map_err(|e| e.to_string())?.to_vec())
+    Ok(read(renderer.map_texture(&mapping).map_err(|e| e.to_string())?))
 }
 
 /// Renders a window into a memory buffer: the picture its exit animation

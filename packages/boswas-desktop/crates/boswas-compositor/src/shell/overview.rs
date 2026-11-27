@@ -30,6 +30,7 @@ use super::element::WindowElement;
 use crate::{
     animation::{Curve, Timeline},
     effects::BoswasRenderer,
+    glass::GlassDesktop,
     input::Direction,
     render::{placed, OutputRenderElement},
     state::Boswas,
@@ -689,19 +690,24 @@ impl Boswas {
                     self.redraw = true;
                 }
             }
-            // The desktop behind everything gets darker.
-            overview.dim.update(output_geo.size, Color32F::from([0.0, 0.0, 0.0, DIM * progress]));
-            elements.push(OutputRenderElement::Solid(SolidColorRenderElement::from_buffer(
-                &overview.dim,
-                Point::from((0, 0)),
-                scale,
-                1.0,
-                Kind::Unspecified,
-            )));
         }
-        // Behind it, the desktop blurred into glass (glass/).
-        if let Some(backdrop) = self.blurred_desktop(renderer, output, scale, progress) {
-            elements.push(OutputRenderElement::Memory(backdrop));
+        // The desktop behind everything gets darker and, with glass,
+        // blurred (glass/): on the way in and out in one picture.
+        let desktop = self.glass_desktop(renderer, output, scale, DIM, progress);
+        if !matches!(desktop, Some(GlassDesktop::Darkened(_))) {
+            if let Some(overview) = &mut self.overview {
+                overview.dim.update(output_geo.size, Color32F::from([0.0, 0.0, 0.0, DIM * progress]));
+                elements.push(OutputRenderElement::Solid(SolidColorRenderElement::from_buffer(
+                    &overview.dim,
+                    Point::from((0, 0)),
+                    scale,
+                    1.0,
+                    Kind::Unspecified,
+                )));
+            }
+        }
+        if let Some(GlassDesktop::Darkened(desktop) | GlassDesktop::Blurred(desktop)) = desktop {
+            elements.push(OutputRenderElement::Memory(desktop));
         }
     }
 
