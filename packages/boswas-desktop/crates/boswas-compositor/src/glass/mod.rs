@@ -62,6 +62,10 @@ const MAX_RECORD_BYTES: u64 = 256 * 1024;
 const MICA_INTERVAL: Duration = Duration::from_millis(750);
 /// Width of the wallpaper as it is read back for Mica, in pixels.
 const MICA_WIDTH: f64 = 480.0;
+/// How long the desktop behind Task View is kept after Task View last
+/// faded (as long as the shell keeps its spare canvases): about 30 MB at
+/// 2560 x 1440 with pixman's copy.
+const DARKENED_KEPT: Duration = Duration::from_secs(180);
 
 /// A blur the compositor asks for behind one of its own surfaces.
 pub struct OwnBlur {
@@ -132,6 +136,8 @@ struct Desktop {
     /// Blurred, enlarged and darkened, at the output's size (`None`: not
     /// made yet; `Some(None)`: it could not be made).
     darkened: Option<Option<MemoryRenderBuffer>>,
+    /// When Task View last drew the darkened picture (or it came).
+    used: Instant,
 }
 
 /// The desktop behind Task View, as [`Boswas::glass_desktop`] gives it.
@@ -445,7 +451,7 @@ impl Boswas {
             }
             let (bytes, size) = argb_pixels(&canvas);
             let blurred = MemoryRenderBuffer::from_slice(&bytes, Fourcc::Argb8888, size, 1, Transform::Normal, None);
-            self.glass.desktops.insert(name.clone(), Desktop { key, blurred, pixels: Some((bytes, size)), darkened: None });
+            self.glass.desktops.insert(name.clone(), Desktop { key, blurred, pixels: Some((bytes, size)), darkened: None, used: Instant::now() });
         }
         let desktop = self.glass.desktops.get_mut(&name)?;
         if progress < 1.0 {
@@ -457,9 +463,9 @@ impl Boswas {
             }
             let desktop = self.glass.desktops.get_mut(&name)?;
             if let Some(Some(buffer)) = &desktop.darkened {
-                return MemoryRenderBufferRenderElement::from_buffer(renderer, (0.0, 0.0), buffer, Some(progress), Some(whole(pixels)), Some(geo.size), Kind::Unspecified)
-                    .ok()
-                    .map(GlassDesktop::Darkened);
+                let element = MemoryRenderBufferRenderElement::from_buffer(renderer, (0.0, 0.0), buffer, Some(progress), Some(whole(pixels)), Some(geo.size), Kind::Unspecified);
+                desktop.used = Instant::now();
+                return element.ok().map(GlassDesktop::Darkened);
             }
         }
         // The picture, enlarged to the output (filtered linearly).
@@ -479,7 +485,12 @@ impl Boswas {
                 if made.is_none() {
                     tracing::debug!("task view: the darkened desktop could not be made");
                 }
+                let kept = made.is_some();
                 desktop.darkened = Some(made);
+                desktop.used = Instant::now();
+                if kept {
+                    state.release_darkened_later(name.clone(), key);
+                }
             }
         };
         let inserted = self.loop_handle.insert_source(receiver, move |event, _, state| match event {
@@ -496,6 +507,29 @@ impl Boswas {
                 .is_ok();
         if !spawned {
             tracing::debug!("task view: no thread for the darkened desktop");
+        }
+    }
+
+    /// Lets go of the desktop behind Task View on output `name` once Task
+    /// View is closed and has not faded for [`DARKENED_KEPT`]; the next
+    /// opening makes it again.
+    fn release_darkened_later(&mut self, name: String, key: DesktopKey) {
+        use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
+        let checked = self.loop_handle.insert_source(Timer::from_duration(DARKENED_KEPT), move |_, _, state| {
+            let Some(desktop) = state.glass.desktops.get(&name).filter(|d| d.key == key) else {
+                return TimeoutAction::Drop;
+            };
+            match release_after(desktop.used.elapsed(), state.overview.is_some()) {
+                Some(wait) => TimeoutAction::ToDuration(wait),
+                None => {
+                    state.glass.desktops.remove(&name);
+                    tracing::debug!(target: "boswas_compositor::stats", "task view: let go of the darkened desktop of {name}");
+                    TimeoutAction::Drop
+                }
+            }
+        });
+        if checked.is_err() {
+            tracing::debug!("task view: the darkened desktop is kept (no timer)");
         }
     }
 
@@ -633,6 +667,16 @@ fn output_order(canvas: &boswas_ui::Canvas) -> MemoryRenderBuffer {
     MemoryRenderBuffer::from_slice(&bytes, Fourcc::Argb8888, size, 1, Transform::Normal, None)
 }
 
+/// Whether a darkened desktop Task View last drew `idle` ago is let go of
+/// now (`None`), or how long to wait before asking again: not while Task
+/// View is open, and not before [`DARKENED_KEPT`].
+fn release_after(idle: Duration, open: bool) -> Option<Duration> {
+    if open {
+        return Some(DARKENED_KEPT);
+    }
+    (idle < DARKENED_KEPT).then(|| (DARKENED_KEPT - idle).max(Duration::from_secs(1)))
+}
+
 /// The part of the blurred desktop's picture that covers an output of
 /// `size` (half its size, rounded up).
 fn half_of(size: Size<i32, Logical>) -> Rectangle<f64, Logical> {
@@ -706,6 +750,15 @@ fn darkened(job: &DarkenJob) -> Option<MemoryRenderBuffer> {
 mod tests {
     use super::*;
     use crate::render::OutputRenderElement;
+
+    #[test]
+    fn the_darkened_desktop_goes_some_minutes_after_task_view_last_faded() {
+        assert_eq!(release_after(Duration::ZERO, false), Some(DARKENED_KEPT));
+        assert_eq!(release_after(DARKENED_KEPT - Duration::from_secs(30), false), Some(Duration::from_secs(30)));
+        assert_eq!(release_after(DARKENED_KEPT - Duration::from_millis(10), false), Some(Duration::from_secs(1)), "no busy loop");
+        assert_eq!(release_after(DARKENED_KEPT, false), None);
+        assert_eq!(release_after(DARKENED_KEPT * 2, true), Some(DARKENED_KEPT), "not while Task View is open");
+    }
 
     #[test]
     fn the_preset_record_decides_high_contrast() {
