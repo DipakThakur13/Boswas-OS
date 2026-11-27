@@ -136,6 +136,12 @@ impl Resources {
         }
     }
 
+    /// How many panels are kept (for tests of what is drawn ahead of time).
+    #[cfg(test)]
+    pub fn panel_count(&self) -> usize {
+        self.panels.len()
+    }
+
     /// A one-pixel outline colour (`control`, `surface`, `divider`, `window`).
     pub fn stroke(&self, kind: &str) -> Rgba {
         tokens().stroke(self.theme.scheme, kind)

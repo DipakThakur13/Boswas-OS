@@ -1375,6 +1375,7 @@ impl Shell {
         consider(self.st.preview.as_ref().and_then(|p| p.left_at).map(|at| at + desk::PREVIEW_GRACE));
         consider(self.slider_pending.as_ref().map(|_| self.slider_sent + desk::SLIDER_INTERVAL));
         consider(self.taskbar_hide_at);
+        consider(self.prewarm_deadline(now));
         // Finished transitions are cleaned up promptly.
         if self.surfaces.iter().any(|s| s.anim.is_some()) {
             consider(Some(now + Duration::from_millis(16)));

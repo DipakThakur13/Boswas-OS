@@ -277,7 +277,41 @@ impl Canvas {
         if !self.visible_device(x, y, picture.width() as i32, picture.height() as i32) {
             return;
         }
+        // Onto a canvas with nothing drawn on it yet, a picture laid on
+        // unchanged is copied (the same pixels as blending it over
+        // transparency; a panel's shadow at 200 % is millions of them).
+        let plain = paint.opacity >= 1.0 && paint.blend_mode == tiny_skia::BlendMode::SourceOver && paint.quality == FilterQuality::Nearest;
+        let onto_nothing = self.blank && self.clip.is_empty();
         self.touch();
+        if plain && onto_nothing && picture.width() > 0 && picture.height() > 0 {
+            let (w, h) = (self.pixmap.width() as i64, self.pixmap.height() as i64);
+            let (pw, ph) = (picture.width() as i64, picture.height() as i64);
+            let (x, y) = (i64::from(x), i64::from(y));
+            // tiny-skia rounds a negative place up and keeps the size: a
+            // picture placed left of (above) the canvas covers one more
+            // column (row) on the far side, which repeats its last one.
+            let (x1, y1) = ((x + pw + i64::from(x < 0)).min(w), (y + ph + i64::from(y < 0)).min(h));
+            let (x0, y0) = (x.max(0), y.max(0));
+            let source = picture.data();
+            let target = self.pixmap.data_mut();
+            for row in y0..y1 {
+                let from_row = (row - y).min(ph - 1);
+                let to = ((row * w + x0) * 4) as usize;
+                let inside = (x1.min(x + pw) - x0).max(0);
+                if inside > 0 {
+                    let from = ((from_row * pw + (x0 - x)) * 4) as usize;
+                    let len = (inside * 4) as usize;
+                    target[to..to + len].copy_from_slice(&source[from..from + len]);
+                }
+                if x1 > x + pw && x + pw >= 0 {
+                    let last = ((from_row * pw + pw - 1) * 4) as usize;
+                    let at = ((row * w + x + pw) * 4) as usize;
+                    let pixel: [u8; 4] = source[last..last + 4].try_into().unwrap_or([0; 4]);
+                    target[at..at + 4].copy_from_slice(&pixel);
+                }
+            }
+            return;
+        }
         self.pixmap.draw_pixmap(x, y, picture, paint, Transform::identity(), None);
     }
 
@@ -362,9 +396,24 @@ impl Canvas {
         let stride = pw as usize * 4;
         let inv = 255 - a;
         let data = self.pixmap.data_mut();
-        for (px, py, cw, ch) in parts {
-            for row in py as usize..(py + ch) as usize {
-                let line = &mut data[row * stride + px as usize * 4..row * stride + (px + cw) as usize * 4];
+        // Parts of the clip may overlap: each row's spans are joined first,
+        // so that no pixel is blended twice.
+        let (top, bottom) = parts.iter().fold((u32::MAX, 0), |(t, b), p| (t.min(p.1), b.max(p.1 + p.3)));
+        let mut spans: Vec<(u32, u32)> = Vec::with_capacity(parts.len());
+        for row in top..bottom {
+            spans.clear();
+            spans.extend(parts.iter().filter(|p| row >= p.1 && row < p.1 + p.3).map(|p| (p.0, p.0 + p.2)));
+            spans.sort_unstable();
+            let mut joined: Vec<(u32, u32)> = Vec::with_capacity(spans.len());
+            for &(from, to) in &spans {
+                match joined.last_mut() {
+                    Some(last) if from <= last.1 => last.1 = last.1.max(to),
+                    _ => joined.push((from, to)),
+                }
+            }
+            let row = row as usize;
+            for (from, to) in joined {
+                let line = &mut data[row * stride + from as usize * 4..row * stride + to as usize * 4];
                 if a == 255 {
                     for pixel in line.chunks_exact_mut(4) {
                         pixel.copy_from_slice(&[r as u8, g as u8, b as u8, 255]);
@@ -810,6 +859,21 @@ mod tests {
     }
 
     #[test]
+    fn a_picture_onto_an_empty_canvas_is_the_picture_blended_over_nothing() {
+        let picture = busy(9.0, 7.0, 1.0).into_pixmap();
+        let paint = PixmapPaint { quality: FilterQuality::Nearest, ..PixmapPaint::default() };
+        for (x, y) in [(0, 0), (3, 2), (-4, -3), (10, 8), (-20, 0), (-9, 2), (-8, -6), (5, -7), (4, 4), (11, 9), (0, -1), (-1, 0)] {
+            let mut ours = Canvas::new(12.0, 10.0, 1.0).unwrap();
+            ours.clear(Rgba::WHITE);
+            ours.reset();
+            ours.draw_device_pixmap(x, y, picture.as_ref(), &paint);
+            let mut theirs = Pixmap::new(12, 10).unwrap();
+            theirs.draw_pixmap(x, y, picture.as_ref(), &paint, Transform::identity(), None);
+            assert_eq!(ours.data(), theirs.data(), "at ({x}, {y})");
+        }
+    }
+
+    #[test]
     fn every_pixel_converts_to_argb_in_any_rectangle() {
         let c = busy(13.0, 7.0, 1.0);
         for rect in [(0, 0, 13, 7), (1, 2, 5, 3), (4, 0, 2, 7), (12, 6, 1, 1), (3, 3, 0, 2)] {
@@ -828,7 +892,7 @@ mod tests {
     fn a_rectangle_drawn_in_parts_is_the_whole_rectangle_there() {
         let color = Rgba::BLACK.alpha(0.22);
         let mut part = busy(100.0, 80.0, 2.0);
-        let parts = [(10, 12, 30, 7), (150, 100, 50, 60)];
+        let parts = [(10, 12, 30, 7), (150, 100, 50, 60), (30, 15, 20, 10)];
         let before = part.data().to_vec();
         part.begin_clip(&parts);
         part.fill_rect(0.0, 0.0, 100.0, 80.0, color);
