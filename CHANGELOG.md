@@ -1056,8 +1056,10 @@ Verification status of the native desktop
   systemd user manager; the new shortcuts and the media keys on no real
   keyboard, Super+P with no second monitor, the night light tint and its
   gamma check on no real display, dark mode reaching GTK programs and
-  Firefox with a stand-in `gsettings` only. The package build, lintian and
-  the package stage have not been run for it yet. The emoji data was
+  Firefox with a stand-in `gsettings` only. The packages built with Rust
+  1.85 and all their tests, lintian found nothing and the package stage
+  passed (2026-11-27); the unit stage and the virtual machine were not run
+  for it. The emoji data was
   generated from Ubuntu 24.04's Unicode data; Debian 13's may differ,
   which `build_emoji.py --check` would show.
 - **Left out of the shell's round** (ADR-0062): Super+K (Cast); switching

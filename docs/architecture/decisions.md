@@ -5348,8 +5348,9 @@ compositor for a blurred backdrop.
   half-way through growing; clippy with Rust 1.85; XWayland windows
   asking for blur; turning glass off with a preset from Control Center
   in a running session (the code path is `boswas-preset apply`, which
-  writes the record and then sends `reload-config`; it was not run); the
-  package build, lintian and the package stage.
+  writes the record and then sends `reload-config`; it was not run). The
+  package build with Rust 1.85, lintian and the package stage passed later
+  with ADR-0064 merged (`verification.md`).
 
 **Revisit when** the Qt toolkit asks for live blur, a real GPU shows what
 the blur costs, or the end-to-end regression on the taskbar is found.
@@ -5616,7 +5617,9 @@ lock screen:
   the start and 119 MB after the flyouts (117.6 and 133.8 without the
   mmap threshold). Dragging, resizing and snapping windows did not
   change. Tests: the desktop workspace's `cargo test --locked` on the
-  merged tree: pending; on the tree before the Task View fold, 632
+  merged tree, in the package build with Rust 1.85 (release), 635 passed
+  and 6 ignored, and 637 with the spacer and scheme fixes; on the tree
+  before the Task View fold, 632
   passed, none failed, 6 ignored; the release-only budgets passed; the
   static checks 82; the Qt toolkit 181. New guards: a drag drawn in parts
   is exactly the whole drawing at 100, 125 and 200 % and small moves draw
@@ -5642,9 +5645,10 @@ lock screen:
   at rest is identical to the build before the single fading picture
   but for the clock, and with reduced motion it opens and closes in one
   frame and ends as the animated one does.
-- **Not verified:** see Left out; the package build, lintian and the
-  package stage; a build with Rust 1.85 was not reported (the sandbox's
-  default toolchain is newer).
+- **Not verified:** see Left out. The package build with Rust 1.85 and
+  all its tests, lintian and the package stage passed on the merged tree
+  (`verification.md`); the unit stage and the virtual machine were not
+  run.
 
 **Revisit when** a real GPU shows how the spacers and the fades behave
 there, the lock screen has to come within a frame or two (the fonts of

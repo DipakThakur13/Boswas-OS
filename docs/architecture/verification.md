@@ -51,7 +51,8 @@ ignored 6, and with ADR-0063 as well (7306311) 612 passed, none failed,
 6 ignored. The release-only frame budgets of ADR-0056 passed on the
 branch of ADR-0062. With ADR-0064 merged up to its Task View fold
 (7f4b86b) 632 passed, none failed, 6 ignored; on the merged tree with the
-fold (4b3b232): pending. The release-only budgets, with the limit on a
+fold (4b3b232) the package build's release run with Rust 1.85 passed 635
+and ignored 6, and with the two fixes after it (08bafcd) 637. The release-only budgets, with the limit on a
 slice of the preparation of ADR-0064, passed on that work's branch.
 Three of the settings tests run against the real compositor on its
 headless back end and are opt-in (`BOSWAS_TEST_COMPOSITOR=1`).
@@ -324,30 +325,24 @@ the compositor's 123 unit tests were run again with it, the package was
 not rebuilt. The unit stage and the boot in the virtual machine were not
 repeated.
 
-The work of ADR-0056 to ADR-0061 (2026-11-26) has **not** been through a
-package build, lintian or the package stage yet; neither the unit stage
-nor the virtual machine was run for it. Its suites were run on the merged
-tree: the desktop workspace's `cargo test --locked` (544 passed, none
-failed, 5 ignored), every suite of `boswas-apps` (2,344 tests), the
-toolkit and Control Center (5 skipped), all passing.
-
-The work of ADR-0062 and ADR-0063 (2026-11-26 and 27) has **not** been
-through a package build, lintian or the package stage either, nor the
-unit stage or the virtual machine. On the merged tree (7306311) the
-desktop workspace's `cargo test --locked` passed 612 tests, failed none
-and ignored 6; the static stage passed 82 checks, the Qt toolkit 180
-tests and the token tests 12. Control Center and the applications were
-not changed and their suites were not run again for it.
-
-The work of ADR-0064 (2026-11-26 and 27) has **not** been through a
-package build, lintian or the package stage either, nor the unit stage
-or the virtual machine. On the tree merged up to its Task View fold
-(7f4b86b) the desktop workspace's `cargo test --locked` passed 632
-tests, failed none and ignored 6, and the static stage passed 82 checks;
-on the merged tree with the fold (4b3b232) the count is pending. On the
-branch of the work the release-only budgets of the shell and of
-`boswas-ui` (with all its features) passed and the Qt toolkit passed 181
-tests. Control Center and the applications were not changed.
+The run after the work of ADR-0056 to ADR-0064 (2026-11-27, version
+3.0~alpha1, the same build environment, with Rust 1.85 as Debian 13 has
+it, on the merged tree 4b3b232): the 13 device packages and the Control
+Plane built with all their test suites (635 Rust tests in
+`boswas-desktop` with six ignored, 187 in `boswas-bootsplash`, 4,066
+Python tests in the other device packages, 50 in the Control Plane; none
+failed); lintian reported no errors or warnings; the package stage passed
+104 checks (the new one: boswas-desktop depends on `libglib2.0-bin`,
+`dconf-gsettings-backend` and `gsettings-desktop-schemas`), failed none
+and skipped the same three; the static stage passed 82 checks. Before
+the build, `cargo check --locked --workspace --all-targets` with Rust
+1.85 gave no warning in either Rust package. After it, two fixes went in
+(08bafcd: the spacers counted again once live blur is in, and the drawn
+background following the scheme, each with a test), and `boswas-desktop`
+was built again with them: 637 Rust tests passed, none failed, six
+ignored; with that package the package stage again passed 104 checks and
+lintian reported nothing. The unit stage and the boot in the virtual
+machine were not repeated.
 
 Qt Multimedia in this environment: the sandbox has PySide6 6.12, whose
 audio back end is PipeWire, and `libpipewire` without its configuration
