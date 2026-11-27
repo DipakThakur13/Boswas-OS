@@ -47,7 +47,8 @@ INPUT_DEVICES = "/proc/bus/input/devices"
 MAX_LAYOUTS = xkb.MAX_LAYOUTS
 POINTER_SIZES = ((24, "Small"), (32, "Medium"), (48, "Large"), (64, "Extra large"))
 POINTER_SIZE_TEXT = ("The desktop's pointer changes at once. X11 programs and programs that draw their own pointer "
-                     "use the new size when they start after your next sign-in; open ones keep theirs")
+                     "use the new size the next time you start them; open ones keep theirs, and so do programs "
+                     "started from a terminal that was already open")
 ENVIRONMENT_TIMEOUT = 10.0
 _BTN_TOOL_PEN, _BTN_TOOL_FINGER = 0x140, 0x145
 _INPUT_PROP_DIRECT = 1

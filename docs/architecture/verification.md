@@ -20,13 +20,13 @@ Python suites, which were run). The numbers move as work lands.
 
 | Suite | Tests | What they cover |
 |-------|-------|-----------------|
-| `boswas-ui` (Rust) | 39 | The token file as the programs read it, drawing, text (also without the font configuration, and without any font), icons (looked up theme by theme as the icon theme specification says: a program's own PNG icon in `hicolor` beats Breeze's SVG of it, generic actions still come from Breeze, ADR-0052), the materials, the contrast rules for every accent colour in both schemes; drawing a part again under a clip, the stretched shadow, kept shaped text (ADR-0056); colour emoji (ADR-0058) |
-| `boswas-compositor`, unit | 126 | The exit statuses, when a shell that ended is started again and when the login screen is given up, the messages for a missing seat or graphics device, the configuration layers and their rules (a user cannot relax the lock policy, name a trusted program or turn X11 back on; a damaged file is ignored alone), the shortcut table, snapping and the layouts of the window picker, Task View, the snap layouts and the window menu, the frame geometry, the clip geometry, animation timelines, capture regions (also on a rotated output), EDID names; the mode choice and frame pacing at high refresh rates (ADR-0048); the keys of ADR-0049 and their limits, the colour filter matrices, the magnifier's view, sticky and filter keys, snap layouts by dragging to the top, the title's text size; `[lock] show_weather` as a setting of the user (ADR-0051); the recommended scale for built-in panels and external monitors of many sizes, the cases that mean 100 % (no size, a size of the wrong shape, more than 1.6 m, virtual graphics devices), and which scale setting wins, an old explicit 1.0 included (ADR-0055); Super+V, Super+., Super+; and Super+W (Ctrl+V stays the application's), `[clipboard]`, `[desktop]` and `[taskbar] widgets` with their defaults and checks, the terminals that paste with Ctrl+Shift+V (ADR-0058 to ADR-0060) |
-| `boswas-compositor`, end to end | 23 | The real binary on its headless back end with real clients and the control socket: a login screen that keeps failing or cannot be started ends the compositor with status 4, and a desktop session stays; without a seat the compositor ends with status 3 and says why; a shell that says `quit` and leaves ends it normally; the login screen runs no X server; ordinary clients get no privileged protocol and a started program does; a configured input method gets its two protocols and nothing else; the limits of the public control socket; a client drawing at its output's refresh rate (60 and 144 Hz); a window's life; the window picker, Task View, snap keys and window menu through injected keys; screen capture only after the user's answer and never while locked (with `grim`); an X11 program through Xwayland (with `xclock`); the lock across a crashed lock screen; the lock screen learning `[lock] show_weather` (ADR-0051); a 27-inch 3840x2160 monitor (`--headless-physical-size 597x336`) getting 150 % and `recommended_scale`, a scale that is set winning over it, and 100 % without a size (ADR-0055); an output with nothing new is not drawn and frame callbacks still come at its pace (ADR-0056); the shell's `paste`: Ctrl+V for an editor, Ctrl+Shift+V for `foot`, the window reads the clipboard, nothing while locked, refused on the public socket (ADR-0058) |
+| `boswas-ui` (Rust) | 47 | The token file as the programs read it, drawing, text (also without the font configuration, and without any font), icons (looked up theme by theme as the icon theme specification says: a program's own PNG icon in `hicolor` beats Breeze's SVG of it, generic actions still come from Breeze, ADR-0052), the materials, the contrast rules for every accent colour in both schemes; drawing a part again under a clip, the stretched shadow, kept shaped text (ADR-0056); colour emoji (ADR-0058); glass (ADR-0063): both schemes have it, a tint raised only as far as text needs, glass over the luminosity band translucent and legible, the grain, translucent glass without its own shadow, the edges, a glass recipe saturating and graining the backdrop, a kept fill equal to one drawn directly |
+| `boswas-compositor`, unit | 151 | The exit statuses, when a shell that ended is started again and when the login screen is given up, the messages for a missing seat or graphics device, the configuration layers and their rules (a user cannot relax the lock policy, name a trusted program or turn X11 back on; a damaged file is ignored alone), the shortcut table, snapping and the layouts of the window picker, Task View, the snap layouts and the window menu, the frame geometry, the clip geometry, animation timelines, capture regions (also on a rotated output), EDID names; the mode choice and frame pacing at high refresh rates (ADR-0048); the keys of ADR-0049 and their limits, the colour filter matrices, the magnifier's view, sticky and filter keys, snap layouts by dragging to the top, the title's text size; `[lock] show_weather` as a setting of the user (ADR-0051); the recommended scale for built-in panels and external monitors of many sizes, the cases that mean 100 % (no size, a size of the wrong shape, more than 1.6 m, virtual graphics devices), and which scale setting wins, an old explicit 1.0 included (ADR-0055); Super+V, Super+., Super+; and Super+W (Ctrl+V stays the application's), `[clipboard]`, `[desktop]` and `[taskbar] widgets` with their defaults and checks, the terminals that paste with Ctrl+Shift+V (ADR-0058 to ADR-0060); the shortcuts of ADR-0062 (their neighbours keep their keys, Ctrl+Alt+Del through an inhibitor, none while locked), night light turned on or off against a schedule, the projection choices, Num Lock over a reload, the settings page command; glass (ADR-0063): the background effect protocol's regions and double buffering, the passes against the token's blur, the reach and the damage it grows, the halved capture, the band and the saturation, the high-contrast preset record, and on Mesa's software rasterizer (llvmpipe, EGL surfaceless; the two tests pass without running where EGL gives no renderer) the shaders against a reference on the processor, no new blur for a still scene, drawing only inside the region's staircase, the band on white and on a dark green |
+| `boswas-compositor`, end to end | 26 | The real binary on its headless back end with real clients and the control socket: a login screen that keeps failing or cannot be started ends the compositor with status 4, and a desktop session stays; without a seat the compositor ends with status 3 and says why; a shell that says `quit` and leaves ends it normally; the login screen runs no X server; ordinary clients get no privileged protocol and a started program does; a configured input method gets its two protocols and nothing else; the limits of the public control socket; a client drawing at its output's refresh rate (60 and 144 Hz); a window's life; the window picker, Task View, snap keys and window menu through injected keys; screen capture only after the user's answer and never while locked (with `grim`); an X11 program through Xwayland (with `xclock`); the lock across a crashed lock screen; the lock screen learning `[lock] show_weather` (ADR-0051); a 27-inch 3840x2160 monitor (`--headless-physical-size 597x336`) getting 150 % and `recommended_scale`, a scale that is set winning over it, and 100 % without a size (ADR-0055); an output with nothing new is not drawn and frame callbacks still come at its pace (ADR-0056); the shell's `paste`: Ctrl+V for an editor, Ctrl+Shift+V for `foot`, the window reads the clipboard, nothing while locked, refused on the public socket (ADR-0058); Num Lock at start, after a change in Settings and over a reload, night light turned on now holding against the schedule until Settings changes it, every shortcut of ADR-0062 reaching a subscribed client, Super+Home, Super+Shift+Up and Down, and `project` with one monitor (ADR-0062) |
 | `boswas-services`, unit | 60 | Parsers, limits, conversions and policies of the ten services; what the lock screen, the login screen and Settings may each ask for |
 | `boswas-services`, integration | 85 | Every service against two private `dbus-daemon` processes and scripted stand-ins (see below): notifications, tray, media, network, Bluetooth, audio, power, brightness, session, the polkit agent, start-up and shut-down, buses that go away, and that no secret reaches the log |
 | `boswas-services-bridge` | 5 + 1 | The command parser, and the program itself: it reports states, answers bad lines and ends with its input |
-| `boswas-shell` | 201 + 4 | Every surface drawn without any font; what is reported when no font is installed; every surface drawn in both schemes and checked for controls inside the surface and reachable by keyboard; the taskbar's grouping and layout, Start's search, toasts and the notification centre, the dialogs (Run without a shell, the polkit dialog, the choice of administrator), the capture mark, pinned applications, the greetd messages, the PAM conversation, the users the greeter lists; the desktop settings of the `config` event, the taskbar at the left and without Task View, Start's layouts and recommendations, the do-not-disturb schedule over midnight, the least time a toast stays, the list of notification senders and of applications first seen; the lock screen's weather summary (every bad value rejects it; only a regular file of the user, at most 16 KB, not through a link, not blocked by a FIFO; old and future summaries; the hours that are still ahead), the card's place at every text size clear of the clock, the hint and the status icons, and that it appears only in the lock screen's clock view on the interactive output, with the setting on (ADR-0051); Start (ADR-0053): the default pins and that choosing a view does not freeze the taskbar's defaults, the category rules, smooth scrolling and revealing the focused control, the keyboard reaching every part of the page, and a bound on the cost of drawing it again; opening files (ADR-0054): types from the name, the order of the `mimeapps.list` files, defaults that are not installed, added, removed and hidden entries, sub-directory ids, `Exec` turned into an argument list for hostile file names, the shipped default applications (each declared by the entry it names), the fallback to `xdg-open`. Drawing (ADR-0056): a hover redrawn in part is pixel for pixel the whole drawing (Start in its three views, the taskbar, quick settings, the notification centre, a menu and the lock screen, at 100 and 150 %), a pass across Start's controls redraws under 5 % of its pixels, Start opens without rasterising an icon once the icons are prepared, and in release builds a budget for Start at 200 % (45 ms for a whole frame, 6 ms for a hover change). The clipboard history and the emoji panel (ADR-0058): the cap, duplicates and Clear all, the secret hints, the choice of type to read, rich text to text, damaged, linked and oversized pinned files, the transfer limits, emoji search, recent items and tones, the Turn-on edit, both flyouts at 100, 175 and 225 % with and without fonts and the emoji font. The widgets board (ADR-0059): the arrangement and its file, the taskbar's button and its place, Calendar's repeating events (and a committed copy of a cross-check against Calendar's own model, `tests/fixtures/calendar/`), time zones from `/usr/share/zoneinfo`, Clock's file, the newest picture. Desktop icons (ADR-0060): the grid and the order, the places file, names and free names, the Trash, copying and moving without links or overwriting, the launcher rule, the View menu's edit of `compositor.toml`, the menus, the rename field. The end-to-end tests run the real compositor and shell: `tests/opening.rs` (Print, a click on the notice, and a stand-in Photos gets the picture; "Open folder", and a stand-in Files gets the folder's `file://` address), `tests/clipboard.rs` (copy, Super+V, Down and Enter paste the right item; a password manager's item is not kept; Ctrl+P writes the pinned file with mode 0600; Super+. inserts an emoji and the clipboard is given back; with the history off nothing is kept until Turn on) and `tests/desktop.rs` (Ctrl+Shift+N makes a folder, typing renames it, Delete trashes it with its info file; Super+W, Tab and Enter open Weather) |
+| `boswas-shell` | 233 + 4 | Every surface drawn without any font; what is reported when no font is installed; every surface drawn in both schemes and checked for controls inside the surface and reachable by keyboard; the taskbar's grouping and layout, Start's search, toasts and the notification centre, the dialogs (Run without a shell, the polkit dialog, the choice of administrator), the capture mark, pinned applications, the greetd messages, the PAM conversation, the users the greeter lists; the desktop settings of the `config` event, the taskbar at the left and without Task View, Start's layouts and recommendations, the do-not-disturb schedule over midnight, the least time a toast stays, the list of notification senders and of applications first seen; the lock screen's weather summary (every bad value rejects it; only a regular file of the user, at most 16 KB, not through a link, not blocked by a FIFO; old and future summaries; the hours that are still ahead), the card's place at every text size clear of the clock, the hint and the status icons, and that it appears only in the lock screen's clock view on the interactive output, with the setting on (ADR-0051); Start (ADR-0053): the default pins and that choosing a view does not freeze the taskbar's defaults, the category rules, smooth scrolling and revealing the focused control, the keyboard reaching every part of the page, and a bound on the cost of drawing it again; opening files (ADR-0054): types from the name, the order of the `mimeapps.list` files, defaults that are not installed, added, removed and hidden entries, sub-directory ids, `Exec` turned into an argument list for hostile file names, the shipped default applications (each declared by the entry it names), the fallback to `xdg-open`. Drawing (ADR-0056): a hover redrawn in part is pixel for pixel the whole drawing (Start in its three views, the taskbar, quick settings, the notification centre, a menu and the lock screen, at 100 and 150 %), a pass across Start's controls redraws under 5 % of its pixels, Start opens without rasterising an icon once the icons are prepared, and in release builds a budget for Start at 200 % (45 ms for a whole frame, 6 ms for a hover change). The clipboard history and the emoji panel (ADR-0058): the cap, duplicates and Clear all, the secret hints, the choice of type to read, rich text to text, damaged, linked and oversized pinned files, the transfer limits, emoji search, recent items and tones, the Turn-on edit, both flyouts at 100, 175 and 225 % with and without fonts and the emoji font. The widgets board (ADR-0059): the arrangement and its file, the taskbar's button and its place, Calendar's repeating events (and a committed copy of a cross-check against Calendar's own model, `tests/fixtures/calendar/`), time zones from `/usr/share/zoneinfo`, Clock's file, the newest picture. Desktop icons (ADR-0060): the grid and the order, the places file, names and free names, the Trash, copying and moving without links or overwriting, the launcher rule, the View menu's edit of `compositor.toml`, the menus, the rename field. The end-to-end tests run the real compositor and shell: `tests/opening.rs` (Print, a click on the notice, and a stand-in Photos gets the picture; "Open folder", and a stand-in Files gets the folder's `file://` address), `tests/clipboard.rs` (copy, Super+V, Down and Enter paste the right item; a password manager's item is not kept; Ctrl+P writes the pinned file with mode 0600; Super+. inserts an emoji and the clipboard is given back; with the history off nothing is kept until Turn on) and `tests/desktop.rs` (Ctrl+Shift+N makes a folder, typing renames it, Delete trashes it with its info file; Super+W, Tab and Enter open Weather). The round of ADR-0062: the new-window action and its stand-in, every right-click menu with the tools installed and missing, every Settings page key against Control Center's catalogue, the GSettings mapping and "only when different", the account picture's limits and round crop, the security screen's choices and keyboard order, the projection flyout, the taskbar's keyboard focus within the hover rule, the level's place on the lock screen, the night light tile's explanation and the battery button, the new control events. Glass (ADR-0063): the blur region's staircase, which surfaces ask for blur, the magnifier's targets, caps and easing, the sign-in view's darkening, a taskbar hover that fills nothing again |
 | `boswas-bootsplash` | 161 unit, 19 + 5 + 1 + 1 | The rasteriser (exact coverage, non-zero winding, reused buffers); the vector mark against resvg's rendering of the same SVG and each stage of its assembly; glyph outlines and kerning; the background's bloom and dither; the timing curves and the choreography (intro, fades, glides, breathing, a progress, the farewell, nothing moving with `--static`) (ADR-0050); rendering, layout on eleven display sizes (portrait included), damage, the protocol, both client dialects, the passphrase editor; the whole frame after a mode-set; devices handed over by the supervisor; the console left alone once a graphical session has it; the real programs headless with a pseudo-terminal (a second start, a boot screen that does not answer); the packaged units and initramfs hook; Debian's unmodified `askpass` in a scratch root (needs root and the helper, skipped otherwise); frame cost and damage of the intro, the ring, the glow, the glide, the caret and the text box |
 | `desktop/ui` (Python) | 12 | The token file and the generated KDE colour schemes: references, the fixed values, the Fluent geometry, contrast, staleness; `material.glass` (ADR-0057) |
 | `desktop/ui/qt` (Python) | 180 | The Qt toolkit on Qt's offscreen platform: theme, style sheet, widgets, navigation, contrast (every accent colour in both schemes), text size, scroll bars, single instance, workers; icons: a program's own icon in `hicolor` before Qt's theme (ADR-0052); Boswas glass (ADR-0057): legibility on black, white and saturated pictures, transparency off and the high-contrast preset, one backdrop per size step, popups and dialogs as glass, glass surfaces drawn once per size; the magnifier over time, with reduced motion and with the keyboard focus, no text moving; `--new-window` and the window a later start goes to (ADR-0061) |
@@ -40,12 +40,16 @@ Python suites, which were run). The numbers move as work lands.
 | `packages/boswas-desktop/tools` (Python) | 4 (1 skipped where `unicode-data` is not installed) | The emoji data's generator: the committed `emoji.tsv` against Debian's Unicode data, `--check` (ADR-0058) |
 
 One more `#[test]` in the compositor's end-to-end file is a helper
-program for the others and is not counted, three more in the shell write
-pictures of the lock screen, of Start and of the clipboard and emoji
-flyouts for people to look at, and one measures how long the emoji panel
-takes to draw (all four ignored unless asked for). On the tree with the
-work of ADR-0056 to ADR-0061 merged, the desktop workspace's `cargo test
---locked` passed 544 tests, failed none and ignored 5. Three of the
+program for the others and is not counted, four more in the shell write
+pictures of the lock screen, of Start, of the clipboard and emoji
+flyouts and of the shell's menus and screens of ADR-0062 for people to
+look at, and one measures how long the emoji panel takes to draw (all
+five ignored unless asked for). On the tree with the work of ADR-0056 to
+ADR-0061 merged, the desktop workspace's `cargo test --locked` passed 544
+tests, failed none and ignored 5; with ADR-0062 merged it passed 583 and
+ignored 6, and with ADR-0063 as well (7306311) 612 passed, none failed,
+6 ignored. The release-only frame budgets of ADR-0056 passed on the
+branch of ADR-0062. Three of the
 settings tests run against the real compositor on its headless back end
 and are opt-in (`BOSWAS_TEST_COMPOSITOR=1`).
 
@@ -68,11 +72,15 @@ every user by the postinst (ADR-0051); that `boswas-desktop` depends on
 `xdg-utils`; and that `boswas-apps` ships the default applications in
 `/usr/share/applications/mimeapps.list` (pictures in Photos, folders in
 Files, web addresses in Firefox ESR), and that every desktop entry it
-names but Firefox ESR's is installed by the packages (ADR-0054). The
+names but Firefox ESR's is installed by the packages (ADR-0054); and,
+since ADR-0062, that `boswas-desktop` depends on `libglib2.0-bin`,
+`dconf-gsettings-backend` and `gsettings-desktop-schemas`. The
 unit stage (`tests/unit/test_units.sh`) and the package build of
 `boswas-desktop` also run the tests of the emoji data's generator
 (ADR-0058); the public control commands are unchanged, so the static
-stage's pinned set still holds (`paste` is a trusted command).
+stage's pinned set still holds (`paste`, `project`, `projection` and
+`night-light` are trusted commands). The static stage passed 82 checks on
+the trees of ADR-0062 and ADR-0063.
 
 ### What the tests use in place of the real thing
 
@@ -82,7 +90,9 @@ stage's pinned set still holds (`paste` is a trusted command).
   scripts the tests write.
 - **Graphics:** the compositor's headless back end, which renders in
   software. The clip shader for rounded corners and everything in the
-  hardware back end are not executed by any test.
+  hardware back end are not executed by any test. The blur shaders of
+  ADR-0063 run on Mesa's software rasterizer through EGL's surfaceless
+  platform, where the machine has it.
 - **Input:** key and pointer events injected through the control socket
   (`--test-input`).
 - **Console and display of the boot screen:** a pseudo-terminal and a
@@ -163,6 +173,36 @@ Recorded by the builders; not repeatable from the test suite.
   - Control Center (ADR-0061): Display with Brightness, Power & battery,
     Ethernet and its IP dialog, USB, Activity history and Mouse pointer,
     whole windows in both schemes.
+- The round of ADR-0062 and ADR-0063 (2026-11-26 and 27):
+  - The shell's controls and shortcuts (ADR-0062), as pictures of the
+    shell in both schemes at 100 and 200 %: every right-click menu,
+    Start's application menu, the security options, the projection
+    flyout with one and two monitors, the night light tile tinting and
+    not available, the account picture in Start, on the lock screen and
+    on the login screen, the level on the lock screen. Live on the
+    headless compositor with the real shell, simulated services, injected
+    input and logging stand-ins for the Boswas programs and `gsettings`:
+    each menu entry and key started exactly the expected command (Super+X
+    and Enter `boswas-control-center --page installed-apps`, the clock's
+    menu `--page date-time`, the battery `--page power`, Ctrl+Alt+Del >
+    Change a password `--page users --section your-account`, Super+U
+    `--page accessibility`, the middle button and Super+Shift+4 the
+    application's new-window action); `gsettings` was only read when the
+    scheme already matched; Super+Shift+Up and Down on a `foot` window; a
+    volume key on the real lock screen at 200 %; a `~/.face` picture on
+    the lock screen and in Start.
+  - Glass (ADR-0063): every glass surface of the shell and the
+    compositor (the desktop, Start at rest and under the pointer, quick
+    settings, notifications, a menu, a tooltip, the clipboard and emoji
+    panels, the widgets board, the volume display, a toast, Alt+Tab, the
+    window menu, the snap layouts, Task View, the quick-link menu, the
+    projection flyout, the security screen, the lock screen and its
+    sign-in view) on pixman, dark and light, at 100 and 200 %, and once
+    each with transparency off and with the Carbon preset; live blur over
+    a window of colour bands, nested on llvmpipe under Xvfb at 1280x800
+    and 100 %, in both schemes. Contrast measured on those screenshots:
+    see [Glass, measured](#glass-measured). An icon growing was caught
+    nearly settled only (a screenshot is slower than the 150 ms).
 - The shell's surfaces under the headless compositor, with simulated
   services (debug builds contain a stand-in).
 - A window's rounded lower corner in a nested run on OpenGL ES with
@@ -274,6 +314,14 @@ nor the virtual machine was run for it. Its suites were run on the merged
 tree: the desktop workspace's `cargo test --locked` (544 passed, none
 failed, 5 ignored), every suite of `boswas-apps` (2,344 tests), the
 toolkit and Control Center (5 skipped), all passing.
+
+The work of ADR-0062 and ADR-0063 (2026-11-26 and 27) has **not** been
+through a package build, lintian or the package stage either, nor the
+unit stage or the virtual machine. On the merged tree (7306311) the
+desktop workspace's `cargo test --locked` passed 612 tests, failed none
+and ignored 6; the static stage passed 82 checks, the Qt toolkit 180
+tests and the token tests 12. Control Center and the applications were
+not changed and their suites were not run again for it.
 
 Qt Multimedia in this environment: the sandbox has PySide6 6.12, whose
 audio back end is PipeWire, and `libpipewire` without its configuration
@@ -446,6 +494,48 @@ screen's first frame (90 to 240 ms), Task View's opening frame (30 to
 about 14 MB more. Not measured: a real GPU, a real vertical blank, the
 DRM and nested back ends, more than one output.
 
+## Glass, measured
+
+For ADR-0063, on the build machine (4 cores, no GPU). **Contrast** of
+the worst muted text over glass, measured on screenshots as the darkest
+1 % of the background, grain included (4.5:1 is the rule):
+
+| Run | Start | Quick settings | Menu | Taskbar |
+|-----|-------|----------------|------|---------|
+| pixman, dark, 100 % and 200 % | 6.73 to 6.98 | 7.28 to 7.86 | 7.05 to 7.24 | 6.90 to 7.90 |
+| pixman, light, 100 % (Pearl) and 200 % (Horizon) | 4.63 to 4.85 | 4.63 to 4.82 | 5.47 to 5.48 | 4.38 to 4.55 |
+| live blur, light, colour bands behind | 4.55 | 4.59 | 5.38 | 4.40 |
+| live blur, dark, colour bands behind | 6.45 or more | | | |
+
+The taskbar shows no muted text (its clock is above 13:1); body text is
+above 4.6:1 everywhere (secondary text 5.5 to 10, text 9 to 16). The
+measurement found two faults, both corrected: the band did not lift
+colours of middle brightness, and a panel's own shadow showed through
+translucent glass.
+
+**Cost** on pixman, with the measuring set-up of ADR-0056 (the builds
+before and after run back to back), pooled over 1920x1080 at 100 % and
+2560x1440 at 200 %, each at 60 and 144 Hz; the shell's frames in ms (95th
+/ 99th percentile / worst):
+
+| Case | Before | With glass |
+|------|--------|------------|
+| Start opened and closed | 3.0 / 16.6 / 19.3 | 6.9 / 13.9 / 26.5 |
+| Hovering in Start | 2.9 / 11.7 / 12.2 | 6.7 / 9.6 / 18.9 (680 drawings where 205, for the magnifier; 112 late frames where 161) |
+| Quick settings | 2.6 / 4.2 / 5.3 | 5.0 / 10.5 / 11.9 |
+| Notification centre | 3.3 / 9.4 / 12.5 | 5.4 / 8.6 / 9.5 |
+| Hovering on the taskbar | median 1.6, 99th 3.5 | median 1.5, 99th 4.1 |
+
+The compositor's frames did not change (Start opening, 99th percentile
+14.4 and 15.5 ms). An earlier build of the glass was clearly slower; two
+corrections (the glow shades only its own rows, in tiles aligned to
+device pixels, and kept pictures are laid on only where something is
+drawn again) brought a taskbar hover drawn alone in release, at 5120x96
+pixels, from 4.3 to 1.4 ms. End to end at 2560x1440, 200 % and 144 Hz
+the taskbar's partial redraws are still slower than before glass (median
+4.3 where 2.8 ms, over two pairs of runs); the cause was not found. Live
+blur's cost was not measured: llvmpipe says nothing about a GPU.
+
 ## Not verified
 
 Apart from the boots above, nothing below could be exercised in the build
@@ -454,21 +544,21 @@ environment.
 | Area | Not verified |
 |------|--------------|
 | Image | The ISO build with this manifest; whether Debian trixie resolves its dependencies and has every package under the name used (`xwayland`, `xdg-desktop-portal-wlr`, `pipewire-bin`, `wireplumber`, `upower`, `power-profiles-daemon`, `accountsservice`, the PySide6 modules); the verify hook; the QEMU boot test, whose checks were rewritten for the native desktop and have never run |
-| Graphics hardware | The `udev` back end on real hardware. The drawing of ADR-0056 on a GPU: partial uploads of the kept buffers on OpenGL ES, the compositor's fades through `wp_alpha_modifier` at a real vertical blank. In the virtual machine it drove one output with software rendering; not seen anywhere: a mode change, rotation, several monitors, monitor hotplug, turning screens off, the gamma ramp of night light, OpenGL ES on a hardware driver (the clip shader, damage, direct scan-out), a pointing device. The recommended scale (ADR-0055) from a real monitor's EDID and the DRM driver's name read on a device (the virtual machine's boots ran before it); only the headless back end with a given size was tried |
-| Input hardware | libinput devices and their settings, touch screens, tablets and pens, touchpad gestures, keyboard LEDs; the shortcuts of ADR-0058 and ADR-0059 (Super+V, Super+., Super+;, Super+W) and the paste's key lookup on a real keyboard and with other layouts (keys were injected through the control socket, with the US layout); dragging desktop icons with a real pointing device (ADR-0060) |
+| Graphics hardware | The `udev` back end on real hardware. The drawing of ADR-0056 on a GPU: partial uploads of the kept buffers on OpenGL ES, the compositor's fades through `wp_alpha_modifier` at a real vertical blank. In the virtual machine it drove one output with software rendering; not seen anywhere: a mode change, rotation, several monitors, monitor hotplug, turning screens off, the gamma ramp of night light, OpenGL ES on a hardware driver (the clip shader, damage, direct scan-out), a pointing device. The recommended scale (ADR-0055) from a real monitor's EDID and the DRM driver's name read on a device (the virtual machine's boots ran before it); only the headless back end with a given size was tried. Live blur (ADR-0063) on a GPU, on the DRM back end, at scales other than 100 %, on several or rotated outputs, and what it costs there; the check for a gamma ramp that makes night light available, and Super+P switching real monitors (Duplicate, Second screen only and several monitors never ran: the headless back end has one) (ADR-0062) |
+| Input hardware | libinput devices and their settings, touch screens, tablets and pens, touchpad gestures, keyboard LEDs; the shortcuts of ADR-0058 and ADR-0059 (Super+V, Super+., Super+;, Super+W) and the paste's key lookup on a real keyboard and with other layouts (keys were injected through the control socket, with the US layout); dragging desktop icons with a real pointing device (ADR-0060); the shortcuts of ADR-0062 on a real keyboard, the volume and brightness keys on the lock and login screens with real devices, the Num Lock light, and Ctrl+Alt+Del through a real program that takes the shortcuts (unit tests only) |
 | Icons | The order in which KDE's `KIconLoader` looks icons up (ADR-0052 assumes it searches `hicolor` last, as Qt's loader does); Qt's loader was checked with Qt 6.12, not with Debian 13's Qt 6.8 |
 | Pointer theme | Boswas-Cursors on a hardware cursor plane, at a fractional scale or on a HiDPI display; Xwayland, GTK and Qt clients picking it up in a real session; the `x-cursor-theme` alternative on a Debian 13 image (ADR-0043) |
-| Login and lock | The greetd login, the text-login fallbacks and the automatic login on Debian 13 and on the image (they were booted on another base system, see above); PAM on the image; the live session under the real live-config; suspend and resume; `loginctl lock-session` against the real logind; unlocking with the weather card shown, under real PAM (ADR-0051) |
+| Login and lock | The greetd login, the text-login fallbacks and the automatic login on Debian 13 and on the image (they were booted on another base system, see above); PAM on the image; the live session under the real live-config; suspend and resume; `loginctl lock-session` against the real logind; unlocking with the weather card shown, under real PAM (ADR-0051); the account picture from a real AccountsService on the login screen (ADR-0062) |
 | Boot screen | On hardware: DRM and frame-buffer output and the hand-over from the firmware frame buffer (seen in the virtual machine only). The initramfs hook and scripts under Debian 13's initramfs-tools, and the size of the initramfs there; a legacy frame buffer (`efifb`, `vesafb`: the test kernel has neither, and a frame buffer device emulated by a DRM driver showed nothing of what was drawn into it); a real LUKS unlock; Caps Lock on a real console; the animation in motion on a panel. The picture of ADR-0050 on any display or in the virtual machine (only still frames and a preview made from them); the cost of its intro on a slow machine with a large, fast display (0.45 s of the build machine's processor for the 1.6 s intro at 3840x2160 and 240 frames a second); its background on a 16-bit (RGB565) frame buffer, where it is not dithered |
 | System services | NetworkManager, BlueZ, PipeWire (`pw-dump`, `wpctl`), UPower, power-profiles-daemon, logind and polkit: every backend has run against stand-ins only. The polkit helper protocol, the shape of `pw-dump`'s JSON and NetworkManager's settings dictionaries were written without a real daemon to compare with |
 | Authentication | A `pkexec` call answered by the shell's agent. Until that has run, no administrator action from the desktop is known to work |
 | Screen capture | Screen sharing and screenshots through `xdg-desktop-portal-wlr`; capture of a rotated monitor end to end; what the consent dialog names for the portal back end |
 | X11 | Xwayland on hardware; the clipboard between X11 and Wayland applications, and the clipboard history and the emoji panel with X11 programs (ADR-0058); Wine's Wayland driver on Debian 13 (the sandbox gives a Windows application the Wayland socket and no X11 socket, ADR-0034) |
 | Input methods | No input method has been run on the compositor; none is in the image |
-| Applications on the desktop | No run of Firefox, Wine or Waydroid on the native compositor is recorded, and no real GTK, Qt or Electron program has read what the clipboard history or the emoji panel pasted, or the clipboard they gave back; no real password manager's copy was offered to the history (ADR-0058). Boswas glass (ADR-0057) has not been seen at a scale above 1, with a live tool tip, or while transparency, the wallpaper or a preset changed in a running session. Two windows of one application in a real session, and the desktop icons' clipboard and drag and drop with a real Files (ADR-0060, ADR-0061), were not tried; and Firefox ESR's own icon (ADR-0052) has not been seen there: the icon tests use stand-ins. Opening a screenshot ran with stand-ins for Photos and Files (ADR-0054); the shipped `mimeapps.list` has not yet been checked at its installed path by a package build. Weather has never reached the real Open-Meteo service (the build environment cannot). Weather's update for the lock screen has not run under a real systemd user manager (its sandboxing options need unprivileged user namespaces there, which Debian 13 enables by default), and that `boswas-session.target` starts its timer is not shown; nor locales where glibc and Qt choose differently between the 12- and the 24-hour clock (ADR-0051). The Boswas applications and Control Center have not been started in a real session on hardware (window activation, the primary selection, drag and drop between programs, an input method's window); see "Looked at by hand" for the headless run from the built packages. Applying a preset from Settings in a running session was not tried |
+| Applications on the desktop | No run of Firefox, Wine or Waydroid on the native compositor is recorded, and no real GTK, Qt or Electron program has read what the clipboard history or the emoji panel pasted, or the clipboard they gave back; no real password manager's copy was offered to the history (ADR-0058). Boswas glass (ADR-0057) has not been seen at a scale above 1, with a live tool tip, or while transparency, the wallpaper or a preset changed in a running session. Two windows of one application in a real session, and the desktop icons' clipboard and drag and drop with a real Files (ADR-0060, ADR-0061), were not tried; and Firefox ESR's own icon (ADR-0052) has not been seen there: the icon tests use stand-ins. Opening a screenshot ran with stand-ins for Photos and Files (ADR-0054); the shipped `mimeapps.list` has not yet been checked at its installed path by a package build. Weather has never reached the real Open-Meteo service (the build environment cannot). Weather's update for the lock screen has not run under a real systemd user manager (its sandboxing options need unprivileged user namespaces there, which Debian 13 enables by default), and that `boswas-session.target` starts its timer is not shown; nor locales where glibc and Qt choose differently between the 12- and the 24-hour clock (ADR-0051). The Boswas applications and Control Center have not been started in a real session on hardware (window activation, the primary selection, drag and drop between programs, an input method's window); see "Looked at by hand" for the headless run from the built packages. Applying a preset from Settings in a running session was not tried (since ADR-0063 it also turns the shell's and the compositor's glass off for Carbon; the path, `boswas-preset apply` writing its record and then sending `reload-config`, was read, not run). GTK programs and Firefox following the dark mode and accent the shell writes to GSettings: only a stand-in `gsettings` ran, and whether Debian 13's GTK portal passes `accent-color` on is not known (ADR-0062). The Qt applications do not ask for live blur yet; XWayland windows asking for it were not tried (ADR-0063) |
 | Applications and devices | See the next section: a camera, removable drives, sound, real documents. Printing was tried to a PDF file only, and the image has no print service (CUPS is not in the manifest); Control Center's "Install printing support" has not run. Since ADR-0061 it installs `cups` without what it only recommends, so `cups-browsed` is not asked for; that `cups-browsed` is only a recommendation was checked in Ubuntu 24.04's metadata, not Debian 13's, and without `avahi-daemon`, which it then no longer brings, CUPS discovers no network printers. Ejecting a USB drive from Settings (`udisksctl`) has not met a real drive or UDisks2 |
 | Settings | Every section that talks to a system service ran against a stand-in: the real bridge reported "not available" here. Arranging several monitors is tested against a model only (the headless back end has one output and ignores a scale change on reload). `timedatectl` and `localectl` changes behind polkit. The pages of ADR-0049 against the real NetworkManager (VPN, adapters), CUPS, logind (advanced start-up), systemd-hostnamed (renaming), the Flatpak permission store and fontconfig; the output formats of `nmcli`, `lpstat`, `fc-list`, `dpkg-query` and `flatpak permission-list`, written from their documentation, and the terse output of `nmcli` for the Ethernet section of ADR-0061 (also whether `ipv6.dns` and `ipv6.ignore-auto-dns` are accepted with IPv6 turned off); the pointer size passed to a real systemd user manager and D-Bus activation environment; some package names of Optional features (`gstreamer1.0-plugins-ugly`, `gstreamer1.0-libav`, `printer-driver-cups-pdf`, `fonts-noto-cjk`, `fonts-crosextra-carlito`, `fonts-crosextra-caladea`, `build-essential`, `firefox-esr-l10n-*`, `cups`) against the Debian archive |
-| Performance | Frame times on a real GPU, and start-up time of the compositor and the shell. Frame costs and memory were measured on the build machine without a GPU and in the virtual machine only (ADR-0045, ADR-0056, below) |
+| Performance | Frame times on a real GPU, and start-up time of the compositor and the shell. Frame costs and memory were measured on the build machine without a GPU and in the virtual machine only (ADR-0045, ADR-0056, ADR-0063, above); the cost of live blur was not measured at all |
 | Accessibility and review | No screen reader interface exists for the shell or for what the compositor draws. The colour-filter pass and the magnifier through the DRM back end are compiled only; sticky and filter keys have unit tests and have not run in the real compositor; not every shell surface was looked at with 225 % text (Start of ADR-0053 neither). Start's smooth scrolling with a notched wheel on the live compositor (injected scrolling only). No external security review and no design review have taken place |
 
 ## The system applications and the settings, one by one
@@ -501,9 +591,11 @@ back to a similar icon or to a text button.
 Limits that are decisions or known gaps, not untested paths. Each has its
 ADR.
 
-- No live blur: materials are drawn from the wallpaper (ADR-0036), and the
-  Boswas glass of the Qt applications from the desktop background, as a
-  window of its size centred on the screen would cover it (ADR-0057).
+- Live blur on OpenGL ES only: with pixman the glass of the shell and the
+  compositor shows the blurred wallpaper (ADR-0063), and the Boswas glass
+  of the Qt applications is made from the desktop background, as a
+  window of its size centred on the screen would cover it (ADR-0057);
+  the toolkit does not ask for live blur yet.
 - X11 windows are drawn at scale 1 and enlarged on a scaled monitor,
   which since the recommended scale (ADR-0055) is the default on many
   laptops; X11 applications can observe each other (ADR-0034).
@@ -534,11 +626,10 @@ ADR.
 - Between the boot screen and the login screen the display is an empty
   console for the moment the compositor needs to start (ADR-0044).
 - The shortcuts are fixed; there is no shortcut editor.
-- "New window of" in the taskbar's menu, the middle button and
-  Super+Shift+1 to 9 still start the program's plain command; the
-  application's own "New Window" entry opens the new window (ADR-0061).
-  While the session is locked the volume and brightness keys change the
-  level without showing it; on the login screen they do nothing.
+- Super+K (Cast) does nothing; the Ctrl+Alt+Del screen has no Switch
+  user (greetd cannot keep a session while another person signs in);
+  Uninstall in Start's menus opens Installed apps, not the application
+  (ADR-0062).
 - Desktop icons are on the primary monitor only and cannot be dragged
   into other programs; an item on another drive cannot be moved to the
   Trash (ADR-0060). The widgets board shows no online feeds (ADR-0059).

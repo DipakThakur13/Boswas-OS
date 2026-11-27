@@ -43,6 +43,34 @@ Verification status of the native desktop
   resolution of the new image manifest on Debian trixie.
 
 ### Fixed
+- **Shell controls that only pretended** ([ADR-0062](docs/architecture/decisions.md#adr-0062-shell-controls-that-only-pretended-and-the-windows-shortcuts)):
+  - "New window of" in the taskbar's menu, the middle button,
+    Super+Shift+1 to 9 and Start's Files button only brought a one-window
+    application forward, and the taskbar's menu listed the application's
+    "New Window" action twice. They run the desktop entry's new-window
+    action now (`NewWindow`, Firefox's `new-window`), else the plain
+    command, and the menu lists it once.
+  - Programs started from Start and the taskbar kept the pointer size the
+    session started with; they get the size set in Settings now
+    (`XCURSOR_SIZE`).
+  - The night light tile showed whether night light was switched on, not
+    whether the screens were tinted. It shows the tint now, a click turns
+    it on or off now (with a schedule, until the schedule's next change),
+    and where no monitor can be tinted it is greyed and says why.
+  - The battery percentage in quick settings did nothing; it opens
+    Settings > Power & battery.
+  - The volume and brightness keys did nothing on the login screen and
+    changed the level unseen while the session was locked. Both screens
+    show the level now.
+  - The account picture chosen in Settings appears in Start, on the lock
+    screen and on the login screen.
+  - Dark mode and the accent colour did not reach GTK programs and
+    Firefox. The shell sets `color-scheme` and `accent-color` of
+    `org.gnome.desktop.interface` with `gsettings`, only when they differ;
+    `boswas-desktop` depends on `libglib2.0-bin`, `dconf-gsettings-backend`
+    and `gsettings-desktop-schemas` for it.
+  - "Turn Num Lock on when you sign in" (`[keyboard] numlock`) was read by
+    nothing. Num Lock follows it at sign-in and when it changes.
 - **A desktop that still hitched** ([ADR-0056](docs/architecture/decisions.md#adr-0056-the-shell-draws-only-what-changed-the-compositor-runs-the-transitions)):
   opening and closing Start, its first opening, hovering in it, quick
   settings, the notification centre and Alt+Tab had frames of 20 to
@@ -235,6 +263,41 @@ Verification status of the native desktop
   also dropped an administrator's stricter lock policy.
 
 ### Added
+- **Glass across the desktop, and live blur** ([ADR-0063](docs/architecture/decisions.md#adr-0063-one-glass-system-for-the-desktop-and-live-blur)): the
+  shell and the compositor's own surfaces are the same Boswas glass as
+  the applications, from one token table and one rule that raises a tint
+  until text keeps 4.5:1. Start, quick settings, the notification centre,
+  the widgets board and the other panels are the window backdrop; menus,
+  tooltips, notifications, dialogs and Alt+Tab, the window menu and the
+  snap layouts are flyout glass; the taskbar has its own tint
+  (`taskbar-tint`, `taskbar` in `material.glass`). With OpenGL ES the
+  compositor blurs the windows that really lie behind (the
+  `ext-background-effect-v1` protocol, offered to every client), keeping
+  the blurred brightness within a band so that text stays readable over
+  any window; the blur is computed again only when something under it
+  changed. With pixman (virtual machines, no GPU) glass shows the blurred
+  wallpaper, which the compositor reads back from the shell without
+  decoding a file. The active window's title bar shows the blurred
+  wallpaper (the `mica` material), Task View lies on the desktop
+  blurred, and the lock and login screens blur the wallpaper behind the
+  sign-in view. In Start, the widgets board and the clipboard and emoji
+  panels the icon under the pointer grows as in a dock. Transparency
+  effects off or the Boswas Carbon preset turns glass off everywhere.
+- **Windows shortcuts and menus** (ADR-0062): Super+S (search), Super+X
+  (the quick-link menu), Super+Alt+D (the calendar), Super+T and Super+B
+  (the keyboard on the taskbar and the notification area), Super+Home
+  (minimise all but the active window), Super+Shift+Up and Down (full
+  height and back), Super+U (Settings > Accessibility), Super+P (PC
+  screen only, Duplicate, Extend, Second screen only, for the session)
+  and Ctrl+Alt+Del (Lock, Sign out, Change a password, Task Manager,
+  power); right-click menus on the Start button, the clock, the network,
+  volume and battery button, Task View, the taskbar, the keyboard layout
+  and Start's applications and search results (Open file location,
+  Uninstall). Start's search finds Settings > System > Clipboard. The
+  compositor gained the trusted commands `project` and `projection` and
+  `night-light` with `active`, and the events `search`, `quick-links`,
+  `calendar`, `focus-taskbar`, `projection` and `security`; the public
+  socket's commands are unchanged.
 - **Clipboard history** (Super+V; [ADR-0058](docs/architecture/decisions.md#adr-0058-clipboard-history-and-the-emoji-and-symbols-panel)):
   the last 25 things copied (text, pictures up to 8 MB, lists of files),
   newest first, with a search, Pin, Delete and Clear all. Enter or a click
@@ -290,9 +353,10 @@ Verification status of the native desktop
   neighbours to 1.15). The token file has `material.glass`.
 - **New windows** ([ADR-0061](docs/architecture/decisions.md#adr-0061-controls-that-only-pretended-now-work)):
   Files, Terminal, Text Editor, Photos, Document Viewer, Calculator and
-  Archive Manager have a "New Window" action (`--new-window`) in Start's
-  and the taskbar's menus that opens another window; Photos and Document
-  Viewer can have several windows now. The other applications keep one
+  Archive Manager have a "New Window" action (`--new-window`) that opens
+  another window, in Start's menu and, since ADR-0062, behind "New window
+  of" in the taskbar's menu, the middle button and Super+Shift+1 to 9;
+  Photos and Document Viewer can have several windows now. The other applications keep one
   window and bring it forward. The toolkit has `fluent.NEW_WINDOW` and
   `run(..., multiple_windows=True)`.
 - **New in Control Center** (ADR-0058 to ADR-0061): System > Clipboard;
@@ -846,6 +910,21 @@ Verification status of the native desktop
   trusted `paste` command, which names no keys, goes to the window that
   has the keyboard and is refused while the session is locked and on the
   public socket.
+- **Live blur** (ADR-0063): every client may ask the compositor to blur
+  what lies behind its own surface (`ext-background-effect-v1`); the
+  client gets no pixels of what lies behind. For its own surfaces on
+  pixman the compositor reads the wallpaper back from the shell's
+  background surface through its renderer and still decodes no picture
+  file.
+- **Ctrl+Alt+Del** (ADR-0062) reaches the compositor even while a program
+  (a remote desktop, a virtual machine) has taken the other shortcuts,
+  like Super+L. The security options screen asks for no password: Change
+  a password opens Settings.
+- **The shell and the user's settings** (ADR-0062): it sets two GSettings
+  keys (`color-scheme`, `accent-color`) with `gsettings` and fixed
+  arguments, never through a shell, and reads account pictures only as
+  regular files of at most 8 MB, decoded within 8192 pixels on a side;
+  the login screen reads only AccountsService's copies.
 - **Launchers on the desktop** (ADR-0060) start only when they are regular
   files of the user with the execute bit set; others open as text. The
   desktop changes files without a shell and never through a symbolic link.
@@ -895,33 +974,41 @@ Verification status of the native desktop
   DRM driver's name and real monitors' sizes were not read on a device,
   the tests open pictures in stand-ins for Photos and Files, and Firefox
   ESR's own icon was stood in for too.
-- **No live blur** *(native desktop)*: the taskbar and the flyouts are
-  drawn on a blurred copy of the wallpaper, and Boswas glass in the Qt
-  applications (ADR-0057) is a blurred copy of the desktop background
-  that does not follow the window's position; windows behind them do not
-  show through.
-- **The work of ADR-0056 to ADR-0061** has run on the headless compositor
-  and on Qt's offscreen platform only: the drawing changes on no real GPU
-  or vertical blank; the clipboard history and the emoji panel with no X11
-  program, no real password manager and no real GTK, Qt or Electron
-  program; the new Control Center sections against no real
-  NetworkManager, UDisks2 or systemd user manager. The package build,
-  lintian and the package stage have not been run for it yet. The emoji
-  data was generated from Ubuntu 24.04's Unicode data; Debian 13's may
-  differ, which `build_emoji.py --check` would show.
-- **"New window of" in the taskbar's menu** (ADR-0061), the middle button
-  and Super+Shift+1 to 9 still start the program's plain command, which
-  brings a one-window Boswas application forward; the application's own
-  "New Window" entry in the same menu opens a new window. While the
-  session is locked the volume and brightness keys change the level
-  without showing it, and on the login screen they do nothing.
+- **Live blur with OpenGL ES only** *(native desktop)*: with pixman,
+  which virtual machines and computers without a GPU use, the shell's and
+  the compositor's glass shows the blurred wallpaper and windows behind
+  it do not show through (ADR-0063). Boswas glass in the Qt applications
+  (ADR-0057) is still a blurred copy of the desktop background that does
+  not follow the window's position: the toolkit does not ask for live
+  blur yet. Live blur has run on Mesa's software rasterizer only, nested,
+  at 100 %.
+- **The work of ADR-0056 to ADR-0063** has run on the headless compositor
+  (and, for live blur, nested on Mesa's software rasterizer) and on Qt's
+  offscreen platform only: the drawing changes on no real GPU or vertical
+  blank; the clipboard history and the emoji panel with no X11 program,
+  no real password manager and no real GTK, Qt or Electron program; the
+  new Control Center sections against no real NetworkManager, UDisks2 or
+  systemd user manager; the new shortcuts and the media keys on no real
+  keyboard, Super+P with no second monitor, the night light tint and its
+  gamma check on no real display, dark mode reaching GTK programs and
+  Firefox with a stand-in `gsettings` only. The package build, lintian and
+  the package stage have not been run for it yet. The emoji data was
+  generated from Ubuntu 24.04's Unicode data; Debian 13's may differ,
+  which `build_emoji.py --check` would show.
+- **Left out of the shell's round** (ADR-0062): Super+K (Cast); switching
+  user from the Ctrl+Alt+Del screen (greetd cannot keep a session while
+  another person signs in); Uninstall in Start's menus opens Installed
+  apps, not the application itself.
 - **Desktop icons** (ADR-0060) are on the primary monitor only, cannot be
   dragged into other programs, and an item on another drive cannot be
   moved to the Trash. The widgets board (ADR-0059) has no online feeds, by
   design, and no to-do card.
 - **Still slow** (ADR-0056): the snipping overlay (about 50 ms a frame at
   200 %), the lock screen's first frame (90 to 240 ms) and Task View's
-  opening frame.
+  opening frame. With glass (ADR-0063), on pixman, the shell's 95th
+  percentile frame roughly doubled (still under 7 ms) and at 2560x1440,
+  200 % and 144 Hz the taskbar's partial redraws take a median 4.3 ms
+  where they took 2.8, for a reason not yet found.
 - **Printing support** installed from Control Center (ADR-0061) no longer
   brings `avahi-daemon`, which `cups-daemon` only recommends. Without it
   CUPS does not discover printers on the network; the image's package

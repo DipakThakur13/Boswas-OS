@@ -62,9 +62,9 @@ full account.
 |-----------|-------------|--------|
 | **C0** | Runs in a window on the developer machine and shows one client | **Implemented** (`--backend winit`; also `headless`) |
 | **C1** | Runs on real hardware with one monitor, keyboard and mouse | **Implemented, not boot-tested**: `udev` back end (DRM/KMS, GBM, OpenGL ES, libinput, libseat) |
-| **C2** | Complete window protocol support; the Boswas Shell runs on it | **Implemented**: xdg-shell with popups and decorations, layer shell, selections and drag-and-drop, dmabuf, viewporter, presentation time, pointer constraints and gestures, activation, idle inhibit and idle notification, security context, touch, tablets, text input, xdg-foreign, alpha modifier, content type and the system bell; input method and virtual keyboard for the configured input method only (ADR-0036); the shell runs on it. Not offered: an output-management protocol (monitors are set in the configuration file) |
+| **C2** | Complete window protocol support; the Boswas Shell runs on it | **Implemented**: xdg-shell with popups and decorations, layer shell, selections and drag-and-drop, dmabuf, viewporter, presentation time, pointer constraints and gestures, activation, idle inhibit and idle notification, security context, touch, tablets, text input, xdg-foreign, alpha modifier, content type, the system bell and the background effect for live blur (ADR-0063); input method and virtual keyboard for the configured input method only (ADR-0036); the shell runs on it. Not offered: an output-management protocol (monitors are set in the configuration file) |
 | **C3** | Multiple monitors, hotplug, fractional scaling, XWayland | **Implemented, not boot-tested**: several monitors on the primary GPU with hotplug, and mode, scale, position, rotation and on or off per monitor (ADR-0036), each starting at the scale recommended for its size and resolution (ADR-0055); X11 applications through Xwayland (ADR-0034), drawn at scale 1. Open: a second GPU |
-| **C4** | Materials, shadows, rounded corners, full animation set, snap layouts | **Implemented, with one decision against the plan** (ADR-0036): Fluent window frames with 8 px corners and shadows, client content clipped to the rounded corners on OpenGL ES, animations for opening, closing, minimising, restoring and switching desktops, snap layouts by dragging, by keys and from the maximise button. Materials are drawn from the wallpaper; the live blur of the plan's Horizon and Glass materials is open |
+| **C4** | Materials, shadows, rounded corners, full animation set, snap layouts | **Implemented, with one decision against the plan** (ADR-0036): Fluent window frames with 8 px corners and shadows, client content clipped to the rounded corners on OpenGL ES, animations for opening, closing, minimising, restoring and switching desktops, snap layouts by dragging, by keys and from the maximise button. The shell and the compositor's own surfaces are Boswas glass, blurring the windows behind them live on OpenGL ES and drawn from the wallpaper with pixman (ADR-0063); not yet seen on a real GPU |
 | **C5** | Screen capture, portals, input methods, screen-reader support, session lock | **Partly**: session lock (ADR-0028); screen capture for the user (the shell's capture screen) and for other programs behind the user's consent (ADR-0037); `xdg-desktop-portal-gtk` for file dialogs and `xdg-desktop-portal-wlr` for screen sharing, the latter **not tested**; input-method support in the compositor, with no input method in the image. Open: screen-reader support |
 | **C6** | Whole team uses it daily; offered as a preview session | Open |
 | **C7** | NVIDIA proprietary driver, performance hardening (variable refresh rate and high refresh rates: ADR-0048) | Open |
@@ -102,7 +102,7 @@ screenshot tool; the portal path is not tested).
 | Lock screen and login screen | **Implemented** (ADR-0028, ADR-0030), password only; the login screen lists the people who can sign in, and the lock screen shows the weather of the home place chosen in Weather (ADR-0051). A boot always ends at a way to sign in (ADR-0044). Login booted in a virtual machine from the packages; **not on the image or on hardware** |
 | Password and permission prompts | **Implemented** (ADR-0035, ADR-0037): the shell is the polkit agent and draws the password dialog, with a choice of administrator; it also asks before a program may capture the screen. File dialogs of sandboxed applications come from the GTK portal. **The polkit dialog has not run against the real polkit** |
 | Boswas UI tokens | **Implemented**: `desktop/ui/tokens.json`, version 3 (ADR-0033): the Fluent design language with the Prism colours. The plan's navy and gold token sets were replaced by the Prism palette, as requested |
-| Boswas UI delivery | In Rust (`boswas-ui`) for the shell and the window frames, not the Qt Quick style and QML module of the plan (ADR-0027), and as the Qt Widgets toolkit `boswas_fluent` for the Boswas applications (ADR-0039), with Boswas glass on a blurred copy of the desktop background (ADR-0057). KDE colour schemes are generated. Open: a GTK theme, live blur |
+| Boswas UI delivery | In Rust (`boswas-ui`) for the shell and the window frames, not the Qt Quick style and QML module of the plan (ADR-0027), and as the Qt Widgets toolkit `boswas_fluent` for the Boswas applications (ADR-0039), with Boswas glass on a blurred copy of the desktop background (ADR-0057). KDE colour schemes are generated. The shell and the compositor's own surfaces draw the same glass, with live blur on OpenGL ES (ADR-0063). GTK programs and Firefox get dark mode and the accent through GSettings (ADR-0062). Open: a GTK theme, live blur in the Qt applications |
 | Icons | **Implemented**: Boswas Prism and Boswas Prism Light, 300 designs in 535 files (ADR-0031), including every icon name the system applications, Settings and the Compatibility Manager ask for |
 | Pointer | **Implemented**: Boswas-Cursors, Boswas's own XCursor theme, the default of the compositor, the login screen and every program (ADR-0043). Not yet seen on hardware |
 | Boot screen | **Implemented**: `boswas-bootsplash` (ADR-0029), in the Boswas UI look since ADR-0038, drawn from vectors with motion since ADR-0050. Booted in a virtual machine from the packages (ADR-0044), with the picture before ADR-0050; **not on the image, an encrypted disk or hardware** |
@@ -134,6 +134,8 @@ booted system.
 | Glass in the Boswas applications, icons that grow under the pointer | ADR-0057 |
 | Clipboard history, emoji and symbols panel, widgets board, desktop icons | ADR-0058 to ADR-0060 |
 | Controls that only pretended: new windows, Photos' background, the pointer size for X11 programs, activity history, Ethernet and USB settings, printing support | ADR-0061 |
+| The shell's controls that only pretended (new windows, night light, the battery, the lock screen's keys, account pictures, dark mode for GTK programs, Num Lock) and the Windows shortcuts and right-click menus, Ctrl+Alt+Del and Super+P | ADR-0062 |
+| One glass for the shell, the compositor and the applications; live blur on OpenGL ES; icons that grow under the pointer in the shell | ADR-0063 |
 
 ### Planned work on the native desktop
 
@@ -171,7 +173,9 @@ In rough order of what a user misses first:
    proprietary driver; sharp X11 windows on scaled monitors. Direct
    scan-out is left to Smithay's DRM compositor and has not been observed
    on hardware.
-9. **Materials**: live blur behind translucent surfaces.
+9. **Materials**: live blur in the Qt applications through the protocol
+   the compositor offers since ADR-0063, and live blur measured on a real
+   GPU.
 10. **Session integration**: fingerprint unlock where policy allows, user
     switching, notifications that survive a restart of the shell.
 11. **Build**: vendored crates for offline builds, an advisory check and an

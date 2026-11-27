@@ -75,8 +75,13 @@ Android window) is an ordinary client. It cannot:
   window list is offered to the shell only.
 - **receive keys or pointer events meant for another window.** A focused
   client may ask to receive the window-management shortcuts itself (a
-  remote desktop or a virtual machine); Super+L and virtual-terminal
-  switching always stay with the compositor.
+  remote desktop or a virtual machine); Super+L, Ctrl+Alt+Del (ADR-0062)
+  and virtual-terminal switching always stay with the compositor.
+- **see what lies behind its window** through the background blur
+  protocol (`ext-background-effect-v1`, ADR-0063), which every client is
+  offered, sandboxed ones included: it asks the compositor to blur what
+  lies behind the client's own surface, the compositor draws that, and
+  the client receives no pixels.
 - **inject input**: there is no virtual pointer protocol, and the
   virtual-keyboard and input-method protocols are offered only to the
   input method the administrator configured (none is shipped). The
@@ -183,7 +188,14 @@ to NetworkManager, BlueZ, UPower, logind and the sound server.
   last 60 seconds.
 - **The lock screen and the login screen** run a restricted set: they
   show the state of the network and the battery, change nothing but the
-  volume and the brightness, own no bus name, and register no agent.
+  volume and the brightness (with the keys, since ADR-0062; the desktop
+  shell ignores those keys while the session is locked), own no bus name,
+  and register no agent. They show account pictures read only as regular
+  files of at most 8 MB, decoded within 8192 pixels on a side; the login
+  screen reads only AccountsService's copies.
+- **GSettings** (ADR-0062): the desktop shell sets two keys of the user's
+  settings (`color-scheme`, `accent-color`) by running `gsettings` with
+  fixed arguments, never through a shell, and only when a value differs.
 - **Settings** gets the same backends through
   `boswas-services-bridge`, which runs as the user and offers no power
   actions, notifications or authentication.
@@ -271,6 +283,12 @@ desktop yet, and none has had a security review.
   compositor never sees it.
 - Any program of the user may lock (`boswas-compositor --send lock`); the
   suspend hook uses that. Nothing but the lock screen unlocks.
+- Ctrl+Alt+Del (ADR-0062) opens the shell's security options on the
+  desktop: Lock, Sign out, Change a password (which opens Settings),
+  Task Manager. The compositor takes the keys before any application,
+  also one that has taken the other shortcuts; the screen asks for no
+  password and is not a secure attention sequence for signing in, and it
+  is not offered on the lock or login screen.
 - The lock screen's weather card (ADR-0051) comes from one file, the
   summary Weather writes to `~/.local/state/boswas/weather.json`. The lock
   screen opens it without following a link and without blocking, reads it

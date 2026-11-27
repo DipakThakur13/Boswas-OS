@@ -95,6 +95,25 @@ it when it starts.
 - **Desktop icons** (ADR-0060) show the desktop folder. Thumbnails of
   pictures are made by the shell and kept in memory only, not written to
   `~/.cache/thumbnails` and not sent anywhere.
+- **Account pictures** (ADR-0062): the shell shows the picture chosen in
+  Settings in Start, on the lock screen and on the login screen. It reads
+  `~/.face` and the copy AccountsService keeps in
+  `/var/lib/AccountsService/icons/` (readable by every user of the device,
+  as AccountsService makes it, so that the login screen can show it), at
+  most 8 MB, and keeps a small round copy in memory. The login screen
+  shows the pictures of the people it lists to anyone at the device; an
+  account without a picture shows the person glyph.
+- **Dark mode for GTK programs** (ADR-0062): the shell writes two values
+  to the user's GSettings database (dconf), `color-scheme` and
+  `accent-color` of `org.gnome.desktop.interface`: whether the desktop is
+  dark and the name of an accent colour. Any program of the user may read
+  them, which is their purpose; nothing else is written there.
+- **Glass** (ADR-0063): for its own glass when it draws with pixman, the
+  compositor reads back a small picture (480 pixels wide) of the shell's
+  background surface, the wallpaper with the desktop icons, and keeps it
+  in memory, blurred; it decodes no file. Live blur draws the windows
+  behind a glass surface inside the compositor; the program that asked
+  for it receives no pixels.
 - **Screenshots.** The screen is captured only when the user asks (the
   Print key) or when the user allows a program that asked, in a dialog of
   the shell, with a mark on the taskbar for as long as that program may

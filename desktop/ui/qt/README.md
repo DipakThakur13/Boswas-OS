@@ -436,8 +436,10 @@ white and saturated pictures in both schemes.
 * **Live blur.** Glass shows the desktop background, not the windows behind
   a window, and a window shows the part of the picture a window of its size
   centred on the screen would cover (a Wayland client does not know where
-  it is); Qt cannot ask the compositor for a blurred backdrop. Window frames
-  and title bars are the compositor's.
+  it is). The compositor now offers live blur behind a surface
+  (`ext-background-effect-v1`, OpenGL ES only, ADR-0063) and the shell uses
+  it, but this toolkit does not ask for it yet. Window frames and title bars
+  are the compositor's.
 * **Shadows of menus, combo box popups and tool tips.** They have the
   one-pixel outline only (`Flyout`, `TeachingTip` and `ContentDialog` draw
   their own shadow). `TeachingTip` has no tail and closes on a click

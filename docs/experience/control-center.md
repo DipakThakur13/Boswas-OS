@@ -80,8 +80,16 @@ sound settings" `--page sound`), Start's search, the user menu ("Account
 settings", `--page users`), the notification centre's settings button
 (`--page notifications`) and the menus of the desktop ("Display
 settings", "Personalise") and of the taskbar's background ("Taskbar
-settings", `--page taskbar`). A test checks that every key the shell
-passes exists.
+settings", `--page taskbar`). Since ADR-0062 also the battery's
+percentage in quick settings (`--page power`), the quick-link menu of
+the Start button and Super+X (`installed-apps`, `power`, `about`,
+`network`), the menus of the clock (`date-time`, `notifications`), of
+the network, volume and battery button (`network`, `sound`, `power`) and
+of the keyboard layout (`region`, `keyboard`), Uninstall in Start's
+menus (`installed-apps`), Change a password on the Ctrl+Alt+Del screen
+(`--page users --section your-account`), and Super+U, which the
+compositor handles (`--page accessibility`). Tests check that every key
+the shell passes exists in the catalogue.
 
 | Category (key) | Pages (keys) |
 |----------------|--------------|
@@ -158,7 +166,7 @@ the user's layer of the compositor's settings; both are described under
 | Page | What it holds | Backend |
 |------|---------------|---------|
 | Background | The Boswas wallpapers and the pictures of the user's Pictures folder as thumbnails, any PNG or JPEG file through Browse, or the default background | `[appearance] wallpaper` in `appearance.toml` |
-| Colours | **Colour mode** (dark or light; a Boswas wallpaper changes to its artwork for the other mode, as a preset does). **Accent colour**: one of eight hues of the palette (iris, the default, azure, sky, mint, sun, coral, orchid, slate); the shell, the compositor's own surfaces and every Qt application take it. **Transparency effects**: off fills the taskbar, the flyouts and Task View's strip with their tint alone | `scheme` in `appearance.toml`; `accent` and `transparency` in the user's `compositor.toml` |
+| Colours | **Colour mode** (dark or light; a Boswas wallpaper changes to its artwork for the other mode, as a preset does). **Accent colour**: one of eight hues of the palette (iris, the default, azure, sky, mint, sun, coral, orchid, slate); the shell, the compositor's own surfaces and every Qt application take it. **Transparency effects**: off turns Boswas glass off everywhere: the shell's and the compositor's surfaces and every Qt application are their opaque tints, the compositor blurs nothing and title bars lose their `mica` backdrop (ADR-0063) | `scheme` in `appearance.toml`; `accent` and `transparency` in the user's `compositor.toml` |
 | Themes | The Boswas presets (light or dark, wallpaper, the colours of KDE applications) and "Reset to Boswas Default". **Desktop icons** (ADR-0060): Show desktop icons; Desktop icon settings (Home, Trash, This device); icon size (large, medium, small); auto arrange; align to grid. The desktop's own View menu changes the same keys | `boswas-preset --json list`, `apply`, `reset`; `[desktop]` |
 | Start | Layout (more pins, default, more recommendations), recently added and most used applications under "Recommended", the folders next to the power button (Settings, Files, Documents, Downloads, Music, Pictures, Videos) | `[start]` |
 | Taskbar | **Taskbar items**: Widgets (the weather at the left end, which opens the widgets board; ADR-0059) and Task View. **Taskbar behaviours**: alignment (centre or left), automatically hide the taskbar, badges on taskbar buttons (the number of notifications), seconds in the clock | `[taskbar]` |
@@ -297,7 +305,9 @@ Never a control that does nothing. Not offered:
 - **Notifications on the lock screen:** the lock screen is a program of
   its own that shows no notifications (ADR-0035).
 - **Contrast themes:** they need a set of tokens of their own. The
-  high-contrast preset Boswas Carbon covers applications only.
+  high-contrast preset Boswas Carbon covers applications only; on the
+  shell and the compositor's own surfaces it only turns glass off
+  (ADR-0063).
 - **An "automatic" accent taken from the wallpaper:** the default accent
   is iris.
 - **Underlined access keys** in menus and dialogs.

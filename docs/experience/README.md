@@ -139,20 +139,20 @@ exits; open windows are not affected. `boswas-shell(1)` is the reference.
     ESR and the Software Center pinned, as Windows pins its file manager,
     browser and store (ADR-0053). A click on an application shows
     its window, starts it, or goes through its windows; the secondary
-    button opens its menu (the application's own actions, such as New
-    Window, then "New window of", pin or unpin, close); the middle button
-    starts the application again. Resting the pointer on a running
-    application shows its windows. A mark under the icon shows running and
-    active applications.
-  - **New window** (ADR-0061): the "New Window" entry of Files, Terminal,
-    Text Editor, Photos, Document Viewer, Calculator and Archive Manager
-    (`--new-window`) opens another window. "New window of", the middle
-    button and Super+Shift+1 to 9 still start the application's plain
-    command: a program that allows several copies (Firefox, Calculator,
-    Archive Manager) opens a window, Terminal a tab, and the other Boswas
-    applications bring their window forward. Clock, Calendar, Media
-    Player, Weather, Task Manager, Camera and Snipping Tool keep one
-    window.
+    button opens its menu (the application's own actions, then "New window
+    of" or, when it is not running, Open; pin or unpin; close); the middle
+    button opens another window of a running application and starts one
+    that is not running. Resting the pointer on a running application
+    shows its windows. A mark under the icon shows running and active
+    applications.
+  - **New window** (ADR-0061, ADR-0062): "New window of", the middle
+    button and Super+Shift+1 to 9 run the application's own "new window"
+    action: Files, Terminal, Text Editor, Photos, Document Viewer,
+    Calculator and Archive Manager (`--new-window`), Firefox
+    (`new-window`) and any program whose desktop entry has one. Without
+    such an action the application is started again, and one that keeps a
+    single window (Clock, Calendar, Media Player, Weather, Task Manager,
+    Camera, Snipping Tool) brings it forward.
   - At the left end the **widgets button** (ADR-0059): the weather icon
     and the temperature while Weather has a recent forecast of your home
     place (with the condition on a wide taskbar), else a plain widgets
@@ -162,6 +162,26 @@ exits; open windows are not affected. `boswas-shell(1)` is the reference.
     one, the network, volume and battery icons (one button, which opens
     quick settings), and the clock (which opens notifications and the
     calendar).
+  - **Right-click menus** (ADR-0062), as on Windows; an entry appears only
+    when what it opens is installed, and Settings entries open that page
+    of Control Center:
+    - **Start button** (also Super+X, the quick-link menu): Installed
+      apps, Power options, System, Network connections, Disks (where GNOME
+      Disks is installed), Terminal, Task Manager, Settings, Files (a new
+      window), Search, Run, "Shut down or sign out" (Sign out, Sleep,
+      Hibernate where allowed, Restart, Shut down) and Desktop.
+    - **Clock:** Adjust date and time, Notification settings.
+    - **Network, volume and battery button:** Network and internet
+      settings, Sound settings, Open volume mixer, and Power settings
+      where there is a battery.
+    - **Task View button and the taskbar's background:** Task Manager,
+      Taskbar settings.
+    - **Keyboard layout:** Language and region, Keyboard settings.
+  - **From the keyboard** (ADR-0062): Super+T puts the keyboard on the
+    applications' buttons (again: the next one), Super+B on the
+    notification area (the chevron of the hidden icons, else the first
+    tray icon). The arrow keys and Tab move, Enter or Space press, Escape,
+    any other key or a click elsewhere leaves.
   - While a program may capture the screen, a red mark sits in front of
     the tray; a click on it stops the capture.
   - Settings > Personalization > Taskbar (ADR-0049): the group can sit at
@@ -171,15 +191,15 @@ exits; open windows are not affected. `boswas-shell(1)` is the reference.
     notification centre. An
     automatically hidden taskbar reserves no room: it leaves a 2 px sliver
     at the bottom edge, comes back when the pointer reaches it or while a
-    flyout, menu or preview is open, and goes 400 ms after. A right-click
-    on the taskbar's background offers "Taskbar settings".
+    flyout, menu or preview is open, and goes 400 ms after.
 - **Start:** opens with the Super key (tap it) or its button. It is laid
   out like the Start of Windows 11 since 2025 (ADR-0053): one page that
   scrolls under the search box.
-  - Search finds applications, pages of Boswas Control Center, and runs a
-    command. It ranks applications by how often they were started and is
-    local: nothing is sent anywhere. While you type, the results take the
-    page's place.
+  - Search (Super+S opens Start with the search box) finds applications,
+    pages of Boswas Control Center (Clipboard among them, ADR-0062), and
+    runs a command. It ranks applications by how often they were started
+    and is local: nothing is sent anywhere. While you type, the results
+    take the page's place.
   - **Pinned:** the first rows of pins; "Show all" shows the rest, "Show
     less" folds them again. A new user's Start begins with Firefox ESR,
     Files, the Software Center, Settings, Photos, Calendar, Weather and
@@ -203,12 +223,18 @@ exits; open windows are not affected. `boswas-shell(1)` is the reference.
     with reduced motion it jumps. From the keyboard, typing searches, the
     arrow keys go through the whole page and it scrolls along, Page Up,
     Page Down, Home and End scroll, and Escape closes the index, clears
-    the search or closes Start. Every application on the page has a
-    right-click menu: open, pin to or unpin from Start and the taskbar,
-    and the application's own actions.
-  - The user menu and the power menu, with the folders chosen in Settings
-    next to the power button (Settings and Files by default; also
-    Documents, Downloads, Music, Pictures, Videos, which open in Files).
+    the search or closes Start. Every application on the page, and every
+    application found by the search, has a right-click menu: open, pin to
+    or unpin from Start and the taskbar, Open file location (Files, at its
+    desktop entry), Uninstall (Settings > Apps > Installed apps; the
+    application itself still has to be found there), and the
+    application's own actions (ADR-0062); a settings page found by the
+    search has Open, a command Run.
+  - The user menu, whose button shows your account picture (the one
+    chosen in Settings > Accounts; ADR-0062), and the power menu, with the
+    folders chosen in Settings next to the power button (Settings and
+    Files, which opens a new window, by default; also Documents,
+    Downloads, Music, Pictures, Videos, which open in Files).
     Signing out, restarting and shutting down ask first when windows are
     open.
   - Settings > Personalization > Start: three layouts (the default, two
@@ -219,7 +245,12 @@ exits; open windows are not affected. `boswas-shell(1)` is the reference.
   Bluetooth with the list of devices, airplane mode, night light, the
   power mode, do not disturb, media controls, brightness, and volume with
   the choice of the sound output. A part whose system service is not
-  running shows as not available.
+  running shows as not available. The night light tile is lit while the
+  screens are tinted; a click turns night light on or off now, and with a
+  schedule that holds until the schedule's next start or end (a change in
+  Settings ends it too). Where no monitor can change its colours the tile
+  is greyed and says so. The battery's percentage opens Settings > Power
+  & battery (ADR-0062).
 - **Notifications** (Super+N): up to three at a time above the taskbar,
   and the notification centre with a calendar (Delete clears the
   notification that has the keyboard focus). While do not disturb is on
@@ -233,9 +264,24 @@ exits; open windows are not affected. `boswas-shell(1)` is the reference.
   notification stays at least. The shell keeps the names of the
   applications that sent notifications in
   `~/.local/state/boswas/notification-senders.json` for that list.
-- **The volume and brightness keys** show a small display of the level.
-  While the session is locked they still change the level, without the
-  display; on the login screen they do nothing yet.
+- **The volume and brightness keys** show a small display of the level,
+  also on the lock screen and the login screen, which show it themselves
+  above the hint (ADR-0062).
+- **Security options** (Ctrl+Alt+Del; ADR-0062): over the whole screen,
+  Lock, Sign out, Change a password (Settings > Accounts > Your info),
+  Task Manager and Cancel, and the power button at the bottom right. The
+  arrow keys and Tab move, Escape cancels. It works even while a remote
+  desktop or a virtual machine window has taken the other shortcuts.
+  There is no Switch user.
+- **Projection** (Super+P; ADR-0062): PC screen only, Duplicate, Extend,
+  Second screen only. Super+P again or the arrow keys move, Enter or a
+  click takes the choice, which holds for the session on top of the
+  monitors' settings. With one monitor only PC screen only and Extend can
+  be chosen.
+- **Dark mode for GTK programs and Firefox** (ADR-0062): the shell writes
+  the colour mode and the nearest of GNOME's accent colours to GSettings
+  (`org.gnome.desktop.interface` `color-scheme` and `accent-color`), where
+  GTK programs and Firefox read them through the desktop portal.
 - **Widgets** (Super+W, or the widgets button; ADR-0059): a board from the
   left edge with cards for the weather (from Weather), the next events of
   the coming week (from Calendar), the world clocks and the next alarm
@@ -288,7 +334,29 @@ exits; open windows are not affected. `boswas-shell(1)` is the reference.
 - **Keyboard:** every flyout and dialog can be used without a pointer:
   Tab and Shift+Tab go through the controls, the arrow keys move to the
   nearest control in that direction, Enter or Space activates it, Escape
-  closes.
+  closes. Super+T and Super+B reach the taskbar.
+- **The look: Boswas glass** (ADR-0063), the same glass as the Boswas
+  applications. Start, quick settings, the notification centre, the
+  widgets board, the clipboard, emoji and projection panels and the
+  security options are the window backdrop; menus, tooltips,
+  notifications, the volume display, dialogs and window previews are the
+  more opaque flyout glass; the taskbar has its own darker tint. Each is a
+  tint over a blurred, saturated backdrop with a fine grain, a white
+  hairline along the top and a soft glow under it; cards are glass, and a
+  control under the pointer gets a brighter hairline. Where the
+  compositor draws with OpenGL ES (a computer with a GPU) the backdrop is
+  what really lies behind, windows included, blurred live; with pixman
+  (virtual machines, no GPU) it is the blurred wallpaper. A tint is made
+  more opaque wherever text would fall under 4.5:1. The lock screen and
+  the login screen blur the wallpaper into glass behind the sign-in view.
+  Transparency effects off (Settings > Personalization > Colours, or
+  Accessibility > Visual effects) or the Boswas Carbon preset makes every
+  surface opaque.
+- **Icons that grow under the pointer** (ADR-0063): in Start, the widgets
+  board and the clipboard and emoji panels the icon under the pointer, or
+  with the keyboard focus, grows as in a dock and its neighbours a
+  little, within its cell, so no label moves. With reduced motion they
+  stay as they are.
 - **Presets:** ten Boswas OS presets
   ([presets](../../desktop/presets/README.md)), chosen in Control Center >
   Personalization > Themes or with `boswas-preset`. A preset sets light or dark
@@ -326,7 +394,10 @@ items, the recently used emoji and where you put desktop icons are in
 
 The compositor draws the window frames: a 32 px title bar with the
 application's icon and title and the minimise, maximise and close
-buttons, a thin border, rounded corners and a shadow. Applications that
+buttons, a thin border, rounded corners and a shadow. The active
+window's title bar shows the wallpaper under it, blurred and tinted (the
+`mica` material, ADR-0063); the window picker, the window menu, the snap layouts and
+Task View are glass like the shell. Applications that
 draw their own frame (GTK applications, Firefox) keep it. Windows open,
 close, minimise and come back with short animations, and desktops slide
 when switched; `[appearance] reduced_motion` turns that off. X11
@@ -336,15 +407,21 @@ applications get the same frame and behave like every other window.
 | Keys | Action |
 |------|--------|
 | Super (tap) | Open or close Start |
+| Super+S | Start, typing into its search box |
+| Super+X | The quick-link menu at the Start button |
 | Super+A | Quick settings |
-| Super+N | Notifications and calendar |
+| Super+N, Super+Alt+D | Notifications and calendar |
 | Super+W | Widgets |
 | Super+V | Clipboard history |
 | Super+. or Super+; | Emoji and symbols |
 | Super+R | Run |
+| Super+T, Super+B | The keyboard on the taskbar's applications (again: the next one); on the notification area |
+| Super+P | Projection: PC screen only, Duplicate, Extend, Second screen only |
 | Super+E, Super+I, Ctrl+Alt+T, Ctrl+Shift+Esc | Files, Settings (Control Center), Terminal and Task Manager (the programs named in `[apps]`) |
+| Super+U | Settings > Accessibility |
 | Super+L | Lock the session |
-| Super+1 ... Super+9 | Start or switch to the taskbar application at that place; with Shift, start it again (a new window where the application can have several) |
+| Ctrl+Alt+Del | Security options: Lock, Sign out, Change a password, Task Manager |
+| Super+1 ... Super+9 | Start or switch to the taskbar application at that place; with Shift, open another window of it (its "new window" action), or start it when it is not running |
 | Alt+Tab, Alt+Shift+Tab | Pick a window, most recently used first; live previews, Escape cancels |
 | Super+Tab, Super+Shift+Tab | Task View: every window and the desktops |
 | Alt+F4 | Close the window |
@@ -356,6 +433,9 @@ applications get the same frame and behave like every other window.
 | Super+Shift+Left, Super+Shift+Right | Move the window to the next monitor |
 | Super+D | Show the desktop, and bring the windows back |
 | Super+M, Super+Shift+M | Minimise every window; restore them |
+| Super+Home | Minimise every window but the active one; again, restore them |
+| Super+Shift+Up | Stretch the window to the full height of the screen, keeping its width |
+| Super+Shift+Down | Put a stretched window back; otherwise as Super+Down |
 | Super+Ctrl+D | New desktop |
 | Super+Ctrl+Left, Super+Ctrl+Right | Previous or next desktop |
 | Super+Ctrl+F4 | Close the desktop (its windows move to the neighbour) |
@@ -364,7 +444,7 @@ applications get the same frame and behave like every other window.
 | Super+Esc | End the magnifier |
 | Super+Ctrl+C | Colour filter on or off (when Settings > Accessibility > Colour filters allows the shortcut) |
 | Print; Shift+Print, Super+Shift+S | Capture the screen; capture a region |
-| Volume, brightness and media keys | Handled by the shell; while locked they change the level without showing it |
+| Volume, brightness and media keys | Handled by the shell; on the lock and login screens the volume and brightness keys work and show the level |
 | Ctrl+Alt+F1 ... F12 | Switch virtual terminal |
 
 With the pointer:
@@ -398,9 +478,11 @@ pressure, tilt and their buttons. None of this has been tried on real
 devices yet.
 
 Shortcuts use the key's position on the Latin layout, so they work the
-same while another keyboard layout is active. Super+L and the virtual
-terminal keys work even when an application (a remote desktop, a virtual
-machine) has taken the other shortcuts. The shortcuts are fixed in this
+same while another keyboard layout is active. Super+L, Ctrl+Alt+Del and
+the virtual terminal keys work even when an application (a remote
+desktop, a virtual machine) has taken the other shortcuts. The middle
+button on a running application's taskbar button opens another window
+of it. The shortcuts are fixed in this
 version; there is no shortcut editor.
 
 Desktops are created and closed as needed: a session starts with one.
@@ -442,7 +524,9 @@ path has not been tested yet.
   video player or presentation that asks the compositor to stay awake
   holds the idle lock off while it runs. The lock screen shows no
   notifications and offers no way to restart or shut down; the volume and
-  brightness keys change the level, without showing it.
+  brightness keys change the level and show it (ADR-0062). It shows your
+  account picture, and behind the sign-in view the wallpaper blurs into
+  glass, darkened as far as white text needs (ADR-0063).
   - **Weather** (ADR-0051): under the clock, in the lower left corner, a
     card with the weather of the home place chosen in Weather (or the
     first place): the condition and the temperature, today's high and
@@ -466,9 +550,10 @@ path has not been tested yet.
     from the lock.
 - **Login screen.** greetd runs the Boswas login screen on the first
   virtual terminal: the clock, then the people who can sign in (regular
-  accounts with a login shell) and the password. Another user name can be
-  typed. After a successful login it starts `boswas-session`. The live
-  session signs in automatically.
+  accounts with a login shell), with the pictures AccountsService keeps
+  for them, and the password. Another user name can be typed. The volume
+  and brightness keys work there. After a successful login it starts
+  `boswas-session`. The live session signs in automatically.
 - **When the desktop cannot start.** A boot always ends at a way to sign
   in (ADR-0044). If the login screen cannot be shown (no usable graphics
   device, a login screen that keeps failing), greetd's text login appears
@@ -504,7 +589,7 @@ page.
 |----------|---------------|
 | Home | The device (name, with Rename; maker and model), the account, the network, Boswas Update, dark mode and night light, Bluetooth devices, the background and theme, storage |
 | System | Display (monitors arranged by dragging; resolution, refresh rate, the fastest by default; variable refresh rate; scale, with the one recommended for the monitor marked; orientation; on or off; brightness; night light), Sound, Notifications (do not disturb and its schedule, banners per application), Power & battery (brightness, the time until the screens turn off), Storage (cleanup recommendations: temporary files, the Trash, old downloads), Multitasking, Troubleshoot (internet, sound, Bluetooth, display), Recovery (restart into the firmware settings or the boot menu), Clipboard (the clipboard history on or off, Clear clipboard data), About (rename the device); in a live session Install Boswas OS. A display change that could leave you without a picture asks "Keep these display settings?" and goes back after fifteen seconds |
-| Bluetooth & devices | Bluetooth (add, pair, connect, remove, battery), Printers (CUPS; a test page; installing printing support), Cameras, Mouse, Touchpad, Keyboard (layouts and repeat), USB (the devices connected; a drive opens in Files or is ejected), Hardware & Drivers |
+| Bluetooth & devices | Bluetooth (add, pair, connect, remove, battery), Printers (CUPS; a test page; installing printing support), Cameras, Mouse, Touchpad, Keyboard (layouts and repeat; Num Lock at sign-in, which the compositor applies at the start of the session and when it changes, ADR-0062), USB (the devices connected; a drive opens in Files or is ejected), Hardware & Drivers |
 | Network & internet | Wi-Fi (networks, passphrase, forget), Ethernet (automatic or manual IP address, DNS servers, metered connection, the adapter's properties), VPN (WireGuard and OpenVPN: import a file, connect, disconnect, remove), Airplane mode, Proxy (read-only), Advanced network settings (adapters on and off, data used, connection details) |
 | Personalization | Background, Colours (dark or light, the accent colour, transparency), Themes (the ten presets: light or dark, the wallpaper and the colours of KDE applications, `boswas-preset apply <id>` does the same; desktop icons), Start, Taskbar (widgets, Task View, alignment, hiding, badges, seconds), Fonts (install and remove fonts for your account) |
 | Apps | Installed apps (uninstall each the way it was installed), the Software Center, Default apps, Startup, Optional features (codecs, printing, fonts, Firefox in your languages, ...), Windows Compatibility, Android |
@@ -578,9 +663,11 @@ The native desktop does not have, or has not shown yet:
   [what is verified](../architecture/verification.md). In particular the
   password dialog for administrator actions has only run against a
   stand-in for polkit.
-- **Live blur.** The taskbar and the flyouts are drawn on a blurred copy
-  of the wallpaper, and the applications' glass on a blurred copy of the
-  desktop background; a window behind them does not show through.
+- **Live blur everywhere.** The shell's glass shows the windows behind it
+  only where the compositor draws with OpenGL ES; with pixman (virtual
+  machines, computers without a GPU) it is the blurred wallpaper. The
+  applications' glass is always a blurred copy of the desktop background:
+  the toolkit does not ask for live blur yet (ADR-0063).
 - **Sharp X11 windows on scaled monitors.** X11 applications are drawn at
   scale 1 and enlarged, so they look soft on the many laptops that now
   start above 100 %. They can also observe each other, as on any X
@@ -609,10 +696,8 @@ The native desktop does not have, or has not shown yet:
 - **A shortcut editor,** a taskbar at another edge, desktop icons on
   other monitors and dragged into other programs, and online feeds on the
   widgets board.
-- **"New window of" and the middle button opening a new window** of a
-  Boswas application (its own "New Window" entry does), the level display
-  of the volume and brightness keys while locked, and those keys on the
-  login screen.
+- **Super+K** (Cast), **Switch user** on the Ctrl+Alt+Del screen, and an
+  Uninstall in Start that goes straight to the application (ADR-0062).
 
 ## Boswas applications
 
@@ -645,7 +730,9 @@ light, and each has a manual page (`man boswas-files`, and so on).
 
 **The look: Boswas glass** (ADR-0057). Behind every window of these
 applications, Control Center and the Compatibility Manager the desktop
-background shows through, blurred and tinted, as Mica does on Windows;
+background shows through, blurred and tinted, as Mica does on Windows
+(the shell's own glass is described under [Desktop
+shell](#desktop-shell));
 the navigation pane and the cards are glass on it, and menus, lists,
 tool tips and dialogs are frosted glass. The tint grows where a busy or
 bright picture would make text hard to read, so text keeps the contrast
@@ -663,7 +750,8 @@ the high-contrast preset Boswas Carbon.
 
 **New window:** Files, Terminal, Text Editor, Photos, Document Viewer,
 Calculator and Archive Manager open another window from the "New Window"
-entry of their menu in Start and on the taskbar (`--new-window`).
+entry of their menu in Start, and from "New window of" in the taskbar's
+menu, the middle button and Super+Shift+1 to 9 (`--new-window`).
 
 Alarms, timers and calendar reminders are shown as notifications even
 while Clock and Calendar are closed: a small service, `boswas-reminders`,
@@ -712,8 +800,8 @@ Boswas Terminal starts bash with `/usr/share/boswas/terminal/bashrc`.
   an accessibility tree yet, so a screen reader cannot read them; no
   screen reader is in the image.
 - **High contrast:** Boswas Carbon is the high-contrast preset for
-  applications (WCAG AAA body text); it also turns the applications'
-  glass off. The shell uses the Prism dark or light
+  applications (WCAG AAA body text); it also turns glass off, in the
+  applications, the shell and the compositor's own surfaces (ADR-0063). The shell uses the Prism dark or light
   theme, whose text meets WCAG AA. There are no contrast themes for the
   shell and the window frames: they would need a set of tokens of their
   own (ADR-0049).
@@ -761,15 +849,16 @@ of the compositor's configuration:
   Accessibility > Mouse pointer. The compositor's pointer changes at once.
   X11 programs and programs that draw their own pointer read the size
   when they start: the session sets it from the setting at sign-in, and
-  a change reaches what the user manager and D-Bus start afterwards;
-  programs already open keep their size, and programs started from Start
-  or the taskbar get the new size after the next sign-in.
+  a change reaches what the user manager and D-Bus start afterwards, and
+  at once the programs started from Start or the taskbar (ADR-0062);
+  programs already open keep their size.
 - **Motion:** `[appearance] reduced_motion` (Accessibility > Visual
   effects, "Animation effects") turns the animations of windows, desktops
   and the shell off; the Boswas Qt applications follow the same setting
-  (an icon that grows under the pointer then grows at once).
-  Transparency effects can be turned off as well; that also turns the
-  applications' glass off. The boot screen's
+  (an icon that grows under the pointer then grows at once; in the shell
+  icons do not grow at all). Transparency effects can be turned off as
+  well; that turns glass off everywhere, and with it the live blur and
+  the title bars' blurred wallpaper. The boot screen's
   animation can be turned off with `boswas.splash=static` on the kernel
   command line.
 - **Colour temperature:** night light, in quick settings or
@@ -793,8 +882,10 @@ choices that matter:
   the two controls the pointer left and entered, not Start), keeps its
   buffers and hands the compositor only the changed rectangles
   (ADR-0056). The default background is rendered once per screen size,
-  and the blurred copy of the wallpaper behind the taskbar and the
-  flyouts once per wallpaper and blur radius.
+  and the blurred copy of the wallpaper behind the shell's glass (with
+  pixman) once per wallpaper and blur radius. The compositor's live blur
+  (with OpenGL ES) is computed again only when something under the glass
+  changed, at half resolution; a still screen costs nothing (ADR-0063).
 - **The compositor fades and slides Start and the other flyouts** with
   the drawing the shell sent once; the shell draws no frame of the
   transition. Icons are prepared on a worker thread and Start, quick
