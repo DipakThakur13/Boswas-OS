@@ -271,7 +271,25 @@ impl Canvas {
             return;
         }
         self.touch();
-        self.pixmap.draw_pixmap(x, y, picture, paint, Transform::identity(), None);
+        if self.clip.is_empty() {
+            self.pixmap.draw_pixmap(x, y, picture, paint, Transform::identity(), None);
+            return;
+        }
+        // While parts are drawn again, only the picture's pieces over them
+        // are laid on (the same pixels, as each is a piece of the same
+        // picture at the same place): a wide kept fill or shadow costs no
+        // more than the parts.
+        for (cx, cy, cw, ch) in disjoint(&self.clip) {
+            let (x0, y0) = ((cx as i32).max(x), (cy as i32).max(y));
+            let (x1, y1) = (((cx + cw) as i32).min(x + picture.width() as i32), ((cy + ch) as i32).min(y + picture.height() as i32));
+            if x1 <= x0 || y1 <= y0 {
+                continue;
+            }
+            let piece = tiny_skia::IntRect::from_xywh(x0 - x, y0 - y, (x1 - x0) as u32, (y1 - y0) as u32).and_then(|r| picture.clone_rect(r));
+            if let Some(piece) = piece {
+                self.pixmap.draw_pixmap(x0, y0, piece.as_ref(), paint, Transform::identity(), None);
+            }
+        }
     }
 
     fn transform(&self) -> Transform {
@@ -596,6 +614,42 @@ impl Canvas {
     }
 }
 
+/// The area of `rects` as rectangles that do not overlap (each without
+/// what the ones before it cover), so that nothing is laid on twice.
+fn disjoint(rects: &[PixelRect]) -> Vec<PixelRect> {
+    let mut out: Vec<PixelRect> = Vec::new();
+    for &rect in rects {
+        let mut pieces = vec![rect];
+        for &(ox, oy, ow, oh) in &out {
+            let mut next = Vec::new();
+            for (x, y, w, h) in pieces {
+                let (ix0, iy0) = (x.max(ox), y.max(oy));
+                let (ix1, iy1) = ((x + w).min(ox + ow), (y + h).min(oy + oh));
+                if ix1 <= ix0 || iy1 <= iy0 {
+                    next.push((x, y, w, h));
+                    continue;
+                }
+                // Above, below, left and right of the overlap.
+                if iy0 > y {
+                    next.push((x, y, w, iy0 - y));
+                }
+                if y + h > iy1 {
+                    next.push((x, iy1, w, y + h - iy1));
+                }
+                if ix0 > x {
+                    next.push((x, iy0, ix0 - x, iy1 - iy0));
+                }
+                if x + w > ix1 {
+                    next.push((ix1, iy0, x + w - ix1, iy1 - iy0));
+                }
+            }
+            pieces = next;
+        }
+        out.extend(pieces);
+    }
+    out
+}
+
 /// A rounded rectangle path; radii are clamped to half the shorter side.
 pub fn rounded_rect_path(x: f32, y: f32, w: f32, h: f32, radii: Corners) -> Option<Path> {
     if !(w > 0.0 && h > 0.0) {
@@ -753,6 +807,36 @@ fn render_shadow_layers(w: f32, h: f32, radius: f32, blur: f32, alpha: f32, scal
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_kept_picture_drawn_in_parts_gives_the_pixels_of_a_whole_drawing() {
+        // Overlapping parts are laid on once.
+        let parts = disjoint(&[(0, 0, 10, 10), (5, 5, 10, 10), (0, 0, 4, 4)]);
+        let area: u32 = parts.iter().map(|p| p.2 * p.3).sum();
+        assert_eq!(area, 100 + 100 - 25);
+        let mut picture = Pixmap::new(60, 40).unwrap();
+        for (i, p) in picture.data_mut().chunks_exact_mut(4).enumerate() {
+            let a = (i % 7 * 30) as u8;
+            p.copy_from_slice(&[a / 2, a / 3, a / 4, a]);
+        }
+        let paint = PixmapPaint { quality: FilterQuality::Nearest, ..PixmapPaint::default() };
+        let mut whole = Canvas::new(80.0, 50.0, 1.0).unwrap();
+        whole.clear(Rgba::rgb(10, 80, 40));
+        whole.draw_device_pixmap(7, 3, picture.as_ref(), &paint);
+        let mut parts = Canvas::new(80.0, 50.0, 1.0).unwrap();
+        parts.clear(Rgba::rgb(10, 80, 40));
+        let clip = parts.begin_clip(&[(0, 0, 20, 20), (10, 10, 30, 20), (50, 30, 30, 20)]);
+        parts.clear(Rgba::rgb(10, 80, 40));
+        parts.draw_device_pixmap(7, 3, picture.as_ref(), &paint);
+        parts.end_clip();
+        for &(x, y, w, h) in &clip {
+            for yy in y..y + h {
+                for xx in x..x + w {
+                    assert_eq!(pixel(&parts, xx, yy), pixel(&whole, xx, yy), "at {xx}, {yy}");
+                }
+            }
+        }
+    }
 
     fn pixel(c: &Canvas, x: u32, y: u32) -> [u8; 4] {
         let p = c.pixmap().pixel(x, y).unwrap();

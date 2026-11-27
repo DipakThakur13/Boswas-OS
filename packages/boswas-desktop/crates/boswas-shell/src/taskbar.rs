@@ -361,7 +361,7 @@ pub fn draw(f: &mut Frame, st: &State) {
     f.material(Rect::new(0.0, 0.0, w, h), [0.0; 4], "chrome");
     match f.glass() {
         // Glass: the white highlight along the top edge and the glow under it.
-        Some(g) => boswas_ui::glass::draw_edges(f.canvas, 0.0, 0.0, w, h + 2.0, 0.0, &g, boswas_ui::glass::Kind::Taskbar, false),
+        Some(g) => boswas_ui::glass::draw_top_edge(f.canvas, 0.0, 0.0, w, h, &g),
         None => f.divider(0.0, 0.0, w),
     }
     f.area(Rect::new(0.0, 0.0, w, h), Action::None);
@@ -623,6 +623,38 @@ pub fn draw_preview(f: &mut Frame, st: &State, preview: &Preview, panel: Rect) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A hover on the glass taskbar draws its button again, not the glass:
+    /// the filled backdrop is kept and the glow is shaded only near it.
+    #[test]
+    fn a_hover_on_the_glass_taskbar_keeps_its_glass() {
+        let st = State::for_tests();
+        let theme = boswas_ui::Theme::of(boswas_ui::Scheme::Dark);
+        let mut res = crate::ui::Resources::new(theme);
+        let mut wallpaper = tiny_skia::Pixmap::new(320, 180).unwrap();
+        wallpaper.fill(tiny_skia::Color::from_rgba8(90, 60, 150, 255));
+        res.backdrop = boswas_ui::material::Backdrop::new(&wallpaper, 2560.0, 1440.0);
+        let (w, h, scale) = (2560.0, 48.0, 2.0);
+        let mut canvas = boswas_ui::Canvas::new(w, h, scale).unwrap();
+        let draw = |res: &mut crate::ui::Resources, canvas: &mut boswas_ui::Canvas, pointer: Option<(f32, f32)>| {
+            let mut hits = Vec::new();
+            draw(&mut Frame { canvas, res, pointer, pressed: false, hits: &mut hits, focus: None, origin: (0.0, 1392.0) }, &st);
+        };
+        draw(&mut res, &mut canvas, None);
+        let filled = res.backdrop.as_ref().unwrap().renders();
+        assert!(filled >= 1, "the glass is filled once");
+        let started = std::time::Instant::now();
+        for i in 0..20 {
+            let x = 1240.0 + (i % 4) as f32 * 44.0;
+            canvas.begin_clip(&[((x * scale) as u32, 0, (44.0 * scale) as u32, (48.0 * scale) as u32)]);
+            draw(&mut res, &mut canvas, Some((x + 20.0, 24.0)));
+            canvas.end_clip();
+        }
+        let each = started.elapsed() / 20;
+        assert_eq!(res.backdrop.as_ref().unwrap().renders(), filled, "a hover fills nothing again");
+        eprintln!("a hover on the taskbar at 200 %: {each:?}");
+        assert!(each < std::time::Duration::from_millis(60), "{each:?}");
+    }
 
     fn app(id: &str, name: &str) -> App {
         App {

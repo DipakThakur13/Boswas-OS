@@ -44,6 +44,8 @@ pub struct Backdrop {
     /// again on every hover change, and magnifying the blurred wallpaper
     /// costs more than everything else on it.
     filled: Vec<(FillKey, Pixmap)>,
+    /// Fills drawn (not taken from `filled`), for tests.
+    renders: usize,
 }
 
 impl Backdrop {
@@ -62,6 +64,7 @@ impl Backdrop {
             extremes: Vec::new(),
             grains: Vec::new(),
             filled: Vec::new(),
+            renders: 0,
         })
     }
 
@@ -96,6 +99,11 @@ impl Backdrop {
     /// enlarged.
     pub fn picture(&mut self, blur: f32, saturation: f32) -> &Pixmap {
         self.blurred(blur, saturation)
+    }
+
+    /// How many fills were drawn rather than taken from those kept.
+    pub fn renders(&self) -> usize {
+        self.renders
     }
 
     pub fn extremes(&mut self, blur: f32, saturation: f32) -> Vec<Rgba> {
@@ -202,6 +210,7 @@ impl Backdrop {
                 // Picture logical pixels = canvas logical pixels - the
                 // picture's place on the canvas.
                 let shift = (px / scale, py / scale);
+                self.renders += 1;
                 let Some(picture) = self.render_fill(
                     w + (fx + 1.0) / scale,
                     h + (fy + 1.0) / scale,

@@ -52,7 +52,9 @@ pub struct Prewarm {
 fn icon_sizes() -> Vec<f32> {
     let t = tokens();
     let (tile, list, bar) = (t.shell("start-icon"), t.shell("start-list-icon"), t.shell("taskbar-icon"));
-    vec![tile, tile - 4.0, 32.0, list, 40.0, 24.0, bar, bar - 4.0]
+    // A tile magnified under the pointer grows into the 10 px above it
+    // (magnify.rs).
+    vec![tile, tile - 4.0, tile + 10.0, 32.0, list, 40.0, 24.0, bar, bar - 4.0]
 }
 
 /// The icons (names and sizes in pixels) applications are drawn with at

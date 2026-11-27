@@ -385,14 +385,45 @@ pub fn draw_edges(canvas: &mut Canvas, x: f32, y: f32, w: f32, h: f32, radius: f
         return;
     }
     let radius = radius.clamp(0.0, w.min(h) / 2.0);
-    let radii = [radius; 4];
     if kind != Kind::Pane && glass.glow > 0.0 {
-        let reach = (h * 0.6).min(GLOW_HEIGHT);
-        let glow = Rgba::WHITE.alpha(glass.glow);
-        canvas.vertical_gradient_rounded_rect(x, y, w, h, radii, None, &[(0.0, glow), ((reach / h).min(1.0), glow.alpha(0.0))]);
+        draw_glow(canvas, x, y, w, (h * 0.6).min(GLOW_HEIGHT), radius, glass.glow);
     }
     draw_hairline(canvas, x, y, w, h, radius, glass, hover);
 }
+
+/// The inner glow: white at `glow` under the top edge, gone `reach` below
+/// it. Only those rows are shaded, in tiles of [`GLOW_TILE`] logical pixels
+/// across that start on whole device pixels, so that a part of a wide
+/// surface drawn again (a hover on the taskbar) shades only its own tiles.
+fn draw_glow(canvas: &mut Canvas, x: f32, y: f32, w: f32, reach: f32, radius: f32, glow: f32) {
+    let colour = Rgba::WHITE.alpha(glow);
+    let stops = [(0.0, colour), (1.0, colour.alpha(0.0))];
+    let scale = canvas.scale();
+    let snap = |v: f32| (v * scale).round() / scale;
+    let tiles = (w / GLOW_TILE).ceil().max(1.0) as usize;
+    for tile in 0..tiles {
+        let left = if tile == 0 { x } else { snap(x + tile as f32 * GLOW_TILE) };
+        let right = if tile + 1 == tiles { x + w } else { snap(x + (tile + 1) as f32 * GLOW_TILE) };
+        let radii = [if tile == 0 { radius } else { 0.0 }, if tile + 1 == tiles { radius } else { 0.0 }, 0.0, 0.0];
+        if right > left {
+            canvas.vertical_gradient_rounded_rect(left, y, right - left, reach, radii, None, &stops);
+        }
+    }
+}
+
+/// The top edge of a wide bar of glass that ends at the screen's edges (the
+/// taskbar): the glow under it and the white highlight along it, without
+/// the hairline down its sides.
+pub fn draw_top_edge(canvas: &mut Canvas, x: f32, y: f32, w: f32, h: f32, glass: &Glass) {
+    if glass.glow > 0.0 {
+        draw_glow(canvas, x, y, w, (h * 0.6).min(GLOW_HEIGHT), 0.0, glass.glow);
+    }
+    let line = 1.0 / canvas.scale().max(1.0);
+    canvas.fill_rect(x, y, w, line.max(0.5), Rgba::WHITE.alpha(glass.highlight));
+}
+
+/// Width of the tiles the glow is drawn in.
+pub const GLOW_TILE: f32 = 256.0;
 
 /// The hairline of glass alone: the white highlight at the top (brighter
 /// under the pointer) running into the plain outline and a soft shadow at
