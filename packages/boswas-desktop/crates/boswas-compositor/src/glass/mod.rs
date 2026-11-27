@@ -33,6 +33,7 @@ use smithay::{
         renderer::{
             element::{
                 memory::{MemoryRenderBuffer, MemoryRenderBufferRenderElement},
+                solid::{SolidColorBuffer, SolidColorRenderElement},
                 Element, Id, Kind,
             },
             utils::CommitCounter,
@@ -103,12 +104,47 @@ pub struct GlassState {
     blurred: HashMap<(String, Id), Kept>,
     mica: HashMap<String, Mica>,
     generations: u64,
-    /// The blurred desktop behind Task View, per output, and the
-    /// wallpaper generation it was made from.
-    desktops: HashMap<String, (u64, MemoryRenderBuffer)>,
+    /// The desktop behind Task View, per output.
+    desktops: HashMap<String, Desktop>,
     /// The Mica of each window's title bar: what it was made for
     /// (position on the output, wallpaper generation) and the picture.
     titlebars: HashMap<u64, MicaBar>,
+}
+
+/// What the desktop behind Task View was made for: the wallpaper's
+/// generation, the output's size in pixels, the darkening and the theme.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct DesktopKey {
+    generation: u64,
+    pixels: (i32, i32),
+    dim: u32,
+    theme: usize,
+}
+
+/// The desktop behind Task View on one output.
+struct Desktop {
+    key: DesktopKey,
+    /// Blurred, at half the output's size.
+    blurred: MemoryRenderBuffer,
+    /// The same picture's pixels (ARGB), until a worker thread takes them
+    /// to make the darkened picture from.
+    pixels: Option<(Vec<u8>, (i32, i32))>,
+    /// Blurred, enlarged and darkened, at the output's size (`None`: not
+    /// made yet; `Some(None)`: it could not be made).
+    darkened: Option<Option<MemoryRenderBuffer>>,
+}
+
+/// The desktop behind Task View, as [`Boswas::glass_desktop`] gives it.
+pub enum GlassDesktop<R: BoswasRenderer>
+where
+    R::TextureId: Texture + 'static,
+{
+    /// Blurred and darkened in one picture, at the opacity Task View has
+    /// reached on its way in or out.
+    Darkened(MemoryRenderBufferRenderElement<R>),
+    /// Only blurred, for Task View at rest (or while the darkened picture
+    /// is not there): the darkening is drawn over it.
+    Blurred(MemoryRenderBufferRenderElement<R>),
 }
 
 /// A title bar's Mica.
@@ -363,10 +399,22 @@ impl Boswas {
         }
     }
 
-    /// The desktop blurred into glass, filling the output: what Task View
-    /// lies on (behind its dimming), faded in with `alpha`. `None` with
-    /// glass off or before the wallpaper is known.
-    pub fn blurred_desktop<R>(&mut self, renderer: &mut R, output: &Output, scale: Scale<f64>, alpha: f32) -> Option<MemoryRenderBufferRenderElement<R>>
+    /// The desktop behind Task View, filling the output, blurred into
+    /// glass, with `progress` how far Task View is open (its opacity).
+    /// `None` with glass off or before the wallpaper is known.
+    ///
+    /// On its way in or out it comes darkened too (`dim`: the opacity of
+    /// the black over it), in one picture: each translucent layer over the
+    /// whole output costs a blend of all its pixels on every frame, which
+    /// without a GPU is most of a frame at 144 Hz, and the blurred desktop
+    /// with the darkening over it were two. pixman draws that picture (the
+    /// blurred desktop enlarged, the black over it) on a worker thread,
+    /// once per wallpaper and output size, and it is kept for the next
+    /// opening; until it is there, the two layers. At rest Task View draws
+    /// the two layers as before, on either renderer: pixman's enlargement
+    /// leaves the outermost pixels translucent, and there one layer rounds
+    /// differently from two by a level.
+    pub fn glass_desktop<R>(&mut self, renderer: &mut R, output: &Output, scale: Scale<f64>, dim: f32, progress: f32) -> Option<GlassDesktop<R>>
     where
         R: BoswasRenderer,
         R::TextureId: Clone + Send + Texture + 'static,
@@ -378,7 +426,14 @@ impl Boswas {
         let glass = ui_glass::Glass::of(self.theme)?;
         let geo = self.space.output_geometry(output)?;
         let generation = self.glass.mica.get(&name)?.generation;
-        if self.glass.desktops.get(&name).map(|(g, _)| *g) != Some(generation) {
+        let pixels = geo.size.to_physical_precise_round(scale);
+        let key = DesktopKey {
+            generation,
+            pixels: (pixels.w, pixels.h),
+            dim: dim.to_bits(),
+            theme: std::ptr::from_ref(self.theme) as usize,
+        };
+        if self.glass.desktops.get(&name).map(|d| d.key) != Some(key) {
             // At half the output's size with the grain on it, so that the
             // wide soft gradients do not band when enlarged.
             let (w, h) = ((geo.size.w as f32 / 2.0).ceil().max(1.0), (geo.size.h as f32 / 2.0).ceil().max(1.0));
@@ -388,13 +443,60 @@ impl Boswas {
             if let Some(tile) = ui_glass::grain(glass.noise) {
                 ui_glass::draw_grain(&mut canvas, 0.0, 0.0, w, h, [0.0; 4], &tile);
             }
-            self.glass.desktops.insert(name.clone(), (generation, output_order(&canvas)));
+            let (bytes, size) = argb_pixels(&canvas);
+            let blurred = MemoryRenderBuffer::from_slice(&bytes, Fourcc::Argb8888, size, 1, Transform::Normal, None);
+            self.glass.desktops.insert(name.clone(), Desktop { key, blurred, pixels: Some((bytes, size)), darkened: None });
         }
-        let (_, buffer) = self.glass.desktops.get(&name)?;
-        let _ = scale;
+        let desktop = self.glass.desktops.get_mut(&name)?;
+        if progress < 1.0 {
+            // Made on a worker thread (30 to 40 ms at 2560 x 1440 without a
+            // GPU); until it is there, the two layers.
+            if let Some(half) = desktop.pixels.take() {
+                let job = DarkenJob { half, size: geo.size, pixels, scale, dim };
+                self.make_darkened(name.clone(), key, job);
+            }
+            let desktop = self.glass.desktops.get_mut(&name)?;
+            if let Some(Some(buffer)) = &desktop.darkened {
+                return MemoryRenderBufferRenderElement::from_buffer(renderer, (0.0, 0.0), buffer, Some(progress), Some(whole(pixels)), Some(geo.size), Kind::Unspecified)
+                    .ok()
+                    .map(GlassDesktop::Darkened);
+            }
+        }
         // The picture, enlarged to the output (filtered linearly).
-        let src = Rectangle::from_size(Size::from(((f64::from(geo.size.w) / 2.0).ceil().max(1.0), (f64::from(geo.size.h) / 2.0).ceil().max(1.0))));
-        MemoryRenderBufferRenderElement::from_buffer(renderer, (0.0, 0.0), buffer, Some(alpha), Some(src), Some(geo.size), Kind::Unspecified).ok()
+        let desktop = self.glass.desktops.get(&name)?;
+        let src = half_of(geo.size);
+        MemoryRenderBufferRenderElement::from_buffer(renderer, (0.0, 0.0), &desktop.blurred, Some(progress), Some(src), Some(geo.size), Kind::Unspecified)
+            .ok()
+            .map(GlassDesktop::Blurred)
+    }
+
+    /// Makes the darkened desktop of output `name` on a worker thread and
+    /// keeps it when it comes, if it is still wanted (`key`).
+    fn make_darkened(&mut self, name: String, key: DesktopKey, job: DarkenJob) {
+        let (sender, receiver) = smithay::reexports::calloop::channel::channel::<Option<MemoryRenderBuffer>>();
+        let keep = move |state: &mut Boswas, made: Option<MemoryRenderBuffer>| {
+            if let Some(desktop) = state.glass.desktops.get_mut(&name).filter(|d| d.key == key && d.darkened.is_none()) {
+                if made.is_none() {
+                    tracing::debug!("task view: the darkened desktop could not be made");
+                }
+                desktop.darkened = Some(made);
+            }
+        };
+        let inserted = self.loop_handle.insert_source(receiver, move |event, _, state| match event {
+            smithay::reexports::calloop::channel::Event::Msg(made) => keep(state, made),
+            // The thread ended without one: the two layers stay.
+            smithay::reexports::calloop::channel::Event::Closed => keep(state, None),
+        });
+        let spawned = inserted.is_ok()
+            && std::thread::Builder::new()
+                .name("task-view".into())
+                .spawn(move || {
+                    let _ = sender.send(darkened(&job));
+                })
+                .is_ok();
+        if !spawned {
+            tracing::debug!("task view: no thread for the darkened desktop");
+        }
     }
 
     /// The Mica of the active window's title bar: the wallpaper under it,
@@ -512,20 +614,98 @@ impl Boswas {
 }
 
 
-/// `canvas` as a buffer in ARGB order, the output's: pixman enlarges it on
-/// its fast path. (In RGBA order, the canvas's own, it took its generic
-/// path: about 55 ms a frame of Task View's opening at 2560 x 1440 without
-/// a GPU, against 15 to 20 ms in ARGB order; the same pixels.)
-fn output_order(canvas: &boswas_ui::Canvas) -> MemoryRenderBuffer {
+/// `canvas`'s pixels in ARGB order, the output's (pixman enlarges a
+/// picture in that order on its fast path; in RGBA order, the canvas's
+/// own, it took its generic path: about 55 ms a frame of Task View's
+/// opening at 2560 x 1440 without a GPU, against 15 to 20 ms in ARGB
+/// order, the same pixels), and their size.
+fn argb_pixels(canvas: &boswas_ui::Canvas) -> (Vec<u8>, (i32, i32)) {
     let (pw, ph) = canvas.pixel_size();
     let mut bytes = vec![0u8; pw as usize * ph as usize * 4];
     canvas.write_argb8888(&mut bytes);
-    MemoryRenderBuffer::from_slice(&bytes, Fourcc::Argb8888, (pw as i32, ph as i32), 1, Transform::Normal, None)
+    (bytes, (pw as i32, ph as i32))
+}
+
+/// `canvas` as a buffer in ARGB order (see [`argb_pixels`]).
+#[cfg(test)]
+fn output_order(canvas: &boswas_ui::Canvas) -> MemoryRenderBuffer {
+    let (bytes, size) = argb_pixels(canvas);
+    MemoryRenderBuffer::from_slice(&bytes, Fourcc::Argb8888, size, 1, Transform::Normal, None)
+}
+
+/// The part of the blurred desktop's picture that covers an output of
+/// `size` (half its size, rounded up).
+fn half_of(size: Size<i32, Logical>) -> Rectangle<f64, Logical> {
+    Rectangle::from_size(Size::from(((f64::from(size.w) / 2.0).ceil().max(1.0), (f64::from(size.h) / 2.0).ceil().max(1.0))))
+}
+
+/// All of a picture of `pixels` (at buffer scale 1), as the part of it to
+/// draw: without it, Smithay takes as much of the picture as the output's
+/// logical size, a quarter of it at 200 %.
+fn whole(pixels: Size<i32, Physical>) -> Rectangle<f64, Logical> {
+    Rectangle::from_size(Size::from((f64::from(pixels.w), f64::from(pixels.h))))
+}
+
+/// What the darkened desktop is made from: the blurred desktop at half
+/// the output's size (ARGB pixels and their size), the output's size in
+/// logical and device pixels and its scale, and the darkening.
+struct DarkenJob {
+    half: (Vec<u8>, (i32, i32)),
+    size: Size<i32, Logical>,
+    pixels: Size<i32, Physical>,
+    scale: Scale<f64>,
+    dim: f32,
+}
+
+/// The blurred desktop enlarged to the output with black at the opacity
+/// `dim` over it, in ARGB order: drawn by pixman as it draws the two
+/// layers on screen (the enlargement filtered linearly), with a renderer of
+/// its own, so that it can be made on another thread.
+fn darkened(job: &DarkenJob) -> Option<MemoryRenderBuffer> {
+    use smithay::backend::renderer::pixman::PixmanRenderer;
+    let DarkenJob { half: (bytes, half_size), size, pixels, scale, dim } = job;
+    if pixels.w <= 0 || pixels.h <= 0 {
+        return None;
+    }
+    let mut renderer = PixmanRenderer::new().ok()?;
+    let half = MemoryRenderBuffer::from_slice(bytes, Fourcc::Argb8888, *half_size, 1, Transform::Normal, None);
+    let blurred = MemoryRenderBufferRenderElement::from_buffer(&mut renderer, (0.0, 0.0), &half, None, Some(half_of(*size)), Some(*size), Kind::Unspecified).ok()?;
+    let black = SolidColorBuffer::new(*size, [0.0, 0.0, 0.0, *dim]);
+    let darkening = SolidColorRenderElement::from_buffer(&black, Point::from((0, 0)), *scale, 1.0, Kind::Unspecified);
+    let elements: [OutputRenderElement<PixmanRenderer>; 2] = [OutputElement::Solid(darkening), OutputElement::Memory(blurred)];
+    // Drawn in ARGB and copied out as it is, straight into the picture's
+    // memory.
+    let argb = Fourcc::Argb8888;
+    let mut picture = MemoryRenderBuffer::new(argb, (pixels.w, pixels.h), 1, Transform::Normal, None);
+    let filled = crate::backend::render_offscreen_with::<_, smithay::reexports::pixman::Image<'static, 'static>, _, _>(
+        &mut renderer,
+        argb,
+        *pixels,
+        scale.x,
+        Transform::Normal,
+        &elements,
+        smithay::backend::renderer::Color32F::TRANSPARENT,
+        argb,
+        |read| {
+            let mut filled = false;
+            let _ = picture.render().draw(|memory| {
+                filled = memory.len() == read.len();
+                if filled {
+                    memory.copy_from_slice(read);
+                }
+                Ok::<_, ()>(vec![Rectangle::from_size(Size::from((pixels.w, pixels.h)))])
+            });
+            filled
+        },
+    )
+    .ok()?;
+    filled.then_some(picture)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::render::OutputRenderElement;
 
     #[test]
     fn the_preset_record_decides_high_contrast() {
@@ -573,5 +753,107 @@ mod tests {
             assert!(shown.chunks_exact(4).any(|p| p[0] != p[1] && p[1] != p[2]), "the picture is drawn, in colour");
             assert_eq!(shown, enlarged(&canvas_order, (37, 23), alpha), "opacity {alpha}");
         }
+    }
+
+    /// Task View's desktop in one picture (made by pixman, as on its
+    /// worker thread), shown by `renderer` (into buffers of `format`):
+    /// fully shown, it is the blurred desktop with the darkening over it as
+    /// `renderer` draws them, over a desktop of any colours, within
+    /// `inside` levels where it is opaque and `edges` levels at the
+    /// outermost pixels, which pixman's enlargement leaves translucent
+    /// (Task View at rest draws the two layers); on its way in it lies
+    /// between the desktop and that.
+    fn darkened_desktop_stands_for_the_two_layers<R, T>(renderer: &mut R, format: Fourcc, inside: u8, edges: u8)
+    where
+        R: BoswasRenderer + smithay::backend::renderer::Offscreen<T> + smithay::backend::renderer::Bind<T> + smithay::backend::renderer::ExportMem,
+        R::TextureId: Clone + Send + Texture + 'static,
+        R::Error: std::fmt::Display,
+    {
+        let dim = 0.45;
+        for (scale, size) in [(1.0, Size::from((75, 45))), (2.0, Size::from((75, 45))), (1.25, Size::from((64, 40)))] {
+            let scale = Scale::from(scale);
+            let size: Size<i32, Logical> = size;
+            let pixels = size.to_physical_precise_round(scale);
+            let (hw, hh) = ((size.w as f32 / 2.0).ceil(), (size.h as f32 / 2.0).ceil());
+            let mut canvas = boswas_ui::Canvas::new(hw, hh, 1.0).unwrap();
+            let width = canvas.pixel_size().0 as usize;
+            for (i, pixel) in canvas.pixmap_mut().data_mut().chunks_exact_mut(4).enumerate() {
+                let (x, y) = ((i % width) as u32, (i / width) as u32);
+                pixel.copy_from_slice(&[(x * 9) as u8, (y * 13) as u8, ((x * y * 3) % 256) as u8, 255]);
+            }
+            let half = output_order(&canvas);
+            let folded = darkened(&DarkenJob { half: argb_pixels(&canvas), size, pixels, scale, dim }).expect("pixman draws it");
+            // The desktop under Task View, in many colours.
+            let under: Vec<u8> = (0..pixels.w * pixels.h).flat_map(|i| [(i * 5) as u8, (i * 7 / 3) as u8, (i / 11) as u8, 255]).collect();
+            let under = MemoryRenderBuffer::from_slice(&under, Fourcc::Argb8888, (pixels.w, pixels.h), 1, Transform::Normal, None);
+            let draw = |elements: &[OutputRenderElement<R>], renderer: &mut R| {
+                crate::backend::render_offscreen::<_, T, _>(renderer, format, pixels, scale.x, elements, smithay::backend::renderer::Color32F::TRANSPARENT).unwrap()
+            };
+            let shown = |mut front: Vec<OutputRenderElement<R>>, renderer: &mut R| {
+                let desktop = MemoryRenderBufferRenderElement::from_buffer(renderer, (0.0, 0.0), &under, None, Some(whole(pixels)), Some(size), Kind::Unspecified).unwrap();
+                front.push(OutputElement::Memory(desktop));
+                draw(&front, renderer)
+            };
+            // The two layers, as Task View draws them at rest.
+            let blurred = MemoryRenderBufferRenderElement::from_buffer(renderer, (0.0, 0.0), &half, Some(1.0), Some(half_of(size)), Some(size), Kind::Unspecified).unwrap();
+            let black = SolidColorBuffer::new(size, [0.0, 0.0, 0.0, dim]);
+            let darkening = SolidColorRenderElement::from_buffer(&black, Point::from((0, 0)), scale, 1.0, Kind::Unspecified);
+            let two = shown(vec![OutputElement::Solid(darkening), OutputElement::Memory(blurred)], renderer);
+            let one_layer = |alpha: f32, renderer: &mut R| {
+                let element = MemoryRenderBufferRenderElement::from_buffer(renderer, (0.0, 0.0), &folded, Some(alpha), Some(whole(pixels)), Some(size), Kind::Unspecified).unwrap();
+                vec![OutputElement::Memory(element)]
+            };
+            let front = one_layer(1.0, renderer);
+            let one = shown(front, renderer);
+            assert!(two.chunks_exact(4).any(|p| p[0] != p[1]), "something is drawn");
+            // Where the picture is opaque (drawn alone, over nothing).
+            let front = one_layer(1.0, renderer);
+            let coverage = draw(&front, renderer);
+            let mut opaque = 0;
+            for (i, ((a, b), c)) in one.chunks_exact(4).zip(two.chunks_exact(4)).zip(coverage.chunks_exact(4)).enumerate() {
+                let worst = a.iter().zip(b).map(|(x, y)| x.abs_diff(*y)).max().unwrap_or(0);
+                if c[3] == 255 {
+                    assert!(worst <= inside, "pixel {i} at {scale:?}: {a:?} and {b:?}");
+                    opaque += 1;
+                } else {
+                    assert!(worst <= edges, "pixel {i} at {scale:?}: {a:?} and {b:?}");
+                }
+            }
+            assert!(opaque * 10 > one.len() / 4 * 8, "opaque but at the edges: {opaque} of {}", one.len() / 4);
+            // On the way in: the desktop at first, then between it and the
+            // end state.
+            let front = one_layer(0.0, renderer);
+            let start = shown(front, renderer);
+            let front = one_layer(0.5, renderer);
+            let midway = shown(front, renderer);
+            let alone = shown(Vec::new(), renderer);
+            assert!(start == alone, "nothing of Task View's desktop shows at first");
+            let slack = inside.max(edges).max(1);
+            for ((m, a), b) in midway.iter().zip(&alone).zip(&two) {
+                assert!(*m >= (*a).min(*b).saturating_sub(slack) && *m <= (*a).max(*b).saturating_add(slack));
+            }
+        }
+    }
+
+    /// On pixman: exactly the two layers where it is opaque, within a
+    /// level at the edges.
+    #[test]
+    fn the_darkened_desktop_stands_for_the_two_layers_on_pixman() {
+        let mut renderer = smithay::backend::renderer::pixman::PixmanRenderer::new().unwrap();
+        darkened_desktop_stands_for_the_two_layers::<_, smithay::reexports::pixman::Image<'static, 'static>>(&mut renderer, Fourcc::Argb8888, 0, 1);
+    }
+
+    /// On OpenGL ES (Mesa's software renderer where there is no GPU), which
+    /// blends with other arithmetic and does not leave the edges
+    /// translucent: close inside, and near at the edges, where the
+    /// pixman-made picture lets a quarter of the desktop show through.
+    #[cfg(feature = "udev")]
+    #[test]
+    fn the_darkened_desktop_stands_for_the_two_layers_on_opengl_es() {
+        let Some(mut renderer) = crate::backend::udev::software_gles_renderer() else {
+            eprintln!("no OpenGL ES renderer here (EGL surfaceless); the test did not run");
+            return;
+        };
+        darkened_desktop_stands_for_the_two_layers::<_, smithay::backend::renderer::gles::GlesTexture>(&mut renderer, Fourcc::Abgr8888, 3, 128);
     }
 }
