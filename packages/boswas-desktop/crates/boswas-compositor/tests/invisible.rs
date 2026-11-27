@@ -206,3 +206,77 @@ fn a_surface_that_shows_nothing_draws_nothing_and_still_takes_the_pointer() {
     let after = compositor.frames();
     assert!(after[drawn_before..].iter().any(|share| *share > 0.99), "a visible colour is drawn: {:?}", &after[drawn_before..]);
 }
+
+/// A layer surface of `size` (0: the output's) on `layer`, filled with one
+/// colour through a single-pixel buffer and a viewport.
+fn colour_layer(
+    globals: &wayland_client::globals::GlobalList,
+    queue: &mut wayland_client::EventQueue<State>,
+    state: &mut State,
+    layer: zwlr_layer_shell_v1::Layer,
+    size: (u32, u32),
+    rgba: [u32; 4],
+) -> (wl_surface::WlSurface, zwlr_layer_surface_v1::ZwlrLayerSurfaceV1) {
+    let qh = queue.handle();
+    let wl_compositor: wl_compositor::WlCompositor = globals.bind(&qh, 1..=4, ()).unwrap();
+    let layer_shell: zwlr_layer_shell_v1::ZwlrLayerShellV1 = globals.bind(&qh, 1..=4, ()).unwrap();
+    let viewporter: wp_viewporter::WpViewporter = globals.bind(&qh, 1..=1, ()).unwrap();
+    let pixels: wp_single_pixel_buffer_manager_v1::WpSinglePixelBufferManagerV1 = globals.bind(&qh, 1..=1, ()).unwrap();
+    let surface = wl_compositor.create_surface(&qh, ());
+    let shell_surface = layer_shell.get_layer_surface(&surface, None, layer, "test".into(), &qh, ());
+    use zwlr_layer_surface_v1::Anchor;
+    if size == (0, 0) {
+        shell_surface.set_anchor(Anchor::Top | Anchor::Bottom | Anchor::Left | Anchor::Right);
+    } else {
+        shell_surface.set_anchor(Anchor::Top | Anchor::Left);
+        shell_surface.set_margin(40, 0, 0, 60);
+    }
+    shell_surface.set_size(size.0, size.1);
+    surface.commit();
+    state.configured = None;
+    while state.configured.is_none() {
+        queue.blocking_dispatch(state).unwrap();
+    }
+    let (w, h) = state.configured.unwrap();
+    let viewport = viewporter.get_viewport(&surface, &qh, ());
+    viewport.set_destination(w as i32, h as i32);
+    let buffer = pixels.create_u32_rgba_buffer(rgba[0], rgba[1], rgba[2], rgba[3], &qh, ());
+    surface.attach(Some(&buffer), 0, 0);
+    surface.damage_buffer(0, 0, 1, 1);
+    surface.commit();
+    queue.roundtrip(state).unwrap();
+    (surface, shell_surface)
+}
+
+#[test]
+fn a_small_surface_in_front_damages_only_itself() {
+    let compositor = Compositor::start();
+    let stream = UnixStream::connect(compositor.runtime.path().join(&compositor.display)).unwrap();
+    let conn = Connection::from_socket(stream).unwrap();
+    let (globals, mut queue) = registry_queue_init::<State>(&conn).unwrap();
+    let mut state = State::default();
+    // A wallpaper over the whole output, then a small surface in front of
+    // it (a tooltip, say), which comes and goes.
+    let _wallpaper = colour_layer(&globals, &mut queue, &mut state, zwlr_layer_shell_v1::Layer::Background, (0, 0), [0x4000_0000, 0x6000_0000, 0x8000_0000, u32::MAX]);
+    std::thread::sleep(Duration::from_millis(400));
+    let before = compositor.frames().len();
+    let (tip, tip_layer) = colour_layer(&globals, &mut queue, &mut state, zwlr_layer_shell_v1::Layer::Overlay, (100, 50), [u32::MAX, 0, 0, u32::MAX]);
+    let wait_for_frame = |since: usize| {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while compositor.frames().len() == since && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    };
+    wait_for_frame(before);
+    let shown = compositor.frames();
+    assert!(shown.len() > before, "the small surface was drawn");
+    assert!(shown[before..].iter().all(|share| *share < 0.05), "it appearing redrew the screen: {:?}", &shown[before..]);
+    tip_layer.destroy();
+    tip.destroy();
+    queue.roundtrip(&mut state).unwrap();
+    wait_for_frame(shown.len());
+    let gone = compositor.frames();
+    assert!(gone.len() > shown.len(), "its going was drawn");
+    assert!(gone[shown.len()..].iter().all(|share| *share < 0.05), "it going redrew the screen: {:?}", &gone[shown.len()..]);
+}

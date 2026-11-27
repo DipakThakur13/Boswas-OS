@@ -20,6 +20,7 @@ mod scale;
 mod shell;
 mod state;
 mod stats;
+mod steady;
 mod supervise;
 
 use std::{path::PathBuf, time::Duration};
