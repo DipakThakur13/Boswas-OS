@@ -646,6 +646,12 @@ hardware renderer, pixman otherwise), \fBgles\fR or \fBpixman\fR.
 .TP
 .B XCURSOR_THEME
 Cursor theme when \fBpointer.cursor_theme\fR is empty.
+.TP
+.B GLIBC_TUNABLES
+When the session does not set it, the shell, the lock screen and the login
+screen are started with \fBglibc.malloc.mmap_threshold=262144\fR, so that the
+shell gives large buffers back to the system once it lets them go; other
+programs do not get it.
 .SH EXIT STATUS
 .TP
 .B 0

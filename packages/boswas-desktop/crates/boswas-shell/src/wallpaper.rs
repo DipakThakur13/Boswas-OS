@@ -170,6 +170,15 @@ impl Background {
         self.adopted = None;
     }
 
+    /// The scheme changed: the drawn background differs between the two
+    /// (a picture does not), so it is drawn again at the next paint, and
+    /// shared again for the lock screen.
+    pub fn scheme_changed(&mut self) {
+        if self.picture.is_none() && !self.undecoded {
+            self.cached = None;
+        }
+    }
+
     /// Loads the picture at `path`, or returns to the drawn background when
     /// `path` is empty or cannot be used. The file is decoded here, in the
     /// unprivileged shell, never in the compositor.
@@ -491,6 +500,29 @@ mod tests {
         for v in [dither(0, 0), dither(17, 3), dither(1919, 1079)] {
             assert!((0.0..1.0).contains(&v));
         }
+    }
+
+    #[test]
+    fn the_drawn_background_follows_the_scheme() {
+        let mut background = Background::default();
+        let dark = Theme::dark();
+        let light = Theme::light();
+        let mut first = Canvas::new(64.0, 48.0, 1.0).unwrap();
+        background.paint(&mut first, dark);
+        background.scheme_changed();
+        let mut second = Canvas::new(64.0, 48.0, 1.0).unwrap();
+        background.paint(&mut second, light);
+        let mut fresh = Canvas::new(64.0, 48.0, 1.0).unwrap();
+        Background::default().paint(&mut fresh, light);
+        assert_ne!(first.pixmap().data(), second.pixmap().data(), "the light scheme's drawing, not the dark one kept");
+        assert_eq!(second.pixmap().data(), fresh.pixmap().data());
+        // A picture is the same in both schemes: kept.
+        let mut pictured = Background::default();
+        pictured.set_picture(Some(first.pixmap().clone()));
+        let mut a = Canvas::new(64.0, 48.0, 1.0).unwrap();
+        pictured.paint(&mut a, dark);
+        pictured.scheme_changed();
+        assert!(pictured.cached.is_some());
     }
 
     #[test]

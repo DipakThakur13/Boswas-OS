@@ -245,6 +245,7 @@ impl Boswas {
                 );
             }
             self.blur_behind_surfaces(renderer, output, scale, &mut elements);
+            rebalance_spacers(output, scale, &mut elements);
             return (elements, Color32F::BLACK);
         }
 
@@ -258,6 +259,7 @@ impl Boswas {
         layer_elements(renderer, output, Layer::Bottom, scale, &mut elements);
         layer_elements(renderer, output, Layer::Background, scale, &mut elements);
         self.blur_behind_surfaces(renderer, output, scale, &mut elements);
+        rebalance_spacers(output, scale, &mut elements);
         (elements, background)
     }
 
@@ -631,6 +633,17 @@ where
     let size = output.current_mode().map(|mode| output.current_transform().transform_size(mode.size)).unwrap_or_default();
     let spacers = crate::steady::spacers(elements, Rectangle::from_size(size), scale);
     elements.extend(spacers.into_iter().map(OutputRenderElement::Solid));
+}
+
+/// Takes out the spacers that blurs put in front of them made one too many
+/// (`steady::rebalance`).
+fn rebalance_spacers<R>(output: &Output, scale: Scale<f64>, elements: &mut Vec<OutputRenderElement<R>>)
+where
+    R: BoswasRenderer,
+    R::TextureId: Clone + Send + Texture + 'static,
+{
+    let size = output.current_mode().map(|mode| output.current_transform().transform_size(mode.size)).unwrap_or_default();
+    crate::steady::rebalance(elements, Rectangle::from_size(size), scale);
 }
 
 /// Whether a layer surface shows nothing at all: its content is one fully

@@ -312,11 +312,21 @@ specification); an item on another drive is not moved.
 .I /var/lib/AccountsService/icons/LOGIN
 .TQ
 .I ~/.face
+.TQ
+.I ~/.face.icon
 The account picture Settings saves (it gives it to AccountsService, which
-keeps the copy the login screen reads). The newer of the two is shown; a
+keeps the copy the login screen reads). The newest of these is shown; a
 file is read only when it is a regular file of at most 8 MB, decoded within
 8192 pixels on a side, cropped to its centred square and drawn round. It is
 looked at again (its time and size only) when Start opens.
+.TP
+.I $XDG_RUNTIME_DIR/boswas\-shell\-background
+The background the desktop drew, shared with the lock screen so that it
+appears without drawing or decoding it again. The desktop writes it (mode
+0600, aside and then renamed, at most 64 MB of pixels) whenever it draws its
+background; the lock screen reads it only when it is a regular file of
+exactly the size its header gives, never through a link, and draws its own
+background otherwise.
 .TP
 .I /etc/pam.d/boswas\-lock
 PAM service of the lock screen.
@@ -327,6 +337,13 @@ Log filter (for example \fBdebug\fR). Messages go to standard error.
 .TP
 .B GREETD_SOCK
 Set by greetd for the login screen.
+.TP
+.B GLIBC_TUNABLES
+\fBboswas\-compositor\fR(1) starts the shell, the lock screen and the login
+screen with \fBglibc.malloc.mmap_threshold=262144\fR (unless the session
+sets its own), so that large buffers the shell lets go are given back to the
+system. The shell takes that setting out of the environment of programs it
+starts.
 .SH EXIT STATUS
 0 when the shell was asked to end. 2 for a wrong option. 1 on an error,
 with one line on standard error that says what was wrong: the compositor could not be reached, or no

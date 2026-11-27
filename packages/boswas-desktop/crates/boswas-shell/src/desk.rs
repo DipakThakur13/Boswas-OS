@@ -552,6 +552,8 @@ impl Shell {
         // change, and a large picture takes a while to decode.
         if first || old.wallpaper != new.wallpaper {
             self.background.load_picture(&new.wallpaper);
+        } else if old.light != new.light {
+            self.background.scheme_changed();
         }
         if first || old.wallpaper != new.wallpaper || old.light != new.light || old.accent != new.accent || old.transparency != new.transparency || old.high_contrast != new.high_contrast {
             self.res.backdrop = None;

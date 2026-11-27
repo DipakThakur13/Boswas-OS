@@ -88,6 +88,27 @@ pub fn spacers<E: Element>(front: &[E], output: Rectangle<i32, Physical>, scale:
     })
 }
 
+/// Whether `id` is one of the spacers.
+pub fn is_spacer(id: &Id) -> bool {
+    SPACERS.with(|ids| ids.borrow().iter().any(|spacer| spacer == id))
+}
+
+/// Takes spacers out again for elements put in front of them after they
+/// were counted (the blur behind a translucent surface, which
+/// `glass/mod.rs` inserts once the whole picture is known), so that the
+/// front and its spacers keep their fixed count and what is behind keeps its
+/// place. Without it, every menu, tooltip or flyout with live blur behind it
+/// moved the windows back by one and the whole screen was drawn again.
+pub fn rebalance<E: Element>(elements: &mut Vec<E>, output: Rectangle<i32, Physical>, scale: Scale<f64>) {
+    let Some(first) = elements.iter().position(|element| is_spacer(element.id())) else {
+        return;
+    };
+    let run = elements[first..].iter().take_while(|element| is_spacer(element.id())).count();
+    let (count, _) = visible(&elements[..first], output, scale);
+    let keep = FRONT.saturating_sub(count).min(run);
+    elements.drain(first + keep..first + run);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -123,5 +144,38 @@ mod tests {
         assert!(a.iter().zip(&b).all(|(a, b)| a.id() == b.id() && a.geometry(scale) == b.geometry(scale)));
         // Nothing shows behind an opaque cover: no spacers.
         assert!(spacers(&[solid((0, 0, 800, 600), true)], output, scale).is_empty());
+    }
+
+    #[test]
+    fn an_element_put_in_front_later_takes_a_spacer_out() {
+        let output = Rectangle::from_size(Size::from((800, 600)));
+        let scale = Scale::from(1.0);
+        let taskbar = solid((0, 552, 800, 48), true);
+        let flyout = solid((200, 100, 300, 400), false);
+        let window = solid((50, 50, 400, 300), true);
+        let wallpaper = solid((0, 0, 800, 600), true);
+        let picture = |front: &[SolidColorRenderElement]| {
+            let mut all: Vec<SolidColorRenderElement> = front.to_vec();
+            all.extend(spacers(front, output, scale));
+            all.push(window.clone());
+            all.push(wallpaper.clone());
+            all
+        };
+        let place = |all: &[SolidColorRenderElement], id: &Id| all.iter().position(|e| e.id() == id).unwrap();
+        let before = picture(std::slice::from_ref(&taskbar));
+        // A flyout appears, and behind it (inserted once the picture is
+        // known, as the blur is) a translucent element.
+        let mut after = picture(&[flyout.clone(), taskbar.clone()]);
+        let blur = solid((200, 100, 300, 400), false);
+        after.insert(1, blur);
+        rebalance(&mut after, output, scale);
+        assert_eq!(place(&after, window.id()), place(&before, window.id()), "the window keeps its place");
+        assert_eq!(place(&after, wallpaper.id()), place(&before, wallpaper.id()), "the wallpaper keeps its place");
+        let front = after.iter().position(|e| e.id() == window.id()).unwrap();
+        assert_eq!(visible(&after[..front], output, scale).0, FRONT);
+        // Rebalancing a picture that needs nothing changes nothing.
+        let mut same = before.clone();
+        rebalance(&mut same, output, scale);
+        assert_eq!(same.iter().map(|e| e.id().clone()).collect::<Vec<_>>(), before.iter().map(|e| e.id().clone()).collect::<Vec<_>>());
     }
 }
