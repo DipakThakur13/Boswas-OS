@@ -961,6 +961,7 @@ impl Shell {
     /// Makes the blurred wallpaper for an output available to the drawing
     /// code.
     fn prepare_backdrop(&mut self, size: (f32, f32)) {
+        self.background.settle();
         let key = (size.0 as u32, size.1 as u32);
         if self.res.backdrop.is_some() && self.res.backdrop_key == key {
             return;

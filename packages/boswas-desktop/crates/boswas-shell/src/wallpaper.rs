@@ -156,6 +156,9 @@ pub struct Background {
     adopted: Option<(String, bool)>,
     /// Where the background is shared once drawn (the desktop only).
     share: Option<PathBuf>,
+    /// The shared background being read, on a thread of its own while the
+    /// lock screen connects (see `settle`).
+    reading: Option<std::thread::JoinHandle<Option<(Pixmap, String, bool)>>>,
 }
 
 impl Background {
@@ -173,6 +176,7 @@ impl Background {
     pub fn load_picture(&mut self, path: &str) {
         /// Largest wallpaper file that is read.
         const MAX_BYTES: u64 = 64 * 1024 * 1024;
+        self.settle();
         if self.adopted.as_ref().is_some_and(|(shared, _)| shared == path) {
             // The background the desktop shared is this picture, drawn.
             self.path = path.to_owned();
@@ -209,6 +213,7 @@ impl Background {
 
     /// Fills the canvas with the background.
     pub fn paint(&mut self, canvas: &mut Canvas, theme: &Theme) {
+        self.settle();
         let (pw, ph) = canvas.pixel_size();
         let light = theme.scheme == boswas_ui::Scheme::Light;
         let sized = matches!(&self.cached, Some((w, h, _)) if (*w, *h) == (pw, ph));
@@ -256,7 +261,18 @@ impl Background {
     /// background or decoding the picture again. Used while its size and
     /// its wallpaper are those of the lock screen.
     pub fn adopt_shared(&mut self, file: &Path) {
-        if let Some((pixmap, path, light)) = shared::read(file) {
+        let file = file.to_owned();
+        self.reading = std::thread::Builder::new().name("background".into()).spawn(move || shared::read(&file)).ok();
+    }
+
+    /// Takes the shared background once it is read (waiting for the read
+    /// if it is still going on); drawing and loading a picture do this
+    /// first.
+    pub fn settle(&mut self) {
+        let Some(reading) = self.reading.take() else {
+            return;
+        };
+        if let Some((pixmap, path, light)) = reading.join().ok().flatten() {
             self.path = path.clone();
             self.undecoded = !path.is_empty();
             self.cached = Some((pixmap.width(), pixmap.height(), pixmap));
@@ -539,6 +555,7 @@ mod tests {
         }
         let mut lock = Background::default();
         lock.adopt_shared(&file);
+        lock.settle();
         assert!(lock.cached.is_some(), "the shared background was taken");
         // The configuration names the same wallpaper (here the drawn one):
         // nothing is drawn or decoded again, and the pixels are the desktop's.
