@@ -154,6 +154,9 @@ pub fn fill(canvas: &mut Canvas, x: f32, y: f32, w: f32, h: f32, radii: Corners,
             backdrop.fill_recipe(canvas, x, y, w, h, radii, origin, &recipe);
         }
         _ => {
+            // The glass is translucent here: what the surface drew under it
+            // (its shadow) would darken it, so it starts clear.
+            canvas.clear_rounded_rect(x, y, w, h, radii);
             for (tint, opacity) in layers(theme, &glass, kind, &band_extremes(theme.scheme)) {
                 if opacity > 0.0 {
                     canvas.fill_rounded_rect4(x, y, w, h, radii, tint.alpha(opacity));
@@ -288,15 +291,65 @@ pub fn blend(under: Rgba, over: Rgba, alpha: f32) -> Rgba {
 pub fn luminosity_band(scheme: Scheme) -> (f32, f32) {
     match scheme {
         Scheme::Dark => (0.0, 0.07),
-        Scheme::Light => (0.55, 1.0),
+        Scheme::Light => (0.6, 1.0),
     }
 }
 
 /// The two ends of [`luminosity_band`] as greys.
-pub fn band_extremes(scheme: Scheme) -> [Rgba; 2] {
-    let (lo, hi) = luminosity_band(scheme);
-    [grey_of_luminance(lo, true), grey_of_luminance(hi, false)]
+pub fn band_extremes(scheme: Scheme) -> Vec<Rgba> {
+    let band = luminosity_band(scheme);
+    let mut out = vec![grey_of_luminance(band.0, true), grey_of_luminance(band.1, false)];
+    // Saturated colours brought into the band blend with a tint to less
+    // luminance than a grey of theirs does: the six hues, at both ends.
+    let to_byte = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+    for hue in [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [1.0, 1.0, 0.0], [0.0, 1.0, 1.0], [1.0, 0.0, 1.0]] {
+        for level in [1.0, 0.05] {
+            let c = tone(hue.map(|v: f32| v * level), 1.0, band);
+            out.push(Rgba::rgb(to_byte(c[0]), to_byte(c[1]), to_byte(c[2])));
+        }
+    }
+    out
 }
+
+/// What the compositor's live blur does to one colour of the blurred scene
+/// (gamma-encoded RGB, 0..1): saturates it by `saturation`, then keeps its
+/// relative luminance within `band`: brighter by the factor that brings it
+/// up to the band's lower end (towards white where a channel would clip),
+/// darker by the factor that brings it down to the upper end. The
+/// compositor's shader does the same; the shell makes its glass legible
+/// over colours this gives.
+pub fn tone(rgb: [f32; 3], saturation: f32, band: (f32, f32)) -> [f32; 3] {
+    let grey = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
+    let mut c = rgb.map(|v| (grey + (v - grey) * saturation).clamp(0.0, 1.0));
+    let linear = |v: f32| v.max(0.0).powf(2.2);
+    let luminance = 0.2126 * linear(c[0]) + 0.7152 * linear(c[1]) + 0.0722 * linear(c[2]);
+    if luminance > band.1 {
+        // Darker by the factor that brings the luminance to the band.
+        let k = (band.1 / luminance).powf(1.0 / 2.2);
+        c = c.map(|v| v * k);
+    } else if luminance < band.0 {
+        // Brighter by the factor that brings the luminance up to the band;
+        // where a channel would pass white, towards white instead.
+        let lin = c.map(linear);
+        let lifted = if luminance > 1e-5 {
+            let up = lin.map(|v| v * band.0 / luminance);
+            if up.iter().copied().fold(0.0f32, f32::max) > 1.0 {
+                let top = lin.iter().copied().fold(0.0f32, f32::max);
+                let cut = lin.map(|v| v / top);
+                let lc = 0.2126 * cut[0] + 0.7152 * cut[1] + 0.0722 * cut[2];
+                let t = ((band.0 - lc) / (1.0 - lc).max(1e-5)).clamp(0.0, 1.0);
+                cut.map(|v| v + (1.0 - v) * t)
+            } else {
+                up
+            }
+        } else {
+            [band.0; 3]
+        };
+        c = lifted.map(|v| v.powf(1.0 / 2.2));
+    }
+    c
+}
+
 
 /// The grey of a relative luminance: the brightest grey at or below it
 /// (`at_most`) or the darkest at or above it.
@@ -505,9 +558,12 @@ mod tests {
             let extremes = band_extremes(theme.scheme);
             let (lo, hi) = luminosity_band(theme.scheme);
             assert!(extremes[0].luminance() <= lo + 1e-6 && extremes[1].luminance() >= hi - 1e-6);
+            for e in &extremes {
+                assert!(e.luminance() >= lo - 0.03 && e.luminance() <= hi + 0.03, "{e:?} lies in the band");
+            }
             for kind in [Kind::Backdrop, Kind::Taskbar] {
                 let alpha = legible_opacity(theme, &g, kind, &extremes);
-                let most = if kind == Kind::Taskbar { 0.86 } else { 0.8 };
+                let most = if kind == Kind::Taskbar { 0.9 } else { 0.8 };
                 assert!(alpha <= most, "{:?} {kind:?}: glass over live blur stays translucent ({alpha})", theme.scheme);
             }
         }
@@ -520,6 +576,19 @@ mod tests {
         let max = a.data().chunks_exact(4).map(|p| p[3]).max().unwrap();
         assert!(max > 0 && max <= 7, "specks of at most twice the opacity: {max}");
         assert!(a.data().chunks_exact(4).all(|p| p[0] <= p[3]), "premultiplied");
+    }
+
+    #[test]
+    fn translucent_glass_does_not_show_its_own_shadow() {
+        let theme = Theme::light();
+        let g = Glass::of(theme).unwrap();
+        let mut canvas = Canvas::new(100.0, 80.0, 1.0).unwrap();
+        canvas.shadow(10.0, 10.0, 80.0, 60.0, 8.0, 16.0, 8.0, 0.3);
+        fill(&mut canvas, 10.0, 10.0, 80.0, 60.0, [8.0; 4], (0.0, 0.0), theme, Kind::Backdrop, Source::Live);
+        let p = canvas.pixmap().pixel(50, 40).unwrap();
+        let (tint, opacity) = layers(theme, &g, Kind::Backdrop, &band_extremes(theme.scheme))[0];
+        assert!((i32::from(p.alpha()) - (opacity * 255.0).round() as i32).abs() <= 3, "only the tint's opacity: {p:?}");
+        assert!((i32::from(p.red()) - (f32::from(tint.r) * opacity).round() as i32).abs() <= 3, "{p:?}");
     }
 
     #[test]

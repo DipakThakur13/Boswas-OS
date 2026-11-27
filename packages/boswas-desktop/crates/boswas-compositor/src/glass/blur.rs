@@ -1005,39 +1005,12 @@ void main() {
     }
 }
 
-/// The saturation and luminosity band of the shader on one colour
-/// (gamma-encoded RGB, 0..1): the specification of the final draw.
+/// The saturation and luminosity band of the shader on one colour: the
+/// specification of the final draw, shared with the shell
+/// (`boswas_ui::glass::tone`).
 #[cfg(test)]
 pub fn tone(rgb: [f32; 3], saturation: f32, band: (f32, f32)) -> [f32; 3] {
-    let grey = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
-    let mut c = rgb.map(|v| (grey + (v - grey) * saturation).clamp(0.0, 1.0));
-    let linear = |v: f32| v.max(0.0).powf(2.2);
-    let luminance = 0.2126 * linear(c[0]) + 0.7152 * linear(c[1]) + 0.0722 * linear(c[2]);
-    if luminance > band.1 {
-        // Darker by the factor that brings the luminance to the band.
-        let k = (band.1 / luminance).powf(1.0 / 2.2);
-        c = c.map(|v| v * k);
-    } else if luminance < band.0 {
-        // Brighter by the factor that brings the luminance up to the band;
-        // where a channel would pass white, towards white instead.
-        let lin = c.map(linear);
-        let lifted = if luminance > 1e-5 {
-            let up = lin.map(|v| v * band.0 / luminance);
-            if up.iter().copied().fold(0.0f32, f32::max) > 1.0 {
-                let top = lin.iter().copied().fold(0.0f32, f32::max);
-                let cut = lin.map(|v| v / top);
-                let lc = 0.2126 * cut[0] + 0.7152 * cut[1] + 0.0722 * cut[2];
-                let t = ((band.0 - lc) / (1.0 - lc).max(1e-5)).clamp(0.0, 1.0);
-                cut.map(|v| v + (1.0 - v) * t)
-            } else {
-                up
-            }
-        } else {
-            [band.0; 3]
-        };
-        c = lifted.map(|v| v.powf(1.0 / 2.2));
-    }
-    c
+    boswas_ui::glass::tone(rgb, saturation, band)
 }
 
 #[cfg(test)]

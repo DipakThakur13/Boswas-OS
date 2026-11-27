@@ -464,6 +464,23 @@ impl Canvas {
         }
     }
 
+    /// Makes a rounded rectangle transparent (anti-aliased at its edge):
+    /// what translucent glass lies on must not show what was drawn under
+    /// it on the same surface (its own shadow).
+    pub fn clear_rounded_rect(&mut self, x: f32, y: f32, w: f32, h: f32, radii: Corners) {
+        let Some(path) = rounded_rect_path(x, y, w, h, radii) else {
+            return;
+        };
+        if !self.path_visible(&path, 0.0) {
+            return;
+        }
+        self.touch();
+        let mut paint = Self::paint(Rgba::BLACK);
+        paint.blend_mode = tiny_skia::BlendMode::Clear;
+        let transform = self.transform();
+        self.pixmap.fill_path(&path, &paint, FillRule::Winding, transform, None);
+    }
+
     /// A rounded rectangle filled with a shader (a pattern, a gradient)
     /// whose coordinates are logical pixels of this canvas.
     pub fn fill_rounded_rect_shader(&mut self, x: f32, y: f32, w: f32, h: f32, radii: Corners, shader: tiny_skia::Shader) {
