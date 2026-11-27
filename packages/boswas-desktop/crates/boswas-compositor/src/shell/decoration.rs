@@ -76,6 +76,9 @@ struct TitlebarKey {
     light: bool,
     /// The desktop's text size in percent (Accessibility > Text size).
     text_scale: u32,
+    /// The Mica it shows (glass/): where it was made and from which
+    /// wallpaper; `None` for the plain background.
+    mica: Option<(i32, i32, i32, u64)>,
 }
 
 /// What the cached border strip was drawn for.
@@ -172,6 +175,7 @@ impl Decoration {
         text: &mut TextEngine,
         theme: &Theme,
         text_scale: u32,
+        mica: Option<crate::glass::MicaBar>,
     ) -> bool {
         if window.titlebar_height() == 0 {
             let had = self.titlebar.take().is_some() || self.border.take().is_some();
@@ -198,9 +202,10 @@ impl Decoration {
             tile,
             light,
             text_scale,
+            mica: mica.as_ref().map(|(made, _)| *made),
         };
         if self.key.as_ref() != Some(&key) || self.titlebar.is_none() {
-            self.titlebar = draw_titlebar(&key, icon.as_deref(), text, theme);
+            self.titlebar = draw_titlebar(&key, icon.as_deref(), text, theme, mica.as_ref().map(|(_, picture)| picture.as_ref()));
             self.key = Some(key);
             redrawn = true;
         }
@@ -498,12 +503,17 @@ fn draw_titlebar(
     icon: Option<&Pixmap>,
     text: &mut TextEngine,
     theme: &Theme,
+    mica: Option<&Pixmap>,
 ) -> Option<MemoryRenderBuffer> {
     let t = tokens();
     let (w, h) = (key.width as f32, TITLEBAR_HEIGHT as f32);
     let mut canvas = Canvas::new(w, h, key.scale as f32)?;
     let radius = if is_rounded(key.tile) { t.radius_window } else { 0.0 };
-    canvas.fill_rounded_rect4(0.0, 0.0, w, h, [radius, radius, 0.0, 0.0], theme.background);
+    // Mica on the active window (glass/), else the plain background.
+    match mica.filter(|m| (m.width(), m.height()) == canvas.pixel_size()) {
+        Some(mica) => canvas.copy_from_full(mica),
+        None => canvas.fill_rounded_rect4(0.0, 0.0, w, h, [radius, radius, 0.0, 0.0], theme.background),
+    }
 
     // Icon and title.
     let buttons = 3.0 * BUTTON_WIDTH as f32;
@@ -738,14 +748,15 @@ mod tests {
             tile: Tile::Floating,
             light: false,
             text_scale: 100,
+            mica: None,
         };
-        assert!(draw_titlebar(&key, None, &mut text, Theme::dark()).is_some());
+        assert!(draw_titlebar(&key, None, &mut text, Theme::dark(), None).is_some());
         let large = TitlebarKey { text_scale: 225, ..key.clone() };
-        assert!(draw_titlebar(&large, None, &mut text, Theme::dark()).is_some());
+        assert!(draw_titlebar(&large, None, &mut text, Theme::dark(), None).is_some());
         let pressed = TitlebarKey { pressed: Some(Button::Maximize), tile: Tile::Maximized, ..key.clone() };
-        assert!(draw_titlebar(&pressed, None, &mut text, Theme::light()).is_some());
+        assert!(draw_titlebar(&pressed, None, &mut text, Theme::light(), None).is_some());
         let zero = TitlebarKey { width: 0, ..key };
-        assert!(draw_titlebar(&zero, None, &mut text, Theme::dark()).is_none());
+        assert!(draw_titlebar(&zero, None, &mut text, Theme::dark(), None).is_none());
     }
 
     #[test]

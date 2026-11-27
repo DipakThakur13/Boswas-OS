@@ -405,9 +405,8 @@ pub fn draw_toasts(f: &mut Frame, st: &State, now: Instant) {
         let card = Rect::new(margin + slide, bottom - height, width, height);
         let e = t.elevation("flyout");
         f.canvas.shadow(card.x, card.y, card.w, card.h, t.radius_flyout, e.blur, e.y, e.alpha);
-        f.material(card, [t.radius_flyout; 4], "acrylic");
-        let stroke = f.res.stroke("surface");
-        f.canvas.stroke_rounded_rect(card.x, card.y, card.w, card.h, t.radius_flyout, 1.0, stroke);
+        f.material(card, [t.radius_flyout; 4], "flyout");
+        f.glass_edges(card, t.radius_flyout, "flyout");
         if toast.note.urgency == Urgency::Critical {
             let danger = f.theme().danger;
             f.canvas.fill_rounded_rect(card.x + 1.0, card.y + 10.0, 3.0, card.h - 20.0, 1.5, danger);

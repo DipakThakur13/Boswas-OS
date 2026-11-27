@@ -429,6 +429,26 @@ impl Tokens {
         }
     }
 
+    /// A number of `material.glass` (see [`crate::glass`]): the scheme's
+    /// own value (`dark` or `light` table) where it has one, else the
+    /// shared one; `None` when the token file has neither.
+    pub fn glass_number(&self, scheme: Scheme, key: &str) -> Option<f32> {
+        let glass = &self.raw["material"]["glass"];
+        glass[scheme.key()][key].as_f64().or_else(|| glass[key].as_f64()).map(|v| v as f32)
+    }
+
+    /// A tint of `material.glass` (`tint`, `card-tint`, ...): a role of the
+    /// theme (`@background`, `@surface`, `@chrome`, ...) or a palette colour.
+    pub fn glass_tint(&self, theme: &Theme, key: &str) -> Option<Rgba> {
+        Some(match self.raw["material"]["glass"][key].as_str()? {
+            "@background" => theme.background,
+            "@surface" => theme.surface,
+            "@surface-raised" => theme.surface_raised,
+            "@chrome" => theme.chrome,
+            reference => self.color(reference)?,
+        })
+    }
+
     /// A fixed size of the shell or the window frames (`shell` section),
     /// in logical pixels: `taskbar-height`, `titlebar-height`, ...
     pub fn shell(&self, key: &str) -> f32 {

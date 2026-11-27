@@ -732,10 +732,11 @@ impl Boswas {
             } else {
                 None
             };
+            let mica = if active { self.titlebar_mica(&window, scale) } else { None };
             let mut decoration = window.data().decoration.borrow_mut();
             decoration.ensure_shadow(&window);
             let text_scale = self.config.accessibility.text_scale;
-            redrawn |= decoration.update(&window, active, scale, rounds, icon, self.text(), theme, text_scale);
+            redrawn |= decoration.update(&window, active, scale, rounds, icon, self.text(), theme, text_scale, mica);
         }
         if redrawn {
             self.schedule_redraw();

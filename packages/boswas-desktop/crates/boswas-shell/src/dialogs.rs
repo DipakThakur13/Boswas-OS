@@ -281,9 +281,9 @@ pub fn draw(f: &mut Frame, st: &State, dialog: &Dialog, panel: Rect) {
     let t = tokens();
     let e = t.elevation("dialog");
     f.canvas.shadow(panel.x, panel.y, panel.w, panel.h, t.radius_flyout, e.blur.min(22.0), e.y.min(10.0), e.alpha);
-    f.canvas.fill_rounded_rect(panel.x, panel.y, panel.w, panel.h, t.radius_flyout, theme.surface);
-    let stroke = f.res.stroke("surface");
-    f.canvas.stroke_rounded_rect(panel.x, panel.y, panel.w, panel.h, t.radius_flyout, 1.0, stroke);
+    // Flyout glass (opaque with glass off).
+    f.material(panel, [t.radius_flyout; 4], "flyout");
+    f.glass_edges(panel, t.radius_flyout, "flyout");
     f.area(panel, Action::None);
     let x = panel.x + 24.0;
     let w = panel.w - 48.0;

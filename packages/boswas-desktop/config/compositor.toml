@@ -71,6 +71,9 @@ screen_off_seconds = 300
 [appearance]
 scheme = "dark"
 accent = "iris"
+# Glass: translucent, blurred surfaces (with OpenGL ES the windows behind a
+# flyout are blurred). false makes every surface its opaque tint; so does a
+# high-contrast desktop preset.
 transparency = true
 
 [accessibility]

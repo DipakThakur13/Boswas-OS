@@ -1727,6 +1727,22 @@ fn arrange_outputs(device: &Device, state: &mut Boswas) {
     }
 }
 
+/// An OpenGL ES renderer on EGL's surfaceless platform (Mesa's software
+/// rasterizer where there is no GPU), for tests of the shaders; `None` where
+/// EGL cannot give one.
+#[cfg(test)]
+pub(crate) fn software_gles_renderer() -> Option<GlesRenderer> {
+    // SAFETY: the surfaceless platform has no native display that would
+    // have to outlive the EGL display.
+    let display = unsafe { EGLDisplay::new(smithay::backend::egl::native::EGLSurfacelessDisplay) }.ok()?;
+    let context = EGLContext::new(&display).ok()?;
+    // SAFETY: the context was just created for this thread and is used by
+    // this renderer only.
+    let mut renderer = unsafe { GlesRenderer::new(context) }.ok()?;
+    crate::effects::init_gles(&mut renderer);
+    Some(renderer)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

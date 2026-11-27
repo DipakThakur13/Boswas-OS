@@ -275,6 +275,8 @@ pub struct Boswas {
     pub key_access: crate::keyaccess::KeyAccess,
     /// A paste the shell asked for, waiting for the held keys (paste.rs).
     pub paste: crate::paste::Paste,
+    /// Glass: live blur, the background effect protocol, Mica (glass/).
+    pub glass: crate::glass::GlassState,
     /// What the Windows shortcuts the compositor carries out keep for the
     /// session, night light turned on or off now, and how the monitors are
     /// used (winkeys.rs).
@@ -422,6 +424,7 @@ impl Boswas {
         let input_method_state = InputMethodManagerState::new::<Self, _>(&dh, types);
         let virtual_keyboard_state = VirtualKeyboardManagerState::new::<Self, _>(&dh, types);
         let alpha_modifier_state = AlphaModifierState::new::<Self>(&dh);
+        let glass = crate::glass::GlassState::new(&dh);
         let content_type_state = ContentTypeState::new::<Self>(&dh);
         let tablet_manager_state = TabletManagerState::new::<Self>(&dh);
         let system_bell_state = XdgSystemBellState::new::<Self>(&dh);
@@ -498,6 +501,7 @@ impl Boswas {
             filter_commit: smithay::backend::renderer::utils::CommitCounter::default(),
             key_access: crate::keyaccess::KeyAccess::default(),
             paste: crate::paste::Paste::default(),
+            glass,
             winkeys: crate::winkeys::WinKeys::default(),
             _globals: Globals {
                 xdg_decoration_state,
@@ -1097,6 +1101,7 @@ impl Boswas {
         self.ipc_event("night-light", night_light);
         self.refresh_layouts();
         self.schedule_redraw();
+        self.glass_config_changed();
         let appearance = self.appearance_json();
         self.ipc_event("config", appearance);
         warnings

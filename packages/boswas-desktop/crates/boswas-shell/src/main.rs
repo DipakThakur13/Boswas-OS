@@ -30,10 +30,12 @@ mod desktop_files;
 mod desktop_icons;
 mod dialogs;
 mod emoji;
+mod glass;
 mod glyph;
 mod greetd;
 mod input;
 mod lock;
+mod magnify;
 mod menu;
 mod notify;
 mod open;
@@ -122,6 +124,9 @@ use wayland_client::{
         wl_output, wl_pointer, wl_seat, wl_surface,
     },
     Connection, Dispatch, QueueHandle,
+};
+use wayland_protocols::ext::background_effect::v1::client::{
+    ext_background_effect_manager_v1::ExtBackgroundEffectManagerV1, ext_background_effect_surface_v1::ExtBackgroundEffectSurfaceV1,
 };
 use wayland_protocols::wp::{
     alpha_modifier::v1::client::{wp_alpha_modifier_surface_v1::WpAlphaModifierSurfaceV1, wp_alpha_modifier_v1::WpAlphaModifierV1},
@@ -252,6 +257,10 @@ pub(crate) struct Surface {
     /// When the surface was first marked as changed since it was last
     /// drawn (kept only for the statistics, `stats`).
     changed_at: Option<Instant>,
+    /// The compositor's blur behind the surface's glass (glass.rs), and
+    /// the region last sent.
+    pub blur: Option<ExtBackgroundEffectSurfaceV1>,
+    pub blur_region: Vec<(i32, i32, i32, i32)>,
 }
 
 impl Drop for Surface {
@@ -262,6 +271,9 @@ impl Drop for Surface {
             present::recycle_canvas(canvas);
         }
         present::recycle_buffers(std::mem::take(&mut self.buffers));
+        if let Some(effect) = self.blur.take() {
+            effect.destroy();
+        }
     }
 }
 
@@ -389,6 +401,10 @@ pub(crate) struct Shell {
     fractional_scale: Option<WpFractionalScaleManagerV1>,
     /// The compositor fades surfaces for the shell (transitions).
     alpha_modifier: Option<WpAlphaModifierV1>,
+    /// The compositor blurs behind the shell's glass (glass.rs), and
+    /// whether it offers to now.
+    background_effect: Option<ExtBackgroundEffectManagerV1>,
+    pub blur_offered: bool,
     conn: Connection,
     qh: QueueHandle<Shell>,
     loop_handle: LoopHandle<'static, Shell>,
@@ -637,6 +653,8 @@ fn run(mode: Mode) -> Result<i32, Box<dyn std::error::Error>> {
         viewporter: globals.bind(&qh, 1..=1, ()).ok(),
         fractional_scale: globals.bind(&qh, 1..=1, ()).ok(),
         alpha_modifier: globals.bind(&qh, 1..=1, ()).ok(),
+        background_effect: globals.bind(&qh, 1..=1, ()).ok(),
+        blur_offered: false,
         conn: conn.clone(),
         qh: qh.clone(),
         loop_handle: event_loop.handle(),
@@ -831,6 +849,7 @@ impl Shell {
         // Surfaces that open and close with a transition let the compositor
         // fade them.
         let fade = self.alpha_modifier.as_ref().filter(|_| animate).map(|m| m.get_surface(&wl, &self.qh, ()));
+        let blur = self.background_effect.as_ref().filter(|_| glass::may_blur(role)).map(|m| m.get_background_effect(&wl, &self.qh, ()));
         self.surfaces.push(Surface {
             role,
             handle,
@@ -860,6 +879,8 @@ impl Shell {
             fade,
             faded: false,
             changed_at: None,
+            blur,
+            blur_region: Vec::new(),
         });
     }
 
@@ -1075,6 +1096,7 @@ impl Shell {
             (change, _, _) => change,
         };
         let mut damage: Vec<PixelRect> = Vec::new();
+        let mut glass_region: Option<Vec<(i32, i32, i32, i32)>> = None;
         if change != Change::None {
             let Some(mut canvas) = surface.spare.take().filter(fits).or_else(|| present::reuse_canvas(cw, ch, scale)).or_else(|| Canvas::new(cw, ch, scale)) else {
                 return;
@@ -1090,6 +1112,8 @@ impl Shell {
                 canvas.reset();
             }
             let mut hits = Vec::new();
+            res.glass_regions.clear();
+            res.magnifying.clear();
             let panel = Rect::new(PAD, PAD, w - 2.0 * PAD, h - 2.0 * PAD);
             {
                 let mut frame = Frame {
@@ -1173,6 +1197,7 @@ impl Shell {
                 }
             }
             canvas.end_clip();
+            glass_region = Some(if res.live_blur && glass::may_blur(role) { glass::region_of(&res.glass_regions) } else { Vec::new() });
             // A stretched surface reacts over its whole area.
             if stretched {
                 for hit in &mut hits {
@@ -1320,7 +1345,8 @@ impl Shell {
         if attached.is_some() {
             surface.composed = compose;
         }
-        if attached.is_some() || moved || animating || scrolling {
+        let blur_changed = glass_region.is_some_and(|rects| glass::send_region(surface, compositor_state, rects));
+        if attached.is_some() || moved || animating || scrolling || blur_changed {
             // Asked for a frame, so a transition goes on at the display's
             // pace.
             wl.frame(qh, wl.clone());
@@ -1328,6 +1354,10 @@ impl Shell {
             surface.frame_pending = true;
         }
         surface.dirty = animating || scrolling;
+        // Magnified icons on their way: their cells again on the next frame.
+        for cell in std::mem::take(&mut res.magnifying) {
+            surface.touch_rect(cell);
+        }
         if scrolling {
             // The page moves on: the next frame (the one where it comes to
             // rest included) draws it again.

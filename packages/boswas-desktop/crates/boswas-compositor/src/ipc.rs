@@ -321,6 +321,7 @@ impl Boswas {
             "reduced_motion": c.appearance.reduced_motion,
             "accent": c.appearance.accent,
             "transparency": c.appearance.transparency,
+            "high_contrast": self.glass.high_contrast,
             "text_scale": c.accessibility.text_scale,
             // For the programs the shell starts (XCURSOR_SIZE).
             "cursor_size": c.pointer.cursor_size,

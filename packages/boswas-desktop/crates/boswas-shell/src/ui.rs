@@ -14,8 +14,9 @@ use std::{
 };
 
 use boswas_ui::{
+    glass::{self as glass, Glass, Kind as GlassKind, Source as GlassSource},
     icons::IconLoader,
-    material::{fill_fallback, Backdrop},
+    material::Backdrop,
     text::{TextEngine, TextStyle},
     tokens::{cubic_bezier, tokens},
     Canvas, Rgba, Scheme, Theme,
@@ -84,6 +85,15 @@ pub struct Resources {
     /// by frame (Start's page scrolling) does not blur its shadow and its
     /// material again each time.
     panels: Vec<(PanelKey, Kept)>,
+    /// The compositor blurs what lies behind the shell's glass (glass.rs):
+    /// glass is then only its tint, grain, glow and hairline.
+    pub live_blur: bool,
+    /// What the glass of the surface being drawn covers (its blur region
+    /// with live blur): rectangles and their corner radius.
+    pub glass_regions: Vec<(Rect, f32)>,
+    /// Cells whose magnified icon is still moving (magnify.rs): drawn
+    /// again on the next frame.
+    pub magnifying: Vec<Rect>,
 }
 
 /// A panel as kept: drawn on the whole canvas, and the part of that
@@ -105,6 +115,7 @@ struct PanelKey {
     theme: usize,
     transparency: bool,
     backdrop: Option<u64>,
+    live: bool,
 }
 
 /// Panels kept by [`Resources`]: Start, quick settings, the two of the
@@ -133,6 +144,9 @@ impl Resources {
             transparency: true,
             backdrop_generation: 0,
             panels: Vec::new(),
+            live_blur: false,
+            glass_regions: Vec::new(),
+            magnifying: Vec::new(),
         }
     }
 
@@ -252,6 +266,30 @@ pub enum ButtonKind {
     Standard,
     /// No fill at rest.
     Subtle,
+}
+
+/// Where the shell's glass gets its backdrop now.
+pub fn glass_source(res: &mut Resources) -> GlassSource<'_> {
+    if !res.transparency {
+        GlassSource::Off
+    } else if res.live_blur {
+        GlassSource::Live
+    } else {
+        match res.backdrop.as_mut() {
+            Some(backdrop) => GlassSource::Wallpaper(backdrop),
+            None => GlassSource::Unknown,
+        }
+    }
+}
+
+/// The glass a material name of the shell stands for.
+pub fn glass_kind(name: &str) -> GlassKind {
+    match name {
+        "chrome" => GlassKind::Taskbar,
+        "flyout" => GlassKind::Flyout,
+        "card" => GlassKind::Card,
+        _ => GlassKind::Backdrop,
+    }
 }
 
 /// One drawing pass over a surface.
@@ -400,13 +438,38 @@ impl Frame<'_> {
         crate::glyph::draw(self.canvas, glyph, rect, color);
     }
 
-    /// Fills a rounded rectangle with a material (`mica`, `acrylic`,
-    /// `chrome`): the blurred wallpaper behind this surface under a tint.
+    /// Fills a rounded rectangle with Boswas glass (`boswas_ui::glass`):
+    /// `acrylic` and `mica` are the window backdrop (the shell's panels),
+    /// `chrome` the taskbar, `flyout` the glass of menus, tooltips, toasts
+    /// and dialogs. Over the blurred wallpaper behind this surface, or,
+    /// where the compositor blurs what really lies behind it, its tint
+    /// alone; opaque with glass off.
     pub fn material(&mut self, rect: Rect, radii: [f32; 4], name: &str) {
-        let material = tokens().material(self.res.theme.scheme, name);
-        match self.res.backdrop.as_mut().filter(|_| self.res.transparency) {
-            Some(backdrop) => backdrop.fill(self.canvas, rect.x, rect.y, rect.w, rect.h, radii, self.origin, material),
-            None => fill_fallback(self.canvas, rect.x, rect.y, rect.w, rect.h, radii, material),
+        let kind = glass_kind(name);
+        let theme = self.res.theme;
+        let radius = radii.iter().copied().fold(0.0f32, f32::max);
+        if self.res.live_blur && self.res.transparency {
+            self.res.glass_regions.push((rect, radius));
+        }
+        let origin = self.origin;
+        let source = glass_source(self.res);
+        glass::fill(self.canvas, rect.x, rect.y, rect.w, rect.h, radii, origin, theme, kind, source);
+    }
+
+    /// The glass of this scheme while glass is on.
+    pub fn glass(&self) -> Option<Glass> {
+        Glass::of(self.res.theme).filter(|_| self.res.transparency)
+    }
+
+    /// The edges of a glass surface (inner glow and hairline), or the plain
+    /// surface outline with glass off.
+    pub fn glass_edges(&mut self, rect: Rect, radius: f32, name: &str) {
+        match self.glass() {
+            Some(g) => glass::draw_edges(self.canvas, rect.x, rect.y, rect.w, rect.h, radius, &g, glass_kind(name), false),
+            None => {
+                let stroke = self.res.stroke("surface");
+                self.canvas.stroke_rounded_rect(rect.x, rect.y, rect.w, rect.h, radius, 1.0, stroke);
+            }
         }
     }
 
@@ -424,7 +487,12 @@ impl Frame<'_> {
             theme: std::ptr::from_ref(self.res.theme) as usize,
             transparency: self.res.transparency,
             backdrop: self.res.backdrop.as_ref().map(|_| self.res.backdrop_generation),
+            live: self.res.live_blur,
         };
+        // The region is collected on every drawing, kept panel or not.
+        if self.res.live_blur && self.res.transparency {
+            self.res.glass_regions.push((rect, tokens().radius_flyout));
+        }
         // Most recently used last.
         let kept = match self.res.panels.iter().position(|(k, _)| *k == key) {
             Some(index) => {
@@ -436,6 +504,7 @@ impl Frame<'_> {
             None => {
                 let mut chrome = Canvas::new(self.canvas.width(), self.canvas.height(), self.canvas.scale())?;
                 {
+                    let regions = self.res.glass_regions.len();
                     let mut frame = Frame {
                         canvas: &mut chrome,
                         res: &mut *self.res,
@@ -446,6 +515,7 @@ impl Frame<'_> {
                         origin: self.origin,
                     };
                     frame.paint_panel(rect, material);
+                    frame.res.glass_regions.truncate(regions);
                 }
                 // The part of the picture the panel and its shadow cover.
                 let e = tokens().elevation("flyout");
@@ -502,8 +572,7 @@ impl Frame<'_> {
         let e = t.elevation("flyout");
         self.canvas.shadow(rect.x, rect.y, rect.w, rect.h, t.radius_flyout, e.blur, e.y, e.alpha);
         self.material(rect, [t.radius_flyout; 4], material);
-        let stroke = self.res.stroke("surface");
-        self.canvas.stroke_rounded_rect(rect.x, rect.y, rect.w, rect.h, t.radius_flyout, 1.0, stroke);
+        self.glass_edges(rect, t.radius_flyout, material);
     }
 
     /// The hover and pressed layer of a control without a fill of its own.
@@ -519,6 +588,13 @@ impl Frame<'_> {
             let color = self.res.fill(kind);
             self.canvas.fill_rounded_rect(rect.x, rect.y, rect.w, rect.h, radius, color);
         }
+        // On glass a control under the pointer is lighter glass with a
+        // brighter hairline.
+        if touch.hovered || touch.pressed {
+            if let Some(g) = self.glass() {
+                glass::draw_hairline(self.canvas, rect.x, rect.y, rect.w, rect.h, radius, &g, true);
+            }
+        }
         if touch.focused {
             self.focus_ring(rect, radius);
         }
@@ -531,8 +607,13 @@ impl Frame<'_> {
             .stroke_rounded_rect(rect.x - 2.0, rect.y - 2.0, rect.w + 4.0, rect.h + 4.0, radius + 2.0, 2.0, color);
     }
 
-    /// A card: the fill and outline of a control that holds content.
+    /// A card: the fill and outline of a control that holds content; on
+    /// glass a card of glass (its tint, glow and hairline).
     pub fn card(&mut self, rect: Rect, radius: f32) {
+        if let Some(g) = self.glass() {
+            glass::draw_surface(self.canvas, rect.x, rect.y, rect.w, rect.h, radius, &g, GlassKind::Card, g.card, None);
+            return;
+        }
         let fill = self.res.fill("control");
         let stroke = self.res.stroke("control");
         self.canvas.fill_rounded_rect(rect.x, rect.y, rect.w, rect.h, radius, fill);

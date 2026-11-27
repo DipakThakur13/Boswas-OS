@@ -312,7 +312,25 @@ impl Canvas {
             }
             return;
         }
-        self.pixmap.draw_pixmap(x, y, picture, paint, Transform::identity(), None);
+        if self.clip.is_empty() {
+            self.pixmap.draw_pixmap(x, y, picture, paint, Transform::identity(), None);
+            return;
+        }
+        // While parts are drawn again, only the picture's pieces over them
+        // are laid on (the same pixels, as each is a piece of the same
+        // picture at the same place): a wide kept fill or shadow costs no
+        // more than the parts.
+        for (cx, cy, cw, ch) in disjoint(&self.clip) {
+            let (x0, y0) = ((cx as i32).max(x), (cy as i32).max(y));
+            let (x1, y1) = (((cx + cw) as i32).min(x + picture.width() as i32), ((cy + ch) as i32).min(y + picture.height() as i32));
+            if x1 <= x0 || y1 <= y0 {
+                continue;
+            }
+            let piece = tiny_skia::IntRect::from_xywh(x0 - x, y0 - y, (x1 - x0) as u32, (y1 - y0) as u32).and_then(|r| picture.clone_rect(r));
+            if let Some(piece) = piece {
+                self.pixmap.draw_pixmap(x0, y0, piece.as_ref(), paint, Transform::identity(), None);
+            }
+        }
     }
 
     fn transform(&self) -> Transform {
@@ -528,6 +546,68 @@ impl Canvas {
         self.pixmap.fill_path(&path, &paint, FillRule::Winding, transform, None);
     }
 
+    /// A rounded rectangle filled or stroked (`stroke`: the line width,
+    /// centred half of it inside the edge) with a vertical gradient through
+    /// `stops` (offsets 0.0 at the top edge to 1.0 at the bottom edge).
+    /// Glass draws its inner glow and its hairline this way.
+    #[allow(clippy::too_many_arguments)]
+    pub fn vertical_gradient_rounded_rect(&mut self, x: f32, y: f32, w: f32, h: f32, radii: Corners, stroke: Option<f32>, stops: &[(f32, Rgba)]) {
+        let inset = stroke.map_or(0.0, |width| width / 2.0);
+        let radii = radii.map(|r| (r - inset).max(0.0));
+        let Some(path) = rounded_rect_path(x + inset, y + inset, w - 2.0 * inset, h - 2.0 * inset, radii) else {
+            return;
+        };
+        if stops.is_empty() || !self.path_visible(&path, inset * 2.0) {
+            return;
+        }
+        self.touch();
+        let gradient: Vec<GradientStop> = stops.iter().map(|(at, colour)| GradientStop::new(at.clamp(0.0, 1.0), (*colour).into())).collect();
+        let paint = match LinearGradient::new(Point::from_xy(x, y), Point::from_xy(x, y + h.max(1e-3)), gradient, SpreadMode::Pad, Transform::identity()) {
+            Some(shader) => Paint { shader, anti_alias: true, ..Paint::default() },
+            None => Self::paint(stops[0].1),
+        };
+        let transform = self.transform();
+        match stroke {
+            Some(width) => {
+                let line = Stroke { width, line_cap: LineCap::Round, line_join: LineJoin::Round, ..Stroke::default() };
+                self.pixmap.stroke_path(&path, &paint, &line, transform, None);
+            }
+            None => self.pixmap.fill_path(&path, &paint, FillRule::Winding, transform, None),
+        }
+    }
+
+    /// Makes a rounded rectangle transparent (anti-aliased at its edge):
+    /// what translucent glass lies on must not show what was drawn under
+    /// it on the same surface (its own shadow).
+    pub fn clear_rounded_rect(&mut self, x: f32, y: f32, w: f32, h: f32, radii: Corners) {
+        let Some(path) = rounded_rect_path(x, y, w, h, radii) else {
+            return;
+        };
+        if !self.path_visible(&path, 0.0) {
+            return;
+        }
+        self.touch();
+        let mut paint = Self::paint(Rgba::BLACK);
+        paint.blend_mode = tiny_skia::BlendMode::Clear;
+        let transform = self.transform();
+        self.pixmap.fill_path(&path, &paint, FillRule::Winding, transform, None);
+    }
+
+    /// A rounded rectangle filled with a shader (a pattern, a gradient)
+    /// whose coordinates are logical pixels of this canvas.
+    pub fn fill_rounded_rect_shader(&mut self, x: f32, y: f32, w: f32, h: f32, radii: Corners, shader: tiny_skia::Shader) {
+        let Some(path) = rounded_rect_path(x, y, w, h, radii) else {
+            return;
+        };
+        if !self.path_visible(&path, 0.0) {
+            return;
+        }
+        self.touch();
+        let paint = Paint { shader, anti_alias: true, ..Paint::default() };
+        let transform = self.transform();
+        self.pixmap.fill_path(&path, &paint, FillRule::Winding, transform, None);
+    }
+
     pub fn fill_circle(&mut self, cx: f32, cy: f32, radius: f32, color: Rgba) {
         if let Some(path) = PathBuilder::from_circle(cx, cy, radius) {
             self.fill_path(&path, color);
@@ -661,6 +741,42 @@ impl Canvas {
         dst[2] = blend(color.b, dst[2]);
         dst[3] = (a + u32::from(dst[3]) * inv / 255).min(255) as u8;
     }
+}
+
+/// The area of `rects` as rectangles that do not overlap (each without
+/// what the ones before it cover), so that nothing is laid on twice.
+fn disjoint(rects: &[PixelRect]) -> Vec<PixelRect> {
+    let mut out: Vec<PixelRect> = Vec::new();
+    for &rect in rects {
+        let mut pieces = vec![rect];
+        for &(ox, oy, ow, oh) in &out {
+            let mut next = Vec::new();
+            for (x, y, w, h) in pieces {
+                let (ix0, iy0) = (x.max(ox), y.max(oy));
+                let (ix1, iy1) = ((x + w).min(ox + ow), (y + h).min(oy + oh));
+                if ix1 <= ix0 || iy1 <= iy0 {
+                    next.push((x, y, w, h));
+                    continue;
+                }
+                // Above, below, left and right of the overlap.
+                if iy0 > y {
+                    next.push((x, y, w, iy0 - y));
+                }
+                if y + h > iy1 {
+                    next.push((x, iy1, w, y + h - iy1));
+                }
+                if ix0 > x {
+                    next.push((x, iy0, ix0 - x, iy1 - iy0));
+                }
+                if x + w > ix1 {
+                    next.push((ix1, iy0, x + w - ix1, iy1 - iy0));
+                }
+            }
+            pieces = next;
+        }
+        out.extend(pieces);
+    }
+    out
 }
 
 /// A rounded rectangle path; radii are clamped to half the shorter side.
@@ -833,6 +949,36 @@ fn render_shadow_layers(w: f32, h: f32, radius: f32, blur: f32, alpha: f32, scal
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_kept_picture_drawn_in_parts_gives_the_pixels_of_a_whole_drawing() {
+        // Overlapping parts are laid on once.
+        let parts = disjoint(&[(0, 0, 10, 10), (5, 5, 10, 10), (0, 0, 4, 4)]);
+        let area: u32 = parts.iter().map(|p| p.2 * p.3).sum();
+        assert_eq!(area, 100 + 100 - 25);
+        let mut picture = Pixmap::new(60, 40).unwrap();
+        for (i, p) in picture.data_mut().chunks_exact_mut(4).enumerate() {
+            let a = (i % 7 * 30) as u8;
+            p.copy_from_slice(&[a / 2, a / 3, a / 4, a]);
+        }
+        let paint = PixmapPaint { quality: FilterQuality::Nearest, ..PixmapPaint::default() };
+        let mut whole = Canvas::new(80.0, 50.0, 1.0).unwrap();
+        whole.clear(Rgba::rgb(10, 80, 40));
+        whole.draw_device_pixmap(7, 3, picture.as_ref(), &paint);
+        let mut parts = Canvas::new(80.0, 50.0, 1.0).unwrap();
+        parts.clear(Rgba::rgb(10, 80, 40));
+        let clip = parts.begin_clip(&[(0, 0, 20, 20), (10, 10, 30, 20), (50, 30, 30, 20)]);
+        parts.clear(Rgba::rgb(10, 80, 40));
+        parts.draw_device_pixmap(7, 3, picture.as_ref(), &paint);
+        parts.end_clip();
+        for &(x, y, w, h) in &clip {
+            for yy in y..y + h {
+                for xx in x..x + w {
+                    assert_eq!(pixel(&parts, xx, yy), pixel(&whole, xx, yy), "at {xx}, {yy}");
+                }
+            }
+        }
+    }
 
     fn pixel(c: &Canvas, x: u32, y: u32) -> [u8; 4] {
         let p = c.pixmap().pixel(x, y).unwrap();

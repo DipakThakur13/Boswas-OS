@@ -18,6 +18,9 @@ pub struct Desktop {
     pub accent: String,
     /// Materials show the blurred wallpaper through their tint.
     pub transparency: bool,
+    /// The user's desktop preset is a high-contrast one: glass is off as
+    /// with transparency off (the compositor reads the preset record).
+    pub high_contrast: bool,
     /// Text size in percent, 100 to 225.
     pub text_scale: u32,
     pub taskbar: Taskbar,
@@ -241,6 +244,7 @@ impl Default for Desktop {
             reduced_motion: false,
             accent: ACCENTS[0].into(),
             transparency: true,
+            high_contrast: false,
             text_scale: 100,
             taskbar: Taskbar::default(),
             start: Start::default(),
@@ -363,6 +367,7 @@ impl Desktop {
             reduced_motion: flag(&value["reduced_motion"], false),
             accent,
             transparency: flag(&value["transparency"], true),
+            high_contrast: flag(&value["high_contrast"], false),
             text_scale: value["text_scale"].as_u64().map_or(100, |s| s.clamp(100, 225) as u32),
             taskbar: Taskbar {
                 left: taskbar["alignment"].as_str() == Some("left"),
@@ -442,7 +447,7 @@ mod tests {
             "desktop": {"icons": false, "system_icons": ["computer", "home", "computer", "nope"], "icon_size": "large", "auto_arrange": true, "align_to_grid": false}
         });
         let d = Desktop::parse(&value).unwrap();
-        assert!(d.light && d.reduced_motion && !d.transparency);
+        assert!(d.light && d.reduced_motion && !d.transparency && !d.high_contrast);
         assert_eq!((d.wallpaper.as_str(), d.accent.as_str(), d.text_scale), ("/usr/share/w.png", "coral", 150));
         assert_eq!(d.taskbar, Taskbar { left: true, auto_hide: true, task_view: false, clock_seconds: true, badges: false, all_desktops: true, widgets: true });
         assert_eq!(d.icons, DesktopIcons { icons: false, system_icons: vec![SystemIcon::Computer, SystemIcon::Home], size: IconSize::Large, auto_arrange: true, align_to_grid: false });

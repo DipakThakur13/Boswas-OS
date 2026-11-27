@@ -246,11 +246,21 @@ fn draw_card(f: &mut Frame, clip: &Clip, rect: Rect) {
     f.tip(if clip.pinned { "Unpin" } else { "Pin" });
     f.state_layer(pin, tokens().radius_control, touch, false);
     let color = if clip.pinned { theme.accent } else { theme.text_secondary };
-    symbol(f, "view-pin-symbolic", Rect::new(pin.x + 6.0, pin.y + 6.0, 16.0, 16.0), color);
+    // Pin and Delete magnify like a dock's icons, within their buttons.
+    let most = crate::magnify::limit(16.0, 6.0, BUTTON - 4.0);
+    let factor = f.magnify(crate::magnify::Key("clip-pin", clip.id as usize), pin, touch.focused, most, crate::magnify::Axis::Row);
+    symbol(f, "view-pin-symbolic", centred(pin, 16.0 * factor), color);
     let touch = f.hit(delete, Action::Clip(Act::Delete(clip.id)));
     f.tip("Delete");
     f.state_layer(delete, tokens().radius_control, touch, false);
-    symbol(f, "edit-delete-symbolic", Rect::new(delete.x + 6.0, delete.y + 6.0, 16.0, 16.0), theme.text_secondary);
+    let factor = f.magnify(crate::magnify::Key("clip-delete", clip.id as usize), delete, touch.focused, most, crate::magnify::Axis::Row);
+    symbol(f, "edit-delete-symbolic", centred(delete, 16.0 * factor), theme.text_secondary);
+}
+
+/// A square of `side` centred in `rect`, on whole logical pixels.
+fn centred(rect: Rect, side: f32) -> Rect {
+    let side = side.round();
+    Rect::new((rect.x + (rect.w - side) / 2.0).round(), (rect.y + (rect.h - side) / 2.0).round(), side, side)
 }
 
 /// A symbolic icon in one colour; where the icon theme lacks it, a drawn

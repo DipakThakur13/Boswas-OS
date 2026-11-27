@@ -90,6 +90,8 @@ struct PanelKey {
     titles: Vec<(String, String)>,
     scale: i32,
     light: bool,
+    /// Glass on, live blur, the wallpaper's generation (glass/).
+    glass: (bool, bool, u64),
 }
 
 /// Where the panel and its cells go.
@@ -330,6 +332,7 @@ impl Boswas {
             titles: windows.iter().map(|w| (w.title(), w.app_id())).collect(),
             scale: pixel_scale,
             light,
+            glass: self.glass_key(&output.name()),
         };
 
         // Previews, in front of the panel.
@@ -344,7 +347,7 @@ impl Boswas {
 
         let cached = self.switcher.as_ref().and_then(|s| s.panel.as_ref()).is_some_and(|(k, _, _)| *k == key);
         if !cached {
-            let buffers = self.draw_switcher_panel(&key);
+            let buffers = self.draw_switcher_panel(&key, &output.name());
             if let (Some(switcher), Some((back, front))) = (self.switcher.as_mut(), buffers) {
                 switcher.panel = Some((key, back, front));
             }
@@ -384,6 +387,14 @@ impl Boswas {
         }
         if let Some((_, back, _)) = &switcher.panel {
             place(back, panel_location, panel_size);
+            // Live blur behind the panel's glass.
+            if let Some(element) = elements.last() {
+                self.glass.own.push(crate::glass::OwnBlur {
+                    id: smithay::backend::renderer::element::Element::id(element).clone(),
+                    rect: layout.panel.to_physical_precise_round(scale),
+                    radius: tokens().radius_flyout * scale.x as f32,
+                });
+            }
         }
     }
 
@@ -401,7 +412,7 @@ impl Boswas {
     /// Draws the panel: its surface and shadow (behind the selection), and
     /// the icons and titles (in front of it). The previews are live windows
     /// drawn in front of it all.
-    fn draw_switcher_panel(&mut self, key: &PanelKey) -> Option<(MemoryRenderBuffer, MemoryRenderBuffer)> {
+    fn draw_switcher_panel(&mut self, key: &PanelKey, output: &str) -> Option<(MemoryRenderBuffer, MemoryRenderBuffer)> {
         let t = tokens();
         let theme = self.theme;
         let scheme = theme.scheme;
@@ -411,9 +422,11 @@ impl Boswas {
         let mut back = Canvas::new(w + 2.0 * margin, h + 2.0 * margin, key.scale as f32)?;
         let elevation = t.elevation("dialog");
         back.shadow(margin, margin, w, h, t.radius_flyout, elevation.blur.min(margin - 8.0), elevation.y.min(8.0), elevation.alpha);
-        let material = t.material(scheme, "acrylic");
-        back.fill_rounded_rect(margin, margin, w, h, t.radius_flyout, material.tint);
-        back.stroke_rounded_rect(margin + 0.5, margin + 0.5, w - 1.0, h - 1.0, t.radius_flyout - 0.5, 1.0, t.stroke(scheme, "surface"));
+        // Flyout glass, as the shell's (boswas_ui::glass).
+        let _ = scheme;
+        let origin = ((panel.loc.x - SHADOW) as f32, (panel.loc.y - SHADOW) as f32);
+        let source = self.glass_source(output);
+        boswas_ui::glass::paint(&mut back, margin, margin, w, h, [t.radius_flyout; 4], origin, theme, boswas_ui::glass::Kind::Flyout, source);
 
         let mut front = Canvas::new(w + 2.0 * margin, h + 2.0 * margin, key.scale as f32)?;
         let caption = t.type_style("caption");

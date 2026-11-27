@@ -65,9 +65,9 @@ pub fn draw_tooltip(f: &mut Frame, text: &str, panel: Rect) {
     let t = tokens();
     let e = t.elevation("tooltip");
     f.canvas.shadow(panel.x, panel.y, panel.w, panel.h, t.radius_tooltip, e.blur, e.y, e.alpha);
-    f.canvas.fill_rounded_rect(panel.x, panel.y, panel.w, panel.h, t.radius_tooltip, theme.surface_raised);
-    let stroke = f.res.stroke("surface");
-    f.canvas.stroke_rounded_rect(panel.x, panel.y, panel.w, panel.h, t.radius_tooltip, 1.0, stroke);
+    // Flyout glass (opaque with glass off).
+    f.material(panel, [t.radius_tooltip; 4], "flyout");
+    f.glass_edges(panel, t.radius_tooltip, "flyout");
     let style = ramp("caption", theme.text);
     for (index, line) in text.lines().take(4).enumerate() {
         f.text(line, panel.x + 9.0, panel.y + 6.0 + index as f32 * style.line_height(), Some(panel.w - 18.0), &style);
@@ -543,7 +543,9 @@ impl Shell {
             self.res.theme = theme;
         }
         self.res.reduced_motion = new.reduced_motion;
-        self.res.transparency = new.transparency;
+        // Glass is off with transparency off and with a high-contrast preset.
+        self.res.transparency = new.transparency && !new.high_contrast;
+        self.res.live_blur = self.live_blur();
         crate::ui::set_text_scale(new.text_scale);
         // The wallpaper is read, and the materials made from it again, only
         // when it or the look changed: Settings sends every setting at every
@@ -551,7 +553,7 @@ impl Shell {
         if first || old.wallpaper != new.wallpaper {
             self.background.load_picture(&new.wallpaper);
         }
-        if first || old.wallpaper != new.wallpaper || old.light != new.light || old.accent != new.accent || old.transparency != new.transparency {
+        if first || old.wallpaper != new.wallpaper || old.light != new.light || old.accent != new.accent || old.transparency != new.transparency || old.high_contrast != new.high_contrast {
             self.res.backdrop = None;
             self.res.backdrop_generation += 1;
         }

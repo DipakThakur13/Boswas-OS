@@ -89,7 +89,7 @@ pub fn draw(f: &mut Frame, osd: &Osd, panel: Rect) {
 /// clicks stay its own).
 pub fn paint(f: &mut Frame, osd: &Osd, panel: Rect) {
     let theme = f.theme();
-    f.panel(panel, "acrylic");
+    f.panel(panel, "flyout");
     let icon = match osd.kind {
         Kind::Volume { muted } => volume_icon(osd.value, muted),
         Kind::Brightness => "display-brightness-symbolic",

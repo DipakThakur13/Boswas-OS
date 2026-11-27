@@ -548,7 +548,7 @@ impl Boswas {
             maps,
             scale: pixel_scale,
             light,
-            translucent: self.config.appearance.transparency,
+            translucent: self.glass_on(),
         };
         let name = output.name();
         let cached = self
@@ -699,6 +699,10 @@ impl Boswas {
                 Kind::Unspecified,
             )));
         }
+        // Behind it, the desktop blurred into glass (glass/).
+        if let Some(backdrop) = self.blurred_desktop(renderer, output, scale, progress) {
+            elements.push(OutputRenderElement::Memory(backdrop));
+        }
     }
 
     /// Draws a window's card: the icon and title above the preview and,
@@ -763,8 +767,9 @@ impl Boswas {
         let (w, h) = (strip.size.w as f32, strip.size.h as f32);
         let mut canvas = Canvas::new(w, h, key.scale as f32)?;
         tracing::trace!(target: "boswas_compositor::stats", "task view: the strip drawn");
-        let chrome = t.material(scheme, "chrome");
-        canvas.fill_rect(0.0, 0.0, w, h, chrome.tint.alpha(if key.translucent { chrome.tint_opacity } else { 1.0 }));
+        // Glass over the blurred desktop (opaque with glass off).
+        let source = if key.translucent { boswas_ui::glass::Source::Live } else { boswas_ui::glass::Source::Off };
+        boswas_ui::glass::fill(&mut canvas, 0.0, 0.0, w, h, [0.0; 4], (0.0, 0.0), theme, boswas_ui::glass::Kind::Taskbar, source);
         canvas.fill_rect(0.0, 0.0, w, 1.0, t.stroke(scheme, "divider"));
 
         let caption = t.type_style("caption");
