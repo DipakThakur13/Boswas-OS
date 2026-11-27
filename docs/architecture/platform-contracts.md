@@ -339,7 +339,7 @@ Commands of a trusted connection:
 | `project` | `mode`: `"pc-only"`, `"duplicate"`, `"extend"`, `"second-only"` | as `projection`. How the monitors are used, for the session, on top of the `[outputs.NAME]` settings (nothing is written); an error for an unknown mode and for `duplicate` or `second-only` with one monitor (ADR-0062) |
 | `projection` | – | `{outputs, mode}`: how many monitors are connected (at least 1) and how they are used now |
 | `next-layout` | – | `{layouts, codes, active}` |
-| `thumbnail` | `window`, `path` (absolute; PNG), optional `width` (16 to 1024, default 240) | answered after the next frame |
+| `thumbnail` | `window`, `path` (absolute; PNG), optional `width` (16 to 1024, default 240) | answered after the next frame. Like `screenshot`, written with fast PNG compression (ADR-0064) |
 | `screenshot` | `path` (absolute; PNG), optional `output`, optional `display` | answered after the next frame. With `"display": true` the picture is what the output shows the person in front of it, magnified and through the colour filter (for tests); without it, as every other capture, the picture without either |
 | `capture-answer` | `request` (the id of a `capture-request` event), `allow` | `null`, or an error when no such question is open |
 | `capture-stop` | – | `null`; every permission to capture ends |
@@ -408,6 +408,26 @@ For tests, the headless back end (`--backend headless`) has one output,
 `--headless-physical-size WxH` in millimetres, as a monitor's EDID does
 (default: none, so its `recommended_scale` is 1.0).
 
+### Surfaces that show nothing
+
+The compositor offers `wp_single_pixel_buffer_manager_v1` (version 1).
+A layer surface whose buffer is one fully transparent pixel of it
+(alpha 0), with no subsurface and no popup, is left out of the picture:
+its coming and going damages nothing and it costs nothing to draw, and
+it still receives the pointer over its area (ADR-0064). The shell sends
+its surfaces of one colour stretched over the screen this way, through
+`wp_viewporter` (the invisible surface behind a flyout, which takes the
+click that closes it, and the dimming behind a dialog); where the
+protocol is not offered it sends one pixel of shared memory instead. A
+one-pixel shared-memory buffer, even a transparent one, is drawn as any
+other.
+
+Elements in front of the windows (the pointer, the compositor's own
+overlays, the overlay and top layers) are followed in the compositor's
+picture by transparent one-pixel spacers up to a fixed count, so that
+what appears or goes in front damages only its own area; a client sees
+no difference.
+
 ### Service bridge (for Settings)
 
 `/usr/libexec/boswas/boswas-services-bridge` runs the network, Bluetooth,
@@ -475,6 +495,17 @@ never inherit `WAYLAND_SOCKET` or `BOSWAS_COMPOSITOR_FD`, and get
 so a size changed in Settings reaches them at once (ADR-0062). Components
 detect the native desktop by `Boswas` in `XDG_CURRENT_DESKTOP`.
 
+The compositor starts the programs it trusts as the shell (the desktop
+shell, the lock screen and the login screen) with
+`GLIBC_TUNABLES=glibc.malloc.mmap_threshold=262144`, so that glibc maps
+blocks of 256 KiB and more on their own and gives them back when they are
+freed; when its own environment has `GLIBC_TUNABLES`, whatever the value,
+it sets nothing and that value is inherited as before. The shell removes
+the variable from its environment when it starts if it holds exactly
+that value, so the programs it starts do not inherit it. A configured
+input method and the programs the compositor starts itself (Super+E and
+the other shortcuts) are not given it (ADR-0064).
+
 ### Files other components read
 
 | Path | Written by | Read by | Content |
@@ -497,12 +528,50 @@ detect the native desktop by `Boswas` in `XDG_CURRENT_DESKTOP`.
 | `$XDG_STATE_HOME/boswas/notification-senders.json` (default `~/.local/state/boswas/`) | boswas-shell, when a notification arrives (atomically) | Control Center (System > Notifications), read only | A JSON list, most recent first, at most 100: `{"name", "icon", "desktop_entry", "last"}` per application that sent notifications; `name` is the `app_name` it sends, which `[notifications] banners_off` names; `last` is seconds since the epoch. No notification content |
 | `$XDG_STATE_HOME/boswas/apps-seen.json` | boswas-shell | boswas-shell (Start's "Recently added") | A JSON object: desktop file id → when the shell first saw the application installed, in seconds since the epoch (0 for those installed when the shell first ran); at most 4000; removed applications are forgotten. Recently added means the last 14 days |
 | `$XDG_STATE_HOME/boswas/weather.json` | Weather (`boswas-apps`): its window and `boswas-weather --update-lock-screen` | `boswas-shell --lock` only | The weather summary of the lock screen, version 1; see below |
+| `$XDG_RUNTIME_DIR/boswas-shell-background` | boswas-shell (the desktop), whenever it draws the background anew | `boswas-shell --lock` only | The background as the desktop drew it, for the lock screen's first frame (ADR-0064); see [The desktop's background for the lock screen](#the-desktops-background-for-the-lock-screen) |
 | `/usr/share/applications/mimeapps.list` | boswas-apps | the shell's opener, `xdg-open`, the portal, Settings' Default apps page | The default applications of the system (ADR-0054); see below |
 | `/usr/share/applications/boswas-mimeapps.list` | boswas-compat-manager | the same, in the Boswas session only | Windows programs and installer packages open with "Run with Boswas" (ADR-0042) |
 | `/usr/share/xdg-desktop-portal/boswas-portals.conf` | boswas-desktop | xdg-desktop-portal (`XDG_CURRENT_DESKTOP=Boswas`) | GTK back end by default; the wlroots back end for ScreenCast and Screenshot |
 | `/etc/xdg/xdg-desktop-portal-wlr/Boswas` | boswas-desktop | xdg-desktop-portal-wlr | `chooser_type=none`: the first monitor is shared |
 | `/etc/boswas/greetd.toml` | boswas-desktop; live-config appends `[initial_session]` on the live medium only | greetd | Login configuration |
 | `/etc/pam.d/boswas-lock` | boswas-desktop | `boswas-shell --lock` (libpam) | `common-auth` and `common-account` |
+
+### The desktop's background for the lock screen
+
+`$XDG_RUNTIME_DIR/boswas-shell-background` (ADR-0064) is the background
+the desktop shell drew last, so that the lock screen, a process started
+when the session locks, need not draw it again. It is a format of
+`boswas-shell` alone, marked by its first eight bytes; no other program
+should write it. Integers are little-endian:
+
+| Bytes | Content |
+|-------|---------|
+| 0 to 7 | `BWSBG001` |
+| 8 to 11, 12 to 15 | width and height in pixels, each at most 16384 |
+| 16 | the scheme it was drawn for: 0 dark, 1 light |
+| 17 to 20 | the length of the wallpaper's path in bytes, at most 4096 |
+| 21 on | the path, UTF-8 (empty for the drawn default background), then width × height × 4 bytes: the drawing, premultiplied RGBA, rows from the top, at most 64 MiB |
+
+- **Written** by the desktop shell on a thread named `background`
+  whenever it draws the background anew (at the start, and when the
+  output's size or the wallpaper changes): to
+  `boswas-shell-background.PID.part` beside it, created with mode 0600
+  and without following a link, then renamed over it. A drawing larger
+  than the limit is not written and an earlier file is removed. The file
+  stays until the runtime directory goes, when the user's last session
+  ends; it takes width × height × 4 bytes of that tmpfs (14.7 MB at
+  2560x1440).
+- **Read** by `boswas-shell --lock` when it starts, on a thread named
+  `background`, while it connects: opened without following a link, used
+  only when it is a regular file, its magic and scheme byte are valid,
+  its sizes are within the limits and its length is exactly 21 bytes plus
+  the path plus the pixels; every pixel's alpha is then set to 255. The
+  lock screen shows it while its output has that size in pixels and, for
+  the drawn background, the scheme is the same; for a picture, while
+  `[appearance] wallpaper` names the same path, without decoding the
+  picture (it is decoded when needed at another size). Anything else is
+  ignored and the background is drawn as before. The login screen runs
+  as another user and does not read it.
 
 ### The lock screen's weather summary
 
@@ -731,19 +800,29 @@ the taskbar's menu does not list that action again among the others
 
 ### Frame statistics
 
-Two log targets measure the drawing (ADR-0045, ADR-0056); nothing is
-measured without them:
+Two log targets measure the drawing (ADR-0045, ADR-0056, ADR-0064);
+nothing is measured without them:
 
 - `BOSWAS_LOG=info,boswas_compositor::stats=debug`: per output, once a
   second, the frames drawn, what they cost and how much of the screen
   they drew again; `=trace` adds one line per frame (its cost in
   microseconds, the time since the frame before it on that output, the
   share of the output drawn).
+  At `trace` the compositor also logs "task view: a card drawn" and
+  "task view: the strip drawn" each time Task View draws one, and at
+  `debug` "task view: let go of the darkened desktop of OUTPUT" when the
+  picture Task View fades with is let go (ADR-0064).
 - `BOSWAS_LOG=info,boswas_shell::stats=debug`: one line per drawing of a
   shell surface (`draw SURFACE WxH paint_us=... total_us=... damage=WxH+X+Y`,
-  and `input_us=...`, the time since the change that caused it), and
-  "flyouts drawn ahead of time in N ms" once the shell has prepared Start,
-  quick settings and the notification centre.
+  and `input_us=...`, the time since the change that caused it), "flyouts
+  drawn ahead of time in N ms, in M slices of at most X µs" once the
+  shell has prepared Start, quick settings and the notification centre
+  (N is the time the slices took on the event loop), and "let go of N MB
+  kept for flyouts" when it releases spare canvases and large shadows
+  three minutes after the last flyout, menu, dialog or capture view
+  closed (ADR-0064). `=trace` adds one line per slice of the preparation
+  ("prepared KIND PART in N µs", with "(planned)" for the slice that
+  plans a panel).
 
 The boot screen's control protocol (`/run/boswas-bootsplash/socket`, root
 only) is described in `packages/boswas-bootsplash/README.md`.

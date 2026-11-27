@@ -217,6 +217,7 @@ unprivileged user, with the image's own Wine, bubblewrap and boswas-compat:
 | Programs the tests start | `dbus-daemon` for the service backends' integration tests (they fail without it). `grim`, `Xwayland` and `xclock` for three of the compositor's end-to-end tests, which skip themselves without them |
 | Where build products go | Package build: `build/` inside the staged package (cargo home and target directory; removed with the stage). Tests: the test work directory. Development: `target/` in the workspace (git-ignored) |
 | Adding or updating a crate | Change `Cargo.toml`, run `cargo update -p NAME` (or `cargo build`) with network access, check that `cargo +1.85.0 build --locked` still works, and commit `Cargo.lock` with the change |
+| Release profile | Thin LTO, integer overflow checks on, and in `boswas-desktop` an abort on a panic (ADR-0032). One exception: `boswas-desktop` builds tiny-skia without overflow checks (`[profile.release.package.tiny-skia]` in its `Cargo.toml`), as tiny-skia's own releases are; with the checks its pixel pipelines are neither vectorised nor inlined and drawing costs several times as much (ADR-0064). Debug builds keep the checks everywhere |
 | `unsafe` | In shipped code (`src/`) only in the files listed in `tests/static/test_sources.sh`; the static stage fails on any other |
 
 A build host without access to crates.io cannot build these two packages.
@@ -233,9 +234,10 @@ cd ../boswas-bootsplash && cargo test --locked
 The desktop workspace has unit tests in every crate and four sets of
 tests that start real programs:
 
-- `crates/boswas-compositor/tests/headless.rs`: end-to-end tests
-  that start the real `boswas-compositor` binary on its headless back end
-  and drive it with real clients, injected keys and the control socket.
+- `crates/boswas-compositor/tests/headless.rs`, `invisible.rs` and
+  `taskview.rs`: end-to-end tests that start the real
+  `boswas-compositor` binary on its headless back end and drive it with
+  real clients, injected keys and the control socket.
   They check that an ordinary client is offered no privileged protocol
   and a program the compositor starts is; that the public control socket
   answers `version`, `lock`, `reload-config`, `outputs` and `capture`
@@ -244,8 +246,11 @@ tests that start real programs:
   program (`grim`) gets a picture of the screen only after the answer
   "allow" and never while the session is locked; an X11 program
   (`xclock`) through Xwayland; and that a locked session stays locked
-  when the lock screen dies and unlocks only through a lock client. They
-  need `xkb-data` and a writable `/tmp`, no graphics device and no fonts.
+  when the lock screen dies and unlocks only through a lock client;
+  that a fully transparent single-pixel layer surface and a small
+  surface in front damage no more than themselves, and that Task View
+  opened again draws nothing it drew before (ADR-0064). They need
+  `xkb-data` and a writable `/tmp`, no graphics device and no fonts.
 - `crates/boswas-services/tests/it`: the service backends against two
   private `dbus-daemon` processes per test and scripted stand-ins for the
   system daemons (`crates/boswas-services/README.md`). Sockets go under

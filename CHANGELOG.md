@@ -71,6 +71,46 @@ Verification status of the native desktop
     and `gsettings-desktop-schemas` for it.
   - "Turn Num Lock on when you sign in" (`[keyboard] numlock`) was read by
     nothing. Num Lock follows it at sign-in and when it changes.
+- **The hitches the first performance round left** ([ADR-0064](docs/architecture/decisions.md#adr-0064-no-full-screen-redraws-for-what-appears-in-front-and-slow-work-off-the-event-loop)):
+  - A tooltip, a menu, a toast, a flyout or the pointer appearing in
+    front of the windows made the compositor draw the whole screen, and
+    so did the invisible surface behind a flyout. The compositor keeps
+    the windows' places steady with transparent spacers, the shell sends
+    its invisible and dimming surfaces as single-pixel buffers, and a
+    fully transparent one is left out of the picture. On pixman the
+    compositor's frames while Start and the other flyouts open and close
+    now keep within the 6.9 ms of 144 Hz at the 95th percentile, at 200 %
+    too (5.7 ms where it was 9.6; late frames 10 of 580 where 68 of
+    516).
+  - Dragging a selection in the snipping overlay took 24 to 45 ms a
+    drawing; it draws only the strips the selection's edges cross now
+    (median 0.5 ms), and the compositor writes the screenshot it opens on
+    with fast PNG compression.
+  - The lock screen took 140 to 300 ms to appear: it drew the background
+    again. It starts from the background the desktop drew, shared in the
+    user's runtime directory, and appears in 72 to 117 ms.
+  - Task View drew its cards again on every opening and closing and,
+    with glass, blended two full-screen layers on every frame of its fade
+    on pixman's slow path. It keeps each card's looks and fades one
+    picture made on a worker thread; at 1920x1080 and 144 Hz its frames
+    keep within the budget at the 95th percentile.
+  - The drawing of Start, quick settings and the notification centre
+    ahead of time held the shell for 84 to 310 ms in one block; it runs
+    in slices of a few milliseconds while the shell is idle, with Start's
+    glass panel made on a worker thread.
+  - Hovering on the taskbar had become slower with glass; with tiny-skia
+    built without overflow checks and kept pictures blended in place it
+    is faster than before glass. Toasts draw in about a quarter of the
+    time.
+  - Freed drawings did not return memory to the system. The shell, the
+    lock screen and the login screen run with glibc's mmap threshold at
+    256 KiB (`GLIBC_TUNABLES`), which the shell does not pass on: the
+    shell takes 101 MB after the start at 2560x1440 and 200 % (117.6
+    without), and lets go of spare canvases three minutes after the last
+    flyout closed.
+  - A Qt window with glass being made larger by hand made a new backdrop
+    at every 160-pixel step; it waits until the size stands still for
+    150 ms.
 - **A desktop that still hitched** ([ADR-0056](docs/architecture/decisions.md#adr-0056-the-shell-draws-only-what-changed-the-compositor-runs-the-transitions)):
   opening and closing Start, its first opening, hovering in it, quick
   settings, the notification centre and Alt+Tab had frames of 20 to
@@ -86,7 +126,7 @@ Verification status of the native desktop
   shell's 99th-percentile frame while Start opens and closes went from
   217 to 10 ms, and the late frames from 69 % to 9 %. The shell keeps more
   in memory for it (127 MB instead of 72 just after the start at
-  2560x1440 and 200 %). `BOSWAS_LOG=info,boswas_compositor::stats=trace`
+  2560x1440 and 200 %; 101 MB since ADR-0064). `BOSWAS_LOG=info,boswas_compositor::stats=trace`
   logs every frame of the compositor and `boswas_shell::stats=debug`
   every drawing of the shell.
 - **A black row under the pointer in Control Center** ([ADR-0057](docs/architecture/decisions.md#adr-0057-boswas-glass-in-the-applications)):
@@ -709,6 +749,15 @@ Verification status of the native desktop
   instead of being deleted.
 
 ### Changed
+- **Release builds of tiny-skia** (ADR-0064): `boswas-desktop` builds the
+  drawing library tiny-skia without integer overflow checks, as its own
+  releases are (`[profile.release.package.tiny-skia]`), an exception to
+  ADR-0032 for that crate alone; our own crates keep the checks. Start
+  draws about 40 % faster.
+- **The snipping selection** (ADR-0064) shows exactly the pixels it
+  captures, framed on whole device pixels, also at fractional scales.
+  Screenshots the compositor writes are somewhat larger PNG files (fast
+  compression).
 - **Coloured text in the light scheme** (ADR-0057): success, danger and
   info text in the Qt applications is a little darker, with glass on or
   off, so that it keeps 4.5:1 on glass as well.
@@ -916,6 +965,14 @@ Verification status of the native desktop
   pixman the compositor reads the wallpaper back from the shell's
   background surface through its renderer and still decodes no picture
   file.
+- **The lock screen's background** (ADR-0064) comes from a file the
+  desktop shell writes in the user's runtime directory,
+  `$XDG_RUNTIME_DIR/boswas-shell-background` (mode 0600, replaced whole,
+  never through a link). The lock screen reads it without following a
+  link, only as a regular file of exactly the length its header gives,
+  and makes every pixel opaque. A program of the user can choose the
+  picture behind the lock screen through it, as it could set the
+  wallpaper; it cannot unlock or show the desktop.
 - **Ctrl+Alt+Del** (ADR-0062) reaches the compositor even while a program
   (a remote desktop, a virtual machine) has taken the other shortcuts,
   like Super+L. The security options screen asks for no password: Change
@@ -982,7 +1039,7 @@ Verification status of the native desktop
   not follow the window's position: the toolkit does not ask for live
   blur yet. Live blur has run on Mesa's software rasterizer only, nested,
   at 100 %.
-- **The work of ADR-0056 to ADR-0063** has run on the headless compositor
+- **The work of ADR-0056 to ADR-0064** has run on the headless compositor
   (and, for live blur, nested on Mesa's software rasterizer) and on Qt's
   offscreen platform only: the drawing changes on no real GPU or vertical
   blank; the clipboard history and the emoji panel with no X11 program,
@@ -1003,12 +1060,17 @@ Verification status of the native desktop
   dragged into other programs, and an item on another drive cannot be
   moved to the Trash. The widgets board (ADR-0059) has no online feeds, by
   design, and no to-do card.
-- **Still slow** (ADR-0056): the snipping overlay (about 50 ms a frame at
-  200 %), the lock screen's first frame (90 to 240 ms) and Task View's
-  opening frame. With glass (ADR-0063), on pixman, the shell's 95th
-  percentile frame roughly doubled (still under 7 ms) and at 2560x1440,
-  200 % and 144 Hz the taskbar's partial redraws take a median 4.3 ms
-  where they took 2.8, for a reason not yet found.
+- **Still slow** (ADR-0064): the lock screen takes 72 to 117 ms from the
+  lock request to the screen, not yet one or two frames. Task View at
+  2560x1440, 200 % and 144 Hz on pixman is about 1 ms a frame over the
+  budget at the 95th percentile, and its first opening after the start
+  or a change of wallpaper is slower than before glass (a first frame of
+  61 ms at that size). After Task View the compositor takes 148 MB at
+  that size, 134 MB once its picture goes three minutes later (117 MB
+  without that picture). A change of theme costs the shell 30 to 37 ms at
+  the 99th percentile. The slowdowns glass brought on pixman (ADR-0063),
+  the taskbar's included, are gone: the shell's frames in Start, the
+  flyouts and the taskbar cost as much as before glass or less.
 - **Printing support** installed from Control Center (ADR-0061) no longer
   brings `avahi-daemon`, which `cups-daemon` only recommends. Without it
   CUPS does not discover printers on the network; the image's package

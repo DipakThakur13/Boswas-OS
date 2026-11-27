@@ -263,8 +263,12 @@ tint (acrylic), so they stay readable over any content.
   a worker thread (a window is opaque until it is ready); the blurred, tinted
   picture is made once per picture, scheme and accent (about 30 ms); a
   window's backdrop once, a little larger than the window, so that resizing
-  does not make one per frame; glass surfaces (and with glass off the opaque
-  surfaces) are drawn once per size and state into a pixmap and copied.
+  does not make one per frame; while a window resized by hand outgrows it,
+  the new one is made only once the size has stood still for
+  `RESIZE_PAUSE` (0.15 s), and until then the kept one shows, centred, with
+  its mean colour beyond it (ADR-0064); glass surfaces (and with glass off
+  the opaque surfaces) are drawn once per size and state into a pixmap and
+  copied.
 * **Where a window is.** A Wayland client does not know its position, so a
   window shows the part of the picture that a window of its size centred on
   the screen covers. It does not move with the window or zoom when it is
@@ -277,7 +281,7 @@ tint (acrylic), so they stay readable over any content.
 | `glass.paint_backdrop(painter, widget, rect=None)` | The part of the window's backdrop under `rect` of `widget` (a popup: of the window it belongs to); False while glass is off or the picture loads |
 | `glass.window_backdrop(window)` | (pixmap, the window's top left corner in it), or None |
 | `glass.tint_opacity(widget=None)` | The tint opacity the backdrop uses now (the token's or more) |
-| `glass.backdrop()` | The cache of the process: `window(theme, wallpaper, size, dpr, screen)`, `soft(...)`, `wait(timeout)`, `clear()`, `renders`, `softs` |
+| `glass.backdrop()` | The cache of the process: `window(theme, wallpaper, size, dpr, screen, owner=0)` (`owner` tells windows apart for the pause in a resize), `soft(...)`, `wait(timeout)`, `clear()`, `renders`, `softs`, `deferred` (backdrops put off during a resize) |
 | `FluentWindow(..., backdrop=True)` | `backdrop=False`: the window keeps the opaque Mica tint (content that covers it anyway) |
 
 ### Motion: `animation`

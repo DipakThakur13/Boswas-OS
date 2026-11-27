@@ -1040,6 +1040,15 @@ pictures of the screen to any program.
 *Since ADR-0051* the `[lock]` table also holds `show_weather`, which is
 not lock policy: a user's file may set it.
 
+*Since ADR-0064* the lock screen starts from the background the desktop
+shell drew, which it shares in `$XDG_RUNTIME_DIR/boswas-shell-background`
+(mode 0600, read without following a link and only when its length is
+exactly what its header says). A program of the user can write that file
+and so choose the picture behind the lock screen; that is within the
+limit above (it could set the wallpaper as well). Locking is unchanged:
+the outputs are blank until the lock surfaces arrive, and only the lock
+screen unlocks.
+
 ## ADR-0029 boswas-bootsplash replaces Plymouth
 
 *What the boot screen shows and which typeface it uses were changed by
@@ -1264,7 +1273,10 @@ values, not the mechanism) or presets must recolour the shell.
   package's build directory.
 - **Build settings:** release profile with thin LTO and integer overflow
   checks on (`boswas-desktop` also aborts on a panic instead of
-  unwinding); build paths are remapped out of the binaries.
+  unwinding); build paths are remapped out of the binaries. *(Changed by
+  ADR-0064: in `boswas-desktop` the crate tiny-skia alone is built
+  without overflow checks, as its own releases are; its arithmetic wraps
+  as upstream intends and bounds are still checked.)*
 - **`unsafe`:** in shipped code (`src/`) confined to an allowlist that
   `tests/static/test_sources.sh` enforces. `boswas-ui` forbids it.
   `boswas-bootsplash` denies it outside `src/sys.rs`. In `boswas-desktop`
@@ -4078,7 +4090,9 @@ in each):
   and keeps their panels. Shaped lines of text are kept; a large shadow is
   the shadow of a small rectangle with its middle stretched (within two
   colour levels of the layered drawing, the tolerance shadows already
-  had).
+  had). *(Changed by ADR-0064: the drawing ahead of time runs in slices,
+  one per turn of the event loop while it is quiet, and Start's panel and
+  the flyouts' icons are made on a worker thread, `panels`.)*
 - **Smaller fixes:** the panel cache keeps six panels, most recently used,
   and blends only the panel's own area; a scrolling Start redraws only the
   window the page scrolls in, with a final frame when it comes to rest;
@@ -4094,7 +4108,8 @@ in each):
   of a shell surface (its size, the time the drawing took and the time
   until it was sent, the rectangle sent, the time since the change that
   caused it) and "flyouts drawn ahead of time in N ms". Without those
-  levels nothing is measured.
+  levels nothing is measured. *(Since ADR-0064 that line also gives the
+  number of slices and the longest, and more lines are logged there.)*
 
 **Why.** The hitches came from work that did not need doing on the frame
 that showed them: whole surfaces redrawn for a hover, memory allocated and
@@ -4115,6 +4130,14 @@ is what lets it upload only what changed.
 - Opening a flyout damages the whole screen for one frame (about 13 ms at
   1440p), because the invisible full-screen surface behind it appears.
 
+*(Taken on by ADR-0064: the snipping overlay draws only what a drag
+changes; the lock screen starts from the background the desktop drew, 72
+to 117 ms from the lock request to the screen; Task View keeps its cards
+and fades one picture; what appears in front no longer makes the
+compositor draw the whole screen, which brought its fades at 144 Hz and
+200 % within the budget. Task View at 2560x1440 and 144 Hz is still about
+1 ms over, and the lock screen not yet within one or two frames.)*
+
 **Consequences.**
 
 - Pooled over the 16 configurations (shell, in ms): opening and closing
@@ -4130,6 +4153,10 @@ is what lets it upload only what changed.
   icons and panels are kept. The compositor uses about 14 MB more. The
   preparation costs about 200 ms once on the shell's main thread, at a
   quiet moment after the start and after each change that redoes it.
+  *(Changed by ADR-0064: the preparation runs in slices of a few
+  milliseconds, and with the C library told to map large blocks on their
+  own the shell takes 101 MB after the start and 119 MB after opening the
+  flyouts, measured with glass.)*
 - The compositor draws more frames over budget while Start opens and
   closes (323 where there were 162), because the transition now runs at
   the refresh rate (2,252 frames where there were 1,048); its median and
@@ -4158,7 +4185,7 @@ is what lets it upload only what changed.
 
 **Revisit when** a real GPU shows frames that miss the refresh, or when
 the snipping overlay, the lock screen's first frame and Task View are
-taken on.
+taken on. *(They were, in ADR-0064.)*
 
 ## ADR-0057 Boswas glass in the applications
 
@@ -4224,7 +4251,10 @@ the current UI so it would feel better than macOS".
   window's backdrop once per 160-pixel step of its size (3.3 ms at scale 1,
   14.5 ms at scale 2), and the last three are kept; glass surfaces, and
   with glass off the opaque ones, are drawn once per size and state into a
-  pixmap and copied (37 µs where drawing took 237 µs).
+  pixmap and copied (37 µs where drawing took 237 µs). *(Changed by
+  ADR-0064: while a window resized by hand outgrows its backdrop, the new
+  one is made only once the size has stood still for 150 ms; until then
+  the kept one shows, centred, with its mean colour beyond it.)*
 - **Coloured text on glass:** the `*-text` colours and
   `accent-text-strong` keep 4.5:1 down to a slightly darker or lighter
   "glass floor" (`DERIVED["glass-floor"]`: 0.08 dark, 0.07 light). In the
@@ -5210,7 +5240,10 @@ compositor for a blurred backdrop.
   every 750 ms and only when that surface changed; a change too small to
   see in a blurred picture keeps the old one). The compositor still
   decodes no picture file. Task View lies on the desktop blurred into
-  glass (half size, with grain, faded in) and its strip is glass. The
+  glass (half size, with grain, faded in) and its strip is glass.
+  *(Changed by ADR-0064: during the fade the blurred desktop and the
+  darkening over it are one picture, made by pixman on a worker thread
+  and kept for three minutes; at rest the two layers stay.)* The
   active window's title bar takes the `mica` material: the wallpaper under
   it, blurred and covered with the `mica` tint, made again when the window comes to rest
   somewhere else or the wallpaper changed; while it is dragged it keeps
@@ -5276,7 +5309,16 @@ compositor for a blurred backdrop.
   change (Start opening p99 14.4 and 15.5). At 2560x1440, 200 % and
   144 Hz the taskbar's partial redraws are slower end to end (median 4.3
   where 2.8 ms); the cause was not found, and the next performance round
-  takes it up.
+  takes it up. *(Answered by ADR-0064: with tiny-skia built without
+  overflow checks and kept pictures blended in place, hovering on the
+  taskbar costs the shell less than before glass, pooled over
+  1920x1080 at 100 % and 2560x1440 at 200 %: median 0.7 ms and p95 1.6,
+  where it was 1.7 and 3.3 before glass and 1.5 and 2.8 with it; which
+  of the two changes removed the slowdown was not measured apart. With
+  glass, the shell's 99th-percentile frames in Start, the flyouts, the
+  taskbar, the snipping overlay and toasts are now below those before
+  glass (a change of theme is not), and Task View's opening on pixman is
+  back near its earlier cost.)*
 - **Verified:** the desktop workspace's `cargo test --locked` on the
   merged tree (612 passed, none failed, 6 ignored), the static checks
   (82), the Qt toolkit (180) and the token tests (12). The OpenGL ES
@@ -5311,3 +5353,297 @@ compositor for a blurred backdrop.
 
 **Revisit when** the Qt toolkit asks for live blur, a real GPU shows what
 the blur costs, or the end-to-end regression on the taskbar is found.
+*(The taskbar: see ADR-0064.)*
+
+## ADR-0064 No full-screen redraws for what appears in front, and slow work off the event loop
+
+Follows ADR-0056 and takes on what it left out; answers the cost on
+pixman and the slower taskbar that ADR-0063 left for this round; changes
+ADR-0032 for one crate and ADR-0057 while a window is resized. The second
+round on the report of 2026-11-26 ("Refresh rate is still laggy
+sometimes and the performance of the compositor lags"): no visible hitch
+anywhere a user goes in normal use.
+
+**Context.** Measured as in ADR-0056 (release builds, the headless
+compositor on pixman, the real shell and two `foot` windows, input
+injected through the control socket, at 1920x1080 at 100 and 125 % and
+at 2560x1440 at 200 %, at 60 and 144 Hz, each build run back to back
+with the tree before this round), with new scenarios for the snipping
+overlay, the flyouts opened one after another, a change of theme and the
+lock screen:
+
+- **Something appearing in front redrew the whole screen.** Smithay's
+  damage tracker draws an element again whole when its place in the list
+  of visible elements changes, and it counts that place from the front.
+  A tooltip, a menu, a toast, a flyout or the pointer appearing in front
+  of the windows moved the wallpaper and every window back by one place,
+  and the whole screen was drawn again for one frame (about 13 ms at
+  2560x1440 without a GPU) to show a tooltip. This is what kept the
+  compositor's fades at 144 Hz and 200 % over the budget (ADR-0056). The
+  invisible surface behind a flyout, and the dimming behind a dialog,
+  added to it: one pixel of shared memory stretched over the screen,
+  which pixman drew as a scaled picture and whose coming damaged the
+  whole output.
+- **The snipping overlay** drew the dimmed screenshot scaled over the
+  whole screen at every step of a drag, compared the whole surface and
+  copied the whole buffer (the shell's drawings: median 24.5 ms, p95
+  43 ms).
+- **The lock screen**, a new process, drew the default background and a
+  translucent fill over the whole screen with tiny-skia before its first
+  frame: 140 to 300 ms from the lock request to the screen. Reading the
+  fonts is 10 to 25 ms of it.
+- **Task View** drew its cards again whenever the selection or the
+  pointer changed, so on every closing, and composed every plain card,
+  which is mostly transparent, on every frame. With glass (ADR-0063) its
+  blurred desktop reached pixman in RGBA order, which sends the twofold
+  enlargement down pixman's slow generic path (p95 56 ms a frame), and
+  the blurred desktop and the darkening over it were two translucent
+  layers over the whole output, blended on every frame of the fade.
+- **The preparation** of ADR-0056 ran in one block of 84 to 310 ms on
+  the event loop; with glass, making Start's panel (shadow, fill from the
+  blurred wallpaper, edges) was 30 to 97 ms of it, and every symbolic
+  icon of a flyout was looked up at 1 to 2 ms.
+- **tiny-skia under overflow checks.** The release profile's overflow
+  checks (ADR-0032) keep tiny-skia's sixteen-lane arithmetic from being
+  vectorised or inlined: a translucent fill of a 2560x1440 screen took
+  40 ms.
+- **Memory that freeing did not give back.** After a large block is
+  freed, glibc raises the size from which it maps blocks on their own,
+  so later large canvases come from the heap, which it keeps; letting go
+  of the shell's canvases did not lower its resident size.
+- **The toolkit's glass** (ADR-0057): a window made larger by hand got a
+  new backdrop (3.7 to 8 ms at 200 %) at every 160-pixel step it crossed.
+
+**Decision.**
+
+- **Steady places** (`crates/boswas-compositor/src/steady.rs`). The
+  elements in front of the windows (the pointer, Alt+Tab, the window
+  menu, the snap layouts and the overlay and top layers; with a
+  full-screen window, everything in front of it) are followed by
+  spacers, one transparent pixel each where nothing opaque covers it,
+  until 48 elements (`FRONT`) count as visible. The windows and the
+  wallpaper keep their places, and only the spacers move. None are added
+  when the opaque parts in front cover the whole output.
+- **Surfaces that show nothing cost nothing.** The shell sends a surface
+  of one colour stretched over the screen (the invisible one behind a
+  flyout, which takes the click that closes it, and the dimming behind a
+  dialog) as a `wp_single_pixel_buffer_v1` buffer, which the compositor
+  already offered, and as a pixel of shared memory where it is not
+  offered (`crates/boswas-shell/src/solid.rs`; at most eight colours are
+  kept as buffers). The compositor leaves out of the picture a layer
+  surface whose buffer is one fully transparent single pixel and that has
+  no subsurface and no popup (`render.rs`, `shows_nothing`): its coming
+  and going damages nothing, and it still takes the pointer.
+- **The snipping overlay draws only what a drag changes**
+  (`crates/boswas-shell/src/capture.rs`). The dimmed screenshot is made
+  once and copied, not scaled, while the surface has the picture's size;
+  a step of a drag draws again only the strips the selection's edges
+  moved across, its size tag and the hint, through the partial redraw of
+  ADR-0056, and the overlay redraws at the refresh rate. The selection
+  shows the very pixels the capture takes, framed in white on whole
+  device pixels (as many as the scale rounded, at a gap of half the
+  scale rounded down). The compositor writes its screenshots as PNG
+  with fast compression: it encodes while every output waits, and Print
+  opens the capture view on that file.
+- **The lock screen starts from the desktop's background**
+  (`crates/boswas-shell/src/wallpaper.rs`). The desktop writes every
+  background it draws to `$XDG_RUNTIME_DIR/boswas-shell-background`: a
+  header (size, scheme, the wallpaper's path) and the drawing as it is,
+  written on a thread beside the file and renamed over it, mode 0600,
+  never through a link, at most 64 MiB of pixels (a 5K screen; a larger
+  drawing is not shared). The lock screen reads it on a thread while it
+  connects, never through a link, only as a regular file whose length is
+  exactly what its header says, and makes every pixel opaque. It shows it
+  while its output has that size and, for the drawn background, that
+  scheme, and does not decode the wallpaper again when its configuration
+  names the same picture. The login screen runs as another user and does
+  not read it. The default background is drawn on up to four threads,
+  the same pixels as before. The compositor's blank cover from the
+  moment of locking until the lock surface arrives is unchanged
+  (ADR-0028).
+- **Faster drawing in `boswas-ui`**: a rectangle on the pixel grid is
+  filled by the canvas itself, only within the clip and with tiny-skia's
+  arithmetic, so a partial redraw of the lock screen (typing the
+  password) no longer fills the whole screen; a picture laid on an empty
+  canvas is copied; a kept picture laid on unscaled is blended in place
+  over only the parts being drawn (`Canvas::blend_picture`); these three
+  are tested pixel for pixel against tiny-skia. Overlapping parts of a
+  clip are blended once, and pixels are converted for the buffers, and
+  checked for opacity by the shell, two at a time.
+- **Task View keeps what it drew**
+  (`crates/boswas-compositor/src/shell/overview.rs`, `glass/mod.rs`). A
+  window's card is kept in up to four looks (`CARD_LOOKS`: plain, under
+  the pointer, selected, both), and a plain card is only its label strip.
+  The blurred desktop goes to pixman in ARGB order, the output's, which
+  pixman enlarges on its fast path; the pixels are the same. During the
+  fade the enlarged blurred desktop and the darkening over it are one
+  picture, drawn at Task View's opacity: pixman makes it on a worker
+  thread (`task-view`) with a renderer of its own, once per wallpaper,
+  output size and theme (30 to 40 ms at 2560x1440), and it is kept for
+  the next opening; until it is there, the two layers are drawn. At rest
+  both renderers draw the two layers as before: pixman's enlargement
+  leaves the outermost pixels translucent, and there one layer rounds a
+  level differently from two. OpenGL ES fades with the same picture. It
+  is let go of three minutes after Task View last faded (`DARKENED_KEPT`)
+  and made again at the next opening; with reduced motion none is made.
+- **The preparation in slices** (`crates/boswas-shell/src/prewarm.rs`).
+  One slice per turn of the event loop, only while nothing is drawn or
+  moving and no flyout is open: for each of Start, quick settings and the
+  notification centre, a corner that plans the panel and the icons not
+  looked up yet, the same corner again once they are kept, then bands of
+  96 logical pixels. A worker thread named `panels` makes the planned
+  panel from a copy of the backdrop (`Backdrop::copy_for_work`) and the
+  icons with the theme's loader; the slices wait for it. A click waits
+  for one slice at most.
+- **tiny-skia is built without overflow checks**
+  (`[profile.release.package.tiny-skia]` in
+  `packages/boswas-desktop/Cargo.toml`), as its own releases are: an
+  exception to ADR-0032 for that crate alone. Its arithmetic wraps where
+  upstream means it to, bounds are still checked, and our own crates and
+  every other dependency keep the checks.
+- **Memory given back.** The compositor starts the programs it trusts as
+  the shell (the shell, the lock screen and the login screen) with
+  `GLIBC_TUNABLES=glibc.malloc.mmap_threshold=262144`, unless its own
+  environment sets `GLIBC_TUNABLES`: blocks of 256 KiB and more are
+  mapped on their own and go back to the system when they are freed. The
+  shell takes exactly that value out of its environment when it starts,
+  so the programs it starts do not inherit it (a value the session set is
+  passed on as before). Shadow pictures over 1 MiB are let go once the
+  panels are made, and spare canvases and buffers (up to 64 MB at 200 %)
+  three minutes after the last flyout, menu, dialog or capture view
+  closed (`KEEP_SPARES`). No `malloc_trim` and no new `unsafe`.
+- **The toolkit's glass waits for a pause in a resize**
+  (`desktop/ui/qt/boswas_fluent/glass.py`): while a window resized by
+  hand outgrows its backdrop, the new one is made once the size has
+  stood still for 150 ms (`RESIZE_PAUSE`); until then the largest kept
+  backdrop shows, centred, with its mean colour beyond it. At rest a
+  window has the backdrop it had before.
+- **Smaller:** the magnifier no longer searches, at every frame of its
+  easing, for an icon that is not installed.
+
+**Why.**
+
+- The full-screen redraws came from the order of the elements and from
+  an invisible stretched pixel, not from anything that changed. Keeping
+  the order steady in the compositor helps every client, other
+  programs' tooltips and menus included.
+- The rest was work done again on every frame, on every lock or in one
+  block: a background the desktop has already drawn, cards and layers
+  that do not change during a fade, a preparation that only has to be
+  finished before the user opens something.
+- tiny-skia is written for builds without the checks, which cost it
+  several times its speed; the bounds checks that guard memory stay.
+- A file in the user's runtime directory needs no new protocol and keeps
+  picture decoding out of the compositor (ADR-0036); the compositor's
+  cover already hides the desktop until the lock surface comes, so the
+  file only shortens that time.
+
+**Left out**, measured and not fixed:
+
+- The lock screen is not within one or two frames: 72 to 94 ms from the
+  lock request to the screen at 1920x1080 and 107 to 117 ms at 2560x1440
+  and 200 %. Loading only the fonts of the interface first was not done.
+- Task View at 2560x1440, 200 % and 144 Hz: p95 12.0 ms against 10.9
+  before this round, about 1 ms over; the fade still blends one
+  translucent layer over the whole output. The first opening after the
+  start or a change of wallpaper is slower than before this round while
+  the darkened picture is made (its first frame 61 ms at 2560x1440 and
+  50 ms at 1920x1080, where it was 48 and 23 to 28 ms).
+- The compositor's memory after Task View: 148 MB at 2560x1440 and 200 %
+  (117 MB with two layers), 134 MB once the picture is let go; the rest
+  is probably glibc keeping freed memory, since the compositor runs
+  without the mmap threshold.
+- A change of theme: the shell's p99 is 30 to 37 ms, against 26 to 28 ms
+  before this round.
+- Not measured: the OpenGL ES path (the spacers, the single-pixel
+  buffers and the darkened picture apply there too) and a real GPU, the
+  DRM back end, more than one output; the time from input to commit
+  during the preparation; resizing and scrolling Control Center and Files
+  on a real compositor (only the toolkit's backdrop store was timed); the
+  three-minute releases end to end; the lock screen's sign-in view.
+
+**Consequences.**
+
+- **The runtime file.** Any program of the user can write
+  `$XDG_RUNTIME_DIR/boswas-shell-background` and so put a picture on the
+  next lock screen. That is no boundary: the same program could set the
+  wallpaper, and the lock is no boundary against a program that runs
+  unsandboxed as the same user (ADR-0028). The file cannot unlock or
+  show the desktop: the lock screen still asks for the password, a file
+  that is not valid is ignored and the background drawn again, and the
+  compositor's cover hides the desktop until the lock surface arrives.
+  The file holds the drawn background and the wallpaper's path, takes the
+  screen's pixels times four bytes of memory (the runtime directory is a
+  tmpfs: 14.7 MB at 2560x1440, 8.3 MB at 1920x1080), and goes with the
+  runtime directory when the user's last session ends.
+- The PNG files the compositor writes (`screenshot` and `thumbnail`, so
+  also the capture view's picture) are larger.
+- The snipping selection lies on whole device pixels, also at fractional
+  scales; its frame is crisp.
+- The shell, the lock screen and the login screen run with
+  `GLIBC_TUNABLES` set; the shell does not pass it on. Frame times with
+  and without it were the same within noise (opening Start, compositor
+  p95 5.6 to 5.7 ms with it, 5.1 to 5.4 ms without).
+- An integer overflow inside tiny-skia wraps in release builds, as
+  tiny-skia intends, instead of stopping the program.
+- New log lines: under `boswas_shell::stats` at debug "flyouts drawn
+  ahead of time in N ms, in M slices of at most X µs" (the line of
+  ADR-0056, now with its slices) and "let go of N MB kept for flyouts",
+  at trace one line per slice ("prepared ... in N µs"); under
+  `boswas_compositor::stats` at trace "task view: a card drawn" and
+  "task view: the strip drawn", at debug "task view: let go of the
+  darkened desktop of OUTPUT".
+- The compositor's tests use `wayland-protocols-wlr` (client side), a
+  crate already in the lock file, as a development dependency.
+- **Verified**, against the tree before this round, pooled over
+  1920x1080 at 100 % and 2560x1440 at 200 %, each at 60 and 144 Hz
+  (`docs/architecture/verification.md` has the table): opening and
+  closing Start, compositor p95 9.6 → 5.7 ms and p99 14.4 → 8.3, frames
+  over 6.9 ms 113 → 9, late frames 68 of 516 → 10 of 580; the flyouts in
+  turn p95 8.6 → 4.7, late 79 of 1,249 → 12 of 1,316; dragging a
+  snipping selection, the shell's median 24.5 → 0.5 ms and p95 43.1 →
+  1.3; Task View p99 29.4 → 19.7 (at 1920x1080 and 144 Hz p95 6.4, within
+  the 6.9 ms budget); a toast, the shell's p95 57.0 → 13.0; hovering on
+  the taskbar, the shell's p95 3.3 → 1.6 (2.8 with glass before this
+  round); the lock screen on screen 142 to 301 → 72 to 117 ms; the
+  preparation in 24 to 31 slices of at most 2 to 4.5 ms instead of one
+  block; the shell's resident size at 2560x1440 and 200 % 101 MB after
+  the start and 119 MB after the flyouts (117.6 and 133.8 without the
+  mmap threshold). Dragging, resizing and snapping windows did not
+  change. Tests: the desktop workspace's `cargo test --locked` on the
+  merged tree: pending; on the tree before the Task View fold, 632
+  passed, none failed, 6 ignored; the release-only budgets passed; the
+  static checks 82; the Qt toolkit 181. New guards: a drag drawn in parts
+  is exactly the whole drawing at 100, 125 and 200 % and small moves draw
+  only strips, and the selection shows the captured pixels; end to end, a
+  fully transparent layer surface adds no damage and still gets the
+  pointer, a small surface appearing in front and going damages only
+  itself, and Task View opened again draws no card or strip (each fails
+  without its fix); the front's count with spacers; the preparation in
+  slices, with no icon looked up on the event loop, the prepared Start
+  identical to one drawn directly and, in release builds, no slice of
+  Start's at 200 % over 8 ms; the
+  shared background read back only when whole and valid and shown by the
+  lock screen as the desktop drew it; the threaded background equal to
+  the old one; the darkened desktop standing for the two layers with
+  pixman (exact where opaque, within one level at the edges, at 100, 125
+  and 200 %) and with OpenGL ES on Mesa's software renderer, and let go
+  of after three minutes; the blurred desktop in ARGB order the same
+  pixels; the memory setting for the shell's trust only and not passed
+  on; the toolkit's backdrop made only after a pause and identical at
+  rest. Screenshots before and after at 1920x1080 and 125 % and at
+  2560x1440 and 200 % are identical but for the clock and a tooltip
+  caught mid-fade; the snipping selection differs on purpose; Task View
+  at rest is identical to the build before the single fading picture
+  but for the clock, and with reduced motion it opens and closes in one
+  frame and ends as the animated one does.
+- **Not verified:** see Left out; the package build, lintian and the
+  package stage; a build with Rust 1.85 was not reported (the sandbox's
+  default toolchain is newer).
+
+**Revisit when** a real GPU shows how the spacers and the fades behave
+there, the lock screen has to come within a frame or two (the fonts of
+the interface first), Task View at 144 Hz and 200 % matters (the
+shell's wallpaper as XRGB, which pixman would copy instead of blending),
+or the compositor's memory after Task View does (the mmap threshold for
+the compositor too).

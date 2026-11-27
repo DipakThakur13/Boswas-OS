@@ -298,6 +298,18 @@ desktop yet, and none has had a security review.
   network connection. The card shows the place and its weather to anyone
   at the device; `[lock] show_weather` (Settings > Privacy & security >
   Lock screen) turns it off, and it is a user setting, not lock policy.
+- The lock screen's background (ADR-0064) comes from a file the desktop
+  shell writes in the user's runtime directory,
+  `$XDG_RUNTIME_DIR/boswas-shell-background`: written beside it with
+  mode 0600 and renamed over it, never through a link. The lock screen
+  opens it without following a link, reads it only if it is a regular
+  file whose length is exactly what its header gives (at most 64 MiB of
+  pixels, 16384 pixels a side), and makes every pixel opaque; anything
+  else is ignored and the background drawn as before. A program of the
+  same user can choose the picture behind the lock screen this way, as
+  it could set the wallpaper; that is no boundary (ADR-0028). The file
+  cannot unlock or show the desktop: the outputs stay blank until the
+  lock surfaces arrive, and only the password unlocks.
 
 ### Login
 

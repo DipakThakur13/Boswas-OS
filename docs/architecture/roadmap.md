@@ -73,7 +73,8 @@ Performance budgets (frame time, memory, start time, dropped frames): **not
 measured.** There is no benchmark job yet, and nothing in this repository
 states that a budget is met. *(Since ADR-0056 the frame costs of the
 shell and the compositor were measured on the build machine without a GPU,
-and a release-only test bounds the cost of drawing Start.)* The compositor
+and a release-only test bounds the cost of drawing Start; since ADR-0064
+another bounds a slice of the drawing ahead of time.)* The compositor
 draws no frame when nothing changes; that part of the idle-power budget is
 by design, not by measurement. The boot screen is the exception: its frame
 costs are measured on the build machine by a test
@@ -136,6 +137,7 @@ booted system.
 | Controls that only pretended: new windows, Photos' background, the pointer size for X11 programs, activity history, Ethernet and USB settings, printing support | ADR-0061 |
 | The shell's controls that only pretended (new windows, night light, the battery, the lock screen's keys, account pictures, dark mode for GTK programs, Num Lock) and the Windows shortcuts and right-click menus, Ctrl+Alt+Del and Super+P | ADR-0062 |
 | One glass for the shell, the compositor and the applications; live blur on OpenGL ES; icons that grow under the pointer in the shell | ADR-0063 |
+| No full-screen redraws for what appears in front; the snipping overlay, the lock screen's start, Task View and the preparation of the flyouts made cheap; memory given back | ADR-0064 |
 
 ### Planned work on the native desktop
 

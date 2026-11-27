@@ -209,9 +209,9 @@ package manifest. The direct dependencies:
 | Crate | Used by | Why |
 |-------|---------|-----|
 | smithay 0.7 | compositor | Wayland server protocols (with `wayland-protocols`' `ext-background-effect-v1` for live blur, ADR-0063), DRM/KMS, GBM, EGL/GLES, libinput and libseat bindings, the software (pixman) renderer, the X11 window manager for Xwayland |
-| smithay-client-toolkit 0.19, wayland-client, wayland-protocols | shell (and the compositor's tests) | Wayland client side: layer shell, session lock, `wp_alpha_modifier` for the fades the compositor runs (ADR-0056), `ext-background-effect-v1` for the blur behind the shell's glass (ADR-0063) |
-| wayland-protocols-wlr 0.3 (`client`) | shell | Clipboard control (`zwlr_data_control_v1`) for the clipboard history (ADR-0058); already in the lock file, which grew by one line |
-| tiny-skia 0.11 | boswas-ui, compositor, shell | Software 2D drawing |
+| smithay-client-toolkit 0.19, wayland-client, wayland-protocols | shell (and the compositor's tests) | Wayland client side: layer shell, session lock, `wp_alpha_modifier` for the fades the compositor runs (ADR-0056), `ext-background-effect-v1` for the blur behind the shell's glass (ADR-0063), `wp_single_pixel_buffer_v1` for the surfaces of one colour behind flyouts and dialogs (ADR-0064) |
+| wayland-protocols-wlr 0.3 (`client`) | shell; the compositor's tests | Clipboard control (`zwlr_data_control_v1`) for the clipboard history (ADR-0058); already in the lock file, which grew by one line. The compositor's end-to-end tests use its layer shell as a client (ADR-0064) |
+| tiny-skia 0.11 | boswas-ui, compositor, shell | Software 2D drawing; built without overflow checks in release builds, as its own releases are (ADR-0064) |
 | cosmic-text 0.12 | boswas-ui | Text shaping and font fallback |
 | resvg 0.45 | boswas-ui, bootsplash (build time) | SVG icons; the boot screen reads the mark's paths and gradients with its usvg at build time, and renders a reference picture of the mark for its tests (ADR-0050) |
 | image 0.25, png 0.17 | boswas-ui, compositor | Wallpaper decoding (PNG, JPEG); PNG application icons, in the shell and since ADR-0052 in the compositor (`boswas-ui`'s `images` feature); screenshots and window thumbnails |

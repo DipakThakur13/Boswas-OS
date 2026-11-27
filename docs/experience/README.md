@@ -876,7 +876,9 @@ No performance figures have been measured on real hardware yet. The design
 choices that matter:
 
 - **The compositor draws only when something changed** and only the
-  damaged regions; an idle desktop draws nothing.
+  damaged regions; an idle desktop draws nothing. A tooltip, a menu or a
+  flyout appearing in front of the windows draws only its own area, and
+  an invisible surface costs nothing (ADR-0064).
 - **The shell is one process** for the background, the taskbar and every
   flyout. It draws again only the controls that changed (a hover redraws
   the two controls the pointer left and entered, not Start), keeps its
@@ -891,8 +893,16 @@ choices that matter:
   transition. Icons are prepared on a worker thread and Start, quick
   settings and the notification centre are drawn once ahead of time, so
   even the first opening of Start is quick (17 ms at 2560x1440 and 200 %
-  on the build machine, where it was 375 ms). The price is memory: the
-  shell keeps about 55 MB more at that size.
+  on the build machine, where it was 375 ms). That drawing ahead runs in
+  slices of a few milliseconds while the shell is idle, so a click waits
+  for one slice at most (ADR-0064). The price is memory: just after the
+  start the shell takes about 101 MB at that size (72 MB before
+  ADR-0056), with glibc told to give large blocks back when they are
+  freed.
+- **The lock screen starts from the background the desktop already
+  drew** (shared in the user's runtime directory) and appears 72 to
+  117 ms after the lock request on the build machine; Task View keeps
+  its cards and fades in one picture made ahead (ADR-0064).
 - **The applications' glass** is made once per picture and size, never
   per frame; a window is opaque until its picture is ready.
 - **The session's services are threads of the shell,** one per service,

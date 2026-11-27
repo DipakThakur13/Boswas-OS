@@ -114,6 +114,13 @@ it when it starts.
   in memory, blurred; it decodes no file. Live blur draws the windows
   behind a glass surface inside the compositor; the program that asked
   for it receives no pixels.
+- **The background for the lock screen** (ADR-0064): the desktop shell
+  keeps a copy of the background it drew, with the path of the
+  wallpaper, in `$XDG_RUNTIME_DIR/boswas-shell-background` (mode 0600,
+  never written through a link), so that the lock screen can show it at
+  once. The runtime directory is in memory and belongs to the user; the
+  file goes when the user's last session ends. Only the lock screen reads
+  it, and nothing is sent anywhere.
 - **Screenshots.** The screen is captured only when the user asks (the
   Print key) or when the user allows a program that asked, in a dialog of
   the shell, with a mark on the taskbar for as long as that program may
