@@ -184,6 +184,28 @@ Show a summary of the options.
 .TP
 .BR \-V ", " \-\-version
 Show the version.
+.SH GLASS
+Every surface is Boswas glass, as the Boswas applications are: Start, quick
+settings, the notification centre, the calendar, the widgets board and the
+clipboard, emoji and projection panels as the window backdrop; menus,
+tooltips, notifications, the volume and brightness indicator and dialogs as
+the more opaque flyout glass; the taskbar in its own darker tint (the
+\fBmaterial.glass\fR tokens). Each is its tint over a blurred, saturated
+backdrop with a fine grain, a white hairline along the top edge and a soft
+glow under it; cards are glass, and a control under the pointer gets a
+brighter hairline. A tint is made more opaque where the backdrop would leave
+text under 4.5:1. Where
+.BR boswas-compositor (1)
+offers to blur what lies behind (OpenGL ES), the shell draws only the tint
+and gives each surface a blur region (\fBext\-background\-effect\-v1\fR; a
+rounded panel row by row near its corners); otherwise it draws the
+wallpaper, blurred, under the tint. The lock screen and the login screen blur
+the wallpaper into glass behind the sign-in view, darkened as far as white
+text needs, with the user picture and the fields as glass. In Start, the
+widgets board and the clipboard and emoji panels the icon under the pointer
+grows like a dock's (its neighbours a little), within its cell, unless
+motion is reduced. With \fB[appearance] transparency = false\fR or a
+high-contrast preset every surface is its opaque tint.
 .SH KEYBOARD
 Every flyout and dialog can be used without a pointer: Tab and Shift+Tab go
 through the controls, the arrow keys move to the nearest control in that

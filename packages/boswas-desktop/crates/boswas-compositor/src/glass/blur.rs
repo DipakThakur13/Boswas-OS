@@ -641,8 +641,20 @@ void main() {
     if (lum > band.y) {
         rgb = rgb * pow(band.y / lum, 1.0 / 2.2);
     } else if (lum < band.x) {
-        float floor_ = pow(band.x, 1.0 / 2.2);
-        rgb = rgb + (vec3(floor_) - rgb) * (1.0 - lum / band.x);
+        // Brighter by the factor that brings the luminance up to the band;
+        // where a channel would pass white, the colour goes towards white
+        // instead, as far as the band needs.
+        vec3 lifted = vec3(band.x);
+        if (lum > 0.00001) {
+            lifted = lin * (band.x / lum);
+            float top = max(max(lifted.r, lifted.g), lifted.b);
+            if (top > 1.0) {
+                vec3 cut = lin / max(max(lin.r, lin.g), lin.b);
+                float lc = dot(cut, vec3(0.2126, 0.7152, 0.0722));
+                lifted = cut + (vec3(1.0) - cut) * clamp((band.x - lc) / max(1.0 - lc, 0.00001), 0.0, 1.0);
+            }
+        }
+        rgb = pow(lifted, vec3(1.0 / 2.2));
     }
     float cover = 1.0;
     if (radius > 0.0) {
@@ -974,6 +986,21 @@ void main() {
             assert_eq!(at(4, 4)[3], 0, "nothing outside the region");
             assert_eq!(at(17, 50)[3], 0, "the staircase is the shape");
             assert_eq!(at(22, 50)[3], 255);
+
+            // Light glass over a dark green window: lifted to the band's
+            // lower end, still green.
+            let green = SolidColorBuffer::new(Size::from((128, 64)), [0.05, 0.25, 0.05, 1.0]);
+            let scene = vec![SolidColorRenderElement::from_buffer(&green, Point::from((0, 0)), scale, 1.0, Kind::Unspecified)];
+            let band = (0.55, 1.0);
+            let params = BlurParams { iterations: 2, offset: 1.5, saturation: 1.0, band };
+            let blurred = blur_behind(&mut renderer, &("TEST-3".to_owned(), Id::new()), area, scale, &scene, &params).unwrap();
+            let element =
+                BlurElement::<GlesRenderer>::new(Id::new(), smithay::backend::renderer::utils::CommitCounter::default(), &blurred, &region, Vec::new(), 1.0, 1.0, band, 0.0).unwrap();
+            let rgba = crate::backend::render_offscreen::<_, GlesTexture, _>(&mut renderer, Fourcc::Abgr8888, size, 1.0, &[element], Color32F::TRANSPARENT).unwrap();
+            let p = &rgba[(30 * 128 + 60) * 4..(30 * 128 + 60) * 4 + 3];
+            let lin = |v: u8| (f32::from(v) / 255.0).powf(2.2);
+            let lum = 0.2126 * lin(p[0]) + 0.7152 * lin(p[1]) + 0.0722 * lin(p[2]);
+            assert!((lum - 0.55).abs() < 0.03 && p[1] > p[0] && p[1] > p[2], "lifted into the band: {p:?} ({lum})");
         }
     }
 }
@@ -991,10 +1018,24 @@ pub fn tone(rgb: [f32; 3], saturation: f32, band: (f32, f32)) -> [f32; 3] {
         let k = (band.1 / luminance).powf(1.0 / 2.2);
         c = c.map(|v| v * k);
     } else if luminance < band.0 {
-        // Towards the grey of the band's lower end.
-        let floor = band.0.powf(1.0 / 2.2);
-        let t = if band.0 > 0.0 { 1.0 - luminance / band.0 } else { 0.0 };
-        c = c.map(|v| v + (floor - v) * t);
+        // Brighter by the factor that brings the luminance up to the band;
+        // where a channel would pass white, towards white instead.
+        let lin = c.map(linear);
+        let lifted = if luminance > 1e-5 {
+            let up = lin.map(|v| v * band.0 / luminance);
+            if up.iter().copied().fold(0.0f32, f32::max) > 1.0 {
+                let top = lin.iter().copied().fold(0.0f32, f32::max);
+                let cut = lin.map(|v| v / top);
+                let lc = 0.2126 * cut[0] + 0.7152 * cut[1] + 0.0722 * cut[2];
+                let t = ((band.0 - lc) / (1.0 - lc).max(1e-5)).clamp(0.0, 1.0);
+                cut.map(|v| v + (1.0 - v) * t)
+            } else {
+                up
+            }
+        } else {
+            [band.0; 3]
+        };
+        c = lifted.map(|v| v.powf(1.0 / 2.2));
     }
     c
 }
@@ -1092,8 +1133,14 @@ mod tests {
         assert!((lum(white) - 0.07).abs() < 0.005, "white is brought down to the band: {white:?}");
         assert_eq!(tone([0.1, 0.1, 0.1], 1.0, dark), [0.1, 0.1, 0.1], "inside the band nothing changes");
         let light = (0.55, 1.0);
-        let black = tone([0.0; 3], 1.0, light);
-        assert!(lum(black) >= 0.5, "black is lifted for light glass: {black:?}");
+        // Every colour comes up to the band's lower end, keeping its hue
+        // where it can: black, a dark blue, a mixed green, a saturated red.
+        for colour in [[0.0; 3], [0.05, 0.1, 0.45], [0.44, 0.7, 0.3], [0.9, 0.1, 0.1]] {
+            let lifted = tone(colour, 1.0, light);
+            assert!((lum(lifted) - 0.55).abs() < 0.01, "{colour:?} -> {lifted:?} ({})", lum(lifted));
+        }
+        let green = tone([0.44, 0.7, 0.3], 1.0, light);
+        assert!(green[1] > green[0] && green[1] > green[2], "still green: {green:?}");
         let vivid = tone([0.6, 0.4, 0.4], 1.3, (0.0, 1.0));
         assert!(vivid[0] - vivid[1] > 0.2 + 1e-4, "{vivid:?}");
     }

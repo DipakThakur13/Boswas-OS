@@ -255,15 +255,20 @@ pub fn draw(f: &mut Frame, st: &State, interactive: bool) {
     // Avatar (the account picture, where there is one) and name.
     let login = if view.greeter { view.login_name() } else { st.user.clone() };
     if !crate::accounts::draw(f, st.pictures.get(&login), centre, y + 60.0, 60.0) {
-        // The user tile: a disc of glass.
-        match f.glass() {
-            Some(g) => glass::draw_surface(f.canvas, centre - 60.0, y, 120.0, 120.0, 60.0, &g, GlassKind::Card, g.card, None),
+        // The user tile: a disc of glass (in the scheme's card tint, so the
+        // figure on it takes the scheme's text colour).
+        let figure = match f.glass() {
+            Some(g) => {
+                glass::draw_surface(f.canvas, centre - 60.0, y, 120.0, 120.0, 60.0, &g, GlassKind::Card, g.card, None);
+                theme.text
+            }
             None => {
                 f.canvas.fill_circle(centre, y + 60.0, 60.0, Rgba::WHITE.alpha(0.16));
                 f.canvas.stroke_circle(centre, y + 60.0, 59.5, 1.0, Rgba::WHITE.alpha(0.22));
+                Rgba::WHITE
             }
-        }
-        f.icon_tinted("avatar-default-symbolic", centre - 28.0, y + 32.0, 56.0, Rgba::WHITE);
+        };
+        f.icon_tinted("avatar-default-symbolic", centre - 28.0, y + 32.0, 56.0, figure);
     }
     y += 136.0;
     let name = ramp("title", Rgba::WHITE).weight(500);

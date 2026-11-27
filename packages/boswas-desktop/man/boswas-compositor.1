@@ -110,6 +110,39 @@ overrides the choice. Frames are drawn as fast as the monitor refreshes,
 at whatever rate its mode has. On devices without a vertical blank (most
 virtual graphics adapters, the firmware framebuffer) frames are still shown
 no faster than the display's refresh rate.
+.SH GLASS
+The shell's surfaces and the compositor's own (the window menu, the Alt+Tab
+panel, the snap layouts, Task View) are Boswas glass, the material of the
+Boswas applications: what lies behind a surface, blurred, its colours
+saturated, covered with a tint as opaque as its text needs to stay readable
+and a fine grain, with a white hairline along the top edge and a soft glow
+under it.
+.PP
+On OpenGL ES the compositor blurs what really lies behind a translucent
+surface (the windows under a flyout). Every client may ask for it with the
+\fBext\-background\-effect\-v1\fR protocol: a blur region per surface, in
+surface coordinates, taking effect with the surface's next commit and
+removed with a NULL region, the object or the surface. The scene behind the
+region is drawn at half resolution into a texture that is kept and blurred
+again (dual Kawase passes) only when something under it changed; its
+brightness is kept within a band for the light or dark scheme, so that text
+on translucent glass stays readable over any window. The \fBblur\fR
+capability is offered only while the renderer can blur and glass is on.
+pixman never blurs and does not offer it; the shell then draws the blurred
+wallpaper under its glass itself, as do the compositor's own surfaces (from
+the shell's background surface, read back small whenever it changed; the
+compositor never decodes a picture file).
+.PP
+The active window's title bar is Mica: the wallpaper under it, blurred and
+covered with the scheme's background colour, made again when the window
+comes to rest somewhere else. Task View lies on the desktop blurred into
+glass.
+.PP
+Glass is off, and every surface its opaque tint, with
+\fB[appearance] transparency = false\fR or while the user's desktop preset
+(the \fBCurrent\fR entry of the \fB[Preset]\fR group of
+\fI$XDG_CONFIG_HOME/boswasrc\fR) is a high-contrast one (Carbon); both are
+read again on \fBreload\-config\fR and passed to the shell.
 .SH THE SHELL
 The shell is started again at once when it ends. A shell that keeps ending
 right after its start (within 30 seconds) is started again after a pause
@@ -430,8 +463,10 @@ default background), \fBaccent\fR (the accent colour, a hue of the
 palette: "iris", the default, "azure", "sky", "mint", "sun", "coral",
 "orchid" or "slate"; the shell, the compositor's own surfaces and the Qt
 applications take the same shades of it, moved where needed so that text on
-it stays readable) and \fBtransparency\fR (default true; false fills the
-taskbar, the flyouts and the strip of Task View with their tint alone).
+it stays readable) and \fBtransparency\fR (default true; false turns glass
+off: the shell's surfaces and the compositor's own are their opaque tints,
+no blur is offered, and title bars have no Mica; see
+.BR GLASS ).
 .TP
 .B [accessibility]
 \fBtext_scale\fR (text size in percent, 100 to 225: the shell, the title
