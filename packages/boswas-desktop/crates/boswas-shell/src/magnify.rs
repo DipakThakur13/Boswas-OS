@@ -154,7 +154,7 @@ impl Frame<'_> {
         let scale = self.canvas.scale();
         let pixels = (largest * scale).round().max(1.0) as u32;
         let (gx, gy) = (x + (size - grown) / 2.0, y + size - grown);
-        let picture = names.iter().filter(|name| !name.is_empty()).find_map(|name| self.res.icons.load(name, pixels));
+        let picture = names.iter().filter(|name| !name.is_empty()).find_map(|name| self.icon_pixmap(name, pixels));
         match picture {
             Some(picture) if (factor - most).abs() < 1e-4 && !moving => {
                 let side = pixels as f32 / scale;
@@ -162,7 +162,9 @@ impl Frame<'_> {
                 self.canvas.draw_pixmap(&picture, sx, sy, side, side, 1.0);
             }
             Some(picture) => self.canvas.draw_pixmap(&picture, gx, gy, grown, grown, 1.0),
-            None => self.icon_or_placeholder(names, gx, gy, grown),
+            // Not installed at any size: looking it up again at every size
+            // on the way (a file search each frame) would find nothing.
+            None => self.placeholder(gx, gy, grown),
         }
         factor
     }

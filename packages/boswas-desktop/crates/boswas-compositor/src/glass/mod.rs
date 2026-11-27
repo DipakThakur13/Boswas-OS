@@ -388,9 +388,7 @@ impl Boswas {
             if let Some(tile) = ui_glass::grain(glass.noise) {
                 ui_glass::draw_grain(&mut canvas, 0.0, 0.0, w, h, [0.0; 4], &tile);
             }
-            let (pw, ph) = canvas.pixel_size();
-            let buffer = MemoryRenderBuffer::from_slice(canvas.data(), Fourcc::Abgr8888, (pw as i32, ph as i32), 1, Transform::Normal, None);
-            self.glass.desktops.insert(name.clone(), (generation, buffer));
+            self.glass.desktops.insert(name.clone(), (generation, output_order(&canvas)));
         }
         let (_, buffer) = self.glass.desktops.get(&name)?;
         let _ = scale;
@@ -513,6 +511,18 @@ impl Boswas {
     }
 }
 
+
+/// `canvas` as a buffer in ARGB order, the output's: pixman enlarges it on
+/// its fast path. (In RGBA order, the canvas's own, it took its generic
+/// path: about 55 ms a frame of Task View's opening at 2560 x 1440 without
+/// a GPU, against 15 to 20 ms in ARGB order; the same pixels.)
+fn output_order(canvas: &boswas_ui::Canvas) -> MemoryRenderBuffer {
+    let (pw, ph) = canvas.pixel_size();
+    let mut bytes = vec![0u8; pw as usize * ph as usize * 4];
+    canvas.write_argb8888(&mut bytes);
+    MemoryRenderBuffer::from_slice(&bytes, Fourcc::Argb8888, (pw as i32, ph as i32), 1, Transform::Normal, None)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -529,5 +539,39 @@ mod tests {
         assert!(!high_contrast_preset(Some(&path)));
         assert!(!high_contrast_preset(Some(&dir.path().join("missing"))));
         assert!(!high_contrast_preset(None));
+    }
+
+    /// What a buffer shows enlarged twice with `alpha` by pixman, as the
+    /// blurred desktop is in Task View (ARGB bytes).
+    fn enlarged(buffer: &MemoryRenderBuffer, size: (i32, i32), alpha: f32) -> Vec<u8> {
+        use smithay::backend::renderer::{damage::OutputDamageTracker, pixman::PixmanRenderer, Bind, ExportMem, Offscreen};
+        use smithay::reexports::pixman::Image;
+        let mut renderer = PixmanRenderer::new().unwrap();
+        let to = Size::from((size.0 * 2, size.1 * 2));
+        let mut target: Image<'static, 'static> = renderer.create_buffer(Fourcc::Argb8888, to).unwrap();
+        let src = Rectangle::from_size(Size::from((f64::from(size.0), f64::from(size.1))));
+        let element = MemoryRenderBufferRenderElement::from_buffer(&mut renderer, (0.0, 0.0), buffer, Some(alpha), Some(src), Some(Size::from((size.0 * 2, size.1 * 2))), Kind::Unspecified).unwrap();
+        let mut framebuffer = renderer.bind(&mut target).unwrap();
+        let mut damage = OutputDamageTracker::new((to.w, to.h), 1.0, Transform::Normal);
+        damage.render_output(&mut renderer, &mut framebuffer, 0, &[element], [0.0, 0.0, 0.0, 0.0]).unwrap();
+        let mapping = renderer.copy_framebuffer(&framebuffer, Rectangle::from_size(to), Fourcc::Argb8888).unwrap();
+        renderer.map_texture(&mapping).unwrap().to_vec()
+    }
+
+    #[test]
+    fn the_blurred_desktop_in_the_outputs_order_shows_the_same_pixels() {
+        let mut canvas = boswas_ui::Canvas::new(37.0, 23.0, 1.0).unwrap();
+        // Opaque, with steep and gentle slopes in each channel.
+        for (i, pixel) in canvas.pixmap_mut().data_mut().chunks_exact_mut(4).enumerate() {
+            let (x, y) = ((i % 37) as u32, (i / 37) as u32);
+            pixel.copy_from_slice(&[(x * 7) as u8, (y * 11) as u8, ((x * y) % 256) as u8, 255]);
+        }
+        let (pw, ph) = canvas.pixel_size();
+        let canvas_order = MemoryRenderBuffer::from_slice(canvas.data(), Fourcc::Abgr8888, (pw as i32, ph as i32), 1, Transform::Normal, None);
+        for alpha in [1.0, 0.6, 0.05] {
+            let shown = enlarged(&output_order(&canvas), (37, 23), alpha);
+            assert!(shown.chunks_exact(4).any(|p| p[0] != p[1] && p[1] != p[2]), "the picture is drawn, in colour");
+            assert_eq!(shown, enlarged(&canvas_order, (37, 23), alpha), "opacity {alpha}");
+        }
     }
 }

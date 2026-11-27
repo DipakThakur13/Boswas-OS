@@ -460,7 +460,23 @@ pub(crate) struct Shell {
     solid: solid::Solid,
 }
 
+/// The C library's memory settings the compositor starts the shell with
+/// (boswas-compositor's `SHELL_MALLOC_TUNABLES`): the shell's own, taken out
+/// of the environment programs it starts inherit.
+const MALLOC_TUNABLES: &str = "glibc.malloc.mmap_threshold=262144";
+
+/// Whether the environment's `GLIBC_TUNABLES` is the one the compositor
+/// gave the shell (and not one of the session's own).
+fn ours(tunables: Option<&std::ffi::OsStr>) -> bool {
+    tunables.is_some_and(|value| value == MALLOC_TUNABLES)
+}
+
 fn main() {
+    // Read by the C library when the program started; programs the shell
+    // starts get the session's environment without it.
+    if ours(std::env::var_os("GLIBC_TUNABLES").as_deref()) {
+        std::env::remove_var("GLIBC_TUNABLES");
+    }
     let mut mode = Mode::Desktop;
     for arg in std::env::args().skip(1) {
         match arg.as_str() {
@@ -1800,6 +1816,13 @@ delegate_registry!(Shell);
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_compositors_memory_setting_is_not_passed_on() {
+        assert!(ours(Some(std::ffi::OsStr::new("glibc.malloc.mmap_threshold=262144"))));
+        assert!(!ours(Some(std::ffi::OsStr::new("glibc.malloc.arena_max=2"))), "the session's own stays");
+        assert!(!ours(None));
+    }
 
     #[test]
     fn missing_fonts_are_reported_once_and_say_what_follows() {

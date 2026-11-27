@@ -312,6 +312,17 @@ impl Canvas {
             }
             return;
         }
+        // A picture laid on unchanged at a place on the canvas: blended here,
+        // exactly as tiny-skia's pipeline blends it, only over the parts
+        // being drawn, without copying pieces of it.
+        if plain && x >= 0 && y >= 0 {
+            let whole = [(0, 0, self.pixmap.width(), self.pixmap.height())];
+            let parts = if self.clip.is_empty() { whole.to_vec() } else { disjoint(&self.clip) };
+            for part in parts {
+                self.blend_picture(picture, x, y, part);
+            }
+            return;
+        }
         if self.clip.is_empty() {
             self.pixmap.draw_pixmap(x, y, picture, paint, Transform::identity(), None);
             return;
@@ -329,6 +340,47 @@ impl Canvas {
             let piece = tiny_skia::IntRect::from_xywh(x0 - x, y0 - y, (x1 - x0) as u32, (y1 - y0) as u32).and_then(|r| picture.clone_rect(r));
             if let Some(piece) = piece {
                 self.pixmap.draw_pixmap(x0, y0, piece.as_ref(), paint, Transform::identity(), None);
+            }
+        }
+    }
+
+    /// Blends `picture`, placed at (`x`, `y`) (device pixels, not negative),
+    /// over the canvas within `part`: tiny-skia's source-over of a picture
+    /// drawn unscaled (its high-precision pipeline: channels as fractions,
+    /// `d * (1 - sa) + s`, rounded to even), pixel for pixel. An opaque
+    /// source pixel is copied and a clear one leaves the canvas as it is,
+    /// which is what that arithmetic gives.
+    fn blend_picture(&mut self, picture: PixmapRef, x: i32, y: i32, part: PixelRect) {
+        let (x, y) = (x.max(0) as u32, y.max(0) as u32);
+        let (x0, y0) = (part.0.max(x), part.1.max(y));
+        let x1 = (part.0 + part.2).min(x + picture.width()).min(self.pixmap.width());
+        let y1 = (part.1 + part.3).min(y + picture.height()).min(self.pixmap.height());
+        if x1 <= x0 || y1 <= y0 {
+            return;
+        }
+        const FACTOR: f32 = 1.0 / 255.0;
+        // Round to nearest, ties to even, for 0 <= v < 2^23 (as the SSE
+        // conversion tiny-skia uses).
+        let even = |v: f32| ((v + 8_388_608.0) - 8_388_608.0) as u8;
+        let unnorm = |v: f32| even(v.clamp(0.0, 1.0) * 255.0);
+        let (w, pw) = (self.pixmap.width() as usize, picture.width() as usize);
+        let source = picture.data();
+        let target = self.pixmap.data_mut();
+        for row in y0..y1 {
+            let from = ((row - y) as usize * pw + (x0 - x) as usize) * 4;
+            let to = (row as usize * w + x0 as usize) * 4;
+            let len = (x1 - x0) as usize * 4;
+            for (d, s) in target[to..to + len].chunks_exact_mut(4).zip(source[from..from + len].chunks_exact(4)) {
+                match s[3] {
+                    255 => d.copy_from_slice(s),
+                    0 if s[..3] == [0, 0, 0] => {}
+                    sa => {
+                        let inv = 1.0 - f32::from(sa) * FACTOR;
+                        for i in 0..4 {
+                            d[i] = unnorm(f32::from(d[i]) * FACTOR * inv + f32::from(s[i]) * FACTOR);
+                        }
+                    }
+                }
             }
         }
     }
@@ -1043,6 +1095,42 @@ mod tests {
         let mut again = Canvas::new(400.0, 300.0, 2.0).unwrap();
         again.shadow(40.0, 40.0, 300.0, 200.0, 8.0, 24.0, 4.0, 0.4);
         assert_eq!(first.data(), again.data());
+    }
+
+    #[test]
+    fn a_picture_is_blended_as_tiny_skia_blends_it_in_the_parts_drawn() {
+        let paint = PixmapPaint { quality: FilterQuality::Nearest, ..PixmapPaint::default() };
+        let picture = busy(13.0, 9.0, 1.0).into_pixmap();
+        let mut glassy = busy(13.0, 9.0, 1.0).into_pixmap();
+        // Opaque and clear pixels too.
+        for (i, p) in glassy.data_mut().chunks_exact_mut(4).enumerate() {
+            match i % 5 {
+                0 => p.copy_from_slice(&[10, 200, 30, 255]),
+                1 => p.copy_from_slice(&[0, 0, 0, 0]),
+                _ => {}
+            }
+        }
+        for source in [&picture, &glassy] {
+            for (x, y) in [(0, 0), (3, 2), (10, 8), (15, 1)] {
+                for clip in [vec![], vec![(2, 1, 6, 4), (5, 3, 9, 6)], vec![(0, 0, 1, 1)]] {
+                    let mut ours = busy(20.0, 12.0, 1.0);
+                    if !clip.is_empty() {
+                        ours.begin_clip(&clip);
+                    } else {
+                        ours.touch();
+                    }
+                    let before = ours.data().to_vec();
+                    ours.draw_device_pixmap(x, y, source.as_ref(), &paint);
+                    let mut theirs = Pixmap::from_vec(before.clone(), tiny_skia::IntSize::from_wh(20, 12).unwrap()).unwrap();
+                    theirs.draw_pixmap(x, y, source.as_ref(), &paint, Transform::identity(), None);
+                    for (i, ((got, want), was)) in ours.data().chunks_exact(4).zip(theirs.data().chunks_exact(4)).zip(before.chunks_exact(4)).enumerate() {
+                        let (px, py) = ((i % 20) as u32, (i / 20) as u32);
+                        let inside = clip.is_empty() || clip.iter().any(|&(cx, cy, cw, ch)| px >= cx && py >= cy && px < cx + cw && py < cy + ch);
+                        assert_eq!(got, if inside { want } else { was }, "({px}, {py}) for a picture at ({x}, {y}), clip {clip:?}");
+                    }
+                }
+            }
+        }
     }
 
     #[test]

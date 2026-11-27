@@ -13,9 +13,11 @@
 //!   on a canvas nobody sees, which shapes their text and keeps their
 //!   panels. This took about 200 ms at 200 %, in one piece, on the event
 //!   loop: a click then waited for all of it. It is drawn in slices
-//!   instead (a corner that makes a panel, then bands of a row of tiles),
-//!   one per turn of the event loop while nothing else happens, so that
-//!   input is handled between any two.
+//!   instead, one per turn of the event loop while nothing else happens,
+//!   so that input is handled between any two: a corner that plans the
+//!   panel and the flyout's own icons (made on a worker thread: tens of
+//!   milliseconds at 200 %), the same corner again once they are kept,
+//!   then bands of a row of tiles.
 
 use std::{
     collections::VecDeque,
@@ -29,7 +31,7 @@ use tiny_skia::Pixmap;
 use crate::{
     notify, quick, start,
     state::{Flyout, Mode},
-    ui::{Frame, Rect},
+    ui::{Frame, MadePanel, Plan, Rect},
     Role, Shell, PAD,
 };
 
@@ -55,6 +57,8 @@ pub struct Prewarm {
     done: Option<Key>,
     /// The slices still to draw.
     work: Option<Work>,
+    /// Numbers the works (a worker thread's answer goes to its own).
+    next_work: u64,
     /// When a flyout, menu or dialog was last open, and whether what was
     /// kept for them has been let go since (see `release_when_idle`).
     used_at: Option<Instant>,
@@ -157,7 +161,13 @@ impl Shell {
                 let (_, ((w, h), _, origin)) = self.flyout_geometry(kind, size);
                 steps.extend(slices(kind, (w as f32, h as f32), origin));
             }
-            self.prewarm.work = Some(Work { key, scale, steps, canvas: None, busy: Duration::ZERO, longest: Duration::ZERO, count: 0 });
+            self.prewarm.next_work += 1;
+            let id = self.prewarm.next_work;
+            self.prewarm.work = Some(Work { id, key, scale, steps, canvas: None, waiting: 0, busy: Duration::ZERO, longest: Duration::ZERO, count: 0 });
+            return;
+        }
+        if self.prewarm.work.as_ref().is_some_and(|work| work.waiting > 0) {
+            // A panel is being made on a worker thread.
             return;
         }
         let Some(mut work) = self.prewarm.work.take() else {
@@ -172,10 +182,24 @@ impl Shell {
             None => Canvas::new(step.size.0, step.size.1, work.scale),
         };
         if let Some(mut canvas) = canvas {
-            draw_slice(&mut self.res, &self.st, &step, &mut canvas);
+            if step.plan {
+                // The panel (its shadow, its fill from the wallpaper and its
+                // edges: tens of milliseconds at 200 %) and the icons not
+                // looked up yet (one to two milliseconds each) are made on
+                // a worker thread; the next step finds them kept.
+                self.res.planned = Some(Plan::default());
+                draw_slice(&mut self.res, &self.st, &step, &mut canvas);
+                let plan = self.res.planned.take().unwrap_or_default();
+                if !(plan.panels.is_empty() && plan.icons.is_empty()) && self.make_planned(work.id, plan) {
+                    work.waiting += 1;
+                }
+            } else {
+                draw_slice(&mut self.res, &self.st, &step, &mut canvas);
+            }
             work.canvas = Some(canvas);
         }
         let took = started.elapsed();
+        tracing::trace!(target: "boswas_shell::stats", "prepared {:?} {:?}{} in {} µs", step.kind, step.part, if step.plan { " (planned)" } else { "" }, took.as_micros());
         work.busy += took;
         work.longest = work.longest.max(took);
         work.count += 1;
@@ -213,6 +237,39 @@ impl Shell {
         }
     }
 
+    /// Makes what a drawing planned on a worker thread and keeps it as it
+    /// comes; the work `id` waits until all is. False when no thread could
+    /// be started (the drawing then makes it on the event loop).
+    fn make_planned(&mut self, id: u64, plan: Plan) -> bool {
+        let theme = crate::ui::icon_theme(self.res.theme.scheme);
+        let (sender, receiver) = channel::channel::<Made>();
+        let inserted = self.loop_handle.insert_source(receiver, move |event, _, shell| match event {
+            // Icons for a work that has been replaced (the theme changed)
+            // are not kept.
+            channel::Event::Msg(Made::Icon(name, size, pixmap)) => {
+                if shell.prewarm.work.as_ref().is_some_and(|w| w.id == id) {
+                    shell.res.icons.keep(&name, size, pixmap);
+                }
+            }
+            channel::Event::Msg(Made::Panel(made)) => shell.res.keep_panel(made),
+            channel::Event::Closed => {
+                if let Some(work) = shell.prewarm.work.as_mut().filter(|w| w.id == id) {
+                    work.waiting = work.waiting.saturating_sub(1);
+                }
+            }
+        });
+        if inserted.is_err() {
+            return false;
+        }
+        std::thread::Builder::new()
+            .name("panels".into())
+            .spawn(move || {
+                let loader = IconLoader::new(theme);
+                make(plan, &loader, |made| sender.send(made).is_ok());
+            })
+            .is_ok()
+    }
+
     /// Nothing is being drawn or moving and no flyout is open.
     fn prewarm_quiet(&self) -> bool {
         self.st.flyout.is_none() && self.surfaces.iter().all(|s| !s.dirty && s.anim.is_none())
@@ -221,7 +278,7 @@ impl Shell {
     /// When the event loop is to come back for the next slice of the
     /// preparation (`None`: no slice is waiting).
     pub fn prewarm_deadline(&self, now: Instant) -> Option<Instant> {
-        self.prewarm.work.as_ref().filter(|w| !w.steps.is_empty() && self.prewarm_quiet()).map(|_| now)
+        self.prewarm.work.as_ref().filter(|w| !w.steps.is_empty() && w.waiting == 0 && self.prewarm_quiet()).map(|_| now)
     }
 
     /// Rasterises, on a worker thread, the icons of every application that
@@ -232,10 +289,7 @@ impl Shell {
             self.prewarm.icons_done = true;
             return;
         }
-        let theme = match self.res.theme.scheme {
-            Scheme::Dark => "Boswas-Prism",
-            Scheme::Light => "Boswas-Prism-Light",
-        };
+        let theme = crate::ui::icon_theme(self.res.theme.scheme);
         let (sender, receiver) = channel::channel::<(String, u32, Option<Pixmap>)>();
         let inserted = self.loop_handle.insert_source(receiver, |event, _, shell| match event {
             channel::Event::Msg((name, size, pixmap)) => shell.res.icons.keep(&name, size, pixmap),
@@ -260,17 +314,44 @@ impl Shell {
     }
 }
 
+/// What the worker thread of a planned drawing hands over.
+pub enum Made {
+    Icon(String, u32, Option<Pixmap>),
+    Panel(MadePanel),
+}
+
+/// Makes what a drawing planned: the icons with `loader` (the theme's),
+/// then the panels, each handed to `send` as it is made (false: stop).
+fn make(plan: Plan, loader: &IconLoader, mut send: impl FnMut(Made) -> bool) {
+    for (name, size) in plan.icons {
+        let pixmap = loader.render(&name, size);
+        if !send(Made::Icon(name, size, pixmap)) {
+            return;
+        }
+    }
+    for job in plan.panels {
+        if let Some(made) = job.make() {
+            if !send(Made::Panel(made)) {
+                return;
+            }
+        }
+    }
+}
+
 /// Height (logical pixels) of the band of a flyout one slice draws: about
 /// a row of Start's tiles.
 const BAND: f32 = 96.0;
 
 /// The preparation still to do.
 pub struct Work {
+    id: u64,
     key: Key,
     scale: f32,
     steps: VecDeque<Step>,
     /// The canvas nobody sees, of the flyout being drawn.
     canvas: Option<Canvas>,
+    /// Worker threads making panels that the next step needs.
+    waiting: usize,
     busy: Duration,
     longest: Duration,
     count: u32,
@@ -287,14 +368,17 @@ struct Step {
     origin: (f32, f32),
     /// The part drawn (logical pixels).
     part: Rect,
+    /// Its panel is planned and made off the event loop, not drawn.
+    plan: bool,
 }
 
-/// The slices of a flyout of `size`: first a corner of its panel (which
-/// makes the panel, its shadow and material, and nothing else), then its
+/// The slices of a flyout of `size`: a corner of its panel, first to plan
+/// the panel (made on a worker thread), then to find it kept; then its
 /// bands from the top.
 fn slices(kind: Flyout, size: (f32, f32), origin: (f32, f32)) -> Vec<Step> {
-    let step = |part: Rect| Step { kind, size, origin, part };
-    let mut steps = vec![step(Rect::new(PAD, PAD, 1.0, 1.0))];
+    let step = |part: Rect| Step { kind, size, origin, part, plan: false };
+    let corner = Rect::new(PAD, PAD, 1.0, 1.0);
+    let mut steps = vec![Step { plan: true, ..step(corner) }, step(corner)];
     let mut top = 0.0;
     while top < size.1 {
         steps.push(step(Rect::new(0.0, top, size.0, BAND.min(size.1 - top))));
@@ -332,10 +416,12 @@ mod tests {
     use super::*;
 
     /// The preparation of Start at 200 % (its largest: 3.2 million pixels)
-    /// in slices: once the slices have run, drawing Start whole shapes no
-    /// more text and makes no panel (it is as quick as a later opening),
-    /// and no slice takes long, so a click at that moment is not held up.
-    /// The limit holds for an optimised build on a loaded machine:
+    /// in slices, over the blurred wallpaper (glass): its panel is planned
+    /// and made on another thread, then the slices draw the bands. Once they
+    /// have run, drawing Start whole makes no panel, makes no fill and
+    /// shapes no more text (it is as quick as a later opening), and no
+    /// slice on the event loop takes long, so a click at that moment is not
+    /// held up. The limits hold for an optimised build on a loaded machine:
     /// `cargo test --release slices -- --nocapture` prints the figures.
     #[test]
     fn the_preparation_runs_in_short_slices_and_prepares_everything() {
@@ -345,39 +431,80 @@ mod tests {
         let icons = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../../desktop/icons");
         res.icons = IconLoader::with_base_dirs("Boswas-Prism", &[icons.clone()]);
         // The icons, as the worker thread hands them over.
-        let loader = IconLoader::with_base_dirs("Boswas-Prism", &[icons]);
+        let loader = IconLoader::with_base_dirs("Boswas-Prism", &[icons.clone()]);
         for (name, size) in icons_wanted(&st.apps, scale) {
             res.icons.keep(&name, size, loader.render(&name, size));
         }
+        // The wallpaper of a 1920 x 1080 output, blurred for glass.
+        let wallpaper = crate::wallpaper::Background::default().reduced(res.theme, 1920.0, 1080.0).unwrap();
+        res.backdrop = boswas_ui::material::Backdrop::new(&wallpaper, 1920.0, 1080.0);
         let size = (832.0 + 2.0 * PAD, 918.0 + 2.0 * PAD);
-        let steps = slices(Flyout::Start, size, (0.0, 0.0));
-        assert!(steps.len() > 5);
+        let origin = (544.0, 102.0);
+        let steps = slices(Flyout::Start, size, origin);
+        assert!(steps.len() > 5 && steps[0].plan && !steps[1].plan);
         let mut canvas = Canvas::new(size.0, size.1, scale).unwrap();
-        // The first slice makes the panel (its shadow and material, once);
-        // the others draw bands.
         let mut each = Vec::new();
+        let mut aside = Duration::ZERO;
+        let looked_up = res.icons.looked_up();
         for step in &steps {
             let started = Instant::now();
+            if step.plan {
+                res.planned = Some(Plan::default());
+                draw_slice(&mut res, &st, step, &mut canvas);
+                let plan = res.planned.take().unwrap();
+                each.push(started.elapsed());
+                assert_eq!(plan.panels.len(), 1, "Start's panel is planned");
+                assert_eq!(res.panel_count(), 0, "and not made yet");
+                assert!(plan.icons.iter().any(|(name, _)| name == "system-shutdown-symbolic"), "so are Start's own icons: {:?}", plan.icons);
+                let made = Instant::now();
+                let dirs = vec![icons.clone()];
+                let handle = std::thread::spawn(move || {
+                    let mut all = Vec::new();
+                    make(plan, &IconLoader::with_base_dirs("Boswas-Prism", &dirs), |made| {
+                        all.push(made);
+                        true
+                    });
+                    all
+                });
+                for made in handle.join().unwrap() {
+                    match made {
+                        Made::Icon(name, size, pixmap) => res.icons.keep(&name, size, pixmap),
+                        Made::Panel(panel) => res.keep_panel(panel),
+                    }
+                }
+                aside += made.elapsed();
+                continue;
+            }
             draw_slice(&mut res, &st, step, &mut canvas);
             each.push(started.elapsed());
         }
+        assert_eq!(res.icons.looked_up(), looked_up, "no icon was looked up on the event loop");
         let all: Duration = each.iter().sum();
-        let panel_slice = each[0];
-        let longest = each[1..].iter().copied().max().unwrap_or_default();
+        let longest = each.iter().copied().max().unwrap_or_default();
         let panels = res.panel_count();
         let shaped = res.text.shaped_count();
+        let fills = res.backdrop.as_ref().unwrap().renders();
         let started = Instant::now();
         let mut whole = Canvas::new(size.0, size.1, scale).unwrap();
         let panel = Rect::new(PAD, PAD, 832.0, 918.0);
-        start::draw(&mut Frame { canvas: &mut whole, res: &mut res, pointer: None, pressed: false, hits: &mut Vec::new(), focus: None, origin: (0.0, 0.0) }, &st, panel);
+        start::draw(&mut Frame { canvas: &mut whole, res: &mut res, pointer: None, pressed: false, hits: &mut Vec::new(), focus: None, origin }, &st, panel);
         let opening = started.elapsed();
         assert_eq!(res.panel_count(), panels, "the slices made Start's panel");
+        assert_eq!(res.icons.looked_up(), looked_up, "and looked up its icons");
+        assert_eq!(res.backdrop.as_ref().unwrap().renders(), fills, "and its fill");
         assert_eq!(res.text.shaped_count(), shaped, "the slices shaped every label of Start");
-        println!("Start at 200 % prepared in {} slices: {all:?} in all, {panel_slice:?} for its panel, the longest band {longest:?}; then opening it draws in {opening:?}", steps.len());
+        // The panel made on another thread is the panel made directly.
+        let mut direct = crate::ui::Resources::new(boswas_ui::Theme::of(Scheme::Dark));
+        direct.icons = std::mem::replace(&mut res.icons, IconLoader::new("Boswas-Prism"));
+        direct.backdrop = boswas_ui::material::Backdrop::new(&wallpaper, 1920.0, 1080.0);
+        let mut reference = Canvas::new(size.0, size.1, scale).unwrap();
+        start::draw(&mut Frame { canvas: &mut reference, res: &mut direct, pointer: None, pressed: false, hits: &mut Vec::new(), focus: None, origin }, &st, panel);
+        assert!(whole.data() == reference.data(), "the prepared Start is the Start drawn directly");
+        println!(
+            "Start at 200 % prepared in {} slices: {all:?} on the event loop, the longest {longest:?} (each: {each:?}), and {aside:?} aside; then opening it draws in {opening:?}",
+            each.len()
+        );
         #[cfg(not(debug_assertions))]
-        {
-            assert!(longest < Duration::from_millis(8), "a band of the preparation took {longest:?}");
-            assert!(panel_slice < Duration::from_millis(60), "making Start's panel took {panel_slice:?}");
-        }
+        assert!(longest < Duration::from_millis(8), "a slice of the preparation took {longest:?}");
     }
 }
