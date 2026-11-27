@@ -298,15 +298,21 @@ fn draw_main(f: &mut Frame, st: &State, panel: Rect) {
         toggle: Act::Airplane,
         more: None,
     });
+    // Whether the screens are tinted now; where no monitor can be, the tile
+    // says so when the pointer rests on it.
     tile(f, cell(0, 1), Tile {
         on: st.night_light,
-        enabled: true,
+        enabled: st.night_light_available,
         icon: Some("night-light-symbolic"),
         glyph: None,
         label: "Night light",
         toggle: Act::NightLight,
         more: None,
     });
+    if !st.night_light_available {
+        f.area(Rect::new(cell(0, 1).x, cell(0, 1).y, cell(0, 1).w, TILE_H), Action::None);
+        f.tip("Night light is not available: this display cannot change its colours");
+    }
     let profile = sys.power.profile;
     tile(f, cell(1, 1), Tile {
         on: matches!(profile, Some(PowerProfile::PowerSaver | PowerProfile::Performance)),
@@ -357,12 +363,13 @@ fn draw_main(f: &mut Frame, st: &State, panel: Rect) {
     let footer = Rect::new(panel.x, panel.bottom() - FOOTER_H, panel.w, FOOTER_H);
     f.divider(footer.x + 1.0, footer.y, footer.w - 2.0);
     if let (Some(icon), Some(battery)) = (sys.battery_icon(), sys.power.battery.as_ref()) {
+        // A click opens Settings > Power & battery.
+        let rect = Rect::new(x, footer.y + 8.0, 90.0, 32.0);
+        let touch = f.hit(rect, Action::Quick(Act::Settings("power")));
+        f.tip(&sys.battery_text().map_or_else(|| "Power & battery settings".to_owned(), |text| format!("{text}\nPower & battery settings")));
+        f.state_layer(rect, tokens().radius_control, touch, false);
         f.icon(icon, x + 4.0, footer.y + 16.0, 16.0);
         f.text_left(&format!("{}%", battery.percent), Rect::new(x + 28.0, footer.y, 80.0, FOOTER_H), &ramp("caption", theme.text));
-        f.area(Rect::new(x, footer.y + 8.0, 90.0, 32.0), Action::None);
-        if let Some(text) = sys.battery_text() {
-            f.tip(&text);
-        }
     }
     f.icon_button(Rect::new(panel.right() - PAD - 32.0, footer.y + 8.0, 32.0, 32.0), "preferences-system-symbolic", "All settings", Action::Quick(Act::Settings("")));
 }

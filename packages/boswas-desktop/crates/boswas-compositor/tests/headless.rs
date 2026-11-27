@@ -117,6 +117,8 @@ impl Compositor {
             .arg("--config")
             .arg(&config_path)
             .env("XDG_RUNTIME_DIR", runtime.path())
+            // A reload reads the user's file from here (`user_config`).
+            .env("XDG_CONFIG_HOME", runtime.path().join("config"))
             .env("BOSWAS_TEST_ROLE", role)
             .env("BOSWAS_TEST_OUT", runtime.path().join("helper.out"))
             .env_remove("WAYLAND_DISPLAY")
@@ -1213,6 +1215,8 @@ struct Typist {
     selection: Option<wl_data_offer::WlDataOffer>,
     /// What this client itself put on the clipboard.
     text: String,
+    /// The locked modifiers the compositor last sent (Num Lock, Caps Lock).
+    locked: Option<u32>,
 }
 
 impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for Typist {
@@ -1254,6 +1258,7 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for Typist {
             wl_keyboard::Event::Key { key, state: wayland_client::WEnum::Value(pressed), .. } => {
                 state.keys.push((key, pressed == wl_keyboard::KeyState::Pressed));
             }
+            wl_keyboard::Event::Modifiers { mods_locked, .. } => state.locked = Some(mods_locked),
             _ => {}
         }
     }
@@ -1404,6 +1409,179 @@ fn the_shell_pastes_into_the_focused_window_with_the_key_that_pastes_there() {
     std::thread::sleep(Duration::from_millis(300));
     terminal.queue.roundtrip(&mut terminal.state).unwrap();
     assert!(terminal.state.keys.is_empty(), "{:?}", terminal.state.keys);
+}
+
+// ---------------------------------------------------------------------------
+// The shell round: Num Lock, night light now, Windows shortcuts, projection
+// ---------------------------------------------------------------------------
+
+/// A configuration where the test's control connection is trusted and no
+/// shell or lock screen runs.
+const TRUSTED: &str = "[shell]\ncommand = []\n[lock]\nidle_seconds = 0\ncommand = []\n[appearance]\nreduced_motion = true\n[policy]\nlock_idle_max_seconds = 0\nprivileged_protocols = \"all\"\n";
+
+impl Compositor {
+    /// Writes the user's configuration file a reload reads.
+    fn user_config(&self, text: &str) {
+        let dir = self.runtime.path().join("config/boswas");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("compositor.toml"), text).unwrap();
+    }
+}
+
+const KEY_NUMLOCK: u32 = 69;
+
+#[test]
+fn num_lock_is_on_as_the_setting_says_at_start_and_after_a_change_in_settings() {
+    let compositor = Compositor::start(&format!("{TRUSTED}[keyboard]\nnumlock = true\n"), "none");
+    let mut control = compositor.control();
+    let conn = compositor.wayland();
+    let mut window = Window::open(&conn, "com.boswas.test", "x");
+    window.until("the modifiers", |s| s.locked.is_some());
+    assert_ne!(window.state.locked, Some(0), "Num Lock is locked as the session starts");
+    // Settings turns it off: the reload applies it.
+    compositor.user_config("[keyboard]\nnumlock = false\n");
+    control.ok(json!({"cmd": "reload-config"}));
+    window.until("Num Lock off", |s| s.locked == Some(0));
+    // Turned on by hand, it stays on over a reload that leaves the setting
+    // as it was (a new keymap would start with it off).
+    tap(&mut control, KEY_NUMLOCK);
+    window.until("Num Lock on by hand", |s| s.locked.is_some_and(|m| m != 0));
+    control.ok(json!({"cmd": "reload-config"}));
+    window.queue.roundtrip(&mut window.state).unwrap();
+    window.until("the reload's modifiers", |s| s.locked.is_some());
+    assert_ne!(window.state.locked, Some(0), "kept over the reload");
+}
+
+/// Local time `minutes` after midnight, as `HH:MM`.
+fn clock(minutes: u32) -> String {
+    format!("{:02}:{:02}", (minutes / 60) % 24, minutes % 60)
+}
+
+#[test]
+fn night_light_turned_on_now_holds_against_the_schedule_until_settings_change_it() {
+    use chrono::Timelike;
+    let now = chrono::Local::now();
+    let minutes = now.hour() * 60 + now.minute();
+    // A schedule that begins in two hours: night light is switched on but
+    // the screens are neutral now.
+    let later = format!("[night_light]\nenabled = true\nscheduled = true\nfrom = \"{}\"\nto = \"{}\"\n", clock(minutes + 120), clock(minutes + 240));
+    let compositor = Compositor::start(&format!("{TRUSTED}{later}"), "none");
+    let mut control = compositor.control();
+    let state = control.ok(json!({"cmd": "night-light", "active": true}));
+    assert_eq!((state["active"].clone(), state["override"].clone(), state["enabled"].clone()), (json!(true), json!(true), json!(true)), "{state}");
+    assert_eq!(state["available"], false, "the headless backend cannot tint");
+    let state = control.ok(json!({"cmd": "night-light", "active": false}));
+    assert_eq!((state["active"].clone(), state["override"].clone()), (json!(false), json!(false)), "the schedule agrees: no override");
+
+    // Inside the schedule (Settings changed it): on; turned off now, it
+    // stays off over a reload that keeps the settings.
+    let inside = format!("[night_light]\nenabled = true\nscheduled = true\nfrom = \"{}\"\nto = \"{}\"\n", clock(minutes + 1440 - 60), clock(minutes + 60));
+    compositor.user_config(&inside);
+    control.ok(json!({"cmd": "reload-config"}));
+    let state = control.ok(json!({"cmd": "night-light", "active": false}));
+    assert_eq!((state["active"].clone(), state["override"].clone()), (json!(false), json!(true)), "{state}");
+    control.ok(json!({"cmd": "reload-config"}));
+    let state = control.ok(json!({"cmd": "night-light", "temperature": 4500, "enabled": true}));
+    assert_eq!(state["active"], false, "a reload with the same settings keeps the choice: {state}");
+    // A change in Settings ends it.
+    compositor.user_config(&format!("{inside}temperature = 3500\n"));
+    control.ok(json!({"cmd": "reload-config"}));
+    let state = control.ok(json!({"cmd": "night-light", "temperature": 3500, "enabled": true}));
+    assert_eq!((state["active"].clone(), state["override"].clone()), (json!(true), json!(false)), "{state}");
+}
+
+/// Reads a subscribed connection until the event `name` arrives.
+fn next_event(control: &mut Control, name: &str) -> Value {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        assert!(Instant::now() < deadline, "no \"{name}\" event");
+        let mut line = String::new();
+        control.reader.read_line(&mut line).expect("an event");
+        let message: Value = serde_json::from_str(&line).unwrap_or_default();
+        if message["event"] == name {
+            return message["data"].clone();
+        }
+    }
+}
+
+#[test]
+fn the_windows_shortcuts_reach_the_shell_and_manage_the_windows() {
+    const KEY_S: u32 = 31;
+    const KEY_X: u32 = 45;
+    const KEY_T: u32 = 20;
+    const KEY_B: u32 = 48;
+    const KEY_P: u32 = 25;
+    const KEY_D: u32 = 32;
+    const KEY_HOME: u32 = 102;
+    const KEY_DELETE: u32 = 111;
+    const KEY_LEFTSHIFT: u32 = 42;
+    let compositor = Compositor::start(TRUSTED, "none");
+    let mut control = compositor.control();
+    let mut shell = compositor.control();
+    shell.ok(json!({"cmd": "subscribe"}));
+    let chord = |control: &mut Control, keys: &[u32]| {
+        for code in keys {
+            key(control, *code, true);
+        }
+        for code in keys.iter().rev() {
+            key(control, *code, false);
+        }
+    };
+    // What the shell shows.
+    chord(&mut control, &[KEY_LEFTMETA, KEY_S]);
+    next_event(&mut shell, "search");
+    chord(&mut control, &[KEY_LEFTMETA, KEY_X]);
+    next_event(&mut shell, "quick-links");
+    chord(&mut control, &[KEY_LEFTMETA, KEY_LEFTALT, KEY_D]);
+    next_event(&mut shell, "calendar");
+    chord(&mut control, &[KEY_LEFTMETA, KEY_T]);
+    assert_eq!(next_event(&mut shell, "focus-taskbar")["area"], "apps");
+    chord(&mut control, &[KEY_LEFTMETA, KEY_B]);
+    assert_eq!(next_event(&mut shell, "focus-taskbar")["area"], "tray");
+    chord(&mut control, &[KEY_LEFTCTRL, KEY_LEFTALT, KEY_DELETE]);
+    next_event(&mut shell, "security");
+    chord(&mut control, &[KEY_LEFTMETA, KEY_P]);
+    assert_eq!(next_event(&mut shell, "projection"), json!({"outputs": 1, "mode": "extend"}));
+
+    // Projection with one monitor: only "PC screen only" and "Extend".
+    let reply = control.call(json!({"cmd": "project", "mode": "second-only"}));
+    assert_eq!(reply["ok"], false, "{reply}");
+    assert_eq!(control.ok(json!({"cmd": "project", "mode": "pc-only"}))["mode"], "pc-only");
+    assert_eq!(control.ok(json!({"cmd": "projection"})), json!({"outputs": 1, "mode": "pc-only"}));
+
+    // Super+Home: every window but the active one goes; again, they come back.
+    let conn = compositor.wayland();
+    let (mut first_queue, mut first_client, _first) = open_window(&conn, "First", 0xFF40_4040);
+    let second_conn = compositor.wayland();
+    let (mut second_queue, mut second_client, _second) = open_window(&second_conn, "Second", 0xFF80_8080);
+    let mut pump = |control: &mut Control| {
+        first_queue.roundtrip(&mut first_client).unwrap();
+        second_queue.roundtrip(&mut second_client).unwrap();
+        control.ok(json!({"cmd": "windows"}))
+    };
+    let window = |windows: &Value, title: &str| windows.as_array().unwrap().iter().find(|w| w["title"] == title).cloned().unwrap();
+    wait_for("both windows", || (pump(&mut control).as_array().unwrap().len() == 2).then_some(()));
+    chord(&mut control, &[KEY_LEFTMETA, KEY_HOME]);
+    let windows = pump(&mut control);
+    assert_eq!(window(&windows, "First")["minimized"], true);
+    assert_eq!((window(&windows, "Second")["minimized"].clone(), window(&windows, "Second")["active"].clone()), (json!(false), json!(true)));
+    chord(&mut control, &[KEY_LEFTMETA, KEY_HOME]);
+    let windows = pump(&mut control);
+    assert_eq!(window(&windows, "First")["minimized"], false, "Super+Home again brings it back");
+    assert_eq!(window(&windows, "Second")["active"], true, "the active window stays in front");
+
+    // Super+Shift+Up: the whole height, at its place; Super+Shift+Down: back,
+    // then minimised.
+    let before = window(&pump(&mut control), "Second");
+    assert!(before["y"].as_i64().unwrap() > 0, "{before}");
+    chord(&mut control, &[KEY_LEFTMETA, KEY_LEFTSHIFT, KEY_UP]);
+    let stretched = window(&pump(&mut control), "Second");
+    assert_eq!((stretched["x"].clone(), stretched["y"].clone(), stretched["tile"].clone()), (before["x"].clone(), json!(0), json!("floating")));
+    chord(&mut control, &[KEY_LEFTMETA, KEY_LEFTSHIFT, KEY_DOWN]);
+    let back = window(&pump(&mut control), "Second");
+    assert_eq!((back["x"].clone(), back["y"].clone()), (before["x"].clone(), before["y"].clone()));
+    chord(&mut control, &[KEY_LEFTMETA, KEY_LEFTSHIFT, KEY_DOWN]);
+    assert_eq!(window(&pump(&mut control), "Second")["minimized"], true);
 }
 
 /// Not a test of its own: the body of the helper program the compositor

@@ -5,6 +5,7 @@ use std::{
     io::Read,
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    sync::atomic::{AtomicU32, Ordering},
 };
 
 /// Largest desktop entry that is read.
@@ -36,14 +37,44 @@ pub struct App {
 /// A `[Desktop Action ...]` group of a desktop entry.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DesktopAction {
+    /// The group's id (`NewWindow` in `[Desktop Action NewWindow]`).
+    pub id: String,
     pub name: String,
     pub exec: Vec<String>,
+}
+
+impl DesktopAction {
+    /// Whether this is the entry's "new window" action: its id, in lower
+    /// case without `-` and `_`, is `newwindow` (Boswas applications'
+    /// `NewWindow`, Firefox's and Chromium's `new-window`).
+    pub fn opens_new_window(&self) -> bool {
+        let id: String = self.id.chars().filter(|c| *c != '-' && *c != '_').collect();
+        id.eq_ignore_ascii_case("newwindow")
+    }
 }
 
 /// Most actions kept per entry.
 const MAX_ACTIONS: usize = 8;
 
 impl App {
+    /// The entry's "new window" action, if it has one.
+    pub fn new_window_action(&self) -> Option<&DesktopAction> {
+        self.actions.iter().find(|a| a.opens_new_window())
+    }
+
+    /// What opens another window of the application: its "new window"
+    /// action, or else the plain command (an application with one window
+    /// brings that one forward).
+    pub fn new_window_command(&self) -> &[String] {
+        self.new_window_action().map_or(&self.exec, |a| &a.exec)
+    }
+
+    /// The entry's actions other than "new window" (that one has its own
+    /// place in the menus).
+    pub fn other_actions(&self) -> impl Iterator<Item = &DesktopAction> {
+        self.actions.iter().filter(|a| !a.opens_new_window())
+    }
+
     /// Whether a window with this app id belongs to this application.
     pub fn owns_window(&self, app_id: &str) -> bool {
         if app_id.is_empty() {
@@ -182,7 +213,7 @@ pub fn parse_entry(id: &str, text: &str, locale: &str) -> Option<App> {
     let actions = action_groups
         .iter()
         .filter(|(group, _)| listed.contains(group))
-        .filter_map(|(_, group)| {
+        .filter_map(|(id, group)| {
             let name = [lang, short]
                 .iter()
                 .filter(|l| !l.is_empty())
@@ -191,6 +222,7 @@ pub fn parse_entry(id: &str, text: &str, locale: &str) -> Option<App> {
                 .map(unescape)
                 .filter(|n| !n.is_empty())?;
             Some(DesktopAction {
+                id: (*id).to_owned(),
                 name,
                 exec: parse_exec(group.get("Exec")?)?,
             })
@@ -332,6 +364,23 @@ pub fn search(apps: &[App], query: &str, usage: &HashMap<String, u32>) -> Vec<us
     matches.into_iter().map(|(_, _, index)| index).collect()
 }
 
+/// The pointer size of the session (`[pointer] cursor_size`, as the
+/// compositor last sent it; 0 before it arrived).
+static CURSOR_SIZE: AtomicU32 = AtomicU32::new(0);
+
+/// Notes the pointer size programs started from now on are to use.
+pub fn set_cursor_size(size: u32) {
+    CURSOR_SIZE.store(size, Ordering::Relaxed);
+}
+
+/// `XCURSOR_SIZE` for a program started now: the session's current pointer
+/// size, so a size changed in Settings reaches the programs started after
+/// the change (the session's environment keeps the size it started with).
+pub fn cursor_size_env() -> Option<String> {
+    let size = CURSOR_SIZE.load(Ordering::Relaxed);
+    (size > 0).then(|| size.to_string())
+}
+
 /// Starts a program as an ordinary client. The shell's own privileged
 /// descriptors are close-on-exec and their environment variables are
 /// removed, so nothing the shell starts inherits its trust.
@@ -339,14 +388,18 @@ pub fn spawn(argv: &[String]) -> std::io::Result<()> {
     let (program, args) = argv
         .split_first()
         .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "empty command"))?;
-    let mut child = Command::new(program)
+    let mut command = Command::new(program);
+    command
         .args(args)
         .env_remove("WAYLAND_SOCKET")
         .env_remove("BOSWAS_COMPOSITOR_FD")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()?;
+        .stderr(Stdio::null());
+    if let Some(size) = cursor_size_env() {
+        command.env("XCURSOR_SIZE", size);
+    }
+    let mut child = command.spawn()?;
     // Reap the child whenever it exits, without blocking the shell.
     std::thread::Builder::new()
         .name("reaper".into())
@@ -359,6 +412,38 @@ pub fn spawn(argv: &[String]) -> std::io::Result<()> {
 /// Starts an application, in a terminal when its entry asks for one.
 pub fn launch(app: &App) -> std::io::Result<()> {
     run(&app.exec, app.terminal)
+}
+
+/// Opens another window of an application (see [`App::new_window_command`]).
+pub fn launch_new_window(app: &App) -> std::io::Result<()> {
+    run(app.new_window_command(), app.terminal)
+}
+
+/// The desktop entry file behind an application id, in the first of `dirs`
+/// that has it (`a-b` is `a-b.desktop` or `a/b.desktop`: sub-directories
+/// became part of the id).
+pub fn entry_path(dirs: &[PathBuf], id: &str) -> Option<PathBuf> {
+    if id.is_empty() || id.contains('/') || id.contains("..") {
+        return None;
+    }
+    let parts: Vec<&str> = id.split('-').collect();
+    for dir in dirs {
+        let plain = dir.join(format!("{id}.desktop"));
+        if plain.is_file() {
+            return Some(plain);
+        }
+        for split in 1..parts.len().min(4) {
+            let mut path = dir.clone();
+            for part in &parts[..split] {
+                path.push(part);
+            }
+            path.push(format!("{}.desktop", parts[split..].join("-")));
+            if path.is_file() {
+                return Some(path);
+            }
+        }
+    }
+    None
 }
 
 /// Starts a command, in a terminal when `terminal` (a desktop entry's
@@ -433,11 +518,60 @@ mod tests {
         assert_eq!(app.keywords, ["folder", "browse"]);
         assert_eq!(app.categories, ["System", "FileManager"]);
         assert!(!app.terminal);
-        assert_eq!(app.actions, [DesktopAction { name: "New Window".into(), exec: vec!["dolphin".into(), "--new-window".into()] }]);
+        assert_eq!(app.actions, [DesktopAction { id: "new".into(), name: "New Window".into(), exec: vec!["dolphin".into(), "--new-window".into()] }]);
         let hindi = parse_entry("org.kde.dolphin", ENTRY, "hi_IN.UTF-8").unwrap();
         assert_eq!(hindi.name, "फ़ाइलें");
         assert_eq!(hindi.comment, "Browse folders");
         assert_eq!(hindi.actions[0].name, "नई विंडो");
+    }
+
+    #[test]
+    fn the_new_window_action_is_found_by_its_id_and_the_plain_command_stands_in() {
+        let entry = |actions: &str, groups: &str| {
+            parse_entry("x", &format!("[Desktop Entry]\nType=Application\nName=X\nExec=x %U\nActions={actions}\n{groups}"), "").unwrap()
+        };
+        let boswas = entry("NewWindow;", "[Desktop Action NewWindow]\nName=New Window\nExec=boswas-files --new-window\n");
+        assert_eq!(boswas.new_window_command(), ["boswas-files", "--new-window"]);
+        assert_eq!(boswas.other_actions().count(), 0, "the menu lists it once, as \"New window\"");
+        let firefox = entry(
+            "new-window;new-private-window;",
+            "[Desktop Action new-window]\nName=Open a New Window\nExec=firefox-esr --new-window %u\n\
+             [Desktop Action new-private-window]\nName=Open a New Private Window\nExec=firefox-esr --private-window %u\n",
+        );
+        assert_eq!(firefox.new_window_command(), ["firefox-esr", "--new-window"]);
+        assert_eq!(firefox.other_actions().map(|a| a.id.as_str()).collect::<Vec<_>>(), ["new-private-window"]);
+        let chromium = entry("New_Window;", "[Desktop Action New_Window]\nName=New Window\nExec=chromium --new-window\n");
+        assert!(chromium.new_window_action().is_some(), "case, '-' and '_' do not matter");
+        let single = entry("Performance;", "[Desktop Action Performance]\nName=Performance\nExec=x --page performance\n");
+        assert_eq!(single.new_window_command(), ["x"], "without the action the plain command (one window comes forward)");
+        for id in ["newwindowx", "new-windows", "window", ""] {
+            let action = DesktopAction { id: id.into(), name: String::new(), exec: Vec::new() };
+            assert!(!action.opens_new_window(), "{id}");
+        }
+    }
+
+    #[test]
+    fn programs_started_now_get_the_pointer_size_of_now() {
+        set_cursor_size(0);
+        assert_eq!(cursor_size_env(), None, "before the compositor said, the session's own value stays");
+        set_cursor_size(48);
+        assert_eq!(cursor_size_env().as_deref(), Some("48"));
+        set_cursor_size(0);
+    }
+
+    #[test]
+    fn the_entry_file_of_an_id_is_found_also_in_a_sub_directory() {
+        let root = std::env::temp_dir().join(format!("boswas-shell-entry-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("user/kde")).unwrap();
+        std::fs::create_dir_all(root.join("system")).unwrap();
+        std::fs::write(root.join("system/firefox-esr.desktop"), "x").unwrap();
+        std::fs::write(root.join("user/kde/org.kde.app.desktop"), "x").unwrap();
+        let dirs = [root.join("user"), root.join("system")];
+        assert_eq!(entry_path(&dirs, "firefox-esr"), Some(root.join("system/firefox-esr.desktop")));
+        assert_eq!(entry_path(&dirs, "kde-org.kde.app"), Some(root.join("user/kde/org.kde.app.desktop")));
+        assert_eq!(entry_path(&dirs, "missing"), None);
+        assert_eq!(entry_path(&dirs, "../system/firefox-esr"), None);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

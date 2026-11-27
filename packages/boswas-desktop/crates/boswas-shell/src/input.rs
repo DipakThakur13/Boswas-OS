@@ -324,6 +324,29 @@ impl Shell {
                 let items = self.app_menu(app);
                 self.open_menu(items, at.0, at.1, false, &output);
             }
+            // A search result: the application's menu, or open / run.
+            Action::Start(start::Act::Result(position)) => {
+                if let Some(result) = self.st.start.results.get(position).cloned() {
+                    let items = self.result_menu(&result);
+                    self.open_menu(items, at.0, at.1, false, &output);
+                }
+            }
+            // The taskbar's own buttons (quicklinks.rs): Start's quick
+            // links, the clock, network/volume/battery, Task View, the
+            // keyboard layout.
+            Action::Taskbar(taskbar::Act::Start) => self.open_quick_links(Some(at)),
+            Action::Taskbar(act @ (taskbar::Act::Clock | taskbar::Act::Status | taskbar::Act::TaskView | taskbar::Act::Layout)) => {
+                use crate::quicklinks::{clock_menu, installed, layout_menu, status_menu, taskbar_menu};
+                let items = match act {
+                    taskbar::Act::Clock => clock_menu(&installed),
+                    taskbar::Act::Status => status_menu(&installed, self.st.sys.power.battery.is_some()),
+                    taskbar::Act::Layout => layout_menu(&installed),
+                    _ => taskbar_menu(&installed),
+                };
+                self.close_transients();
+                let top = self.surfaces[index].origin.1 - 4.0;
+                self.open_menu(items, at.0, top, true, &output);
+            }
             Action::Desktop => {
                 self.close_transients();
                 let items = self.desktop_menu();
@@ -340,13 +363,24 @@ impl Shell {
         }
     }
 
-    /// The middle button: a new instance, or a tray item's secondary action.
+    /// The middle button: a new window (or the application, when it does
+    /// not run), or a tray item's secondary action.
     fn secondary(&mut self, action: Action, index: usize, position: (f32, f32)) {
         match action {
             Action::Taskbar(taskbar::Act::Task(task)) => {
                 let list = self.st.tasks();
-                if let Some(app) = list.get(task).and_then(|t| t.app) {
-                    self.launch_app(app);
+                match list.get(task) {
+                    Some(entry) if !entry.windows.is_empty() => {
+                        if let Some(app) = entry.app {
+                            self.launch_new_window(app);
+                        }
+                    }
+                    Some(entry) => {
+                        if let Some(app) = entry.app {
+                            self.launch_app(app);
+                        }
+                    }
+                    None => {}
                 }
             }
             Action::Taskbar(taskbar::Act::Tray(key)) => {
@@ -371,6 +405,7 @@ impl Shell {
             Action::Dismiss => {
                 if self.st.menus.is_empty() {
                     self.close_flyout();
+                    self.leave_bar_focus();
                 } else {
                     self.close_menus();
                 }
@@ -418,6 +453,8 @@ impl Shell {
             Action::Emoji(act) => self.emoji_action(act),
             Action::Widgets(act) => self.widgets_action(act, Some(index)),
             Action::Desk(_) => {}
+            Action::Security(act) => self.security_action(act, index),
+            Action::Projection(act) => self.projection_action(act),
         }
     }
 
@@ -535,9 +572,11 @@ impl Shell {
                 let on = !sys.network.airplane;
                 self.service(Command::AirplaneMode(on));
             }
+            // On or off now: with a schedule, until its next change (the
+            // compositor keeps that).
             Act::NightLight => {
-                let enabled = !self.st.night_light;
-                self.control_with("night-light", serde_json::json!({ "enabled": enabled }));
+                let active = !self.st.night_light;
+                self.control_with("night-light", serde_json::json!({ "active": active }));
             }
             Act::Profile => {
                 if let Some(next) = sys.power.profile.and_then(|p| svc::next_profile(p, &sys.power.profiles)) {
@@ -806,6 +845,9 @@ impl Shell {
             }
             return;
         }
+        if self.st.security.is_some() {
+            return self.security_key(event.keysym, shift);
+        }
         if self.st.dialog.is_some() {
             return self.dialog_key(&event, typed);
         }
@@ -815,7 +857,11 @@ impl Shell {
         if !self.st.menus.is_empty() {
             return self.menu_key(event.keysym);
         }
+        if self.st.bar_focus {
+            return self.bar_key(event.keysym, shift);
+        }
         match self.open_kind() {
+            Some(Flyout::Projection) => self.projection_key(event.keysym),
             Some(Flyout::Start) => self.start_key(&event, typed),
             Some(Flyout::Quick) => self.quick_key(&event, typed),
             Some(Flyout::Clipboard) => self.clip_key(&event, typed),
@@ -991,7 +1037,7 @@ impl Shell {
         }
     }
 
-    fn menu_key(&mut self, keysym: Keysym) {
+    pub(crate) fn menu_key(&mut self, keysym: Keysym) {
         let level = self.st.menus.len() - 1;
         match keysym {
             Keysym::Escape => return self.close_menus(),

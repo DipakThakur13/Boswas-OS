@@ -45,6 +45,8 @@ pub enum Flyout {
     Emoji,
     /// The widgets board.
     Widgets,
+    /// How the monitors are used (Super+P).
+    Projection,
 }
 
 /// A tooltip waiting to be shown or showing.
@@ -125,6 +127,18 @@ pub struct State {
     pub clipview: crate::clipview::View,
     /// The emoji panel.
     pub emoji: crate::emoji::Panel,
+    /// Night light can tint at least one monitor (the compositor says).
+    pub night_light_available: bool,
+    /// The account pictures (accounts.rs).
+    pub pictures: crate::accounts::Pictures,
+    /// The security options screen, while it is open (Ctrl+Alt+Del).
+    pub security: Option<crate::security::Security>,
+    /// What the projection flyout shows (Super+P).
+    pub projection: crate::projection::Projection,
+    /// The taskbar has the keyboard (Super+T, Super+B).
+    pub bar_focus: bool,
+    /// The colour scheme last written to GSettings (gsettings.rs).
+    pub gsettings: crate::gsettings::Mirror,
 }
 
 #[cfg(test)]
@@ -207,6 +221,12 @@ impl State {
             clips: crate::clipboard::History::default(),
             clipview: crate::clipview::View::default(),
             emoji: crate::emoji::Panel::default(),
+            night_light_available: true,
+            pictures: crate::accounts::Pictures::default(),
+            security: None,
+            projection: crate::projection::Projection::default(),
+            bar_focus: false,
+            gsettings: crate::gsettings::Mirror::default(),
         };
         for event in crate::svc::fake::Fake::default().initial() {
             state.sys.apply(&event);

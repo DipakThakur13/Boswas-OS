@@ -9,8 +9,11 @@ ADR-0026) that other Boswas components use: its configuration files, its
 control socket, the service bridge for Settings (ADR-0035), the design
 tokens, the version file, the weather summary that Weather writes for
 the lock screen (ADR-0051), the default applications and how the shell
-opens files (ADR-0054), and the order in which icons are looked up
-(ADR-0052).
+opens files (ADR-0054), the order in which icons are looked up
+(ADR-0052), the files of the clipboard history, the emoji panel, the
+widgets board and the desktop icons (ADR-0058 to ADR-0060), how a Boswas
+application opens a new window (ADR-0061) and the frame statistics in
+the log (ADR-0056).
 
 ## 1. boswas-sysops: the only privileged helper
 
@@ -86,7 +89,7 @@ are being installed") and continues. End of stdin is not a cancel request.
 |-----------|-----------|----------------|-------|
 | `apt-refresh` | – | auth_admin_keep | `apt-get update`; `data.errors` lists failed sources |
 | `apt-upgrade` | – | auth_admin_keep | `apt-get --with-new-pkgs upgrade` (never removes packages); `data.upgraded` |
-| `apt-install` | `PKG...` (1–50) | auth_admin_keep | names `^[a-z0-9][a-z0-9+.-]{0,99}(:(amd64\|i386\|all))?$`; signed repositories only (no `--allow-unauthenticated`); Boswas-excluded packages refused |
+| `apt-install` | `[--no-recommends] PKG...` (1–50) | auth_admin_keep | names `^[a-z0-9][a-z0-9+.-]{0,99}(:(amd64\|i386\|all))?$`; signed repositories only (no `--allow-unauthenticated`); Boswas-excluded packages refused. `--no-recommends`, first and once, becomes `apt-get --no-install-recommends` (Control Center's printing support: `cups-daemon` recommends the excluded `cups-browsed`; ADR-0061) |
 | `apt-remove` | `PKG...` (1–50) | auth_admin_keep | simulated first; refused if it would remove a protected package (`boswas-*`, essential/required, kernel, bootloader, desktop core, security baseline) |
 | `apt-install-local` | `/abs/path/file.deb` | auth_admin_keep | policy `LOCAL_DEB` in `/etc/boswas/apps.conf` (`allow` default, `deny`); copied to a root-only directory before inspection; result says it was not verified by a signed repository |
 | `apt-clean` | – | auth_admin_keep | `apt-get clean`; `data.freed_bytes` |
@@ -229,7 +232,7 @@ layers (the login screen uses `/usr/share/boswas/compositor/greeter.toml`).
 | Table | Keys |
 |-------|------|
 | `[keyboard]` | `layout`, `variant`, `model`, `options` (XKB names); `repeat_delay` (ms, 100–2000); `repeat_rate` (per second, 1–100); `numlock` (on when the session starts). Accessibility: `sticky_keys` (Shift, Ctrl, Alt and AltGr pressed alone stay down for the next key; Super keeps its own behaviour), `sticky_keys_lock` (pressed twice, a modifier stays down until pressed again; default `true`), `filter_keys` (turns on the two times that follow), `slow_keys_ms` (0, the default, or 100–5000: a key counts only after it was held this long), `bounce_keys_ms` (0 or 100–5000, default 500: a key pressed again this soon after its release is ignored) |
-| `[pointer]` | mice and trackballs: `natural_scroll`, `accel_speed` (−1.0 to 1.0), `accel_profile` (`"adaptive"` or `"flat"`), `left_handed`, `cursor_theme`, `cursor_size` (16–96) |
+| `[pointer]` | mice and trackballs: `natural_scroll`, `accel_speed` (−1.0 to 1.0), `accel_profile` (`"adaptive"` or `"flat"`), `left_handed`, `cursor_theme`, `cursor_size` (16–96; also the session's `XCURSOR_SIZE`, see [Environment of a session](#environment-of-a-session)) |
 | `[touchpad]` | `tap_to_click`, `natural_scroll`, `accel_speed` (−1.0 to 1.0), `disable_while_typing`, `gestures` (three- and four-finger swipes) |
 | `[output]` | `scale`: 1.0, 1.25, 1.5, 1.75 or 2.0, for every output that has no setting of its own. Optional, and not set in the shipped file: without it each output gets the scale recommended for it (`recommended_scale` in the `outputs` reply; ADR-0055). An unsupported value is reported and means the same as none. A monitor's scale is its `[outputs.NAME] scale`, else this one, else its recommendation |
 | `[outputs.NAME]` | one monitor, by connector name (`eDP-1`, `HDMI-A-1`): `enabled`, `mode` (`"1920x1080"` or `"1920x1080@60"`, one of the modes the monitor offers), `scale`, `position` (`[x, y]` of its top-left corner in logical pixels), `rotation` (`"normal"`, `"90"`, `"180"`, `"270"`), `adaptive_sync` (variable refresh rate where the monitor offers it; default `false`; ADR-0048). An invalid value is ignored alone. The last enabled monitor is never turned off |
@@ -240,14 +243,16 @@ layers (the login screen uses `/usr/share/boswas/compositor/greeter.toml`).
 | `[input_method]` | `command` (the input method program, started as a trusted client; empty for none; system files only) |
 | `[xwayland]` | `enabled` (default `true`) |
 | `[apps]` | `terminal`, `files`, `settings`, `task_manager` (argument lists for Ctrl+Alt+T, Super+E, Super+I and Ctrl+Shift+Esc) |
-| `[appearance]` | `scheme` (`"dark"` or `"light"`), `reduced_motion`, `wallpaper` (PNG or JPEG file), `accent` (a hue of the palette: `"iris"`, the default, `"azure"`, `"sky"`, `"mint"`, `"sun"`, `"coral"`, `"orchid"`, `"slate"`), `transparency` (default `true`; `false` fills the taskbar, the flyouts and Task View's strip with their tint alone) |
+| `[appearance]` | `scheme` (`"dark"` or `"light"`), `reduced_motion`, `wallpaper` (PNG or JPEG file; also the picture behind Boswas glass in the Qt applications, ADR-0057), `accent` (a hue of the palette: `"iris"`, the default, `"azure"`, `"sky"`, `"mint"`, `"sun"`, `"coral"`, `"orchid"`, `"slate"`), `transparency` (default `true`; `false` fills the taskbar, the flyouts and Task View's strip with their tint alone, and turns Boswas glass off in the Qt applications) |
 | `[accessibility]` | `text_scale` (percent of the type ramp, 100–225: the shell, the title bars and the Qt applications draw their text larger and nothing else), `always_show_scrollbars` (Qt applications show full scroll bars) |
 | `[color_filter]` | `enabled`; `filter`: `"grayscale"` (default), `"inverted"`, `"grayscale_inverted"`, `"deuteranopia"`, `"protanopia"`, `"tritanopia"`; `shortcut` (Super+Ctrl+C switches the filter; default `false`). Drawn with OpenGL ES only |
 | `[magnifier]` | `enabled`; `zoom` (percent, 100–1600, default 200); `step` (what Super+Plus and Super+Minus change: 25, 50, 100, the default, 150, 200 or 400) |
-| `[taskbar]` | Read by the shell: `alignment` (`"center"`, the default, or `"left"`), `auto_hide`, `task_view` (default `true`), `clock_seconds`, `badges` (default `true`) |
+| `[taskbar]` | Read by the shell: `alignment` (`"center"`, the default, or `"left"`), `auto_hide`, `task_view` (default `true`), `clock_seconds`, `badges` (default `true`), `widgets` (default `true`: the widgets button, ADR-0059) |
 | `[start]` | Read by the shell: `layout` (`"default"`, `"more_pins"`, `"more_recommendations"`), `recently_added` and `most_used` (default `true`), `folders` (from `"settings"`, `"files"`, `"documents"`, `"downloads"`, `"music"`, `"pictures"`, `"videos"`; default `["settings", "files"]`) |
 | `[multitasking]` | `snap_windows`, `snap_layouts_on_maximize`, `snap_layouts_on_drag` (all default `true`; the last two need the first), `taskbar_windows` and `alt_tab_windows` (`"desktop"`, the default, or `"all"`) |
+| `[desktop]` | Read by the shell (ADR-0060): `icons` (default `true`: the desktop folder's files as icons), `system_icons` (from `"home"`, `"trash"`, `"computer"`, shown in this order; default `["trash"]`; an unknown name is reported and left out), `icon_size` (`"small"`, `"medium"`, the default, `"large"`: 32, 48 or 96 px; an unknown size means medium), `auto_arrange` (default `false`), `align_to_grid` (default `true`). The desktop's View menu edits `icons`, `icon_size`, `auto_arrange` and `align_to_grid` in the user's file |
 | `[notifications]` | Read by the shell: `do_not_disturb`, `do_not_disturb_scheduled` with `do_not_disturb_from` and `do_not_disturb_to` (`"HH:MM"`; defaults 22:00 and 07:00), `banners_off` (names applications send, at most 256), `toast_seconds` (5, the default, 7, 15, 30, 60 or 300) |
+| `[clipboard]` | Read by the shell (ADR-0058): `history` (default `true`: the shell keeps the last 25 things copied, in memory; `false`: only pinned items), `cleared_at` (Unix seconds, default 0; a negative value means 0): the shell forgets every unpinned item copied before then and empties the clipboard if it holds one. Settings writes it for "Clear clipboard data"; the shell writes `history = true` in the user's file for the flyout's Turn on |
 | `[policy]` | `lock_idle_max_seconds` (0: no limit; shipped: 600), `privileged_protocols` (`"shell"`, shipped; `"all"` for development only) |
 
 Shipped policy: the session locks after at most 600 seconds without input,
@@ -258,8 +263,9 @@ every key.
 
 `reload-config` applies the keyboard, pointer and touchpad settings, the
 appearance, the cursor, the monitors, night light, the lock and
-screen-off times and the tables added for ADR-0049 to the running
-session; the shell gets its part in the `config` event, and so does a
+screen-off times, the tables added for ADR-0049 and `[desktop]`,
+`[clipboard]` and `[taskbar] widgets` to the running session; the shell
+gets its part in the `config` event, and so does a
 running lock screen (`[lock] show_weather`). The shell command, the
 input method command and `privileged_protocols` are fixed for the
 session. `[night_light] enabled`, `[magnifier] enabled`,
@@ -329,6 +335,7 @@ Commands of a trusted connection:
 | `capture-answer` | `request` (the id of a `capture-request` event), `allow` | `null`, or an error when no such question is open |
 | `capture-stop` | – | `null`; every permission to capture ends |
 | `quit` | – | `null`; the session ends |
+| `paste` | – | `{"keys": "ctrl+v" or "ctrl+shift+v", "app_id"}`. The clipboard history and the emoji panel (ADR-0058): once the keys the user still holds are up (at most 800 ms), the compositor gives the window that has the keyboard Ctrl+V, or Ctrl+Shift+V when its application id (X11: its class) is one of the terminals of `crates/boswas-compositor/src/paste.rs`. The keys go to that window only, past the shortcuts and sticky and filter keys, looked up in the current layout. An error while the session is locked, when no window has the keyboard, and while a paste is on its way; nothing is sent when the focus moved meanwhile. It names no keys |
 | `pointer`, `button`, `key`, `scroll` | test input injection | refused without `--test-input` |
 
 Events after `subscribe`, as `{"event": NAME, "data": ...}`:
@@ -339,11 +346,12 @@ Events after `subscribe`, as `{"event": NAME, "data": ...}`:
 | `workspace` | `{active, count}` | desktops changed |
 | `outputs` | as the `outputs` reply | monitors changed |
 | `lock` | `{locked}` | the session was locked or unlocked |
-| `config` | `scheme`, `wallpaper`, `reduced_motion`, `accent`, `transparency`, `text_scale`; `taskbar` (`alignment`, `auto_hide`, `task_view`, `clock_seconds`, `badges`, and `windows` from `[multitasking] taskbar_windows`); `start` (`layout`, `recently_added`, `most_used`, `folders`); `notifications` (`do_not_disturb`, `scheduled`, `from`, `to`, `banners_off`, `toast_seconds`); `lock` (`show_weather`, for the lock screen, which subscribes as a trusted client too). The same object is `appearance` in the reply to `subscribe` | after a reload |
+| `config` | `scheme`, `wallpaper`, `reduced_motion`, `accent`, `transparency`, `text_scale`; `taskbar` (`alignment`, `auto_hide`, `task_view`, `clock_seconds`, `badges`, `widgets`, and `windows` from `[multitasking] taskbar_windows`); `desktop` (`icons`, `system_icons`, `icon_size`, `auto_arrange`, `align_to_grid`); `start` (`layout`, `recently_added`, `most_used`, `folders`); `notifications` (`do_not_disturb`, `scheduled`, `from`, `to`, `banners_off`, `toast_seconds`); `lock` (`show_weather`, for the lock screen, which subscribes as a trusted client too); `clipboard` (`history`, `cleared_at`). The same object is `appearance` in the reply to `subscribe` | after a reload |
 | `night-light` | `{enabled, temperature, active}` | `active`: the screens are tinted now |
 | `layout` | `{layouts, codes, active}` | the keyboard layouts or the active one changed |
 | `overview`, `show-desktop` | `{active}` | Task View or show desktop was toggled |
 | `launcher`, `quick-settings`, `notifications`, `run` | `{}` | Super, Super+A, Super+N, Super+R |
+| `widgets`, `clipboard`, `emoji` | `{}` | Super+W, Super+V, Super+. or Super+; |
 | `capture` | `{mode}` | Print, Super+Shift+S or the public `capture` command |
 | `taskbar-app` | `{index, shift}` | Super+1 to 9 |
 | `media-key` | `{key, locked}` | a volume, brightness or media key |
@@ -419,23 +427,37 @@ on the pipe only, never on a command line.
 `boswas-session` sets `XDG_CURRENT_DESKTOP=Boswas`,
 `XDG_SESSION_DESKTOP=boswas`, `XDG_SESSION_TYPE=wayland`,
 `QT_QPA_PLATFORM=wayland;xcb` and the other toolkit variables;
-`WAYLAND_DISPLAY` is set by the compositor. `DISPLAY` names the session's
-X server (ADR-0034) for the programs the compositor and the shell start,
-and is removed when there is none; it is not published to the systemd
-user manager or to D-Bus activation. Programs started by the shell never
-inherit `WAYLAND_SOCKET` or `BOSWAS_COMPOSITOR_FD`. Components detect the
-native desktop by `Boswas` in `XDG_CURRENT_DESKTOP`.
+`WAYLAND_DISPLAY` is set by the compositor. `XCURSOR_THEME` defaults to
+`Boswas-Cursors`, and `XCURSOR_SIZE` is `[pointer] cursor_size` of the
+compositor's three files (the last that sets it; 16 to 96; a file over
+256 KiB is skipped; 24 without one), so that X11 programs and programs
+that draw their own pointer follow the setting (ADR-0061). When the size
+changes, Control Center sets it for the systemd user manager and for
+D-Bus activation (`systemctl --user set-environment XCURSOR_SIZE=N`,
+`dbus-update-activation-environment XCURSOR_SIZE=N`). `DISPLAY` names the
+session's X server (ADR-0034) for the programs the compositor and the
+shell start, and is removed when there is none; it is not published to the
+systemd user manager or to D-Bus activation. Programs started by the shell
+never inherit `WAYLAND_SOCKET` or `BOSWAS_COMPOSITOR_FD`. Components
+detect the native desktop by `Boswas` in `XDG_CURRENT_DESKTOP`.
 
 ### Files other components read
 
 | Path | Written by | Read by | Content |
 |------|-----------|---------|---------|
 | `/usr/share/boswas/compositor/version` | boswas-desktop (package build) | Control Center (About). `boswas info` asks dpkg for the version of `boswas-desktop` instead | The package version, one line (for example `1.0~alpha3`) |
-| `/usr/share/boswas/ui/tokens.json` | boswas-branding | `boswas_fluent` (the Qt toolkit) at run time, and any tool that needs Boswas colours or geometry | Boswas UI tokens, version 3 (ADR-0033). The Rust programs compile the same file in and do not read it at run time |
+| `/usr/share/boswas/ui/tokens.json` | boswas-branding | `boswas_fluent` (the Qt toolkit) at run time, and any tool that needs Boswas colours or geometry | Boswas UI tokens, version 3 (ADR-0033). The Rust programs compile the same file in and do not read it at run time. `material.glass` is the toolkit's Boswas glass (ADR-0057); without it the applications stay opaque |
 | `/usr/lib/boswas/python/boswas_fluent/` | boswas-branding | the Boswas Qt applications | The toolkit (ADR-0039); its interface is `desktop/ui/qt/README.md` |
 | `/usr/share/boswas/kde-settings/kdeglobals` | boswas-branding | KDE and Qt applications (through `XDG_CONFIG_DIRS`) | Prism colour scheme, `Boswas-Prism` icon theme, Breeze widget style where a user has installed it |
 | `/usr/share/icons/Boswas-Cursors/` | boswas-branding | the compositor (`[pointer] cursor_theme`), every client through `XCURSOR_THEME`, and programs that load the theme `default` through Debian's `x-cursor-theme` alternative (registered by the package, priority 150) | The pointer theme (ADR-0043): XCursor files at the nominal sizes 24, 32, 48, 64 and 96 under `cursors/`, `index.theme`, and `cursor.theme` for the alternative |
-| `$XDG_CONFIG_HOME/boswas/shell.toml` | boswas-shell (may be edited by hand) | boswas-shell | `[taskbar] pinned` and `[start] pinned`: lists of desktop file ids (at most 60 each); without a list the defaults of the installed version apply, and the shell writes `[taskbar]` only once the user has arranged the taskbar. `[start] view`: how Start's "All" lists the applications, `"category"` (the default), `"grid"` or `"list"` (ADR-0053) |
+| `$XDG_CONFIG_HOME/boswas/shell.toml` | boswas-shell (may be edited by hand) | boswas-shell | `[taskbar] pinned` and `[start] pinned`: lists of desktop file ids (at most 60 each); without a list the defaults of the installed version apply, and the shell writes `[taskbar]` only once the user has arranged the taskbar. `[start] view`: how Start's "All" lists the applications, `"category"` (the default), `"grid"` or `"list"` (ADR-0053). `[widgets] cards`: the widgets board's cards in order, from `"weather"`, `"calendar"`, `"clock"`, `"system"`, `"media"`, `"photos"` (unknown names left out, each once), and `[widgets] small`: the cards shown small; without `cards` the default board (all six, Media small), which is not written until the user changes it (ADR-0059) |
+| `$XDG_STATE_HOME/boswas/clipboard-pinned.json` | boswas-shell | boswas-shell | The pinned items of the clipboard history (ADR-0058); see [The clipboard history's files](#the-clipboard-historys-files) |
+| `$XDG_STATE_HOME/boswas/emoji.json` | boswas-shell | boswas-shell | The emoji panel's recently used items and skin tone (ADR-0058); see the same section |
+| `$XDG_STATE_HOME/boswas/desktop-layout.json` | boswas-shell | boswas-shell | Where desktop icons were put by hand, and the sort order (ADR-0060); see [The desktop icons' places](#the-desktop-icons-places) |
+| `$XDG_CONFIG_HOME/user-dirs.dirs` | xdg-user-dirs | boswas-shell (desktop icons) | `XDG_DESKTOP_DIR` names the desktop folder (else `~/Desktop`); a value of `$HOME` turns the desktop's files off (ADR-0060) |
+| `$XDG_DATA_HOME/com.boswas.Calendar/calendar.json`, `$XDG_DATA_HOME/com.boswas.Clock/clock.json` | Calendar, Clock (`boswas-apps`) | boswas-shell (the widgets board), read only | Calendar's events and Clock's world clocks and alarms, in the applications' own formats; read only when they are regular files of the user, not through a link, at most 8 MB and 4 MB (ADR-0059) |
+| `$XDG_CONFIG_HOME/boswasrc` | `boswas-preset` | `boswas_fluent` too | `[Preset] Current`: with the high-contrast preset `carbon` the toolkit turns Boswas glass off (ADR-0057) |
+| `$XDG_STATE_HOME/com.boswas.TextEditor/recent.json`, `com.boswas.DocumentViewer/documents.json`, `com.boswas.MediaPlayer/recent.json` and `resume.json`, `com.boswas.ArchiveManager/state.json` | the applications | the applications; Control Center empties their recent lists (Activity history, ADR-0061) | Each in its application's format; Control Center rewrites only the recent list (and Document Viewer's remembered views, Media Player's resume points), keeping the other keys, and never through a link |
 | `$XDG_STATE_HOME/boswas/notification-senders.json` (default `~/.local/state/boswas/`) | boswas-shell, when a notification arrives (atomically) | Control Center (System > Notifications), read only | A JSON list, most recent first, at most 100: `{"name", "icon", "desktop_entry", "last"}` per application that sent notifications; `name` is the `app_name` it sends, which `[notifications] banners_off` names; `last` is seconds since the epoch. No notification content |
 | `$XDG_STATE_HOME/boswas/apps-seen.json` | boswas-shell | boswas-shell (Start's "Recently added") | A JSON object: desktop file id → when the shell first saw the application installed, in seconds since the epoch (0 for those installed when the shell first ran); at most 4000; removed applications are forgotten. Recently added means the last 14 days |
 | `$XDG_STATE_HOME/boswas/weather.json` | Weather (`boswas-apps`): its window and `boswas-weather --update-lock-screen` | `boswas-shell --lock` only | The weather summary of the lock screen, version 1; see below |
@@ -615,6 +637,72 @@ every name.
   scalable, else PNG at 512 down to 16 pixels, from the first icon
   directory that has the name), then Qt's icon theme. Qt's own loader, and
   KDE's, search `hicolor` last whatever `Inherits` says.
+
+### The clipboard history's files
+
+The clipboard history itself (ADR-0058) is kept in the shell's memory.
+Two files of the user, both replaced atomically (a private file beside
+them, renamed over them) with mode 0600 in a directory of mode 0700:
+
+- `$XDG_STATE_HOME/boswas/clipboard-pinned.json`, read only when it is a
+  regular file of at most 4 MB, not through a link:
+  `{"version": 1, "items": [...]}`, at most 25 items, each
+  `{"kind": "text", "text": ...}`, `{"kind": "files", "uris": [...]}`
+  (`file://` addresses) or `{"kind": "image", "png": ...}` (the PNG in
+  base64, at most 256 KB). An entry that is not as written is skipped.
+- `$XDG_STATE_HOME/boswas/emoji.json`, read up to 16 KB: `{"version": 1,
+  "recent": [...], "tone": N}`, at most 40 items of the panel's own list
+  (others are not read back) and the skin tone, 0 (none) to 5 (light to
+  dark).
+
+What the shell puts on the clipboard itself carries the type
+`application/x-boswas-shell`; a program that offers one of the types of
+`crates/boswas-shell/src/clipboard.rs` (`x-kde-passwordManagerHint` with
+any value but `public`, the concealed and transient markers,
+`CanIncludeInClipboardHistory` of 0) is never kept.
+
+### The desktop icons' places
+
+`$XDG_STATE_HOME/boswas/desktop-layout.json` (ADR-0060), written by the
+shell like the files above while `[desktop] auto_arrange` is false, read
+only when it is a regular file of the user of at most 1 MB, not through a
+link: `{"version": 1, "sort": "name" | "size" | "type" |
+"modified", "icons": {KEY: [column, row]}}`. A key is `file:` and the
+file's name in the desktop folder, or `system:` and `home`, `trash` or
+`computer`; a place is in grid cells counted from the top left (0 to
+1000, fractions where the icon is not aligned to the grid); at most 5,000
+places. Anything else is left out.
+
+### Boswas applications: one window or several
+
+`--new-window` (`fluent.NEW_WINDOW`, ADR-0061) asks a Boswas application
+for another window. Started with `run(..., multiple_windows=True)`, an
+application builds one more window in the running instance when a later
+start passes it; otherwise the option is removed from the arguments and
+the window that was active last comes forward. Files, Terminal, Text
+Editor, Photos, Document Viewer, Calculator and Archive Manager open a new
+window for it, and their desktop entries have `[Desktop Action
+NewWindow]` with `Exec=boswas-NAME --new-window`. Clock, Calendar, Media
+Player, Weather, Task Manager, Camera and Snipping Tool keep one window.
+The shell lists an entry's actions in its menus and runs their `Exec`;
+"New window of" and the middle button run the plain `Exec` (to be
+changed in the shell's round now running).
+
+### Frame statistics
+
+Two log targets measure the drawing (ADR-0045, ADR-0056); nothing is
+measured without them:
+
+- `BOSWAS_LOG=info,boswas_compositor::stats=debug`: per output, once a
+  second, the frames drawn, what they cost and how much of the screen
+  they drew again; `=trace` adds one line per frame (its cost in
+  microseconds, the time since the frame before it on that output, the
+  share of the output drawn).
+- `BOSWAS_LOG=info,boswas_shell::stats=debug`: one line per drawing of a
+  shell surface (`draw SURFACE WxH paint_us=... total_us=... damage=WxH+X+Y`,
+  and `input_us=...`, the time since the change that caused it), and
+  "flyouts drawn ahead of time in N ms" once the shell has prepared Start,
+  quick settings and the notification centre.
 
 The boot screen's control protocol (`/run/boswas-bootsplash/socket`, root
 only) is described in `packages/boswas-bootsplash/README.md`.

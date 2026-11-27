@@ -58,7 +58,23 @@ pub enum ControlEvent {
     MediaKey(String),
     /// Super+1..9: the nth application on the taskbar.
     TaskbarApp { index: usize, new_instance: bool },
-    NightLight { enabled: bool },
+    /// Night light: switched on (`enabled`), tinting now (`active`: on and,
+    /// with a schedule, inside it or turned on now), and whether any
+    /// monitor can be tinted (`available`).
+    NightLight { enabled: bool, active: bool, available: bool },
+    /// Super+S: Start with the search box.
+    Search,
+    /// Super+X: the quick-link menu.
+    QuickLinks,
+    /// Super+Alt+D: the calendar (with the notification centre).
+    Calendar,
+    /// Super+T (the applications) or Super+B (`tray`: the notification
+    /// area): the keyboard on the taskbar.
+    FocusTaskbar { tray: bool },
+    /// Super+P: how the monitors are used; `outputs` connected, `mode` now.
+    Projection { outputs: usize, mode: String },
+    /// Ctrl+Alt+Del: the security options.
+    Security,
     Layout { layouts: Vec<String>, active: usize },
     /// Task View opened or closed.
     Overview(bool),
@@ -201,8 +217,12 @@ fn parse_appearance(value: &Value) -> Option<ControlEvent> {
 }
 
 fn parse_night_light(value: &Value) -> Option<ControlEvent> {
+    let enabled = value.get("enabled")?.as_bool()?;
     Some(ControlEvent::NightLight {
-        enabled: value.get("enabled")?.as_bool()?,
+        enabled,
+        // An older compositor says only whether it is switched on.
+        active: value.get("active").and_then(Value::as_bool).unwrap_or(enabled),
+        available: value.get("available").and_then(Value::as_bool).unwrap_or(true),
     })
 }
 
@@ -277,6 +297,17 @@ pub fn parse_message(message: &Value) -> Vec<ControlEvent> {
             .into_iter()
             .collect(),
         Some("night-light") => parse_night_light(data).into_iter().collect(),
+        Some("search") => vec![ControlEvent::Search],
+        Some("quick-links") => vec![ControlEvent::QuickLinks],
+        Some("calendar") => vec![ControlEvent::Calendar],
+        Some("focus-taskbar") => vec![ControlEvent::FocusTaskbar {
+            tray: data.get("area").and_then(Value::as_str) == Some("tray"),
+        }],
+        Some("projection") => vec![ControlEvent::Projection {
+            outputs: data.get("outputs").and_then(Value::as_u64).unwrap_or(1).clamp(1, 16) as usize,
+            mode: data.get("mode").and_then(Value::as_str).unwrap_or("extend").chars().take(16).collect(),
+        }],
+        Some("security") => vec![ControlEvent::Security],
         Some("layout") => parse_layout(data).into_iter().collect(),
         Some("overview") => data.get("active").and_then(Value::as_bool).map(ControlEvent::Overview).into_iter().collect(),
         Some("capture-request") => data
@@ -391,7 +422,24 @@ mod tests {
         );
         assert_eq!(ev("taskbar-app", json!({"index": 0})), []);
         assert_eq!(ev("taskbar-app", json!({"index": 10})), []);
-        assert_eq!(ev("night-light", json!({"enabled": true, "temperature": 4000})), [ControlEvent::NightLight { enabled: true }]);
+        assert_eq!(
+            ev("night-light", json!({"enabled": true, "temperature": 4000})),
+            [ControlEvent::NightLight { enabled: true, active: true, available: true }],
+            "an older compositor: on means tinting"
+        );
+        assert_eq!(
+            ev("night-light", json!({"enabled": true, "active": false, "available": false})),
+            [ControlEvent::NightLight { enabled: true, active: false, available: false }],
+            "switched on, outside its schedule, on monitors that cannot be tinted"
+        );
+        assert_eq!(ev("search", json!({})), [ControlEvent::Search]);
+        assert_eq!(ev("quick-links", json!({})), [ControlEvent::QuickLinks]);
+        assert_eq!(ev("calendar", json!({})), [ControlEvent::Calendar]);
+        assert_eq!(ev("focus-taskbar", json!({"area": "apps"})), [ControlEvent::FocusTaskbar { tray: false }]);
+        assert_eq!(ev("focus-taskbar", json!({"area": "tray"})), [ControlEvent::FocusTaskbar { tray: true }]);
+        assert_eq!(ev("projection", json!({"outputs": 2, "mode": "duplicate"})), [ControlEvent::Projection { outputs: 2, mode: "duplicate".into() }]);
+        assert_eq!(ev("projection", json!({"outputs": 0})), [ControlEvent::Projection { outputs: 1, mode: "extend".into() }]);
+        assert_eq!(ev("security", json!({})), [ControlEvent::Security]);
         assert_eq!(
             ev("layout", json!({"layouts": ["us", "in"], "active": 7})),
             [ControlEvent::Layout { layouts: vec!["us".into(), "in".into()], active: 1 }]

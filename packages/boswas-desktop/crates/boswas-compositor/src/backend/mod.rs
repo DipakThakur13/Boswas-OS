@@ -175,6 +175,17 @@ impl Backend {
         }
     }
 
+    /// Whether night light can tint at least one output: real hardware
+    /// needs a gamma ramp on a monitor's CRTC; the test backends have no
+    /// colour pipeline at all.
+    pub fn night_light_available(&self) -> bool {
+        match self {
+            #[cfg(feature = "udev")]
+            Backend::Udev(udev) => udev.night_light_available(),
+            _ => false,
+        }
+    }
+
     /// Takes a picture of a window as it is drawn now, for its exit
     /// animation: the picture and the part of the desktop it covers.
     pub fn snapshot(

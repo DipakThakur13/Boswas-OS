@@ -72,13 +72,13 @@ language with Boswas's own colours, icons and typeface (ADR-0033).
 | Part | Package | Language | Role |
 |------|---------|----------|------|
 | `boswas-compositor` | boswas-desktop | Rust (Smithay 0.7) | Draws every window and its frame, animates, routes all input, manages windows, desktops and monitors, runs the X server for X11 applications, owns the session lock, decides per client which protocols it is offered, and asks the user before a program gets pictures of the screen |
-| `boswas-shell` | boswas-desktop | Rust (boswas-ui) | The taskbar, Start, quick settings, the notification centre and toasts, the tray, the volume and brightness display, Run, screen capture, the polkit password dialog and the capture question; with `--lock` the lock screen; with `--greeter` the login screen |
+| `boswas-shell` | boswas-desktop | Rust (boswas-ui) | The taskbar, Start, quick settings, the notification centre and toasts, the tray, the volume and brightness display, Run, screen capture, the polkit password dialog and the capture question, the desktop icons, the widgets board, the clipboard history and the emoji panel (ADR-0058 to ADR-0060); with `--lock` the lock screen; with `--greeter` the login screen. It draws again only what changed and leaves the fades of its panels to the compositor (ADR-0056) |
 | `boswas-services` | boswas-desktop (library) | Rust, no `unsafe` | What the shell shows and controls: notifications, tray, media players, network, Bluetooth, audio, power, brightness, session and authentication (ADR-0035) |
 | `boswas-services-bridge` | boswas-desktop | Rust | The network, Bluetooth, audio, power and brightness backends for the Settings application, as JSON lines on its standard input and output |
 | `boswas-ui` | boswas-desktop (library) | Rust, no `unsafe` | Design tokens, software drawing, text, icons and materials shared by the compositor's window frames and the shell |
 | `boswas-session`, `boswas-greeter` | boswas-desktop | POSIX shell | Session start after login; the login screen's start, with greetd's text login when the compositor cannot start (ADR-0044) |
 | `boswas-bootsplashd`, `boswas-bootsplash` | boswas-bootsplash | Rust | Boot, disk-unlock and shutdown screens (in the initramfs and the system), drawn from vector outlines at the display's size, with motion (ADR-0050) |
-| `boswas_fluent` | boswas-branding | Python (PySide6) | The Qt toolkit of the Boswas applications: theme, style sheet and widgets from the design tokens (ADR-0039) |
+| `boswas_fluent` | boswas-branding | Python (PySide6) | The Qt toolkit of the Boswas applications: theme, style sheet and widgets from the design tokens (ADR-0039); Boswas glass on a blurred copy of the desktop background, and icons that grow under the pointer (ADR-0057) |
 | The system applications | boswas-apps | Python (PySide6 on `boswas_fluent`) | Files, Terminal, Text Editor, Calculator, Photos, Document Viewer, Archive Manager, Media Player, Camera, Clock, Calendar with its reminders service, Snipping Tool, Weather, Task Manager (ADR-0040, ADR-0046) |
 | Control Center | boswas-control-center | Python (PySide6 on `boswas_fluent`) | Settings as native sections (ADR-0041), and the Security, Software and Update Centers |
 | `desktop/ui/tokens.json` | boswas-branding | JSON | Boswas UI, version 3: the palette, geometry, materials, type and motion. The one source for the programs above, the KDE colour schemes and the icon pack |
@@ -86,14 +86,17 @@ language with Boswas's own colours, icons and typeface (ADR-0033).
 Trust: programs the compositor starts itself (the shell, the lock screen,
 the greeter, and an input method if the administrator configures one) get
 panels, the lock, the window list, clipboard control and the input-method
-protocols. Every other program is an ordinary client and cannot read
-other windows or keys typed elsewhere. It gets pictures of the screen
-only after the user has allowed it in a dialog of the shell, and a mark
-on the taskbar shows for as long as it may (ADR-0037). Sandboxed clients
-(Flatpak) never get the privileged protocols and are not offered screen
-capture except through the portal. X11 applications can observe each
-other, not Wayland applications. Details: ADR-0026, ADR-0028, ADR-0034,
-ADR-0037 and `docs/security/baseline.md`.
+protocols. The shell keeps the clipboard history through clipboard
+control, and the compositor pastes for it into the focused window with
+the trusted `paste` command, which names no keys (ADR-0058). Every other
+program is an ordinary client and cannot read other windows, other
+programs' clipboard in the background or keys typed elsewhere. It gets
+pictures of the screen only after the user has allowed it in a dialog of
+the shell, and a mark on the taskbar shows for as long as it may
+(ADR-0037). Sandboxed clients (Flatpak) never get the privileged protocols
+and are not offered screen capture except through the portal. X11
+applications can observe each other, not Wayland applications. Details:
+ADR-0026, ADR-0028, ADR-0034, ADR-0037 and `docs/security/baseline.md`.
 
 **State of verification.** The desktop packages have automated tests
 that run without hardware. The built packages have been booted in a
@@ -152,7 +155,7 @@ registry. There are two backends:
 | Backend | Used for | How |
 |---------|----------|-----|
 | `boswas-services-bridge` | Wi-Fi and other connections, Bluetooth, sound, battery, power mode, brightness | The shell's own service backends as a child process of the window, JSON lines on its pipes (ADR-0035). Quick settings and Settings show the same state |
-| The compositor's user configuration | Monitors, night light, mouse, touchpad, keyboard, colour mode, accent colour, transparency, background, motion, lock and screen-off timeouts; the taskbar, Start, multitasking and notifications; text size, scroll bars, magnifier, colour filters, sticky and filter keys | Control Center writes `~/.config/boswas/compositor.toml` and (colour mode and background only) `appearance.toml` through its one file writer (`userfiles.py`) and sends `reload-config` to the public control socket (ADR-0036); the compositor passes the shell's part on in its `config` event |
+| The compositor's user configuration | Monitors, night light, mouse, touchpad, keyboard, colour mode, accent colour, transparency, background, motion, lock and screen-off timeouts; the taskbar (with the widgets button), Start, multitasking and notifications; the desktop icons and the clipboard history; text size, scroll bars, magnifier, colour filters, sticky and filter keys | Control Center writes `~/.config/boswas/compositor.toml` and (colour mode and background only) `appearance.toml` through its one file writer (`userfiles.py`) and sends `reload-config` to the public control socket (ADR-0036); the compositor passes the shell's part on in its `config` event |
 
 Date and time and region use `timedatectl` and `localectl`; default and
 start-up applications are files in the user's configuration directory.

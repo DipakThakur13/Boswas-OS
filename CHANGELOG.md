@@ -43,6 +43,53 @@ Verification status of the native desktop
   resolution of the new image manifest on Debian trixie.
 
 ### Fixed
+- **A desktop that still hitched** ([ADR-0056](docs/architecture/decisions.md#adr-0056-the-shell-draws-only-what-changed-the-compositor-runs-the-transitions)):
+  opening and closing Start, its first opening, hovering in it, quick
+  settings, the notification centre and Alt+Tab had frames of 20 to
+  380 ms. The shell now draws again only the controls the pointer
+  entered or left, keeps its buffers and copies only what changed in
+  them, and leaves the fades and slides of Start and the other flyouts to
+  the compositor (`wp_alpha_modifier` and the layer margin). Icons are
+  prepared on a worker thread and Start, quick settings and the
+  notification centre are drawn once ahead of time, so the first opening
+  of Start at 2560x1440 and 200 % takes 17 ms instead of 375. Alt+Tab
+  steps without drawing again (2.2 ms a step instead of 18.6) and Task
+  View keeps its cards while it is closed. Over 16 configurations the
+  shell's 99th-percentile frame while Start opens and closes went from
+  217 to 10 ms, and the late frames from 69 % to 9 %. The shell keeps more
+  in memory for it (127 MB instead of 72 just after the start at
+  2560x1440 and 200 %). `BOSWAS_LOG=info,boswas_compositor::stats=trace`
+  logs every frame of the compositor and `boswas_shell::stats=debug`
+  every drawing of the shell.
+- **A black row under the pointer in Control Center** ([ADR-0057](docs/architecture/decisions.md#adr-0057-boswas-glass-in-the-applications)):
+  in Apps > Software Center's list of installed applications the row
+  under the pointer was black (in the light scheme with almost invisible
+  text) and a selected row was invisible: the list mixed two palette
+  colours that the style sheet had made transparent. Rows take their
+  colours from the theme now: the grey layer under the pointer and when
+  pressed, the accent pill when selected.
+- **Controls that only pretended** ([ADR-0061](docs/architecture/decisions.md#adr-0061-controls-that-only-pretended-now-work)):
+  - Photos' "Set as desktop background" did nothing once a theme or a
+    background had been chosen in Settings. It writes the background where
+    Settings does now (`appearance.toml`).
+  - The pointer size reached the compositor's own pointer only; X11
+    programs and programs that draw their own pointer kept 24 px. The
+    session sets `XCURSOR_SIZE` from the setting, and Settings passes a
+    change on to the user manager and D-Bus activation for the programs
+    started after it.
+  - Privacy & security > Activity history cleared a list that no Boswas
+    application writes. It now also empties the recent lists of Text
+    Editor, Document Viewer (with the page and zoom kept per document),
+    Media Player (with where each video was stopped) and Archive Manager,
+    and lists what it clears.
+  - Home and search promised the brightness on Display, which had none:
+    Brightness is on Display now, and still on Power & battery.
+  - Document Viewer's "New Window" action ran the plain command (see New
+    windows under Added).
+  - "Install printing support" could be refused, because `cups-daemon`
+    recommends `cups-browsed`, which Boswas OS leaves out. It installs
+    `cups` without what it only recommends now (`boswas-sysops apt-install
+    --no-recommends`).
 - **Opening a screenshot from its notification** (ADR-0054): a click on
   the notice of a screenshot, as a toast or in the notification centre,
   did nothing. The shell opened the picture with `xdg-open`, and no
@@ -188,6 +235,82 @@ Verification status of the native desktop
   also dropped an administrator's stricter lock policy.
 
 ### Added
+- **Clipboard history** (Super+V; [ADR-0058](docs/architecture/decisions.md#adr-0058-clipboard-history-and-the-emoji-and-symbols-panel)):
+  the last 25 things copied (text, pictures up to 8 MB, lists of files),
+  newest first, with a search, Pin, Delete and Clear all. Enter or a click
+  pastes the item into the window that had the keyboard (with
+  Ctrl+Shift+V in a terminal). The history is kept in memory only; pinned
+  items are kept in `~/.local/state/boswas/clipboard-pinned.json`, which
+  only the user can read. What a password manager marks as secret is
+  never kept, nor anything copied while the session is locked. Settings >
+  System > Clipboard turns the history off (`[clipboard] history`) and
+  clears it ("Clear clipboard data", `[clipboard] cleared_at`).
+- **Emoji and symbols** (Super+. or Super+;; ADR-0058): emoji by category
+  with skin tones, kaomoji and symbols, a search by name and keyword and
+  the recently used ones. The item goes into the window through the
+  clipboard, which then gets its previous content back. Colour emoji come
+  from Noto Color Emoji (`fonts-noto-color-emoji`, now in the image's
+  package list and recommended by `boswas-desktop`); the data is
+  generated from Unicode's data (Unicode License v3) by
+  `packages/boswas-desktop/tools/build_emoji.py`.
+- **A widgets board** (Super+W, or the widgets button at the left end of
+  the taskbar; [ADR-0059](docs/architecture/decisions.md#adr-0059-the-widgets-board)):
+  cards for the weather, the coming week of Calendar, Clock's world
+  clocks and next alarm, the system (processor, memory, disk, battery),
+  what is playing and the newest picture in Pictures, each opening its
+  application. Cards can be made small or medium, moved, removed and
+  added back (`[widgets]` in `~/.config/boswas/shell.toml`). The board
+  reads the applications' own files and fetches nothing from the network.
+  The button shows the temperature while Weather's summary is fresh;
+  Settings > Personalization > Taskbar > Widgets hides it (`[taskbar]
+  widgets`).
+- **Desktop icons** ([ADR-0060](docs/architecture/decisions.md#adr-0060-desktop-icons)):
+  the files and folders of the desktop folder and the Trash (Home and This
+  device too, when chosen) on the primary monitor's background. Click,
+  Ctrl and band selection, opening with the default application, F2 to
+  rename, Delete to the Trash, cut, copy and paste as in Files, moving by
+  dragging (the places are kept in
+  `~/.local/state/boswas/desktop-layout.json`), files dropped from other
+  programs, and Windows' menus: View (icon size, auto arrange, align to
+  grid, show desktop icons), Sort by, Refresh, Paste, New (folder, text
+  document), Open in Terminal and the settings; Open, Open with, Cut,
+  Copy, Rename, Delete and Properties on icons. A launcher on the desktop
+  starts only when it is the user's own file and allowed to run. The
+  settings are under Settings > Personalization > Themes > Desktop icons
+  (`[desktop]`).
+- **Boswas glass in the applications** ([ADR-0057](docs/architecture/decisions.md#adr-0057-boswas-glass-in-the-applications)):
+  the Boswas applications, Control Center and the Compatibility Manager
+  show the desktop background, blurred and tinted, behind their windows,
+  as Windows shows Mica, with panes and cards of glass and frosted menus,
+  popups and dialogs. The tint is raised wherever the picture would leave
+  text under 4.5:1. Transparency effects off (Settings >
+  Personalization > Colours) or the Boswas Carbon preset turns it off. In
+  Control Center's lists of applications the icon under the pointer, or of
+  the row with the keyboard focus, grows as in a dock (to 1.4 times, its
+  neighbours to 1.15). The token file has `material.glass`.
+- **New windows** ([ADR-0061](docs/architecture/decisions.md#adr-0061-controls-that-only-pretended-now-work)):
+  Files, Terminal, Text Editor, Photos, Document Viewer, Calculator and
+  Archive Manager have a "New Window" action (`--new-window`) in Start's
+  and the taskbar's menus that opens another window; Photos and Document
+  Viewer can have several windows now. The other applications keep one
+  window and bring it forward. The toolkit has `fluent.NEW_WINDOW` and
+  `run(..., multiple_windows=True)`.
+- **New in Control Center** (ADR-0058 to ADR-0061): System > Clipboard;
+  Network & internet > Ethernet: IP assignment (automatic, or a manual
+  IPv4 address with gateway and DNS), DNS servers (up to three IPv4 and
+  three IPv6), metered connection and the adapter's properties, through
+  `nmcli`; Bluetooth & devices > USB: Open in Files and Eject for drives
+  (through `udisksctl`; a drive the system uses, such as the live
+  session's boot medium, is never ejected); Brightness on System >
+  Display; the Widgets switch on Personalization > Taskbar; Desktop icons
+  on Personalization > Themes. `boswas-control-center` recommends
+  `udisks2` and `dbus-bin`.
+- **The compositor** gained the user's settings `[clipboard]` (`history`,
+  `cleared_at`), `[desktop]` (`icons`, `system_icons`, `icon_size`,
+  `auto_arrange`, `align_to_grid`) and `[taskbar] widgets`; the shortcuts
+  Super+V, Super+. and Super+; and Super+W, which it passes to the shell;
+  and the trusted control command `paste`. The public socket's commands
+  are unchanged. **`boswas-sysops`** gained `apt-install --no-recommends`.
 - **A recommended display scale** (ADR-0055), as Windows recommends one:
   each monitor without a scale of its own gets one from its size (the
   EDID) and resolution, built-in panels judged from closer than external
@@ -365,6 +488,9 @@ Verification status of the native desktop
     - A display for the volume and brightness keys, Run (Super+R), screen
       capture (Print), and the password dialog for administrator actions,
       with a choice of administrator.
+    - Desktop icons, the widgets board (Super+W), the clipboard history
+      (Super+V) and the emoji and symbols panel (Super+.) (ADR-0058 to
+      ADR-0060).
     - The lock screen (`--lock`, PAM service `boswas-lock`) and the login
       screen (`--greeter`, behind greetd), which lists the people who can
       sign in.
@@ -519,6 +645,15 @@ Verification status of the native desktop
   instead of being deleted.
 
 ### Changed
+- **Coloured text in the light scheme** (ADR-0057): success, danger and
+  info text in the Qt applications is a little darker, with glass on or
+  off, so that it keeps 4.5:1 on glass as well.
+- **Control Center's lists of applications** (ADR-0057): Installed apps,
+  Optional features, Startup and App permissions show 24 px icons on rows
+  that turn grey under the pointer; the list of the Software Center sits
+  on the page instead of inside another card.
+- **Start, quick settings and the notification centre fade and slide in
+  the compositor** (ADR-0056); centred dialogs still fade in the shell.
 - **Start like the 2025 Windows 11 Start** (ADR-0053): one scrolling page
   under the search box with Pinned (the first rows, "Show all" for the
   rest), Recommended and All; All lists the applications by category
@@ -703,6 +838,17 @@ Verification status of the native desktop
 - **X11 applications are not isolated from each other** *(native
   desktop)*: they share one X server, as on any X11 system. They cannot
   observe Wayland applications (ADR-0034).
+- **The clipboard history** (ADR-0058) is the shell's, through clipboard
+  control, which stays offered to the shell only. It keeps nothing a
+  password manager marks as secret and nothing copied while the session
+  is locked, keeps the rest in memory, and writes pinned items only to a
+  file only the user can read. The compositor pastes for it with the
+  trusted `paste` command, which names no keys, goes to the window that
+  has the keyboard and is refused while the session is locked and on the
+  public socket.
+- **Launchers on the desktop** (ADR-0060) start only when they are regular
+  files of the user with the execute bit set; others open as text. The
+  desktop changes files without a shell and never through a symbolic link.
 - **Input from other programs is not trusted** *(native desktop)*: what
   applications send as notifications, tray items and media information is
   read with fixed limits, and markup is removed. The polkit agent accepts
@@ -750,8 +896,38 @@ Verification status of the native desktop
   the tests open pictures in stand-ins for Photos and Files, and Firefox
   ESR's own icon was stood in for too.
 - **No live blur** *(native desktop)*: the taskbar and the flyouts are
-  drawn on a blurred copy of the wallpaper; windows behind them do not
+  drawn on a blurred copy of the wallpaper, and Boswas glass in the Qt
+  applications (ADR-0057) is a blurred copy of the desktop background
+  that does not follow the window's position; windows behind them do not
   show through.
+- **The work of ADR-0056 to ADR-0061** has run on the headless compositor
+  and on Qt's offscreen platform only: the drawing changes on no real GPU
+  or vertical blank; the clipboard history and the emoji panel with no X11
+  program, no real password manager and no real GTK, Qt or Electron
+  program; the new Control Center sections against no real
+  NetworkManager, UDisks2 or systemd user manager. The package build,
+  lintian and the package stage have not been run for it yet. The emoji
+  data was generated from Ubuntu 24.04's Unicode data; Debian 13's may
+  differ, which `build_emoji.py --check` would show.
+- **"New window of" in the taskbar's menu** (ADR-0061), the middle button
+  and Super+Shift+1 to 9 still start the program's plain command, which
+  brings a one-window Boswas application forward; the application's own
+  "New Window" entry in the same menu opens a new window. While the
+  session is locked the volume and brightness keys change the level
+  without showing it, and on the login screen they do nothing.
+- **Desktop icons** (ADR-0060) are on the primary monitor only, cannot be
+  dragged into other programs, and an item on another drive cannot be
+  moved to the Trash. The widgets board (ADR-0059) has no online feeds, by
+  design, and no to-do card.
+- **Still slow** (ADR-0056): the snipping overlay (about 50 ms a frame at
+  200 %), the lock screen's first frame (90 to 240 ms) and Task View's
+  opening frame.
+- **Printing support** installed from Control Center (ADR-0061) no longer
+  brings `avahi-daemon`, which `cups-daemon` only recommends. Without it
+  CUPS does not discover printers on the network; the image's package
+  lists do not name it, and whether another package brings it is not
+  checked. The host firewall also drops the multicast DNS answers
+  discovery needs (UDP 5353); a printer added by its address works.
 - **Quick settings and Settings** *(native desktop)*: Bluetooth devices
   that need a PIN cannot be paired, and enterprise Wi-Fi (802.1X) cannot
   be set up. Control Center shows the proxy read-only, and a VPN that

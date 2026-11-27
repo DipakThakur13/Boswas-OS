@@ -71,10 +71,13 @@ full account.
 
 Performance budgets (frame time, memory, start time, dropped frames): **not
 measured.** There is no benchmark job yet, and nothing in this repository
-states that a budget is met. The compositor draws no frame when nothing
-changes; that part of the idle-power budget is by design, not by
-measurement. The boot screen is the exception: its frame costs are
-measured on the build machine by a test (`packages/boswas-bootsplash`).
+states that a budget is met. *(Since ADR-0056 the frame costs of the
+shell and the compositor were measured on the build machine without a GPU,
+and a release-only test bounds the cost of drawing Start.)* The compositor
+draws no frame when nothing changes; that part of the idle-power budget is
+by design, not by measurement. The boot screen is the exception: its frame
+costs are measured on the build machine by a test
+(`packages/boswas-bootsplash`).
 
 Security model: ordinary applications get no privileged interface
 (implemented and tested, ADR-0026). The plan identifies trusted components
@@ -89,21 +92,22 @@ screenshot tool; the portal path is not tested).
 
 | Component | Status |
 |-----------|--------|
-| Taskbar | **Implemented**: at the bottom edge of every output, with Start, Task View and the pinned and running applications as one centred group (indicators, context menus, window previews), the tray with its overflow and menus, the keyboard layout, network, sound and battery state, and the clock. Its settings (ADR-0049): the group at the left, automatic hiding, the Task View button, seconds in the clock, notification badges. Open: other edges |
+| Taskbar | **Implemented**: at the bottom edge of every output, with Start, Task View and the pinned and running applications as one centred group (indicators, context menus, window previews), the tray with its overflow and menus, the keyboard layout, network, sound and battery state, and the clock. Its settings (ADR-0049): the group at the left, automatic hiding, the Task View button, seconds in the clock, notification badges; the widgets button with the weather (ADR-0059). Open: other edges |
 | Start and search | **Implemented**: search over applications, settings pages and commands; one scrolling page as in the 2025 Windows 11 Start, with the pinned applications, recommendations (recently added and most used) and all applications by category, as a grid or as a list with a letter index, sized to the screen (ADR-0053); the user menu and the power menu, folders next to it; three layouts (ADR-0049). Open: recent files, search in files |
 | Quick settings | **Implemented** (ADR-0035): Wi-Fi with the list of networks, Bluetooth with the list of devices, airplane mode, night light, power mode, do not disturb, media controls, brightness and volume with the choice of output. **Not run against the real services.** Open: enterprise Wi-Fi, Bluetooth devices that need a PIN |
 | Notification centre and calendar | **Implemented** (ADR-0035): the shell is the notification service; toasts with actions and progress, a centre grouped by application, a month calendar, do not disturb, with a daily schedule, banners off per application and the time a toast stays (ADR-0049). Notifications are kept in memory only. Open: notifications on the lock screen (left out by design) |
 | On-screen displays | **Implemented** for the volume and brightness keys. Open: keyboard layout (the taskbar shows it) |
-| Desktop and wallpaper | **Implemented**: wallpaper (built-in background or a preset's picture) and a right-click menu. Open: desktop icons |
+| Desktop and wallpaper | **Implemented**: wallpaper (built-in background or a preset's picture) and desktop icons on the primary output, with their menus, the Trash, the clipboard and drops from other programs (ADR-0060). Open: icons on other outputs, dragging icons into other programs |
+| Widgets, clipboard history, emoji | **Implemented** (ADR-0058, ADR-0059): the widgets board (Super+W) from the applications' own files, without online feeds; the clipboard history (Super+V) with pinned items; the emoji and symbols panel (Super+.). Run on the headless compositor only |
 | Lock screen and login screen | **Implemented** (ADR-0028, ADR-0030), password only; the login screen lists the people who can sign in, and the lock screen shows the weather of the home place chosen in Weather (ADR-0051). A boot always ends at a way to sign in (ADR-0044). Login booted in a virtual machine from the packages; **not on the image or on hardware** |
 | Password and permission prompts | **Implemented** (ADR-0035, ADR-0037): the shell is the polkit agent and draws the password dialog, with a choice of administrator; it also asks before a program may capture the screen. File dialogs of sandboxed applications come from the GTK portal. **The polkit dialog has not run against the real polkit** |
 | Boswas UI tokens | **Implemented**: `desktop/ui/tokens.json`, version 3 (ADR-0033): the Fluent design language with the Prism colours. The plan's navy and gold token sets were replaced by the Prism palette, as requested |
-| Boswas UI delivery | In Rust (`boswas-ui`) for the shell and the window frames, not the Qt Quick style and QML module of the plan (ADR-0027), and as the Qt Widgets toolkit `boswas_fluent` for the Boswas applications (ADR-0039). KDE colour schemes are generated. Open: a GTK theme |
+| Boswas UI delivery | In Rust (`boswas-ui`) for the shell and the window frames, not the Qt Quick style and QML module of the plan (ADR-0027), and as the Qt Widgets toolkit `boswas_fluent` for the Boswas applications (ADR-0039), with Boswas glass on a blurred copy of the desktop background (ADR-0057). KDE colour schemes are generated. Open: a GTK theme, live blur |
 | Icons | **Implemented**: Boswas Prism and Boswas Prism Light, 300 designs in 535 files (ADR-0031), including every icon name the system applications, Settings and the Compatibility Manager ask for |
 | Pointer | **Implemented**: Boswas-Cursors, Boswas's own XCursor theme, the default of the compositor, the login screen and every program (ADR-0043). Not yet seen on hardware |
 | Boot screen | **Implemented**: `boswas-bootsplash` (ADR-0029), in the Boswas UI look since ADR-0038, drawn from vectors with motion since ADR-0050. Booted in a virtual machine from the packages (ADR-0044), with the picture before ADR-0050; **not on the image, an encrypted disk or hardware** |
 | System applications | **Implemented, not run on the desktop** (`boswas-apps`, ADR-0040): Files, Terminal, Text Editor, Calculator, Photos, Document Viewer, Archive Manager, Media Player, Camera, Clock, Calendar, Task Manager and a reminders service replace KDE's applications in the image. Open: what each leaves out (ADR-0040), an office suite, a mail client, a print service |
-| Settings | **Implemented against stand-ins** (ADR-0041, ADR-0049): Control Center laid out like Windows 11's Settings, in eleven categories with search and the deep links of earlier versions; native sections for network (VPN and adapters included), Bluetooth, printers, cameras, sound, power, display, night light, mouse, touchpad, keyboard, notifications, multitasking, personalization (accent colour, taskbar, Start, fonts), storage cleanup, troubleshooters, advanced start-up, installed apps, optional features, app permissions, update history, lock and screen timeouts, date and time, region, default and start-up applications, user accounts, accessibility. Open: proxy editing, VPNs that ask for a password (no secret agent), drawing tablets, an automatic suspend time, pausing updates |
+| Settings | **Implemented against stand-ins** (ADR-0041, ADR-0049): Control Center laid out like Windows 11's Settings, in eleven categories with search and the deep links of earlier versions; native sections for network (VPN and adapters included), Bluetooth, printers, cameras, sound, power, display, night light, mouse, touchpad, keyboard, notifications, multitasking, personalization (accent colour, taskbar, Start, fonts), storage cleanup, troubleshooters, advanced start-up, installed apps, optional features, app permissions, update history, lock and screen timeouts, date and time, region, default and start-up applications, user accounts, accessibility; the clipboard history, desktop icons, wired IP and DNS settings, ejecting USB drives (ADR-0058 to ADR-0061). Open: proxy editing, VPNs that ask for a password (no secret agent), drawing tablets, an automatic suspend time, pausing updates |
 
 ### Done since the first version of the native desktop
 
@@ -126,6 +130,10 @@ booted system.
 | Boswas's own system applications in place of KDE's | ADR-0040 |
 | Settings without Plasma: native sections in Control Center, display arrangement included | ADR-0041 |
 | Control Center laid out like Windows 11's Settings; settings for the taskbar, Start, multitasking and notifications; the accent colour; text size, magnifier, colour filters, sticky and filter keys | ADR-0049 |
+| A shell that draws only what changed, with the compositor running its transitions | ADR-0056 |
+| Glass in the Boswas applications, icons that grow under the pointer | ADR-0057 |
+| Clipboard history, emoji and symbols panel, widgets board, desktop icons | ADR-0058 to ADR-0060 |
+| Controls that only pretended: new windows, Photos' background, the pointer size for X11 programs, activity history, Ethernet and USB settings, printing support | ADR-0061 |
 
 ### Planned work on the native desktop
 
