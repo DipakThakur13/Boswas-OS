@@ -5423,7 +5423,12 @@ lock screen:
   spacers, one transparent pixel each where nothing opaque covers it,
   until 48 elements (`FRONT`) count as visible. The windows and the
   wallpaper keep their places, and only the spacers move. None are added
-  when the opaque parts in front cover the whole output.
+  when the opaque parts in front cover the whole output. The blur that
+  live blur (ADR-0063) puts behind a translucent surface is inserted once
+  the whole picture is known, after the spacers were counted; so that a
+  blurred menu, tool tip or flyout in front does not move the windows back
+  by one, the spacers are counted again afterwards and the extra ones
+  taken out (`steady::rebalance`; a unit test checks it, no GPU ran it).
 - **Surfaces that show nothing cost nothing.** The shell sends a surface
   of one colour stretched over the screen (the invisible one behind a
   flyout, which takes the click that closes it, and the dimming behind a

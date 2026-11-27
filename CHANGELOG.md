@@ -111,6 +111,14 @@ Verification status of the native desktop
   - A Qt window with glass being made larger by hand made a new backdrop
     at every 160-pixel step; it waits until the size stands still for
     150 ms.
+  - With live blur (OpenGL ES), a blurred menu, tool tip or flyout
+    appearing still made the whole screen be drawn again: the blur behind
+    it came in after the spacers were counted. They are counted again
+    once the blurs are in.
+- **The drawn background follows dark and light:** switching the scheme
+  kept the default background of the old one until the screen's size or
+  the wallpaper changed. It is drawn again on a change of scheme (a
+  picture is kept), and the copy the lock screen reads with it.
 - **A desktop that still hitched** ([ADR-0056](docs/architecture/decisions.md#adr-0056-the-shell-draws-only-what-changed-the-compositor-runs-the-transitions)):
   opening and closing Start, its first opening, hovering in it, quick
   settings, the notification centre and Alt+Tab had frames of 20 to
